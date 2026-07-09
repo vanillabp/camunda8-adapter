@@ -1,0 +1,11 @@
+vanillabp:
+  adapters:
+    c8:
+      type: camunda8
+  prioritized-adapters:
+    - c8
+  workflow-modules:
+    test-app:
+      adapters:
+        c8:
+          resources-location: classpath*:test-app/processes
