@@ -13,8 +13,8 @@ import io.vanillabp.integration.spi.AggregatePersistenceAware;
 
 /**
  * Unit tests of {@link Camunda8ProcessService} that do not require a cluster: phase one
- * validates only (never contacts Camunda 8) and phase two currently surfaces the
- * platform-integration gap (missing BPMN process ID in the adapter SPI).
+ * validates only (never contacts Camunda 8). Phase two (which creates the process
+ * instance on the cluster) is covered end-to-end by {@code Camunda8DeploymentAndStartIT}.
  */
 public class Camunda8ProcessServiceTest {
 
@@ -61,7 +61,8 @@ public class Camunda8ProcessServiceTest {
 
     final var service = configuredService();
 
-    assertDoesNotThrow(() -> service.startWorkflowPhaseOne(persistence("agg-1"), new Aggregate("agg-1")));
+    assertDoesNotThrow(() -> service.startWorkflowPhaseOne(
+        "module", "Process", persistence("agg-1"), new Aggregate("agg-1")));
 
   }
 
@@ -73,7 +74,7 @@ public class Camunda8ProcessServiceTest {
 
     final var exception = assertThrows(
         IllegalStateException.class,
-        () -> service.startWorkflowPhaseOne(persistence(null), new Aggregate(null)));
+        () -> service.startWorkflowPhaseOne("module", "Process", persistence(null), new Aggregate(null)));
     assertTrue(exception.getMessage().contains("null"));
 
   }
@@ -87,21 +88,8 @@ public class Camunda8ProcessServiceTest {
 
     final var exception = assertThrows(
         IllegalStateException.class,
-        () -> service.startWorkflowPhaseOne(persistence("agg-1"), new Aggregate("agg-1")));
+        () -> service.startWorkflowPhaseOne("module", "Process", persistence("agg-1"), new Aggregate("agg-1")));
     assertTrue(exception.getMessage().contains("camunda8-adapter.c8.rest-address"));
-
-  }
-
-  @Test
-  @DisplayName("phase two surfaces the platform-integration gap (missing BPMN process ID)")
-  public void phaseTwoSurfacesPlatformGap() {
-
-    final var service = configuredService();
-
-    final var exception = assertThrows(
-        IllegalStateException.class,
-        () -> service.startWorkflowPhaseTwo("agg-1"));
-    assertTrue(exception.getMessage().contains("bpmnProcessId") || exception.getMessage().contains("BPMN process ID"));
 
   }
 

@@ -34,7 +34,7 @@ configuration, create beans, run the bean lifecycle).
   `needsTwoPhaseCommitForStartingWorkflows()` returns `true`. Phase one validates only
   (resolve aggregate ID, verify client configured; no cluster call). Phase two creates the
   instance via `createProcessInstance(bpmnProcessId, aggregateId)` (latest version, single
-  `aggregateId` variable). See the platform-integration gap in the root `README.md`.
+  `aggregateId` variable).
 - `Camunda8ProcessingContext` - the adapter-specific processing context threaded through
   the deployment pipeline: workflow-module ID, deployable resources (per filename) and the
   discovered BPMN process IDs.

@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:camunda8-it;DB_CLOSE_DELAY=-1
+  jpa:
+    hibernate:
+      ddl-auto: create
+vanillabp:
+  adapters:
+    c8:
+      type: camunda8
+  prioritized-adapters:
+    - c8
+  workflow-modules:
+    test-app:
+      adapters:
+        c8:
+          resources-location: classpath*:it
+  outbox:
+    poll-interval: PT0.5S
+    attempt-frequency: PT0.5S

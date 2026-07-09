@@ -1,59 +1,61 @@
 package io.vanillabp.camunda8.springboot.it;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrowsExactly;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
-import io.camunda.zeebe.model.bpmn.Bpmn;
-import io.vanillabp.camunda8.Camunda8ProcessingContext;
-import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
-import io.vanillabp.camunda8.client.Camunda8ClientFactory;
-import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
+import io.camunda.client.api.worker.JobWorker;
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
+import io.vanillabp.spi.process.ProcessService;
 
 /**
- * Integration test of the Camunda 8 adapter against a real Camunda 8 cluster started via
- * Testcontainers. It exercises the real adapter classes (client factory, deployment
- * service, process service):
- * <ol>
- *   <li>a BPMN is parsed and deployed to the cluster ({@code readBpmn} &rarr;
- *       {@code prepareBpmn} &rarr; {@code deployResources}),</li>
- *   <li>the phase-two creation logic
- *       ({@link Camunda8ProcessService#createProcessInstance(String, Object)}) creates a
- *       process instance of the deployed process, and</li>
- *   <li>the single {@code aggregateId} process variable round-trips through the engine
- *       (proven with a synchronously completing process).</li>
- * </ol>
- * <p>
- * The image {@code camunda/zeebe:8.8.31} (broker + embedded gateway, REST on 8080 and
- * gRPC on 26500) is used with the secondary storage disabled so it runs standalone
- * without Elasticsearch. The class is skipped when Docker is unavailable
+ * End-to-end integration test of the Camunda 8 adapter against a real Camunda 8 cluster
+ * (Testcontainers, {@code camunda/zeebe:8.8.31}, standalone broker without Elasticsearch,
+ * unprotected API). It drives the <b>full two-phase workflow start through
+ * {@code ProcessService#startWorkflow}</b> inside a JPA transaction with the gruelbox
+ * phase-two outbox:
+ * <ul>
+ *   <li>the BPMN {@code TestProcess} is deployed to the cluster on application startup,</li>
+ *   <li>starting a workflow inside a committed transaction creates the process instance
+ *       only <b>after the commit</b> (phase two) carrying the {@code aggregateId}
+ *       variable - proven by a raw Camunda 8 job worker activating the service task and
+ *       observing the variable, and</li>
+ *   <li>a rolled-back transaction never creates an instance (no job is ever activated and
+ *       the outbox entry is gone).</li>
+ * </ul>
+ * The class is skipped when Docker is unavailable
  * ({@code @Testcontainers(disabledWithoutDocker = true)}).
- * <p>
- * <b>Not covered here (platform-integration gap):</b> starting a workflow through
- * {@code ProcessService#startWorkflow} (write outbox entry in the transaction, create the
- * instance only after commit, rollback safety) - the adapter SPI method
- * {@code MigratableProcessService.startWorkflowPhaseTwo(Object)} does not supply the BPMN
- * process ID the create needs. See the repository-root {@code README.md}.
  */
 @Testcontainers(disabledWithoutDocker = true)
+@SpringBootTest(
+    classes = DockerTestApplication.class,
+    properties = "spring.config.name=camunda8-it")
 public class Camunda8DeploymentAndStartIT {
 
-  private static final String BPMN_PROCESS_ID = "TestProcess";
+  private static final String JOB_TYPE = "test-job";
+
+  private static final String COUNT_OUTBOX_ENTRIES = "select count(*) from TXNO_OUTBOX";
 
   @Container
   static final GenericContainer<?> CAMUNDA = new GenericContainer<>(
@@ -64,87 +66,161 @@ public class Camunda8DeploymentAndStartIT {
       .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
       .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
       // the readiness probe turns UP only once the partition leader can accept
-      // deployments, avoiding a transient 503 on the first deploy
+      // deployments, avoiding a transient 503 on the first deploy at startup
       .waitingFor(Wait
           .forHttp("/actuator/health/readiness")
           .forPort(9600)
           .forStatusCode(200)
           .withStartupTimeout(Duration.ofMinutes(3)));
 
-  private static Camunda8ClientFactory clientFactory;
+  /** Aggregate IDs seen by the job worker on the deployed process's service task. */
+  private static final List<String> ACTIVATED_AGGREGATE_IDS = new CopyOnWriteArrayList<>();
 
-  private static Camunda8DeploymentService deploymentService;
+  private static JobWorker jobWorker;
 
-  private static Camunda8ProcessService<Object> processService;
+  @DynamicPropertySource
+  static void camunda8Properties(
+      final DynamicPropertyRegistry registry) {
 
-  @BeforeAll
-  static void setUp() {
-
-    final var configuration = new Camunda8AdapterConfiguration();
-    // exercise the adapter's default REST transport against the unprotected broker
-    configuration.setRestAddress("http://"
-        + CAMUNDA.getHost()
-        + ":"
-        + CAMUNDA.getMappedPort(8080));
-
-    clientFactory = new Camunda8ClientFactory("c8", configuration);
-    deploymentService = new Camunda8DeploymentService("c8", clientFactory);
-    processService = new Camunda8ProcessService<>("c8", clientFactory);
+    registry.add("camunda8-adapter.c8.rest-address",
+        () -> "http://"
+            + CAMUNDA.getHost()
+            + ":"
+            + CAMUNDA.getMappedPort(8080));
+    registry.add("camunda8-adapter.c8.grpc-address",
+        () -> "http://"
+            + CAMUNDA.getHost()
+            + ":"
+            + CAMUNDA.getMappedPort(26500));
 
   }
 
-  @AfterAll
-  static void tearDown() {
+  @Autowired
+  private ProcessService<DockerAggregate> processService;
 
-    if (clientFactory != null) {
-      clientFactory.close();
+  @Autowired
+  private TransactionTemplate transactionTemplate;
+
+  @Autowired
+  private JdbcTemplate jdbcTemplate;
+
+  @Autowired
+  private Camunda8ClientFactoryRegistry clientFactoryRegistry;
+
+  @BeforeEach
+  void openWorker() {
+
+    ACTIVATED_AGGREGATE_IDS.clear();
+    if (jobWorker == null) {
+      // a raw Camunda 8 job worker completing the service task and recording the
+      // aggregateId variable (adapter task wiring is a later story)
+      jobWorker = clientFactoryRegistry
+          .getFactory("c8")
+          .getClient()
+          .newWorker()
+          .jobType(JOB_TYPE)
+          .handler((
+              jobClient,
+              job) -> {
+            ACTIVATED_AGGREGATE_IDS.add(
+                String.valueOf(job.getVariablesAsMap().get(Camunda8ProcessService.AGGREGATE_ID_VARIABLE)));
+            jobClient
+                .newCompleteCommand(job)
+                .send()
+                .join();
+          })
+          .name("it-worker")
+          .fetchVariables(Camunda8ProcessService.AGGREGATE_ID_VARIABLE)
+          .open();
     }
 
   }
 
-  private static InputStream bpmn() {
+  @AfterAll
+  static void closeWorker() {
 
-    final var model = Bpmn
-        .createExecutableProcess(BPMN_PROCESS_ID)
-        .name("Test process")
-        .startEvent()
-        .endEvent()
-        .done();
-    return new ByteArrayInputStream(Bpmn.convertToString(model).getBytes(UTF_8));
+    if (jobWorker != null) {
+      jobWorker.close();
+      jobWorker = null;
+    }
+
+  }
+
+  private long countOutboxEntries() {
+
+    final var count = jdbcTemplate.queryForObject(COUNT_OUTBOX_ENTRIES, Long.class);
+    return count == null ? 0 : count;
 
   }
 
   @Test
-  @DisplayName("BPMN is deployed and a process instance is created with the aggregateId variable")
-  public void deployAndStart() {
+  @DisplayName("startWorkflow in a committed transaction creates the instance only after commit with the aggregateId variable")
+  public void instanceAppearsOnlyAfterCommit() throws Exception {
 
-    // deploy the BPMN through the adapter's deployment pipeline
-    final var entries = deploymentService.readBpmn("test-module", "test.bpmn", bpmn(), true);
-    assertEquals(1, entries.size());
-    assertEquals(BPMN_PROCESS_ID, entries.get(0).getKey());
+    final var attached = transactionTemplate.execute(status -> {
+      final var aggregate = new DockerAggregate();
+      aggregate.setContent("commit-test");
+      final var saved = processService.startWorkflow(aggregate);
+      // phase two runs only after commit - within the transaction no instance exists yet,
+      // so the worker cannot have seen anything
+      assertTrue(ACTIVATED_AGGREGATE_IDS.isEmpty(),
+          "no process instance may exist before the transaction commits");
+      return saved;
+    });
 
-    final Camunda8ProcessingContext context = deploymentService.prepareBpmn(
-        "test-module", null, "test.bpmn", entries.get(0).getKey(), entries.get(0).getValue());
-    deploymentService.deployResources("test-module", context);
+    final var expectedAggregateId = String.valueOf(attached.getId());
 
-    // the phase-two creation logic starts an instance of the deployed process
-    final var event = processService.createProcessInstance(BPMN_PROCESS_ID, "aggregate-42");
-    assertEquals(BPMN_PROCESS_ID, event.getBpmnProcessId());
-    assertTrue(event.getProcessInstanceKey() > 0, "expected a process instance to be created");
+    // after the commit the phase-two outbox dispatches the create; the worker eventually
+    // activates the service task of the started instance carrying the aggregateId
+    final var found = awaitAggregateId(expectedAggregateId, 20000);
+    assertTrue(found,
+        "expected a process instance with aggregateId '"
+            + expectedAggregateId
+            + "' after commit, but the worker saw "
+            + ACTIVATED_AGGREGATE_IDS);
 
-    // prove the aggregateId variable really reaches the engine: run a synchronously
-    // completing instance and read back its variables
-    final var result = clientFactory
-        .getClient()
-        .newCreateInstanceCommand()
-        .bpmnProcessId(BPMN_PROCESS_ID)
-        .latestVersion()
-        .variable(Camunda8ProcessService.AGGREGATE_ID_VARIABLE, "aggregate-99")
-        .withResult()
-        .fetchVariables(Camunda8ProcessService.AGGREGATE_ID_VARIABLE)
-        .send()
-        .join();
-    assertEquals("aggregate-99", result.getVariablesAsMap().get(Camunda8ProcessService.AGGREGATE_ID_VARIABLE));
+  }
+
+  @Test
+  @DisplayName("startWorkflow in a rolled-back transaction never creates an instance")
+  public void noInstanceAfterRollback() throws Exception {
+
+    final var entriesBefore = countOutboxEntries();
+
+    final var exception = assertThrowsExactly(
+        RuntimeException.class,
+        () -> transactionTemplate.execute(status -> {
+          final var aggregate = new DockerAggregate();
+          aggregate.setContent("rollback-test");
+          processService.startWorkflow(aggregate);
+          throw new RuntimeException("test rollback");
+        }));
+    assertEquals("test rollback", exception.getMessage());
+
+    // the outbox entry was enlisted in the rolled-back transaction, so it is gone
+    assertEquals(entriesBefore, countOutboxEntries());
+
+    // wait well beyond the outbox poll interval: no instance may ever be created, so the
+    // worker must never activate a job
+    Thread.sleep(3000);
+    assertTrue(ACTIVATED_AGGREGATE_IDS.isEmpty(),
+        "no process instance may be created on rollback, but the worker saw "
+            + ACTIVATED_AGGREGATE_IDS);
+
+  }
+
+  private boolean awaitAggregateId(
+      final String aggregateId,
+      final long timeoutMillis) throws InterruptedException {
+
+    final var deadline = System.currentTimeMillis() + timeoutMillis;
+    while (System.currentTimeMillis() < deadline) {
+      if (ACTIVATED_AGGREGATE_IDS.contains(aggregateId)) {
+        return true;
+      }
+      Thread.sleep(200);
+    }
+    return ACTIVATED_AGGREGATE_IDS.contains(aggregateId);
 
   }
 

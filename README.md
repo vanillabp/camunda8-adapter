@@ -7,23 +7,12 @@ on the Camunda API.
 
 ## Status
 
-**Early.** This repository connects to a Camunda 8 cluster, deploys the BPMN resources
-of each workflow module on startup and contains the logic to start workflow instances.
-Not yet implemented (later stories): job workers / `@WorkflowTask` execution, message
-correlation, awareness/election, `@SyncWithBPMS` variable sync and the viewer/history
-API - those SPI methods still throw `UnsupportedOperationException`.
-
-> **Known platform-integration gap (blocks the after-commit workflow start).** Starting a
-> workflow through `ProcessService#startWorkflow` cannot complete phase two yet: the
-> adapter SPI method `MigratableProcessService.startWorkflowPhaseTwo(Object)` receives
-> only the workflow aggregate ID, not the BPMN process ID that Camunda 8 needs to create
-> the instance (`newCreateInstanceCommand().bpmnProcessId(...)`). The core
-> `MigrationProcessService` knows the `workflowModuleId` and `bpmnProcessId` (they are its
-> fields) but drops them when delegating to the adapter. Until the SPI threads them
-> through, `startWorkflowPhaseTwo` throws a descriptive `IllegalStateException`. The
-> Camunda-8-side creation logic itself is implemented and tested against a real cluster
-> (see [Testing](#testing)) in `Camunda8ProcessService.createProcessInstance(String,
-> Object)`.
+**Early.** This repository connects to a Camunda 8 cluster, deploys the BPMN resources of
+each workflow module on startup and starts workflow instances end-to-end via the
+two-phase outbox (see [Behavior](#behavior)). Not yet implemented (later stories): job
+workers / `@WorkflowTask` execution, message correlation, awareness/election,
+`@SyncWithBPMS` variable sync and the viewer/history API - those SPI methods still throw
+`UnsupportedOperationException`.
 
 ## Dependencies
 
@@ -128,8 +117,7 @@ files but the client is unconfigured, deployment on startup fails with that mess
   - *Phase two* runs after the commit (through the core phase-two outbox) and creates the
     process instance of the latest version with a single process variable `aggregateId`
     holding the workflow aggregate's ID (as a string). No other variables are set
-    (aggregate attribute sync is the `@SyncWithBPMS` story). *(Currently blocked by the
-    platform gap described under [Status](#status).)*
+    (aggregate attribute sync is the `@SyncWithBPMS` story).
 
 ### Idempotency limitation
 
@@ -145,17 +133,19 @@ here.
   configuration validation (missing-property messages, self-managed/SaaS), and the
   process-service phase behavior.
 - **Spring Boot** `Camunda8DeploymentAndStartIT` (real Camunda 8 via Testcontainers,
-  image `camunda/zeebe:8.8.31`, standalone broker without Elasticsearch): deploys a BPMN
-  and proves the phase-two creation logic starts a process instance with the `aggregateId`
-  variable (verified via a synchronously completing process). Skipped automatically when
-  Docker is unavailable (`@Testcontainers(disabledWithoutDocker = true)`). The full
-  `startWorkflow` outbox path (write-in-transaction, after-commit-only, rollback safety)
-  is **not** covered here because of the platform gap under [Status](#status).
+  image `camunda/zeebe:8.8.31`, standalone broker without Elasticsearch): boots the
+  application (deploying the BPMN to the cluster on startup) and drives the full two-phase
+  start through `ProcessService#startWorkflow` inside a JPA transaction with the gruelbox
+  outbox. It asserts that the process instance appears only **after** the transaction
+  commits, carrying the `aggregateId` variable (observed by a raw Camunda 8 job worker on
+  the service task), and **never** after a rollback (the outbox entry is gone and no job
+  is ever activated). Skipped automatically when Docker is unavailable
+  (`@Testcontainers(disabledWithoutDocker = true)`).
 - **Spring Boot / Quarkus discovery tests:** the adapter is discovered and the deployment
   service, process service and client-factory registry beans are created (no cluster
-  needed). On Quarkus this is the extent of the coverage: the Quarkus platform
-  integration does not yet run the deployment pipeline on startup, so deployment and start
-  are covered against a real cluster only on Spring Boot.
+  needed). On Quarkus this is the extent of the coverage: the Quarkus platform integration
+  does not yet run the deployment pipeline on startup (its own later story), so deployment
+  and start are covered against a real cluster only on Spring Boot.
 
 ## Camunda 8 client
 

@@ -75,6 +75,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   @Override
   public void startWorkflowPhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
       final AggregatePersistenceAware<A> aggregatePersistence,
       final A workflowAggregate) {
 
@@ -83,47 +85,35 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     final var aggregateId = aggregatePersistence.getAggregateId(workflowAggregate);
     if (aggregateId == null) {
       throw new IllegalStateException(
-          "Cannot start a Camunda 8 workflow (adapter '%s'): the workflow aggregate's ID is null "
-              + "after persisting. A workflow aggregate must have a non-null ID.".formatted(adapterId));
+          ("Cannot start Camunda 8 workflow '%s' of workflow module '%s' (adapter '%s'): the workflow "
+              + "aggregate's ID is null after persisting. A workflow aggregate must have a non-null ID.")
+              .formatted(bpmnProcessId, workflowModuleId, adapterId));
     }
 
     // verify the adapter instance is configured, but DO NOT contact the cluster:
     // phase one runs inside the caller's DB transaction
     clientFactory.validateConfigured();
 
-    log.debug("Validated phase one of starting a Camunda 8 workflow for aggregate '{}' (adapter '{}')",
-        aggregateId, adapterId);
+    log.debug("Validated phase one of starting Camunda 8 workflow '{}' of workflow module '{}' "
+        + "for aggregate '{}' (adapter '{}')", bpmnProcessId, workflowModuleId, aggregateId, adapterId);
 
   }
 
   @Override
   public void startWorkflowPhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
       final Object workflowAggregateId) {
 
-    // PLATFORM-INTEGRATION GAP: creating a Camunda 8 process instance requires the BPMN
-    // process ID (newCreateInstanceCommand().bpmnProcessId(...)), but the adapter SPI
-    // method MigratableProcessService#startWorkflowPhaseTwo(Object) does not provide it.
-    // The core MigrationProcessService knows workflowModuleId and bpmnProcessId (they are
-    // its fields) but drops them when delegating to the adapter. The real creation logic
-    // is ready in #createProcessInstance(String, Object) and is exercised against a real
-    // Camunda 8 cluster in the deployment integration test; it only needs the process ID
-    // to be threaded through the SPI.
-    throw new IllegalStateException(
-        ("Camunda 8 cannot start the workflow of aggregate '%s' (adapter '%s'): the adapter SPI "
-            + "method MigratableProcessService.startWorkflowPhaseTwo(Object) does not supply the BPMN "
-            + "process ID needed to create a process instance. This is a platform-integration gap - "
-            + "MigrationProcessService must pass its workflowModuleId and bpmnProcessId to the adapter. "
-            + "The Camunda 8 creation logic itself is implemented in "
-            + "Camunda8ProcessService.createProcessInstance(String, Object).")
-            .formatted(workflowAggregateId, adapterId));
+    createProcessInstance(bpmnProcessId, workflowAggregateId);
 
   }
 
   /**
    * Creates a Camunda 8 process instance of the latest version of the given BPMN process,
    * passing the workflow aggregate's ID as the single {@value #AGGREGATE_ID_VARIABLE}
-   * process variable. This is the actual work of {@link #startWorkflowPhaseTwo(Object)}
-   * once the BPMN process ID can be supplied (see the note there).
+   * process variable. This is the actual work of
+   * {@link #startWorkflowPhaseTwo(String, String, Object)}.
    * <p>
    * <b>Idempotency limitation:</b> a crash between a successful create and the removal of
    * the phase-two outbox entry can create the instance twice (at-least-once, duplicates
