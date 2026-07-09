@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.camunda8.Camunda8ProcessingContext;
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.springboot.Camunda8AdapterConfiguration;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
@@ -29,7 +30,8 @@ public class Camunda8AdapterDeploymentConfiguration {
   @Bean
   public List<AdapterDeploymentService<BpmnModelInstance, Camunda8ProcessingContext>> camunda8DeploymentServices(
       final WorkflowModules allWorkflowModules,
-      final MigrationAdapterProperties properties) {
+      final MigrationAdapterProperties properties,
+      final Camunda8ClientFactoryRegistry clientFactoryRegistry) {
 
     final List<AdapterDeploymentService<BpmnModelInstance, Camunda8ProcessingContext>> deploymentServices = new ArrayList<>();
     final Set<String> adaptersBuilt = new HashSet<>();
@@ -55,7 +57,8 @@ public class Camunda8AdapterDeploymentConfiguration {
                 return;
               }
 
-              deploymentServices.add(new Camunda8DeploymentService(adapterId));
+              deploymentServices.add(new Camunda8DeploymentService(
+                  adapterId, clientFactoryRegistry.getFactory(adapterId)));
               adaptersBuilt.add(adapterId);
 
             }));

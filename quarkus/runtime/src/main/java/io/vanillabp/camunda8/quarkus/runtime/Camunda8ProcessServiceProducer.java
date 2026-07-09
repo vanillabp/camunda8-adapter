@@ -2,6 +2,7 @@ package io.vanillabp.camunda8.quarkus.runtime;
 
 import java.util.Map;
 
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
@@ -19,7 +20,8 @@ public class Camunda8ProcessServiceProducer {
 
   @Produces
   public Camunda8ProcessService<Object> camunda8MigratableProcessService(
-      final MigrationAdapterProperties properties) {
+      final MigrationAdapterProperties properties,
+      final Camunda8ClientFactoryRegistry clientFactoryRegistry) {
 
     final var adapterId = properties
         .getAdapters()
@@ -30,7 +32,8 @@ public class Camunda8ProcessServiceProducer {
         .findFirst()
         .orElse("");
 
-    return new Camunda8ProcessService<>(adapterId);
+    return new Camunda8ProcessService<>(
+        adapterId, clientFactoryRegistry.getFactory(adapterId));
 
   }
 

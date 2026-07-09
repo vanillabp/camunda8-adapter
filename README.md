@@ -7,14 +7,23 @@ on the Camunda API.
 
 ## Status
 
-**Skeleton.** This repository currently contains only the structural skeleton: the
-Maven modules, the adapter SPI implementations as stubs and the platform registration
-(Spring Boot auto-configuration and Quarkus extension). It is enough to boot an
-application with the adapter configured and to have it discovered on both platforms, but
-it does **not** yet connect to a cluster, deploy BPMN or start workflows. The
-BPMS-specific behavior (client construction and configuration, BPMN deployment,
-workflow start, job workers, awareness/election, variable handling) is added by later
-feature stories; the stub methods throw `UnsupportedOperationException` until then.
+**Early.** This repository connects to a Camunda 8 cluster, deploys the BPMN resources
+of each workflow module on startup and contains the logic to start workflow instances.
+Not yet implemented (later stories): job workers / `@WorkflowTask` execution, message
+correlation, awareness/election, `@SyncWithBPMS` variable sync and the viewer/history
+API - those SPI methods still throw `UnsupportedOperationException`.
+
+> **Known platform-integration gap (blocks the after-commit workflow start).** Starting a
+> workflow through `ProcessService#startWorkflow` cannot complete phase two yet: the
+> adapter SPI method `MigratableProcessService.startWorkflowPhaseTwo(Object)` receives
+> only the workflow aggregate ID, not the BPMN process ID that Camunda 8 needs to create
+> the instance (`newCreateInstanceCommand().bpmnProcessId(...)`). The core
+> `MigrationProcessService` knows the `workflowModuleId` and `bpmnProcessId` (they are its
+> fields) but drops them when delegating to the adapter. Until the SPI threads them
+> through, `startWorkflowPhaseTwo` throws a descriptive `IllegalStateException`. The
+> Camunda-8-side creation logic itself is implemented and tested against a real cluster
+> (see [Testing](#testing)) in `Camunda8ProcessService.createProcessInstance(String,
+> Object)`.
 
 ## Dependencies
 
@@ -67,8 +76,86 @@ vanillabp:
 
 The adapter ID (`myengine` above) identifies an adapter *instance*; the same BPMS type
 may be configured multiple times with different IDs (the central migration scenario:
-e.g. an old on-prem cluster and a new SaaS cluster side by side). Client connection
-settings are added by a later story.
+e.g. an old on-prem cluster and a new SaaS cluster side by side).
+
+### Connecting to a Camunda 8 cluster
+
+Each adapter instance is connected to a cluster through a **provisional flat
+configuration namespace** keyed by adapter ID: `camunda8-adapter.<adapter-id>.*`. (A
+unified `vanillabp.adapters.<id>.*` scheme is a later story.) The values are turned into
+a plain-Java `CamundaClient` built lazily on first use.
+
+|                   Property                    |  Applies to  |                  Required                  |                  Description                   |
+|-----------------------------------------------|--------------|--------------------------------------------|------------------------------------------------|
+| `camunda8-adapter.<id>.mode`                  | both         | no (default `self-managed`)                | `self-managed` or `saas`                       |
+| `camunda8-adapter.<id>.rest-address`          | self-managed | yes (unless `prefer-rest-over-grpc=false`) | REST API address, e.g. `http://localhost:8080` |
+| `camunda8-adapter.<id>.grpc-address`          | self-managed | only if `prefer-rest-over-grpc=false`      | gRPC address, e.g. `http://localhost:26500`    |
+| `camunda8-adapter.<id>.prefer-rest-over-grpc` | self-managed | no (default `true`)                        | use the REST API (recommended) or gRPC         |
+| `camunda8-adapter.<id>.cluster-id`            | saas         | yes                                        | SaaS cluster ID                                |
+| `camunda8-adapter.<id>.region`                | saas         | yes                                        | SaaS region                                    |
+| `camunda8-adapter.<id>.client-id`             | saas         | yes                                        | OAuth client ID                                |
+| `camunda8-adapter.<id>.client-secret`         | saas         | yes                                        | OAuth client secret                            |
+| `camunda8-adapter.<id>.tenant-id`             | both         | no                                         | Camunda 8 multi-tenancy tenant                 |
+
+Example (self-managed):
+
+```yaml
+camunda8-adapter:
+  myengine:
+    mode: self-managed
+    rest-address: http://localhost:8080
+```
+
+**Boot behavior:** An application which configures a Camunda 8 adapter but leaves the
+connection properties out still boots. The client is built lazily and the configuration
+is validated on first use; a missing property fails with a message naming the exact
+property (e.g. `camunda8-adapter.myengine.rest-address`). If a workflow module has BPMN
+files but the client is unconfigured, deployment on startup fails with that message.
+
+### Behavior
+
+- **Deployment (on startup):** the BPMN resources of each workflow module are deployed in
+  a single `DeployResourceCommand` per module. Camunda 8 has no Camunda-7-style
+  tenant-per-module; the configured `tenant-id` (if any) is used, otherwise the default
+  tenant. **Workflow-module isolation therefore relies on unique BPMN process IDs across
+  modules for now.**
+- **Starting a workflow (two-phase):** Camunda 8 is remote and eventually consistent and
+  cannot join the application's database transaction, so
+  `needsTwoPhaseCommitForStartingWorkflows()` is `true`.
+  - *Phase one* runs inside the caller's transaction and only **validates** (resolves the
+    aggregate ID, verifies the client is configured). It never contacts the cluster - a
+    remote call here would reintroduce ghost workflows on rollback.
+  - *Phase two* runs after the commit (through the core phase-two outbox) and creates the
+    process instance of the latest version with a single process variable `aggregateId`
+    holding the workflow aggregate's ID (as a string). No other variables are set
+    (aggregate attribute sync is the `@SyncWithBPMS` story). *(Currently blocked by the
+    platform gap described under [Status](#status).)*
+
+### Idempotency limitation
+
+The phase-two outbox has at-least-once semantics: a crash between a successful
+`CreateProcessInstance` and the removal of the outbox entry can start the same workflow
+**twice** (at-least-once, duplicates possible). Strict deduplication needs the core-side
+`WorkflowInstanceRegistry` (a separate story); no Camunda-8-side workaround is attempted
+here.
+
+### Testing
+
+- **Core unit tests** (no Docker): BPMN parsing / executable-process extraction, client
+  configuration validation (missing-property messages, self-managed/SaaS), and the
+  process-service phase behavior.
+- **Spring Boot** `Camunda8DeploymentAndStartIT` (real Camunda 8 via Testcontainers,
+  image `camunda/zeebe:8.8.31`, standalone broker without Elasticsearch): deploys a BPMN
+  and proves the phase-two creation logic starts a process instance with the `aggregateId`
+  variable (verified via a synchronously completing process). Skipped automatically when
+  Docker is unavailable (`@Testcontainers(disabledWithoutDocker = true)`). The full
+  `startWorkflow` outbox path (write-in-transaction, after-commit-only, rollback safety)
+  is **not** covered here because of the platform gap under [Status](#status).
+- **Spring Boot / Quarkus discovery tests:** the adapter is discovered and the deployment
+  service, process service and client-factory registry beans are created (no cluster
+  needed). On Quarkus this is the extent of the coverage: the Quarkus platform
+  integration does not yet run the deployment pipeline on startup, so deployment and start
+  are covered against a real cluster only on Spring Boot.
 
 ## Camunda 8 client
 

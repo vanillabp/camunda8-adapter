@@ -1,3 +1,4 @@
 io.vanillabp.camunda8.springboot.Camunda8AdapterConfiguration
+io.vanillabp.camunda8.springboot.client.Camunda8ClientAutoConfiguration
 io.vanillabp.camunda8.springboot.deployment.Camunda8AdapterDeploymentConfiguration
 io.vanillabp.camunda8.springboot.processservice.Camunda8AdapterProcessServiceConfiguration

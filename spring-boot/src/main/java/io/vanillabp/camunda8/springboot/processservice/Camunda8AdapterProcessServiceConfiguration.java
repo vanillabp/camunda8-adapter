@@ -6,6 +6,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.context.annotation.Bean;
 
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.Camunda8AdapterConfiguration;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
@@ -27,7 +28,8 @@ public class Camunda8AdapterProcessServiceConfiguration {
 
   @Bean
   public MigratableProcessService<?> camunda8MigratableProcessService(
-      final ObjectProvider<MigrationAdapterProperties> properties) {
+      final ObjectProvider<MigrationAdapterProperties> properties,
+      final ObjectProvider<Camunda8ClientFactoryRegistry> clientFactoryRegistry) {
 
     final var adapterId = properties
         .getObject()
@@ -39,7 +41,10 @@ public class Camunda8AdapterProcessServiceConfiguration {
         .findFirst()
         .orElse("");
 
-    return new Camunda8ProcessService<>(adapterId);
+    return new Camunda8ProcessService<>(
+        adapterId, clientFactoryRegistry
+            .getObject()
+            .getFactory(adapterId));
 
   }
 

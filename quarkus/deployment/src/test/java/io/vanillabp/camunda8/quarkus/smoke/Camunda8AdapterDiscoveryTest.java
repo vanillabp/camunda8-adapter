@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusUnitTest;
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.integration.runtime.processservice.ProcessServiceBaseCdiBean;
 import io.vanillabp.spi.process.ProcessService;
@@ -36,6 +38,12 @@ public class Camunda8AdapterDiscoveryTest {
   @Inject
   Camunda8ProcessService<Object> migratableProcessService;
 
+  @Inject
+  Camunda8ClientFactoryRegistry clientFactoryRegistry;
+
+  @Inject
+  Camunda8DeploymentService deploymentService;
+
   @Test
   public void adapterIsDiscovered() {
 
@@ -57,6 +65,14 @@ public class Camunda8AdapterDiscoveryTest {
     // (Camunda 8 is a remote engine)
     Assertions.assertEquals("c8", migratableProcessService.getAdapterId());
     Assertions.assertTrue(migratableProcessService.needsTwoPhaseCommitForStartingWorkflows());
+
+    // the client-factory registry and the deployment service are produced (client and
+    // deployment-service creation are covered here; a Docker-based start test is not
+    // practical in a QuarkusUnitTest - see the Spring Boot module's
+    // Camunda8DeploymentAndStartIT and the README)
+    Assertions.assertNotNull(clientFactoryRegistry.getFactory("c8"));
+    Assertions.assertEquals("c8", deploymentService.getAdapterId());
+    Assertions.assertEquals("camunda8", deploymentService.getAdapterType());
 
   }
 

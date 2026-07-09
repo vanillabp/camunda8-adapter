@@ -1,7 +1,12 @@
 package io.vanillabp.camunda8;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 
 /**
  * Adapter-specific processing context accumulated across all BPMN files of a workflow
@@ -9,13 +14,70 @@ import lombok.RequiredArgsConstructor;
  * ({@code readBpmn} &rarr; {@code prepareBpmn} &rarr; {@code wireBpmn} &rarr;
  * {@code deployResources} &rarr; {@code startWorkflowProcessing}).
  * <p>
- * In this skeleton it only carries the workflow-module ID. Wiring information (job
- * workers, deployment resources, etc.) will be added by later feature stories.
+ * It collects the deployable BPMN resources (keyed by filename, so a file containing
+ * several executable processes is deployed only once) together with the discovered
+ * executable BPMN process IDs. {@link Camunda8DeploymentService#deployResources} sends all
+ * collected resources of the module to Camunda 8 in a single deployment.
  */
-@Getter
-@RequiredArgsConstructor
 public class Camunda8ProcessingContext {
 
+  @Getter
   private final String workflowModuleId;
+
+  /**
+   * Deployable BPMN resources of the workflow module, keyed by filename. A
+   * {@link LinkedHashMap} keeps the deployment order stable and deduplicates files that
+   * contain multiple executable processes.
+   */
+  private final Map<String, BpmnModelInstance> resources = new LinkedHashMap<>();
+
+  private final List<String> bpmnProcessIds = new ArrayList<>();
+
+  public Camunda8ProcessingContext(
+      final String workflowModuleId) {
+
+    this.workflowModuleId = workflowModuleId;
+
+  }
+
+  /**
+   * Adds a deployable BPMN resource. Idempotent per filename: multiple executable
+   * processes of the same file register the same model only once.
+   *
+   * @param filename The BPMN filename (used as the deployment resource name)
+   * @param model The parsed BPMN model
+   */
+  public void addResource(
+      final String filename,
+      final BpmnModelInstance model) {
+
+    resources.putIfAbsent(filename, model);
+
+  }
+
+  public void addBpmnProcessId(
+      final String bpmnProcessId) {
+
+    bpmnProcessIds.add(bpmnProcessId);
+
+  }
+
+  public Map<String, BpmnModelInstance> getResources() {
+
+    return resources;
+
+  }
+
+  public List<String> getBpmnProcessIds() {
+
+    return bpmnProcessIds;
+
+  }
+
+  public boolean isEmpty() {
+
+    return resources.isEmpty();
+
+  }
 
 }
