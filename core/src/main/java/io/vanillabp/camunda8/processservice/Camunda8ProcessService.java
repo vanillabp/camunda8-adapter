@@ -17,10 +17,21 @@ import lombok.extern.slf4j.Slf4j;
  * {@link #needsTwoPhaseCommitForStartingWorkflows()} returns {@code true} - starting a
  * workflow is routed through the core {@code PhaseTwoOutbox}:
  * <ul>
- *   <li>{@link #startWorkflowPhaseOne} runs inside the caller's transaction and only
- *       <i>validates</i> (resolve the aggregate ID, verify the client is configured); it
- *       must not contact the cluster, otherwise a rolled-back transaction would leave a
- *       ghost workflow instance behind.</li>
+ *   <li>{@link #startWorkflowPhaseOne} runs inside the caller's transaction. It must
+ *       never perform an action that <i>advances</i> the BPMN process (e.g. creating the
+ *       instance) - that would race the still-uncommitted local transaction and, on
+ *       rollback, leave a ghost workflow instance behind. It <i>may</i> contact the
+ *       cluster for a non-advancing check whose only purpose is to abort the local
+ *       transaction early when the phase-two action is already known to be impossible.
+ *       <b>For starting a workflow there is nothing to check against the cluster</b> - if
+ *       the cluster is unavailable, the phase-two start simply waits in the outbox until
+ *       it is reachable again - so this method only resolves the aggregate ID and
+ *       verifies the adapter is configured. (Other operations do use the phase-one check:
+ *       e.g. completing a service task verifies the task still exists by extending its job
+ *       worker timeout - a non-advancing operation - ideally in a pre-commit transaction
+ *       synchronization to minimize the window between the check and the phase-two action
+ *       and thus the number of stale outbox entries. See the {@code
+ *       vanillabp-bpms-characteristics} skill / later stories.)</li>
  *   <li>{@link #startWorkflowPhaseTwo} runs after the commit and creates the process
  *       instance via {@link #createProcessInstance(String, Object)}.</li>
  * </ul>
@@ -90,8 +101,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               .formatted(bpmnProcessId, workflowModuleId, adapterId));
     }
 
-    // verify the adapter instance is configured, but DO NOT contact the cluster:
-    // phase one runs inside the caller's DB transaction
+    // For starting a workflow there is nothing to check against the cluster in phase
+    // one, so this only verifies the adapter is configured. Phase one runs inside the
+    // caller's DB transaction: it must never advance the process (that races the local
+    // transaction), but it MAY contact the cluster for non-advancing checks that abort
+    // the transaction early - not needed here, since an unavailable cluster just makes
+    // the phase-two start wait in the outbox until it is reachable again.
     clientFactory.validateConfigured();
 
     log.debug("Validated phase one of starting Camunda 8 workflow '{}' of workflow module '{}' "
