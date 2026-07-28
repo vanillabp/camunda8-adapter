@@ -5,7 +5,6 @@ import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
-import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.quarkus.deployment.config.Camunda8Properties;
 import io.vanillabp.camunda8.quarkus.runtime.Camunda8ClientProducer;
 import io.vanillabp.camunda8.quarkus.runtime.Camunda8DeploymentServiceProducer;
@@ -40,7 +39,9 @@ class Camunda8IntegrationProcessor {
     return VanillaBpMigratableProcessServiceBuildItem
         .builder()
         .adapterType(Camunda8DeploymentService.ADAPTER_TYPE)
-        .migratableProcessServiceBeanClass(Camunda8ProcessService.class.getName())
+        // the announced bean class is registered by the VanillaBP extension - it
+        // has to be the producer, not the core process-service class
+        .migratableProcessServiceBeanClass(Camunda8ProcessServiceProducer.class.getName())
         .build();
 
   }
@@ -54,11 +55,12 @@ class Camunda8IntegrationProcessor {
   @BuildStep
   AdditionalBeanBuildItem registerProcessServiceProducer() {
 
+    // the process-service producer is registered by the VanillaBP extension via
+    // the build item above - only the other producers are registered here
     return AdditionalBeanBuildItem
         .builder()
         .addBeanClass(Camunda8ClientProducer.class)
         .addBeanClass(Camunda8DeploymentServiceProducer.class)
-        .addBeanClass(Camunda8ProcessServiceProducer.class)
         .setUnremovable()
         .build();
 
