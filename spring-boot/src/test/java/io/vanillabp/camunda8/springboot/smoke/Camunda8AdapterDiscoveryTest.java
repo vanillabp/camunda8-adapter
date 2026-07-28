@@ -1,7 +1,5 @@
 package io.vanillabp.camunda8.springboot.smoke;
 
-import java.util.List;
-
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,15 +37,9 @@ public class Camunda8AdapterDiscoveryTest {
   @Test
   public void adapterIsDiscovered() {
 
-    // the deployment-service list bean contains exactly one Camunda 8 deployment
-    // service for the configured adapter id 'c8'
-    @SuppressWarnings("unchecked")
-    final var deploymentServices = context.getBean(
-        "camunda8DeploymentServices", List.class);
-    Assertions.assertEquals(1, deploymentServices.size(),
-        "expected exactly one Camunda 8 deployment service");
-
-    final var deploymentService = (AdapterDeploymentService<?, ?>) deploymentServices.get(0);
+    // element-bean convention: one AdapterDeploymentService bean per adapter
+    // (never a List bean) so several adapter types can coexist
+    final var deploymentService = context.getBean(AdapterDeploymentService.class);
     Assertions.assertInstanceOf(Camunda8DeploymentService.class, deploymentService);
     Assertions.assertEquals("c8", deploymentService.getAdapterId());
     Assertions.assertEquals("camunda8", deploymentService.getAdapterType());
