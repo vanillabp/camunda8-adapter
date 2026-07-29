@@ -202,6 +202,10 @@ public class Camunda8DeploymentAndStartIT {
 
     // wait well beyond the outbox poll interval: no instance may ever be created, so the
     // worker must never activate a job
+    // 3000ms is coupled to 'vanillabp.outbox.poll-interval: PT0.5S' in
+    // camunda8-it.yaml: it spans several poll cycles, so a phase-two dispatch WOULD
+    // have happened if the rollback had left an outbox entry behind - do not shrink
+    // one without the other
     Thread.sleep(3000);
     assertTrue(ACTIVATED_AGGREGATE_IDS.isEmpty(),
         "no process instance may be created on rollback, but the worker saw "

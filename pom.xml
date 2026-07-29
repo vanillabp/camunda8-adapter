@@ -30,14 +30,17 @@
     <module>spring-boot</module>
     <module>quarkus/runtime</module>
     <module>quarkus/deployment</module>
+    <module>test-coverage-report</module>
   </modules>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <version.java>21</version.java>
+    <jacoco.version>0.8.15</jacoco.version>
     <lombok.version>1.18.46</lombok.version>
-    <vanillabp.version>1.1.0-SNAPSHOT</vanillabp.version>
+    <spi-for-java.version>1.2.0-SNAPSHOT</spi-for-java.version>
+    <adapter-platform.version>2.0.0-SNAPSHOT</adapter-platform.version>
     <springboot.version>4.1.0</springboot.version>
     <quarkus.version>3.37.1</quarkus.version>
     <camunda8.version>8.8.31</camunda8.version>
@@ -63,32 +66,32 @@
       <dependency>
         <groupId>io.vanillabp</groupId>
         <artifactId>spi-for-java</artifactId>
-        <version>${vanillabp.version}</version>
+        <version>${spi-for-java.version}</version>
       </dependency>
       <dependency>
         <groupId>io.vanillabp.adapter</groupId>
         <artifactId>migration-adapter-spi</artifactId>
-        <version>${project.version}</version>
+        <version>${adapter-platform.version}</version>
       </dependency>
       <dependency>
         <groupId>io.vanillabp</groupId>
         <artifactId>vanillabp-spring-boot-integration</artifactId>
-        <version>${project.version}</version>
+        <version>${adapter-platform.version}</version>
       </dependency>
       <dependency>
         <groupId>io.vanillabp</groupId>
         <artifactId>vanillabp-quarkus-integration</artifactId>
-        <version>${project.version}</version>
+        <version>${adapter-platform.version}</version>
       </dependency>
       <dependency>
         <groupId>io.vanillabp</groupId>
         <artifactId>vanillabp-quarkus-integration-deployment</artifactId>
-        <version>${project.version}</version>
+        <version>${adapter-platform.version}</version>
       </dependency>
       <dependency>
         <groupId>io.vanillabp</groupId>
         <artifactId>test-utils</artifactId>
-        <version>${project.version}</version>
+        <version>${adapter-platform.version}</version>
       </dependency>
       <dependency>
         <groupId>io.camunda</groupId>
@@ -119,6 +122,32 @@
       <plugins>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.5.4</version>
+          <configuration>
+            <!-- '@{jacoco.agent}' is resolved lazily per module (late property binding),
+                 forwarding coverage also into forked JVMs -->
+            <argLine>@{jacoco.agent}</argLine>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>3.5.4</version>
+          <configuration>
+            <argLine>@{jacoco.agent}</argLine>
+          </configuration>
+          <executions>
+            <execution>
+              <goals>
+                <goal>integration-test</goal>
+                <goal>verify</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.14.0</version>
           <configuration>
@@ -135,6 +164,32 @@
       </plugins>
     </pluginManagement>
     <plugins>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <configuration>
+          <propertyName>jacoco.agent</propertyName>
+          <excludes>
+            <exclude>**/it/**</exclude>
+            <exclude>**/test/**</exclude>
+          </excludes>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>

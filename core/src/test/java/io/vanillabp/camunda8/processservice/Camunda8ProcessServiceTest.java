@@ -67,19 +67,6 @@ public class Camunda8ProcessServiceTest {
   }
 
   @Test
-  @DisplayName("phase one fails fast if the aggregate ID is null")
-  public void phaseOneFailsFastOnNullAggregateId() {
-
-    final var service = configuredService();
-
-    final var exception = assertThrows(
-        IllegalStateException.class,
-        () -> service.startWorkflowPhaseOne("module", "Process", persistence(null), new Aggregate(null)));
-    assertTrue(exception.getMessage().contains("null"));
-
-  }
-
-  @Test
   @DisplayName("phase one fails naming the missing property if the adapter is not configured")
   public void phaseOneFailsIfNotConfigured() {
 

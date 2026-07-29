@@ -56,14 +56,27 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
+   * Whether {@link #close()} was called. Guards against the shutdown race: a
+   * dispatch racing the shutdown would otherwise re-enter {@link #getClient()}
+   * after close and build a fresh client nobody ever closes.
+   */
+  private volatile boolean closed = false;
+
+  /**
    * @return The lazily built {@link CamundaClient} of this adapter instance
-   * @throws IllegalStateException If a required connection property is missing
+   * @throws IllegalStateException If a required connection property is missing or
+   *         the factory was already closed (application shutdown)
    */
   public CamundaClient getClient() {
 
     var result = client;
     if (result == null) {
       synchronized (this) {
+        if (closed) {
+          throw new IllegalStateException(
+              "The Camunda 8 client factory of adapter '%s' was already closed (application shutdown)!"
+                  .formatted(adapterId));
+        }
         result = client;
         if (result == null) {
           configuration.validate(adapterId);
@@ -123,6 +136,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
   @Override
   public synchronized void close() {
 
+    closed = true;
     if (client != null) {
       log.info("Closing Camunda 8 client of adapter '{}'", adapterId);
       client.close();

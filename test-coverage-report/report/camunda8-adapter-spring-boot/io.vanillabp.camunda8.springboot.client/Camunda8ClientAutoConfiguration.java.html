@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>Camunda8ClientAutoConfiguration.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">VanillaBP adapter for Camunda 8 - Test coverage report</a> &gt; <a href="../index.html" class="el_bundle">camunda8-adapter-spring-boot</a> &gt; <a href="index.source.html" class="el_package">io.vanillabp.camunda8.springboot.client</a> &gt; <span class="el_source">Camunda8ClientAutoConfiguration.java</span></div><h1>Camunda8ClientAutoConfiguration.java</h1><pre class="source lang-java linenums">package io.vanillabp.camunda8.springboot.client;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
+
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+
+/**
+ * Binds the provisional flat Camunda 8 connection configuration
+ * ({@code camunda8-adapter.&lt;adapter-id&gt;.*}, see {@link Camunda8AdapterConfiguration}) and
+ * exposes a {@link Camunda8ClientFactoryRegistry}. The registry owns one lazily built
+ * {@code CamundaClient} per adapter ID; it is a managed bean so its {@code close()} is
+ * called on application shutdown, closing all clients.
+ * &lt;p&gt;
+ * The configuration is bound programmatically through the {@link Binder} (rather than a
+ * {@code @ConfigurationProperties} map) so an application configuring a Camunda 8 adapter
+ * but without any connection properties still boots - a missing property surfaces only on
+ * first use of the client.
+ */
+@AutoConfiguration
+<span class="fc" id="L28">public class Camunda8ClientAutoConfiguration {</span>
+
+  @Bean(destroyMethod = &quot;close&quot;)
+  public Camunda8ClientFactoryRegistry camunda8ClientFactoryRegistry(
+      final Environment environment) {
+
+<span class="fc" id="L34">    final Map&lt;String, Camunda8AdapterConfiguration&gt; configurations = Binder</span>
+<span class="fc" id="L35">        .get(environment)</span>
+<span class="fc" id="L36">        .bind(</span>
+            Camunda8AdapterConfiguration.CONFIGURATION_PREFIX,
+<span class="fc" id="L38">            Bindable.mapOf(String.class, Camunda8AdapterConfiguration.class))</span>
+<span class="fc" id="L39">        .orElseGet(HashMap::new);</span>
+
+<span class="fc" id="L41">    return new Camunda8ClientFactoryRegistry(configurations);</span>
+
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

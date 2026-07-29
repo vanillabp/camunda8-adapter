@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>Camunda8ClientFactoryRegistry.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">VanillaBP adapter for Camunda 8 - Test coverage report</a> &gt; <a href="../index.html" class="el_bundle">camunda8-adapter</a> &gt; <a href="index.source.html" class="el_package">io.vanillabp.camunda8.client</a> &gt; <span class="el_source">Camunda8ClientFactoryRegistry.java</span></div><h1>Camunda8ClientFactoryRegistry.java</h1><pre class="source lang-java linenums">package io.vanillabp.camunda8.client;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Holds the {@link Camunda8ClientFactory} of every configured Camunda 8 adapter instance,
+ * keyed by adapter ID. Created once per application by the platform integration
+ * (Spring Boot / Quarkus) from the bound configuration and registered as a managed bean
+ * so its {@link #close()} is invoked on application shutdown, closing all clients.
+ * &lt;p&gt;
+ * Factories are created lazily on first {@link #getFactory(String)}: an adapter ID
+ * without any {@code camunda8-adapter.&lt;id&gt;.*} configuration still yields a factory (built
+ * from an empty {@link Camunda8AdapterConfiguration}) so the application boots; the
+ * missing configuration surfaces only when the client is actually used.
+ */
+public class Camunda8ClientFactoryRegistry implements AutoCloseable {
+
+  private final Map&lt;String, Camunda8AdapterConfiguration&gt; configurationsByAdapterId;
+
+<span class="fc" id="L21">  private final Map&lt;String, Camunda8ClientFactory&gt; factories = new ConcurrentHashMap&lt;&gt;();</span>
+
+  public Camunda8ClientFactoryRegistry(
+<span class="fc" id="L24">      final Map&lt;String, Camunda8AdapterConfiguration&gt; configurationsByAdapterId) {</span>
+
+<span class="fc" id="L26">    this.configurationsByAdapterId = configurationsByAdapterId;</span>
+
+<span class="fc" id="L28">  }</span>
+
+  /**
+   * @param adapterId The adapter ID
+   * @return The (lazily created) client factory of the given adapter instance
+   */
+  public Camunda8ClientFactory getFactory(
+      final String adapterId) {
+
+<span class="fc" id="L37">    return factories.computeIfAbsent(</span>
+        adapterId,
+<span class="fc" id="L39">        id -&gt; new Camunda8ClientFactory(</span>
+<span class="fc" id="L40">            id, configurationsByAdapterId.getOrDefault(id, new Camunda8AdapterConfiguration())));</span>
+
+  }
+
+  @Override
+  public void close() {
+
+<span class="fc" id="L47">    factories</span>
+<span class="fc" id="L48">        .values()</span>
+<span class="fc" id="L49">        .forEach(Camunda8ClientFactory::close);</span>
+
+<span class="fc" id="L51">  }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

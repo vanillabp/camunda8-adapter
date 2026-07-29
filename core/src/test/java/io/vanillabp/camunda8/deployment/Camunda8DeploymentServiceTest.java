@@ -122,7 +122,6 @@ public class Camunda8DeploymentServiceTest {
     service.prepareBpmn("module", context, "a.bpmn", "P2", model);
 
     assertEquals(1, context.getResources().size());
-    assertEquals(2, context.getBpmnProcessIds().size());
 
   }
 

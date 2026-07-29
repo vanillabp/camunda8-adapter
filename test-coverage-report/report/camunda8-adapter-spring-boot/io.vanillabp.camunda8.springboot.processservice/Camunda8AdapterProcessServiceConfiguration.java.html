@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>Camunda8AdapterProcessServiceConfiguration.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">VanillaBP adapter for Camunda 8 - Test coverage report</a> &gt; <a href="../index.html" class="el_bundle">camunda8-adapter-spring-boot</a> &gt; <a href="index.source.html" class="el_package">io.vanillabp.camunda8.springboot.processservice</a> &gt; <span class="el_source">Camunda8AdapterProcessServiceConfiguration.java</span></div><h1>Camunda8AdapterProcessServiceConfiguration.java</h1><pre class="source lang-java linenums">package io.vanillabp.camunda8.springboot.processservice;
+
+import java.util.Map;
+
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.context.annotation.Bean;
+
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
+import io.vanillabp.camunda8.springboot.Camunda8AdapterConfiguration;
+import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
+import io.vanillabp.integration.adapter.spi.MigratableProcessService;
+
+/**
+ * Provides the Camunda 8 adapter's {@link MigratableProcessService} bean picked up by
+ * the {@link io.vanillabp.spi.process.ProcessService} beans built by the VanillaBP
+ * Spring Boot integration.
+ * &lt;p&gt;
+ * The adapter ID is resolved from the configuration (first adapter of type
+ * {@code camunda8}). An {@link ObjectProvider} is used because this bean may be created
+ * very early during bootstrapping (before configuration-properties beans are bound):
+ * calling {@link ObjectProvider#getObject()} forces the properties to be bound at that
+ * point.
+ */
+@AutoConfiguration
+<span class="fc" id="L27">public class Camunda8AdapterProcessServiceConfiguration {</span>
+
+  @Bean
+  public MigratableProcessService&lt;?&gt; camunda8MigratableProcessService(
+      final ObjectProvider&lt;MigrationAdapterProperties&gt; properties,
+      final ObjectProvider&lt;Camunda8ClientFactoryRegistry&gt; clientFactoryRegistry) {
+
+<span class="fc" id="L34">    final var adapterId = properties</span>
+<span class="fc" id="L35">        .getObject()</span>
+<span class="fc" id="L36">        .getAdapters()</span>
+<span class="fc" id="L37">        .entrySet()</span>
+<span class="fc" id="L38">        .stream()</span>
+<span class="fc" id="L39">        .filter(adapter -&gt; Camunda8AdapterConfiguration.ADAPTER_TYPE.equals(adapter.getValue()))</span>
+<span class="fc" id="L40">        .map(Map.Entry::getKey)</span>
+<span class="fc" id="L41">        .findFirst()</span>
+<span class="fc" id="L42">        .orElse(&quot;&quot;);</span>
+
+<span class="fc" id="L44">    return new Camunda8ProcessService&lt;&gt;(</span>
+        adapterId, clientFactoryRegistry
+<span class="fc" id="L46">            .getObject()</span>
+<span class="fc" id="L47">            .getFactory(adapterId));</span>
+
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>

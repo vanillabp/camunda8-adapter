@@ -42,13 +42,6 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
-  /**
-   * Name of the single process variable carrying the workflow aggregate's ID. No other
-   * process variables are set (aggregate attribute sync is the {@code @SyncWithBPMS}
-   * story).
-   */
-  public static final String AGGREGATE_ID_VARIABLE = "aggregateId";
-
   private final String adapterId;
 
   private final Camunda8ClientFactory clientFactory;
@@ -91,15 +84,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final AggregatePersistenceAware<A> aggregatePersistence,
       final A workflowAggregate) {
 
-    // resolve the aggregate ID - fail fast so the caller's transaction rolls back
-    // before a phase-two outbox entry is scheduled
-    final var aggregateId = aggregatePersistence.getAggregateId(workflowAggregate);
-    if (aggregateId == null) {
-      throw new IllegalStateException(
-          ("Cannot start Camunda 8 workflow '%s' of workflow module '%s' (adapter '%s'): the workflow "
-              + "aggregate's ID is null after persisting. A workflow aggregate must have a non-null ID.")
-              .formatted(bpmnProcessId, workflowModuleId, adapterId));
-    }
+    // the aggregate id was validated (non-null, non-blank) once in the core's
+    // MigrationProcessService before phase one is invoked
 
     // For starting a workflow there is nothing to check against the cluster in phase
     // one, so this only verifies the adapter is configured. Phase one runs inside the
@@ -110,7 +96,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     clientFactory.validateConfigured();
 
     log.debug("Validated phase one of starting Camunda 8 workflow '{}' of workflow module '{}' "
-        + "for aggregate '{}' (adapter '{}')", bpmnProcessId, workflowModuleId, aggregateId, adapterId);
+        + "(adapter '{}')", bpmnProcessId, workflowModuleId, adapterId);
 
   }
 

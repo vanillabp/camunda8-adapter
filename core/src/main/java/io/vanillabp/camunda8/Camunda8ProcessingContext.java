@@ -1,8 +1,6 @@
 package io.vanillabp.camunda8;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
@@ -31,8 +29,6 @@ public class Camunda8ProcessingContext {
    */
   private final Map<String, BpmnModelInstance> resources = new LinkedHashMap<>();
 
-  private final List<String> bpmnProcessIds = new ArrayList<>();
-
   public Camunda8ProcessingContext(
       final String workflowModuleId) {
 
@@ -55,22 +51,9 @@ public class Camunda8ProcessingContext {
 
   }
 
-  public void addBpmnProcessId(
-      final String bpmnProcessId) {
-
-    bpmnProcessIds.add(bpmnProcessId);
-
-  }
-
   public Map<String, BpmnModelInstance> getResources() {
 
     return resources;
-
-  }
-
-  public List<String> getBpmnProcessIds() {
-
-    return bpmnProcessIds;
 
   }
 

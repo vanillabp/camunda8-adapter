@@ -38,7 +38,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * The adapter type of the Camunda 8 adapter. Constant across all instances; the
    * adapter ID (see {@link #getAdapterId()}) distinguishes instances.
    */
-  public static final String ADAPTER_TYPE = "camunda8";
+  public static final String ADAPTER_TYPE = io.vanillabp.camunda8.Camunda8Adapter.ADAPTER_TYPE;
 
   private final String adapterId;
 
@@ -114,7 +114,6 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         ? existingContext
         : new Camunda8ProcessingContext(workflowModuleId);
     context.addResource(filename, model);
-    context.addBpmnProcessId(bpmnProcessId);
     return context;
 
   }
@@ -172,7 +171,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           adapterId,
           deployment.getKey(),
           tenantId != null && !tenantId.isBlank() ? tenantId : "<default>",
-          bpmsProcessingContext.getBpmnProcessIds());
+          bpmsProcessingContext.getResources().keySet());
     } catch (final RuntimeException e) {
       throw new IllegalStateException(
           "Failed to deploy BPMN resources of workflow module '%s' to Camunda 8 (adapter '%s')!"
