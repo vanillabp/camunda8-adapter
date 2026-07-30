@@ -12,7 +12,7 @@ configuration, create beans, run the bean lifecycle).
 
 - `Camunda8AdapterConfiguration` - resolved, platform-neutral connection configuration of
   one adapter instance (mode, REST/gRPC address, SaaS credentials, tenant). Populated by
-  the platform modules from `camunda8-adapter.<adapter-id>.*` (see the root `README.md`).
+  the platform modules from `vanillabp.adapters.<adapter-id>.*` (see the root `README.md`).
   Validated lazily; `validate(adapterId)` throws naming the exact missing property.
 - `Camunda8ClientFactory` - owns the single `CamundaClient` of one adapter instance, built
   **lazily on first use** and closed on `close()`. Building never contacts the cluster

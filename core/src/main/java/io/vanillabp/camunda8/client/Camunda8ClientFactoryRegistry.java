@@ -10,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * so its {@link #close()} is invoked on application shutdown, closing all clients.
  * <p>
  * Factories are created lazily on first {@link #getFactory(String)}: an adapter ID
- * without any {@code camunda8-adapter.<id>.*} configuration still yields a factory (built
+ * without any {@code vanillabp.adapters.<id>.*} configuration still yields a factory (built
  * from an empty {@link Camunda8AdapterConfiguration}) so the application boots; the
  * missing configuration surfaces only when the client is actually used.
  */

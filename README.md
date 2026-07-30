@@ -69,36 +69,42 @@ e.g. an old on-prem cluster and a new SaaS cluster side by side).
 
 ### Connecting to a Camunda 8 cluster
 
-Each adapter instance is connected to a cluster through a **provisional flat
-configuration namespace** keyed by adapter ID: `camunda8-adapter.<adapter-id>.*`. (A
-unified `vanillabp.adapters.<id>.*` scheme is a later story.) The values are turned into
-a plain-Java `CamundaClient` built lazily on first use.
+Each adapter instance is connected to a cluster through the **canonical per-adapter
+configuration location** `vanillabp.adapters.<adapter-id>.*` - the adapter contributes
+its own keys to the shared VanillaBP tree via platform OVERLAYS (Spring Boot: a second
+`@ConfigurationProperties("vanillabp")` class; Quarkus: a second RUN_TIME
+`@ConfigMapping(prefix = "vanillabp")`, which also provides the unknown-key validation
+coverage for these keys). The values are turned into a plain-Java `CamundaClient` built
+lazily on first use. The adapter-id set always comes from the platform's core
+properties (ids of type `camunda8`); the overlay maps are per-known-id lookups only.
 
-|                   Property                    |  Applies to  |                  Required                  |                  Description                   |
-|-----------------------------------------------|--------------|--------------------------------------------|------------------------------------------------|
-| `camunda8-adapter.<id>.mode`                  | both         | no (default `self-managed`)                | `self-managed` or `saas`                       |
-| `camunda8-adapter.<id>.rest-address`          | self-managed | yes (unless `prefer-rest-over-grpc=false`) | REST API address, e.g. `http://localhost:8080` |
-| `camunda8-adapter.<id>.grpc-address`          | self-managed | only if `prefer-rest-over-grpc=false`      | gRPC address, e.g. `http://localhost:26500`    |
-| `camunda8-adapter.<id>.prefer-rest-over-grpc` | self-managed | no (default `true`)                        | use the REST API (recommended) or gRPC         |
-| `camunda8-adapter.<id>.cluster-id`            | saas         | yes                                        | SaaS cluster ID                                |
-| `camunda8-adapter.<id>.region`                | saas         | yes                                        | SaaS region                                    |
-| `camunda8-adapter.<id>.client-id`             | saas         | yes                                        | OAuth client ID                                |
-| `camunda8-adapter.<id>.client-secret`         | saas         | yes                                        | OAuth client secret                            |
-| `camunda8-adapter.<id>.tenant-id`             | both         | no                                         | Camunda 8 multi-tenancy tenant                 |
+|                    Property                     |  Applies to  |                  Required                  |                  Description                   |
+|-------------------------------------------------|--------------|--------------------------------------------|------------------------------------------------|
+| `vanillabp.adapters.<id>.mode`                  | both         | no (default `self-managed`)                | `self-managed` or `saas`                       |
+| `vanillabp.adapters.<id>.rest-address`          | self-managed | yes (unless `prefer-rest-over-grpc=false`) | REST API address, e.g. `http://localhost:8080` |
+| `vanillabp.adapters.<id>.grpc-address`          | self-managed | only if `prefer-rest-over-grpc=false`      | gRPC address, e.g. `http://localhost:26500`    |
+| `vanillabp.adapters.<id>.prefer-rest-over-grpc` | self-managed | no (default `true`)                        | use the REST API (recommended) or gRPC         |
+| `vanillabp.adapters.<id>.cluster-id`            | saas         | yes                                        | SaaS cluster ID                                |
+| `vanillabp.adapters.<id>.region`                | saas         | yes                                        | SaaS region                                    |
+| `vanillabp.adapters.<id>.client-id`             | saas         | yes                                        | OAuth client ID                                |
+| `vanillabp.adapters.<id>.client-secret`         | saas         | yes                                        | OAuth client secret                            |
+| `vanillabp.adapters.<id>.tenant-id`             | both         | no                                         | Camunda 8 multi-tenancy tenant                 |
 
 Example (self-managed):
 
 ```yaml
-camunda8-adapter:
-  myengine:
-    mode: self-managed
-    rest-address: http://localhost:8080
+vanillabp:
+  adapters:
+    myengine:
+      type: camunda8
+      mode: self-managed
+      rest-address: http://localhost:8080
 ```
 
 **Boot behavior:** An application which configures a Camunda 8 adapter but leaves the
 connection properties out still boots. The client is built lazily and the configuration
 is validated on first use; a missing property fails with a message naming the exact
-property (e.g. `camunda8-adapter.myengine.rest-address`). If a workflow module has BPMN
+property (e.g. `vanillabp.adapters.myengine.rest-address`). If a workflow module has BPMN
 files but the client is unconfigured, deployment on startup fails with that message.
 
 ### Behavior

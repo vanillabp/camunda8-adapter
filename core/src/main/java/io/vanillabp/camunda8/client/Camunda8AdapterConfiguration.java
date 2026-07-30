@@ -9,10 +9,12 @@ import lombok.Setter;
  * respective configuration source and populate this object; the plain-Java
  * {@link Camunda8ClientFactory} turns it into a {@code CamundaClient}.
  * <p>
- * <b>Provisional flat configuration namespace</b> (documented in the repository-root
- * {@code README.md}), keyed by adapter ID:
+ * <b>Canonical configuration namespace</b> (documented in the repository-root
+ * {@code README.md}), keyed by adapter ID - the adapter's keys live in the shared
+ * VanillaBP tree at {@code vanillabp.adapters.<adapter-id>.*} (contributed via the
+ * platform overlays, see the platform modules):
  * <ul>
- *   <li>{@code camunda8-adapter.<adapter-id>.mode} - {@code self-managed} (default) or
+ *   <li>{@code vanillabp.adapters.<adapter-id>.mode} - {@code self-managed} (default) or
  *       {@code saas}</li>
  *   <li>self-managed: {@code .rest-address} (required unless
  *       {@code .prefer-rest-over-grpc=false}), {@code .grpc-address} (optional, required
@@ -32,9 +34,10 @@ import lombok.Setter;
 public class Camunda8AdapterConfiguration {
 
   /**
-   * The prefix of the provisional flat configuration namespace (see class javadoc).
+   * The prefix of the canonical per-adapter configuration namespace (see class
+   * javadoc) - the shared VanillaBP tree's adapters section.
    */
-  public static final String CONFIGURATION_PREFIX = "camunda8-adapter";
+  public static final String CONFIGURATION_PREFIX = "vanillabp.adapters";
 
   /**
    * Connection mode of a Camunda 8 adapter instance.

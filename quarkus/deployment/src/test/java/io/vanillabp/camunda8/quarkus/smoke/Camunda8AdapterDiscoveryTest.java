@@ -1,15 +1,19 @@
 package io.vanillabp.camunda8.quarkus.smoke;
 
+import java.util.List;
+
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.quarkus.test.QuarkusUnitTest;
+import io.vanillabp.camunda8.Camunda8ProcessingContext;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
-import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
-import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
+import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
+import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.runtime.processservice.ProcessServiceBaseCdiBean;
 import io.vanillabp.spi.process.ProcessService;
 import jakarta.inject.Inject;
@@ -35,14 +39,15 @@ public class Camunda8AdapterDiscoveryTest {
   @SuppressWarnings("CdiUnsatisfiedInjection")
   ProcessService<Aggregate> sampleProcessService;
 
+  // the per-adapter-id shape: ONE List bean with one instance per configured id
   @Inject
-  Camunda8ProcessService<Object> migratableProcessService;
+  List<MigratableProcessService<Object>> migratableProcessServices;
 
   @Inject
   Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   @Inject
-  Camunda8DeploymentService deploymentService;
+  List<AdapterDeploymentService<BpmnModelInstance, Camunda8ProcessingContext>> deploymentServices;
 
   @Test
   public void adapterIsDiscovered() {
@@ -61,8 +66,10 @@ public class Camunda8AdapterDiscoveryTest {
     Assertions.assertEquals("c8", adapterId);
     Assertions.assertEquals("camunda8", adaptersConfigured.get(adapterId));
 
-    // the process service of the adapter is discovered and requires a two-phase commit
-    // (Camunda 8 is a remote engine)
+    // the process service of the adapter is discovered (one instance per configured
+    // adapter id) and requires a two-phase commit (Camunda 8 is a remote engine)
+    Assertions.assertEquals(1, migratableProcessServices.size());
+    final var migratableProcessService = migratableProcessServices.getFirst();
     Assertions.assertEquals("c8", migratableProcessService.getAdapterId());
     Assertions.assertTrue(migratableProcessService.needsTwoPhaseCommitForStartingWorkflows());
 
@@ -71,8 +78,9 @@ public class Camunda8AdapterDiscoveryTest {
     // practical in a QuarkusUnitTest - see the Spring Boot module's
     // Camunda8DeploymentAndStartIT and the README)
     Assertions.assertNotNull(clientFactoryRegistry.getFactory("c8"));
-    Assertions.assertEquals("c8", deploymentService.getAdapterId());
-    Assertions.assertEquals("camunda8", deploymentService.getAdapterType());
+    Assertions.assertEquals(1, deploymentServices.size());
+    Assertions.assertEquals("c8", deploymentServices.getFirst().getAdapterId());
+    Assertions.assertEquals("camunda8", deploymentServices.getFirst().getAdapterType());
 
   }
 

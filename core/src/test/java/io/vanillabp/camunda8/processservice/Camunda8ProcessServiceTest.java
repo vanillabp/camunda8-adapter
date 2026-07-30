@@ -76,7 +76,7 @@ public class Camunda8ProcessServiceTest {
     final var exception = assertThrows(
         IllegalStateException.class,
         () -> service.startWorkflowPhaseOne("module", "Process", persistence("agg-1"), new Aggregate("agg-1")));
-    assertTrue(exception.getMessage().contains("camunda8-adapter.c8.rest-address"));
+    assertTrue(exception.getMessage().contains("vanillabp.adapters.c8.rest-address"));
 
   }
 

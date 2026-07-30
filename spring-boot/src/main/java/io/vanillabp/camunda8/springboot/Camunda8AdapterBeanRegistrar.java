@@ -1,0 +1,60 @@
+package io.vanillabp.camunda8.springboot;
+
+import org.springframework.beans.factory.BeanRegistrar;
+import org.springframework.beans.factory.BeanRegistry;
+import org.springframework.core.env.Environment;
+
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
+import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
+import io.vanillabp.integration.adapter.AdapterBeanRegistrarSupport;
+
+/**
+ * Registers the Camunda 8 adapter's per-adapter-id beans: for EACH configured adapter
+ * id of type {@code camunda8} (multiple ids of one BPMS type = the migration scenario,
+ * e.g. an on-prem and a SaaS cluster side by side) one
+ * {@link Camunda8ProcessService} <i>element</i> bean and one
+ * {@link Camunda8DeploymentService} <i>element</i> bean are registered - never beans
+ * of type {@code List<...>}: the platform collects element beans via
+ * {@code ObjectProvider.stream()}.
+ * <p>
+ * The id set comes from the runtime configuration, so the beans are registered
+ * programmatically ({@link BeanRegistrar} +
+ * {@link AdapterBeanRegistrarSupport#forEachConfiguredAdapterId}); the adapter id is a
+ * CONSTRUCTOR parameter of each instance. The bean suppliers are lazy: the
+ * {@link Camunda8ClientFactoryRegistry} is resolved through the
+ * {@code SupplierContext} at bean-creation time.
+ */
+public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
+
+  @Override
+  public void register(
+      final BeanRegistry registry,
+      final Environment environment) {
+
+    AdapterBeanRegistrarSupport.forEachConfiguredAdapterId(
+        environment,
+        Camunda8DeploymentService.ADAPTER_TYPE,
+        adapterId -> {
+
+          registry.registerBean(
+              "Camunda8_ProcessService_%s".formatted(adapterId),
+              Camunda8ProcessService.class,
+              spec -> spec.supplier(supplierContext -> new Camunda8ProcessService<>(
+                  adapterId, supplierContext
+                      .bean(Camunda8ClientFactoryRegistry.class)
+                      .getFactory(adapterId))));
+
+          registry.registerBean(
+              "Camunda8_DeploymentService_%s".formatted(adapterId),
+              Camunda8DeploymentService.class,
+              spec -> spec.supplier(supplierContext -> new Camunda8DeploymentService(
+                  adapterId, supplierContext
+                      .bean(Camunda8ClientFactoryRegistry.class)
+                      .getFactory(adapterId))));
+
+        });
+
+  }
+
+}

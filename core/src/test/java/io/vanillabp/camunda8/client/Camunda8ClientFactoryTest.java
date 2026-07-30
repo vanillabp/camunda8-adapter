@@ -24,7 +24,7 @@ public class Camunda8ClientFactoryTest {
     final var factory = new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration());
 
     final var exception = assertThrows(IllegalStateException.class, factory::validateConfigured);
-    assertTrue(exception.getMessage().contains("camunda8-adapter.c8.rest-address"),
+    assertTrue(exception.getMessage().contains("vanillabp.adapters.c8.rest-address"),
         "message should name the missing property, but was: "
             + exception.getMessage());
 
@@ -39,7 +39,7 @@ public class Camunda8ClientFactoryTest {
     final var factory = new Camunda8ClientFactory("cloud", configuration);
 
     final var exception = assertThrows(IllegalStateException.class, factory::validateConfigured);
-    assertTrue(exception.getMessage().contains("camunda8-adapter.cloud.cluster-id"),
+    assertTrue(exception.getMessage().contains("vanillabp.adapters.cloud.cluster-id"),
         "message should name the missing property, but was: "
             + exception.getMessage());
 

@@ -88,12 +88,12 @@ public class Camunda8DeploymentAndStartIT {
   static void camunda8Properties(
       final DynamicPropertyRegistry registry) {
 
-    registry.add("camunda8-adapter.c8.rest-address",
+    registry.add("vanillabp.adapters.c8.rest-address",
         () -> "http://"
             + CAMUNDA.getHost()
             + ":"
             + CAMUNDA.getMappedPort(8080));
-    registry.add("camunda8-adapter.c8.grpc-address",
+    registry.add("vanillabp.adapters.c8.grpc-address",
         () -> "http://"
             + CAMUNDA.getHost()
             + ":"

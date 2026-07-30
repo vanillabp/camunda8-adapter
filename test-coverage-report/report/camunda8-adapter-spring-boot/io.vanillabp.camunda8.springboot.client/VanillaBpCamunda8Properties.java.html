@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../jacoco-resources/report.gif" type="image/gif"/><title>VanillaBpCamunda8Properties.java</title><link rel="stylesheet" href="../../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../../index.html" class="el_report">VanillaBP adapter for Camunda 8 - Test coverage report</a> &gt; <a href="../index.html" class="el_bundle">camunda8-adapter-spring-boot</a> &gt; <a href="index.source.html" class="el_package">io.vanillabp.camunda8.springboot.client</a> &gt; <span class="el_source">VanillaBpCamunda8Properties.java</span></div><h1>VanillaBpCamunda8Properties.java</h1><pre class="source lang-java linenums">package io.vanillabp.camunda8.springboot.client;
+
+import java.util.Map;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
+import lombok.Getter;
+import lombok.Setter;
+
+/**
+ * The Camunda 8 adapter's OVERLAY of the shared &lt;code&gt;vanillabp.*&lt;/code&gt; configuration
+ * tree: the adapter's connection settings live at the canonical per-adapter location
+ * &lt;code&gt;vanillabp.adapters.&amp;lt;id&amp;gt;.*&lt;/code&gt; (keys documented in
+ * {@link Camunda8AdapterConfiguration}: &lt;code&gt;mode&lt;/code&gt;, &lt;code&gt;rest-address&lt;/code&gt;,
+ * &lt;code&gt;grpc-address&lt;/code&gt;, &lt;code&gt;prefer-rest-over-grpc&lt;/code&gt;, &lt;code&gt;tenant-id&lt;/code&gt;,
+ * &lt;code&gt;cluster-id&lt;/code&gt;, &lt;code&gt;region&lt;/code&gt;, &lt;code&gt;client-id&lt;/code&gt;,
+ * &lt;code&gt;client-secret&lt;/code&gt;). A second {@code @ConfigurationProperties} class over the
+ * same prefix coexists with the platform's binding of the core model; keys unknown to
+ * either view are ignored by the JavaBean binding.
+ * &lt;p&gt;
+ * The adapter-id set is NEVER derived from this overlay map - it always comes from the
+ * platform's core properties ({@code adapterTypes()} filtered by type
+ * {@code camunda8}); the overlay is a per-known-id lookup only (environment-variable
+ * overrides can materialize phantom map entries in the overlay).
+ */
+@ConfigurationProperties(&quot;vanillabp&quot;)
+@Getter
+@Setter
+<span class="fc" id="L30">public class VanillaBpCamunda8Properties {</span>
+
+  /**
+   * The adapter sections of the shared tree, keyed by adapter ID - only the
+   * Camunda 8 connection keys are modeled here (bound directly onto the
+   * platform-neutral {@link Camunda8AdapterConfiguration}).
+   */
+<span class="fc" id="L37">  private Map&lt;String, Camunda8AdapterConfiguration&gt; adapters = Map.of();</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.15.202606040825</span></div></body></html>
