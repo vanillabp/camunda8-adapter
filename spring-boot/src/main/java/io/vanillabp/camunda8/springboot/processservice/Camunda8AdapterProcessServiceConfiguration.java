@@ -33,7 +33,7 @@ public class Camunda8AdapterProcessServiceConfiguration {
 
     final var adapterId = properties
         .getObject()
-        .getAdapters()
+        .adapterTypes()
         .entrySet()
         .stream()
         .filter(adapter -> Camunda8AdapterConfiguration.ADAPTER_TYPE.equals(adapter.getValue()))

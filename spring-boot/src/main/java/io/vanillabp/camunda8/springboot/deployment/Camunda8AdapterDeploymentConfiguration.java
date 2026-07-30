@@ -33,7 +33,7 @@ public class Camunda8AdapterDeploymentConfiguration {
       final Camunda8ClientFactoryRegistry clientFactoryRegistry) {
 
     final var adapterId = properties
-        .getAdapters()
+        .adapterTypes()
         .entrySet()
         .stream()
         .filter(adapter -> adapter.getValue().equals(Camunda8AdapterConfiguration.ADAPTER_TYPE))

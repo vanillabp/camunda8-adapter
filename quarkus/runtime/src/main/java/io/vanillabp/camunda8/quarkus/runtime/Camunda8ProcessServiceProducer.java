@@ -24,7 +24,7 @@ public class Camunda8ProcessServiceProducer {
       final Camunda8ClientFactoryRegistry clientFactoryRegistry) {
 
     final var adapterId = properties
-        .getAdapters()
+        .adapterTypes()
         .entrySet()
         .stream()
         .filter(adapter -> Camunda8DeploymentService.ADAPTER_TYPE.equals(adapter.getValue()))

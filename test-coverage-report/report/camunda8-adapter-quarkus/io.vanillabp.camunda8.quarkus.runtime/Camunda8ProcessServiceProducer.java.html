@@ -24,7 +24,7 @@ import jakarta.enterprise.inject.Produces;
       final Camunda8ClientFactoryRegistry clientFactoryRegistry) {
 
 <span class="fc" id="L26">    final var adapterId = properties</span>
-<span class="fc" id="L27">        .getAdapters()</span>
+<span class="fc" id="L27">        .adapterTypes()</span>
 <span class="fc" id="L28">        .entrySet()</span>
 <span class="fc" id="L29">        .stream()</span>
 <span class="fc" id="L30">        .filter(adapter -&gt; Camunda8DeploymentService.ADAPTER_TYPE.equals(adapter.getValue()))</span>

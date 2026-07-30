@@ -33,7 +33,7 @@ import io.vanillabp.integration.processservice.SpringBootMigrationAdapterAutoCon
       final Camunda8ClientFactoryRegistry clientFactoryRegistry) {
 
 <span class="fc" id="L35">    final var adapterId = properties</span>
-<span class="fc" id="L36">        .getAdapters()</span>
+<span class="fc" id="L36">        .adapterTypes()</span>
 <span class="fc" id="L37">        .entrySet()</span>
 <span class="fc" id="L38">        .stream()</span>
 <span class="fc" id="L39">        .filter(adapter -&gt; adapter.getValue().equals(Camunda8AdapterConfiguration.ADAPTER_TYPE))</span>
