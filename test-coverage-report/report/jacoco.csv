@@ -1,6 +1,6 @@
 GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
 VanillaBP adapter for Camunda 8 - Test coverage report/camunda8-adapter,io.vanillabp.camunda8,Camunda8ProcessingContext,0,25,0,0,0,8,0,4,0,4
-VanillaBP adapter for Camunda 8 - Test coverage report/camunda8-adapter,io.vanillabp.camunda8.processservice,Camunda8ProcessService,20,91,4,2,3,23,5,6,2,6
+VanillaBP adapter for Camunda 8 - Test coverage report/camunda8-adapter,io.vanillabp.camunda8.processservice,Camunda8ProcessService,20,93,4,2,3,23,5,6,2,6
 VanillaBP adapter for Camunda 8 - Test coverage report/camunda8-adapter,io.vanillabp.camunda8.deployment,Camunda8DeploymentService,38,211,7,15,6,47,7,15,2,9
 VanillaBP adapter for Camunda 8 - Test coverage report/camunda8-adapter,io.vanillabp.camunda8.client,Camunda8AdapterConfiguration.Mode,0,15,0,0,0,3,0,1,0,1
 VanillaBP adapter for Camunda 8 - Test coverage report/camunda8-adapter,io.vanillabp.camunda8.client,Camunda8ClientFactoryRegistry,0,38,0,0,0,11,0,4,0,4

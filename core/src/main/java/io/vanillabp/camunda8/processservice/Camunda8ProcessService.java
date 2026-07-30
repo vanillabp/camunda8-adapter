@@ -104,17 +104,21 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   public void startWorkflowPhaseTwo(
       final String workflowModuleId,
       final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
-    createProcessInstance(bpmnProcessId, workflowAggregateId);
+    createProcessInstance(bpmnProcessId, aggregatePersistence.getAggregateIdName(), workflowAggregateId);
 
   }
 
   /**
    * Creates a Camunda 8 process instance of the latest version of the given BPMN process,
-   * passing the workflow aggregate's ID as the single {@value #AGGREGATE_ID_VARIABLE}
-   * process variable. This is the actual work of
-   * {@link #startWorkflowPhaseTwo(String, String, Object)}.
+   * passing the workflow aggregate's ID as a single process variable. How the aggregate's
+   * ID is stored in the BPMS is the adapter's decision: Camunda 8 stores the aggregate as
+   * process variables, so the variable carrying the ID is named after the aggregate's ID
+   * property (see {@link AggregatePersistenceAware#getAggregateIdName()}). This is the
+   * actual work of
+   * {@link #startWorkflowPhaseTwo(String, String, AggregatePersistenceAware, Object)}.
    * <p>
    * <b>Idempotency limitation:</b> a crash between a successful create and the removal of
    * the phase-two outbox entry can create the instance twice (at-least-once, duplicates
@@ -123,11 +127,13 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * workaround is attempted here.
    *
    * @param bpmnProcessId The BPMN process ID of the workflow to start
+   * @param aggregateIdName The name of the aggregate's ID property (used as the variable name)
    * @param workflowAggregateId The workflow aggregate's ID (sent as a string variable)
    * @return The created process-instance event
    */
   public ProcessInstanceEvent createProcessInstance(
       final String bpmnProcessId,
+      final String aggregateIdName,
       final Object workflowAggregateId) {
 
     final var client = clientFactory.getClient();
@@ -136,7 +142,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
         .bpmnProcessId(bpmnProcessId)
         .latestVersion()
         .variable(
-            AGGREGATE_ID_VARIABLE,
+            aggregateIdName,
             workflowAggregateId == null ? null : workflowAggregateId.toString());
 
     final var tenantId = clientFactory.getConfiguration().getTenantId();

@@ -115,9 +115,12 @@ files but the client is unconfigured, deployment on startup fails with that mess
     aggregate ID, verifies the client is configured). It never contacts the cluster - a
     remote call here would reintroduce ghost workflows on rollback.
   - *Phase two* runs after the commit (through the core phase-two outbox) and creates the
-    process instance of the latest version with a single process variable `aggregateId`
-    holding the workflow aggregate's ID (as a string). No other variables are set
-    (aggregate attribute sync is the `@SyncWithBPMS` story).
+    process instance of the latest version with a single process variable holding the
+    workflow aggregate's ID (as a string). The variable is named after the aggregate's ID
+    property (`AggregatePersistenceAware.getAggregateIdName()`) - how the aggregate's ID
+    is stored in the BPMS is the adapter's decision, and Camunda 8 stores the aggregate
+    as process variables. No other variables are set (aggregate attribute sync is the
+    `@SyncWithBPMS` story).
 
 ### Idempotency limitation
 
@@ -137,7 +140,8 @@ here.
   application (deploying the BPMN to the cluster on startup) and drives the full two-phase
   start through `ProcessService#startWorkflow` inside a JPA transaction with the gruelbox
   outbox. It asserts that the process instance appears only **after** the transaction
-  commits, carrying the `aggregateId` variable (observed by a raw Camunda 8 job worker on
+  commits, carrying the aggregate's ID as the `id` variable (named after the test
+  aggregate's ID property; observed by a raw Camunda 8 job worker on
   the service task), and **never** after a rollback (the outbox entry is gone and no job
   is ever activated). Skipped automatically when Docker is unavailable
   (`@Testcontainers(disabledWithoutDocker = true)`).

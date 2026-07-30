@@ -104,17 +104,21 @@ public class Camunda8ProcessService&lt;A&gt; implements MigratableProcessService
   public void startWorkflowPhaseTwo(
       final String workflowModuleId,
       final String bpmnProcessId,
+      final AggregatePersistenceAware&lt;A&gt; aggregatePersistence,
       final Object workflowAggregateId) {
 
-<span class="fc" id="L109">    createProcessInstance(bpmnProcessId, workflowAggregateId);</span>
+<span class="fc" id="L110">    createProcessInstance(bpmnProcessId, aggregatePersistence.getAggregateIdName(), workflowAggregateId);</span>
 
-<span class="fc" id="L111">  }</span>
+<span class="fc" id="L112">  }</span>
 
   /**
    * Creates a Camunda 8 process instance of the latest version of the given BPMN process,
-   * passing the workflow aggregate's ID as the single {@value #AGGREGATE_ID_VARIABLE}
-   * process variable. This is the actual work of
-   * {@link #startWorkflowPhaseTwo(String, String, Object)}.
+   * passing the workflow aggregate's ID as a single process variable. How the aggregate's
+   * ID is stored in the BPMS is the adapter's decision: Camunda 8 stores the aggregate as
+   * process variables, so the variable carrying the ID is named after the aggregate's ID
+   * property (see {@link AggregatePersistenceAware#getAggregateIdName()}). This is the
+   * actual work of
+   * {@link #startWorkflowPhaseTwo(String, String, AggregatePersistenceAware, Object)}.
    * &lt;p&gt;
    * &lt;b&gt;Idempotency limitation:&lt;/b&gt; a crash between a successful create and the removal of
    * the phase-two outbox entry can create the instance twice (at-least-once, duplicates
@@ -123,33 +127,35 @@ public class Camunda8ProcessService&lt;A&gt; implements MigratableProcessService
    * workaround is attempted here.
    *
    * @param bpmnProcessId The BPMN process ID of the workflow to start
+   * @param aggregateIdName The name of the aggregate's ID property (used as the variable name)
    * @param workflowAggregateId The workflow aggregate's ID (sent as a string variable)
    * @return The created process-instance event
    */
   public ProcessInstanceEvent createProcessInstance(
       final String bpmnProcessId,
+      final String aggregateIdName,
       final Object workflowAggregateId) {
 
-<span class="fc" id="L133">    final var client = clientFactory.getClient();</span>
-<span class="fc" id="L134">    var command = client</span>
-<span class="fc" id="L135">        .newCreateInstanceCommand()</span>
-<span class="fc" id="L136">        .bpmnProcessId(bpmnProcessId)</span>
-<span class="fc" id="L137">        .latestVersion()</span>
-<span class="fc" id="L138">        .variable(</span>
-            AGGREGATE_ID_VARIABLE,
-<span class="pc bpc" id="L140" title="1 of 2 branches missed.">            workflowAggregateId == null ? null : workflowAggregateId.toString());</span>
+<span class="fc" id="L139">    final var client = clientFactory.getClient();</span>
+<span class="fc" id="L140">    var command = client</span>
+<span class="fc" id="L141">        .newCreateInstanceCommand()</span>
+<span class="fc" id="L142">        .bpmnProcessId(bpmnProcessId)</span>
+<span class="fc" id="L143">        .latestVersion()</span>
+<span class="fc" id="L144">        .variable(</span>
+            aggregateIdName,
+<span class="pc bpc" id="L146" title="1 of 2 branches missed.">            workflowAggregateId == null ? null : workflowAggregateId.toString());</span>
 
-<span class="fc" id="L142">    final var tenantId = clientFactory.getConfiguration().getTenantId();</span>
-<span class="pc bpc" id="L143" title="3 of 4 branches missed.">    if (tenantId != null &amp;&amp; !tenantId.isBlank()) {</span>
-<span class="nc" id="L144">      command = command.tenantId(tenantId);</span>
+<span class="fc" id="L148">    final var tenantId = clientFactory.getConfiguration().getTenantId();</span>
+<span class="pc bpc" id="L149" title="3 of 4 branches missed.">    if (tenantId != null &amp;&amp; !tenantId.isBlank()) {</span>
+<span class="nc" id="L150">      command = command.tenantId(tenantId);</span>
     }
 
-<span class="fc" id="L147">    final var event = command</span>
-<span class="fc" id="L148">        .send()</span>
-<span class="fc" id="L149">        .join();</span>
-<span class="fc" id="L150">    log.info(&quot;Started Camunda 8 workflow '{}' (adapter '{}', process-instance key {}) for aggregate '{}'&quot;,</span>
-<span class="fc" id="L151">        bpmnProcessId, adapterId, event.getProcessInstanceKey(), workflowAggregateId);</span>
-<span class="fc" id="L152">    return event;</span>
+<span class="fc" id="L153">    final var event = command</span>
+<span class="fc" id="L154">        .send()</span>
+<span class="fc" id="L155">        .join();</span>
+<span class="fc" id="L156">    log.info(&quot;Started Camunda 8 workflow '{}' (adapter '{}', process-instance key {}) for aggregate '{}'&quot;,</span>
+<span class="fc" id="L157">        bpmnProcessId, adapterId, event.getProcessInstanceKey(), workflowAggregateId);</span>
+<span class="fc" id="L158">    return event;</span>
 
   }
 

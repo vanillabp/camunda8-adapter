@@ -11,7 +11,7 @@ import lombok.Setter;
 /**
  * JPA workflow aggregate with a generated ID: the phase-two outbox serializes the ID as a
  * string and the phase-two bean converts it back before the adapter passes it to
- * Camunda 8 as the {@code aggregateId} process variable.
+ * Camunda 8 as a process variable named after this aggregate's ID property ({@code id}).
  */
 @Entity
 @Table(name = "CAMUNDA8_IT_AGGREGATE")

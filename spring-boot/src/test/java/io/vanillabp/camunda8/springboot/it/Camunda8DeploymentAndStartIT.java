@@ -26,7 +26,6 @@ import org.testcontainers.utility.DockerImageName;
 
 import io.camunda.client.api.worker.JobWorker;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
-import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.spi.process.ProcessService;
 
 /**
@@ -38,9 +37,10 @@ import io.vanillabp.spi.process.ProcessService;
  * <ul>
  *   <li>the BPMN {@code TestProcess} is deployed to the cluster on application startup,</li>
  *   <li>starting a workflow inside a committed transaction creates the process instance
- *       only <b>after the commit</b> (phase two) carrying the {@code aggregateId}
- *       variable - proven by a raw Camunda 8 job worker activating the service task and
- *       observing the variable, and</li>
+ *       only <b>after the commit</b> (phase two) carrying the aggregate's ID as a
+ *       variable named after the aggregate's ID property ({@code id} for
+ *       {@link DockerAggregate}) - proven by a raw Camunda 8 job worker activating the
+ *       service task and observing the variable, and</li>
  *   <li>a rolled-back transaction never creates an instance (no job is ever activated and
  *       the outbox entry is gone).</li>
  * </ul>
@@ -54,6 +54,12 @@ import io.vanillabp.spi.process.ProcessService;
 public class Camunda8DeploymentAndStartIT {
 
   private static final String JOB_TYPE = "test-job";
+
+  /**
+   * The name of the process variable carrying the aggregate's ID: the adapter names it
+   * after the aggregate's ID property ({@link DockerAggregate#getId()}).
+   */
+  private static final String AGGREGATE_ID_VARIABLE = "id";
 
   private static final String COUNT_OUTBOX_ENTRIES = "select count(*) from TXNO_OUTBOX";
 
@@ -113,7 +119,8 @@ public class Camunda8DeploymentAndStartIT {
     ACTIVATED_AGGREGATE_IDS.clear();
     if (jobWorker == null) {
       // a raw Camunda 8 job worker completing the service task and recording the
-      // aggregateId variable (adapter task wiring is a later story)
+      // aggregate-ID variable, named after DockerAggregate's @Id property (adapter
+      // task wiring is a later story)
       jobWorker = clientFactoryRegistry
           .getFactory("c8")
           .getClient()
@@ -123,14 +130,14 @@ public class Camunda8DeploymentAndStartIT {
               jobClient,
               job) -> {
             ACTIVATED_AGGREGATE_IDS.add(
-                String.valueOf(job.getVariablesAsMap().get(Camunda8ProcessService.AGGREGATE_ID_VARIABLE)));
+                String.valueOf(job.getVariablesAsMap().get(AGGREGATE_ID_VARIABLE)));
             jobClient
                 .newCompleteCommand(job)
                 .send()
                 .join();
           })
           .name("it-worker")
-          .fetchVariables(Camunda8ProcessService.AGGREGATE_ID_VARIABLE)
+          .fetchVariables(AGGREGATE_ID_VARIABLE)
           .open();
     }
 
