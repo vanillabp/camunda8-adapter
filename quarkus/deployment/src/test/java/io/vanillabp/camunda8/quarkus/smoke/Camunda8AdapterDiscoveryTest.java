@@ -32,6 +32,7 @@ public class Camunda8AdapterDiscoveryTest {
           .create(JavaArchive.class)
           .addClass(Aggregate.class)
           .addClass(SampleWorkflowService.class)
+          .addClass(TestPhaseTwoOutbox.class)
           .addAsResource("application.yaml")
           .addAsResource("workflow-module-descriptor/workflow-module", "META-INF/workflow-module"));
 
