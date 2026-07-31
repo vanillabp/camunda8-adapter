@@ -51,11 +51,35 @@ public class Camunda8AdapterConfiguration {
 
   private Mode mode = Mode.SELF_MANAGED;
 
+  /**
+   * Whether one of the defaulted properties ({@link #mode},
+   * {@link #preferRestOverGrpc}) was set explicitly - required to distinguish the
+   * "not configured yet" state (see {@link #isAbsent()}) from an inconsistent
+   * configuration like <code>mode: saas</code> without any credential.
+   */
+  private boolean defaultedPropertySet = false;
+
+  public void setMode(
+      final Mode mode) {
+
+    this.mode = mode;
+    this.defaultedPropertySet = true;
+
+  }
+
   private String restAddress;
 
   private String grpcAddress;
 
   private boolean preferRestOverGrpc = true;
+
+  public void setPreferRestOverGrpc(
+      final boolean preferRestOverGrpc) {
+
+    this.preferRestOverGrpc = preferRestOverGrpc;
+    this.defaultedPropertySet = true;
+
+  }
 
   private String tenantId;
 
@@ -68,41 +92,110 @@ public class Camunda8AdapterConfiguration {
   private String clientSecret;
 
   /**
-   * Validates that all properties required for the configured {@link #mode} are present.
-   * Called lazily by {@link Camunda8ClientFactory} on first use of the client, so an
-   * application configuring - but not using - a Camunda 8 adapter still boots.
+   * Whether NO connection property is set at all - the "not configured yet" state:
+   * the application still boots (with a guiding startup warning), only using the
+   * adapter fails. The defaulted properties ({@link #mode},
+   * {@link #preferRestOverGrpc}) do not count.
    *
-   * @param adapterId The adapter ID (used to build the property name in error messages)
+   * @return Whether the connection configuration is entirely absent
+   */
+  public boolean isAbsent() {
+
+    return !defaultedPropertySet && isBlank(restAddress) && isBlank(grpcAddress) && isBlank(tenantId) && isBlank(
+        clusterId) && isBlank(
+            region) && isBlank(clientId) && isBlank(clientSecret);
+
+  }
+
+  /**
+   * The connection properties required for the configured {@link #mode} which are
+   * not set (property KEY names relative to
+   * <code>vanillabp.adapters.&lt;id&gt;.</code> - values are never part of
+   * messages). An empty list means the configuration is complete.
+   *
+   * @return The missing property keys
+   */
+  public java.util.List<String> missingConnectionProperties() {
+
+    final var missing = new java.util.LinkedList<String>();
+    if (mode == Mode.SAAS) {
+      if (isBlank(clusterId)) {
+        missing.add("cluster-id");
+      }
+      if (isBlank(region)) {
+        missing.add("region");
+      }
+      if (isBlank(clientId)) {
+        missing.add("client-id");
+      }
+      if (isBlank(clientSecret)) {
+        missing.add("client-secret");
+      }
+    } else if (preferRestOverGrpc) {
+      if (isBlank(restAddress)) {
+        missing.add("rest-address");
+      }
+    } else {
+      if (isBlank(grpcAddress)) {
+        missing.add("grpc-address");
+      }
+    }
+    return missing;
+
+  }
+
+  /**
+   * Validates that all properties required for the configured {@link #mode} are
+   * present. The PRIMARY validation happens at startup
+   * ({@link Camunda8StartupValidation}); this method remains the runtime BACKSTOP
+   * called before the client is used, so a degraded adapter (startup policy
+   * <code>warn</code>) still fails its first use with a guiding message instead of
+   * an obscure connection error.
+   *
+   * @param adapterId The adapter ID (used to build the property names in error messages)
    * @throws IllegalStateException If a required property is missing, naming the exact
-   *         missing configuration property
+   *         missing configuration properties
    */
   public void validate(
       final String adapterId) {
 
-    if (mode == Mode.SAAS) {
-      requireProperty(adapterId, "cluster-id", clusterId);
-      requireProperty(adapterId, "region", region);
-      requireProperty(adapterId, "client-id", clientId);
-      requireProperty(adapterId, "client-secret", clientSecret);
-    } else if (preferRestOverGrpc) {
-      requireProperty(adapterId, "rest-address", restAddress);
-    } else {
-      requireProperty(adapterId, "grpc-address", grpcAddress);
+    final var missing = missingConnectionProperties();
+    if (!missing.isEmpty()) {
+      throw new IllegalStateException(
+          ("Camunda 8 adapter '%s' is used but not configured: the %s missing. "
+              + "Configure the Camunda 8 connection for this adapter instance.")
+              .formatted(
+                  adapterId,
+                  missing.size() == 1
+                      ? "property '%s' is".formatted(propertyKey(adapterId, missing.getFirst()))
+                      : "properties %s are".formatted(missing
+                          .stream()
+                          .map(key -> "'%s'".formatted(propertyKey(adapterId, key)))
+                          .collect(java.util.stream.Collectors.joining(", ")))));
     }
 
   }
 
-  private void requireProperty(
+  /**
+   * Builds the full property key of a connection property of the given adapter
+   * instance (e.g. <code>vanillabp.adapters.c8.rest-address</code>).
+   *
+   * @param adapterId The adapter ID
+   * @param key The property key relative to the adapter's section
+   * @return The full property key
+   */
+  public static String propertyKey(
       final String adapterId,
-      final String key,
+      final String key) {
+
+    return "%s.%s.%s".formatted(CONFIGURATION_PREFIX, adapterId, key);
+
+  }
+
+  private static boolean isBlank(
       final String value) {
 
-    if (value == null || value.isBlank()) {
-      throw new IllegalStateException(
-          ("Camunda 8 adapter '%s' is used but not configured: the property '%s.%s.%s' is "
-              + "missing. Configure the Camunda 8 connection for this adapter instance.")
-              .formatted(adapterId, CONFIGURATION_PREFIX, adapterId, key));
-    }
+    return (value == null) || value.isBlank();
 
   }
 

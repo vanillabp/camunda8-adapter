@@ -1,0 +1,103 @@
+package io.vanillabp.camunda8.client;
+
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+
+/**
+ * Startup validation of one Camunda 8 adapter instance's connection configuration -
+ * configuration is validated AT STARTUP, never first at runtime (a VanillaBP core
+ * principle). Three states:
+ * <ul>
+ *   <li><b>complete</b> - nothing to report;</li>
+ *   <li><b>absent</b> (no connection key at all) - the application still boots:
+ *       a guiding WARN names the adapter id and the exact keys to add;</li>
+ *   <li><b>inconsistent</b> (partially configured, e.g. <code>mode: saas</code>
+ *       without <code>cluster-id</code>) - a genuine defect: the boot FAILS with a
+ *       message naming the missing keys. Exception: an adapter that is NOWHERE
+ *       first in any prioritized-adapters list (globally, per module, per workflow)
+ *       may honor its <code>deployment-failure: warn</code> policy and degrade to a
+ *       WARN - the migration scenario's old BPMS must not block the boot.</li>
+ * </ul>
+ * Messages name property KEYS only, never values - credentials
+ * (<code>client-secret</code> etc.) are never echoed.
+ */
+public final class Camunda8StartupValidation {
+
+  private Camunda8StartupValidation() {
+  }
+
+  /**
+   * Validates the given adapter instance's connection configuration at startup.
+   *
+   * @param adapterId The adapter ID
+   * @param configuration The (bound) connection configuration
+   * @param firstPriorityAnywhere Whether the adapter is first priority at any level
+   *          (see {@code MigrationAdapterProperties#isFirstPriorityAnywhere})
+   * @param deploymentFailureWarn Whether the adapter's deployment-failure policy is
+   *          <code>warn</code>
+   * @param warnLogger Sink for guiding warnings (the application keeps booting)
+   * @throws IllegalStateException If the configuration is inconsistent and the
+   *           adapter must not degrade (first priority somewhere or policy
+   *           <code>fail</code>)
+   */
+  public static void validateAtStartup(
+      final String adapterId,
+      final Camunda8AdapterConfiguration configuration,
+      final boolean firstPriorityAnywhere,
+      final boolean deploymentFailureWarn,
+      final Consumer<String> warnLogger) {
+
+    if (configuration.isAbsent()) {
+      warnLogger.accept(
+          """
+              Camunda 8 adapter '%s' has no connection configuration yet - the application boots, but \
+              deploying BPMNs or starting workflows via this adapter will fail until configured. Add the \
+              connection properties for this adapter instance:
+                %s (self-managed | saas; default self-managed)
+                %s (self-managed)
+                %s, %s, %s, %s (saas)"""
+              .formatted(
+                  adapterId,
+                  Camunda8AdapterConfiguration.propertyKey(adapterId, "mode"),
+                  Camunda8AdapterConfiguration.propertyKey(adapterId, "rest-address"),
+                  Camunda8AdapterConfiguration.propertyKey(adapterId, "cluster-id"),
+                  Camunda8AdapterConfiguration.propertyKey(adapterId, "region"),
+                  Camunda8AdapterConfiguration.propertyKey(adapterId, "client-id"),
+                  Camunda8AdapterConfiguration.propertyKey(adapterId, "client-secret")));
+      return;
+    }
+
+    final var missing = configuration.missingConnectionProperties();
+    if (missing.isEmpty()) {
+      return;
+    }
+
+    final var missingKeys = missing
+        .stream()
+        .map(key -> Camunda8AdapterConfiguration.propertyKey(adapterId, key))
+        .collect(Collectors.joining("\n  "));
+    if (!firstPriorityAnywhere && deploymentFailureWarn) {
+      warnLogger.accept(
+          """
+              Camunda 8 adapter '%s' is configured inconsistently - these properties are missing:
+                %s
+              The adapter is nowhere first priority and its deployment-failure policy is 'warn', so the \
+              application boots DEGRADED: any use of this adapter will fail until the properties are added."""
+              .formatted(adapterId, missingKeys));
+      return;
+    }
+
+    throw new IllegalStateException(
+        """
+            Camunda 8 adapter '%s' is configured inconsistently - these properties are missing:
+              %s
+            Add the missing properties. (An adapter that is nowhere first in a prioritized-adapters list \
+            may instead set '%s' to 'warn' to boot degraded - e.g. the old BPMS during a migration.)"""
+            .formatted(
+                adapterId,
+                missingKeys,
+                Camunda8AdapterConfiguration.propertyKey(adapterId, "deployment-failure")));
+
+  }
+
+}

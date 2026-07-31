@@ -9,6 +9,7 @@ import io.vanillabp.camunda8.quarkus.deployment.config.Camunda8Properties;
 import io.vanillabp.camunda8.quarkus.runtime.Camunda8ClientProducer;
 import io.vanillabp.camunda8.quarkus.runtime.Camunda8DeploymentServiceProducer;
 import io.vanillabp.camunda8.quarkus.runtime.Camunda8ProcessServiceProducer;
+import io.vanillabp.camunda8.quarkus.runtime.Camunda8StartupObserver;
 import io.vanillabp.integration.deployment.processservice.VanillaBpMigratableProcessServiceBuildItem;
 
 /**
@@ -60,6 +61,7 @@ class Camunda8IntegrationProcessor {
     return AdditionalBeanBuildItem
         .builder()
         .addBeanClass(Camunda8ClientProducer.class)
+        .addBeanClass(Camunda8StartupObserver.class)
         .addBeanClass(Camunda8DeploymentServiceProducer.class)
         .setUnremovable()
         .build();

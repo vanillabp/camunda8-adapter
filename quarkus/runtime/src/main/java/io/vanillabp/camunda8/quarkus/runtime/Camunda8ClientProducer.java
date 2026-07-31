@@ -8,6 +8,7 @@ import org.eclipse.microprofile.config.ConfigProvider;
 import io.smallrye.config.SmallRyeConfig;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.client.Camunda8StartupValidation;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -23,14 +24,19 @@ import jakarta.inject.Singleton;
  * parsed programmatically (that pattern is lossy for environment-variable sources).
  * <p>
  * The adapter-id set comes from the platform's core properties (adapter ids of type
- * {@code camunda8}); the overlay map is used as a per-known-id lookup only. An
- * application configuring a Camunda 8 adapter id without any connection properties
- * still boots - a missing property surfaces only on first use of the client. The
- * registry is closed on application shutdown via the
+ * {@code camunda8}); the overlay map is used as a per-known-id lookup only. Every
+ * instance's connection configuration is VALIDATED AT STARTUP (the
+ * {@link Camunda8StartupObserver} forces this producer on {@code StartupEvent}):
+ * an entirely unconfigured adapter boots with a guiding warning, an inconsistently
+ * configured one fails the boot (unless it is nowhere first priority and its
+ * deployment-failure policy is 'warn'); clients of completely configured adapters
+ * are built eagerly. The registry is closed on application shutdown via the
  * {@link #close(Camunda8ClientFactoryRegistry) disposer}, closing all clients.
  */
 @ApplicationScoped
 public class Camunda8ClientProducer {
+
+  private static final org.jboss.logging.Logger log = org.jboss.logging.Logger.getLogger(Camunda8ClientProducer.class);
 
   @Produces
   @Singleton
@@ -49,9 +55,17 @@ public class Camunda8ClientProducer {
         .stream()
         .filter(adapter -> Camunda8DeploymentService.ADAPTER_TYPE.equals(adapter.getValue()))
         .map(Map.Entry::getKey)
-        .forEach(adapterId -> configurations.put(
-            adapterId,
-            toConfiguration(overlay.adapters().get(adapterId))));
+        .forEach(adapterId -> {
+          final var configuration = toConfiguration(overlay.adapters().get(adapterId));
+          Camunda8StartupValidation.validateAtStartup(
+              adapterId,
+              configuration,
+              properties.isFirstPriorityAnywhere(adapterId),
+              properties.getDeploymentFailureFor(
+                  adapterId) == io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy.WARN,
+              log::warn);
+          configurations.put(adapterId, configuration);
+        });
 
     return new Camunda8ClientFactoryRegistry(configurations);
 

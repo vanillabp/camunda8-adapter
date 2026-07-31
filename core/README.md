@@ -15,7 +15,7 @@ configuration, create beans, run the bean lifecycle).
   the platform modules from `vanillabp.adapters.<adapter-id>.*` (see the root `README.md`).
   Validated lazily; `validate(adapterId)` throws naming the exact missing property.
 - `Camunda8ClientFactory` - owns the single `CamundaClient` of one adapter instance, built
-  **lazily on first use** and closed on `close()`. Building never contacts the cluster
+  **eagerly at startup** (for completely configured instances) and closed on `close()`. Building never contacts the cluster
   (that happens on the first command). `newClientBuilder()` is used for self-managed,
   `newCloudClientBuilder()` for SaaS.
 - `Camunda8ClientFactoryRegistry` - map adapter ID &rarr; factory, registered as a managed

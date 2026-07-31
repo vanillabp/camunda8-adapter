@@ -9,8 +9,10 @@ import org.springframework.context.annotation.Bean;
 
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.client.Camunda8StartupValidation;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.integration.config.VanillaBpConfigurationProperties;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Exposes the {@link Camunda8ClientFactoryRegistry} built from the canonical
@@ -20,10 +22,14 @@ import io.vanillabp.integration.config.VanillaBpConfigurationProperties;
  * {@code close()} is called on application shutdown, closing all clients.
  * <p>
  * The adapter-id set comes from the platform's core properties (adapter ids of type
- * {@code camunda8}); the overlay map is used as a per-known-id lookup only. An
- * application configuring a Camunda 8 adapter id without any connection properties
- * still boots - a missing property surfaces only on first use of the client.
+ * {@code camunda8}); the overlay map is used as a per-known-id lookup only. Every
+ * instance's connection configuration is VALIDATED AT STARTUP
+ * ({@link Camunda8StartupValidation}): an entirely unconfigured adapter boots with a
+ * guiding warning, an inconsistently configured one fails the boot (unless it is
+ * nowhere first priority and its deployment-failure policy is 'warn'); clients of
+ * completely configured adapters are built eagerly.
  */
+@Slf4j
 @AutoConfiguration
 @EnableConfigurationProperties({
     VanillaBpConfigurationProperties.class, VanillaBpCamunda8Properties.class
@@ -42,11 +48,19 @@ public class Camunda8ClientAutoConfiguration {
         .stream()
         .filter(adapter -> Camunda8DeploymentService.ADAPTER_TYPE.equals(adapter.getValue()))
         .map(Map.Entry::getKey)
-        .forEach(adapterId -> configurations.put(
-            adapterId,
-            overlay
-                .getAdapters()
-                .getOrDefault(adapterId, new Camunda8AdapterConfiguration())));
+        .forEach(adapterId -> {
+          final var configuration = overlay
+              .getAdapters()
+              .getOrDefault(adapterId, new Camunda8AdapterConfiguration());
+          Camunda8StartupValidation.validateAtStartup(
+              adapterId,
+              configuration,
+              coreProperties.isFirstPriorityAnywhere(adapterId),
+              coreProperties.getDeploymentFailureFor(
+                  adapterId) == io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy.WARN,
+              log::warn);
+          configurations.put(adapterId, configuration);
+        });
 
     return new Camunda8ClientFactoryRegistry(configurations);
 

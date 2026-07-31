@@ -75,8 +75,9 @@ its own keys to the shared VanillaBP tree via platform OVERLAYS (Spring Boot: a 
 `@ConfigurationProperties("vanillabp")` class; Quarkus: a second RUN_TIME
 `@ConfigMapping(prefix = "vanillabp")`, which also provides the unknown-key validation
 coverage for these keys). The values are turned into a plain-Java `CamundaClient` built
-lazily on first use. The adapter-id set always comes from the platform's core
-properties (ids of type `camunda8`); the overlay maps are per-known-id lookups only.
+EAGERLY at startup for every completely configured adapter instance. The adapter-id
+set always comes from the platform's core properties (ids of type `camunda8`); the
+overlay maps are per-known-id lookups only.
 
 |                    Property                     |  Applies to  |                  Required                  |                  Description                   |
 |-------------------------------------------------|--------------|--------------------------------------------|------------------------------------------------|
@@ -101,11 +102,21 @@ vanillabp:
       rest-address: http://localhost:8080
 ```
 
-**Boot behavior:** An application which configures a Camunda 8 adapter but leaves the
-connection properties out still boots. The client is built lazily and the configuration
-is validated on first use; a missing property fails with a message naming the exact
-property (e.g. `vanillabp.adapters.myengine.rest-address`). If a workflow module has BPMN
-files but the client is unconfigured, deployment on startup fails with that message.
+**Boot behavior (validated at startup):** Every configured adapter instance's
+connection configuration is validated AT STARTUP:
+
+- entirely unconfigured → the application still boots; a guiding WARN names the
+  adapter id and the exact keys to add (e.g. `vanillabp.adapters.myengine.rest-address`);
+- inconsistent (e.g. `mode: saas` without `cluster-id`) → the boot FAILS naming the
+  missing keys - unless the adapter is nowhere first in any prioritized-adapters list
+  and its `deployment-failure` policy is `warn` (then the application boots DEGRADED
+  with a warning; the migration scenario's old BPMS must not block the boot);
+- fully configured → the client is built eagerly (building never contacts the
+  cluster).
+
+Messages name property KEYS only - values, especially credentials like
+`client-secret`, are never echoed. Using an unconfigured adapter at runtime keeps a
+guiding failure message as backstop.
 
 ### Behavior
 

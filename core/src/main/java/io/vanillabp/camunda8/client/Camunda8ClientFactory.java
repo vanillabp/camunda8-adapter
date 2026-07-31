@@ -7,20 +7,21 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Lazily builds and owns the single {@link CamundaClient} of one Camunda 8 adapter
- * instance (adapter ID). One factory exists <b>per adapter ID</b> (not per adapter type)
+ * Builds and owns the single {@link CamundaClient} of one Camunda 8 adapter instance
+ * (adapter ID). One factory exists <b>per adapter ID</b> (not per adapter type)
  * because the same BPMS type may be configured multiple times for a BPMS migration.
  * <p>
- * The client is built on first use ({@link #getClient()}) from the
- * {@link Camunda8AdapterConfiguration} and closed on {@link #close()} (called on
- * application shutdown by the platform bean lifecycle). Building the client neither opens
- * a connection nor contacts the cluster - that happens only when the first command is
- * sent.
+ * The client is built EAGERLY at construction time (i.e. at application startup) if
+ * the connection configuration is complete - configuration defects surface at boot,
+ * not first at runtime (see {@link Camunda8StartupValidation}). Building the client
+ * neither opens a connection nor contacts the cluster - that happens only when the
+ * first command is sent. The factory is closed on {@link #close()} (called on
+ * application shutdown by the platform bean lifecycle).
  * <p>
- * An application which configures a Camunda 8 adapter but never uses it still boots: the
- * configuration is validated lazily, so a missing connection property fails only on first
- * use with a message naming the exact missing property (see
- * {@link Camunda8AdapterConfiguration#validate(String)}).
+ * An application which configures a Camunda 8 adapter incompletely may still boot
+ * (absent configuration, or the degraded 'warn' policy): no client is built then, and
+ * {@link #getClient()} fails as a runtime BACKSTOP with a message naming the missing
+ * properties (see {@link Camunda8AdapterConfiguration#validate(String)}).
  */
 @Slf4j
 public class Camunda8ClientFactory implements AutoCloseable {
@@ -31,7 +32,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
   @Getter
   private final Camunda8AdapterConfiguration configuration;
 
-  private volatile CamundaClient client;
+  private CamundaClient client;
 
   public Camunda8ClientFactory(
       final String adapterId,
@@ -39,6 +40,12 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
     this.adapterId = adapterId;
     this.configuration = configuration;
+    // eager: configuration defects surface at startup, not first at runtime; an
+    // incompletely configured adapter (absent / degraded) builds no client and
+    // fails on first use instead (backstop)
+    if (configuration.missingConnectionProperties().isEmpty()) {
+      this.client = build();
+    }
 
   }
 
@@ -56,36 +63,30 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
-   * Whether {@link #close()} was called. Guards against the shutdown race: a
-   * dispatch racing the shutdown would otherwise re-enter {@link #getClient()}
-   * after close and build a fresh client nobody ever closes.
+   * Whether {@link #close()} was called: a dispatch racing the shutdown must not
+   * use a client which is about to be closed.
    */
   private volatile boolean closed = false;
 
   /**
-   * @return The lazily built {@link CamundaClient} of this adapter instance
-   * @throws IllegalStateException If a required connection property is missing or
-   *         the factory was already closed (application shutdown)
+   * @return The eagerly built {@link CamundaClient} of this adapter instance
+   * @throws IllegalStateException If the adapter's connection configuration is
+   *         incomplete (runtime backstop naming the missing properties) or the
+   *         factory was already closed (application shutdown)
    */
   public CamundaClient getClient() {
 
-    var result = client;
-    if (result == null) {
-      synchronized (this) {
-        if (closed) {
-          throw new IllegalStateException(
-              "The Camunda 8 client factory of adapter '%s' was already closed (application shutdown)!"
-                  .formatted(adapterId));
-        }
-        result = client;
-        if (result == null) {
-          configuration.validate(adapterId);
-          result = build();
-          client = result;
-        }
-      }
+    if (closed) {
+      throw new IllegalStateException(
+          "The Camunda 8 client factory of adapter '%s' was already closed (application shutdown)!"
+              .formatted(adapterId));
     }
-    return result;
+    if (client == null) {
+      // backstop for adapters which booted unconfigured/degraded - throws with a
+      // guiding message naming the missing properties
+      configuration.validate(adapterId);
+    }
+    return client;
 
   }
 
