@@ -163,10 +163,17 @@ here.
   is ever activated). Skipped automatically when Docker is unavailable
   (`@Testcontainers(disabledWithoutDocker = true)`).
 - **Spring Boot / Quarkus discovery tests:** the adapter is discovered and the deployment
-  service, process service and client-factory registry beans are created (no cluster
-  needed). On Quarkus this is the extent of the coverage: the Quarkus platform integration
-  does not yet run the deployment pipeline on startup (its own later story), so deployment
-  and start are covered against a real cluster only on Spring Boot.
+  service (one per configured adapter id), process service and client-factory registry
+  beans are created (no cluster needed).
+- **Quarkus deployment-pipeline test** (`Camunda8DeploymentPipelineTest`, no Docker):
+  since story 26b the Quarkus platform integration runs the deployment pipeline at
+  boot. The test provides a BPMN below the configured `resources-location` and a REST
+  address pointing to a closed port: the pipeline reads/parses the BPMN and attempts
+  the deployment, whose connection failure aborts the boot (the adapter is
+  first-priority) - proving the pipeline mechanics without a cluster. A real-cluster
+  deployment on Quarkus is not additionally tested: the deployment logic is shared
+  `core` code, covered against a real cluster by the Spring Boot
+  `Camunda8DeploymentAndStartIT` above.
 
 ## Camunda 8 client
 

@@ -8,9 +8,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
-import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.quarkus.test.QuarkusUnitTest;
-import io.vanillabp.camunda8.Camunda8ProcessingContext;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
@@ -47,8 +45,9 @@ public class Camunda8AdapterDiscoveryTest {
   @Inject
   Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
+  // the platform contract: the List's element type parameters are literally Object
   @Inject
-  List<AdapterDeploymentService<BpmnModelInstance, Camunda8ProcessingContext>> deploymentServices;
+  List<AdapterDeploymentService<Object, Object>> deploymentServices;
 
   @Test
   public void adapterIsDiscovered() {
