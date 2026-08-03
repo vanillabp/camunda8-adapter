@@ -1,7 +1,9 @@
 package io.vanillabp.camunda8.deployment;
 
 import java.io.InputStream;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -12,8 +14,12 @@ import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.Process;
 import io.vanillabp.camunda8.Camunda8ProcessingContext;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.camunda8.wiring.Camunda8JobHandler;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.BpmnParseException;
+import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -27,8 +33,10 @@ import lombok.extern.slf4j.Slf4j;
  * {@link Camunda8ProcessingContext}, which collects all deployable resources of a workflow
  * module so they are deployed in a single {@code DeployResourceCommand}.
  * <p>
- * Task wiring ({@code wireBpmn}) and job workers ({@code startWorkflowProcessing}) are
- * later stories; for now those methods only log.
+ * Task wiring ({@code wireBpmn}) validates the BPMN's job-worker tasks
+ * (zeebe:taskDefinition) against the registered {@code @WorkflowTask} methods;
+ * {@code startWorkflowProcessing} opens one polling job worker per task definition
+ * (closed on {@code stopWorkflowProcessing}).
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -43,6 +51,24 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final String adapterId;
 
   private final Camunda8ClientFactory clientFactory;
+
+  /**
+   * The core's task-processing entry point: wiring validation during
+   * {@link #wireBpmn} and job dispatch at runtime.
+   */
+  private final WorkflowTaskInvoker workflowTaskInvoker;
+
+  /**
+   * Resolves the per-task job timeout from the adapter's configuration overlay
+   * (task &gt; workflow &gt; workflow-module &gt; adapter, most specific wins).
+   */
+  private final Camunda8JobTimeoutResolver jobTimeoutResolver;
+
+  /**
+   * How long a {@code @TaskId} job stays dormant awaiting its asynchronous
+   * completion (see {@link Camunda8JobHandler}).
+   */
+  private final Duration asyncTaskTimeout;
 
   @Override
   public String getAdapterId() {
@@ -126,10 +152,26 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final BpmnModelInstance model,
       final Camunda8ProcessingContext context) {
 
-    // task wiring (job workers) is a later story
-    log.debug("Wiring BPMN process '{}' of file '{}' (workflow module '{}', adapter '{}') - "
-        + "task wiring is implemented in a later story",
-        bpmnProcessId, filename, workflowModuleId, adapterId);
+    // extract the job-worker tasks (zeebe:taskDefinition type = VanillaBP task
+    // definition) and validate them against the registered @WorkflowTask methods;
+    // throwing here honors the deployment-failure policy
+    final var tasks = Camunda8TaskWiring.tasksOf(model, bpmnProcessId);
+    workflowTaskInvoker.validateTaskWiring(
+        workflowModuleId,
+        bpmnProcessId,
+        tasks
+            .stream()
+            .map(Camunda8TaskWiring.Camunda8TaskToWire::toSpec)
+            .toList());
+    context.getTasksToWire().addAll(tasks);
+
+    log.info(
+        "Camunda8[{}]: wired {} task(s) of BPMN process '{}' (file '{}', workflow module '{}')",
+        adapterId,
+        tasks.size(),
+        bpmnProcessId,
+        filename,
+        workflowModuleId);
 
   }
 
@@ -178,6 +220,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .formatted(workflowModuleId, adapterId), e);
     }
 
+    // after ALL processes of the module were wired: methods matching no task of
+    // any wired process are a defect (per-module check, honors the policy)
+    workflowTaskInvoker.validateNoUnwiredWorkflowTaskMethods(workflowModuleId);
+
   }
 
   @Override
@@ -185,9 +231,60 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final Camunda8ProcessingContext bpmsProcessingContext) {
 
-    // job workers pulling service tasks are a later story; nothing to start yet
-    log.info("Workflow processing started for workflow module '{}' (adapter '{}') - "
-        + "job workers are implemented in a later story", workflowModuleId, adapterId);
+    // one polling worker per (adapter id, task definition): the job type routes
+    // deliveries; tasks of DIFFERENT processes sharing a task definition are
+    // served by one worker (job.getBpmnProcessId() routes to the right handlers).
+    // The job timeout is resolved most-specific-wins - a task definition used by
+    // several tasks with CONFLICTING configured timeouts fails guiding.
+    final var timeoutsByDefinition = new LinkedHashMap<String, Duration>();
+    final var client = clientFactory.getClient();
+    bpmsProcessingContext
+        .getTasksToWire()
+        .forEach(task -> {
+          if (task.taskDefinition() == null) {
+            return; // already reported by the wiring validation
+          }
+          final var timeout = jobTimeoutResolver.jobTimeoutFor(
+              workflowModuleId,
+              task.bpmnProcessId(),
+              task.taskDefinition());
+          final var previous = timeoutsByDefinition.putIfAbsent(task.taskDefinition(), timeout);
+          if ((previous != null) && !previous.equals(timeout)) {
+            throw new IllegalStateException(
+                """
+                    The task definition '%s' of workflow module '%s' is used by several tasks with \
+                    CONFLICTING job timeouts (%s vs. %s)! One polling worker serves a task \
+                    definition - configure the same 'job-timeout' for all its tasks (property \
+                    levels: vanillabp.workflow-modules.%s.workflows.<workflow>.tasks.%s.adapters.%s.job-timeout)."""
+                    .formatted(
+                        task.taskDefinition(),
+                        workflowModuleId,
+                        previous,
+                        timeout,
+                        workflowModuleId,
+                        task.taskDefinition(),
+                        adapterId));
+          }
+        });
+    timeoutsByDefinition.forEach((
+        taskDefinition,
+        timeout) -> {
+      final var worker = client
+          .newWorker()
+          .jobType(taskDefinition)
+          .handler(new Camunda8JobHandler(adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskTimeout))
+          .timeout(timeout)
+          .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition))
+          .open();
+      bpmsProcessingContext.getOpenWorkers().add(worker);
+      log.info(
+          "Camunda8[{}]: opened job worker for task definition '{}' of workflow module '{}' "
+              + "(job timeout {})",
+          adapterId,
+          taskDefinition,
+          workflowModuleId,
+          timeout);
+    });
 
   }
 
@@ -196,8 +293,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final Camunda8ProcessingContext bpmsProcessingContext) {
 
-    // the CamundaClient itself is closed by the Camunda8ClientFactory on application
-    // shutdown (it is shared across all workflow modules of the adapter instance)
+    // close this module's workers (reverse order); the CamundaClient itself is
+    // closed by the Camunda8ClientFactory on application shutdown
+    final var workers = bpmsProcessingContext.getOpenWorkers();
+    for (var i = workers.size() - 1; i >= 0; --i) {
+      workers.get(i).close();
+    }
+    workers.clear();
     log.info("Workflow processing stopped for workflow module '{}' (adapter '{}')",
         workflowModuleId, adapterId);
 

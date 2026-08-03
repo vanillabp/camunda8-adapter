@@ -7,7 +7,9 @@ import org.springframework.core.env.Environment;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
+import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
 import io.vanillabp.integration.adapter.AdapterBeanRegistrarSupport;
+import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
 
 /**
  * Registers the Camunda 8 adapter's per-adapter-id beans: for EACH configured adapter
@@ -48,10 +50,22 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
           registry.registerBean(
               "Camunda8_DeploymentService_%s".formatted(adapterId),
               Camunda8DeploymentService.class,
-              spec -> spec.supplier(supplierContext -> new Camunda8DeploymentService(
-                  adapterId, supplierContext
-                      .bean(Camunda8ClientFactoryRegistry.class)
-                      .getFactory(adapterId))));
+              spec -> spec.supplier(supplierContext -> {
+                final var overlay = supplierContext.bean(VanillaBpCamunda8Properties.class);
+                final var adapterKeys = overlay.getAdapters().get(adapterId);
+                final var asyncTaskTimeout = (adapterKeys != null) && (adapterKeys.getAsyncTaskTimeout() != null)
+                    ? adapterKeys.getAsyncTaskTimeout()
+                    : java.time.Duration.ofDays(14);
+                return new Camunda8DeploymentService(
+                    adapterId, supplierContext
+                        .bean(Camunda8ClientFactoryRegistry.class)
+                        .getFactory(adapterId), supplierContext
+                            .bean(WorkflowTaskInvoker.class), (
+                                workflowModuleId,
+                                bpmnProcessId,
+                                taskDefinition) -> overlay.jobTimeoutFor(
+                                    workflowModuleId, bpmnProcessId, taskDefinition, adapterId), asyncTaskTimeout);
+              }));
 
         });
 

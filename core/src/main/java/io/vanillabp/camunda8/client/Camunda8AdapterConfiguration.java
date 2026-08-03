@@ -92,6 +92,20 @@ public class Camunda8AdapterConfiguration {
   private String clientSecret;
 
   /**
+   * The worker's job timeout (lock duration) - adapter-level base of the
+   * most-specific-wins resolution (task &gt; workflow &gt; workflow-module &gt;
+   * adapter). Default: 5 minutes.
+   */
+  private java.time.Duration jobTimeout;
+
+  /**
+   * How long a <code>&#64;TaskId</code> job stays dormant awaiting its
+   * asynchronous completion (the job's lock is extended once to this duration
+   * when the handler returns without completing). Default: 14 days.
+   */
+  private java.time.Duration asyncTaskTimeout;
+
+  /**
    * Whether NO connection property is set at all - the "not configured yet" state:
    * the application still boots (with a guiding startup warning), only using the
    * adapter fails. The defaulted properties ({@link #mode},

@@ -1,0 +1,140 @@
+package io.vanillabp.camunda8.springboot.it;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.springframework.stereotype.Service;
+
+import io.vanillabp.spi.process.ProcessService;
+import io.vanillabp.spi.service.BpmnProcess;
+import io.vanillabp.spi.service.TaskException;
+import io.vanillabp.spi.service.TaskId;
+import io.vanillabp.spi.service.WorkflowService;
+import io.vanillabp.spi.service.WorkflowTask;
+
+/**
+ * Workflow service of the task-processing integration test (story 21c): one
+ * {@code @WorkflowTask} method per outcome variation, serving three BPMN processes
+ * of one aggregate. Handlers record invocation counts so the test can prove
+ * at-least-once redelivery convergence and async-task dormancy.
+ */
+@Service
+@WorkflowService(
+    workflowAggregateClass = TaskDockerAggregate.class,
+    bpmnProcess = @BpmnProcess(bpmnProcessId = "TaskProcess"),
+    secondaryBpmnProcesses = {
+        @BpmnProcess(bpmnProcessId = "FailProcess"), @BpmnProcess(bpmnProcessId = "AsyncProcess"), @BpmnProcess(
+            bpmnProcessId = "RetryProcess")
+    })
+public class TaskDockerWorkflowService {
+
+  /**
+   * Invocation counters per (task definition + aggregate ID) - inspected by the
+   * integration test.
+   */
+  public static final Map<String, AtomicInteger> INVOCATIONS = new ConcurrentHashMap<>();
+
+  private final ProcessService<TaskDockerAggregate> processService;
+
+  public TaskDockerWorkflowService(
+      final ProcessService<TaskDockerAggregate> processService) {
+
+    this.processService = processService;
+
+  }
+
+  public TaskDockerAggregate startWorkflow(
+      final TaskDockerAggregate aggregate) {
+
+    return processService.startWorkflow(aggregate);
+
+  }
+
+  private static int countInvocation(
+      final String taskDefinition,
+      final TaskDockerAggregate aggregate) {
+
+    return INVOCATIONS
+        .computeIfAbsent(
+            taskDefinition
+                + ":"
+                + aggregate.getId(),
+            key -> new AtomicInteger())
+        .incrementAndGet();
+
+  }
+
+  @WorkflowTask
+  public void happyTask(
+      final TaskDockerAggregate aggregate) {
+
+    countInvocation("happyTask", aggregate);
+    // idempotent: keyed on aggregate state, not on call count
+    if ((aggregate.getResults() == null) || !aggregate.getResults().contains("happy")) {
+      aggregate.appendResult("happy");
+    }
+
+  }
+
+  @WorkflowTask
+  public void retryTask(
+      final TaskDockerAggregate aggregate) {
+
+    // the FIRST delivery fails technically (local transaction rolled back, job
+    // failed with decremented retries) - Camunda 8 REDELIVERS the same task and
+    // the second delivery converges idempotently: at-least-once proven
+    if (countInvocation("retryTask", aggregate) == 1) {
+      throw new IllegalStateException("first delivery fails - forcing a redelivery");
+    }
+    if ((aggregate.getResults() == null) || !aggregate.getResults().contains("retried")) {
+      aggregate.appendResult("retried");
+    }
+
+  }
+
+  @WorkflowTask
+  public void errorTask(
+      final TaskDockerAggregate aggregate) {
+
+    countInvocation("errorTask", aggregate);
+    // the mutation has to be COMMITTED although the handler throws - the V1
+    // TaskException contract (BPMN error, no rollback)
+    aggregate.appendResult("error-raised");
+    throw new TaskException("PaymentFailed", "PAYMENT_FAILED");
+
+  }
+
+  @WorkflowTask
+  public void errorHandled(
+      final TaskDockerAggregate aggregate) {
+
+    countInvocation("errorHandled", aggregate);
+    aggregate.appendResult("handled");
+
+  }
+
+  @WorkflowTask
+  public void alwaysFails(
+      final TaskDockerAggregate aggregate) {
+
+    countInvocation("alwaysFails", aggregate);
+    // must NEVER become visible: a technical exception rolls back the local
+    // transaction; the job is failed with decremented retries
+    aggregate.appendResult("must-never-be-visible");
+    throw new IllegalStateException("boom-c8");
+
+  }
+
+  @WorkflowTask
+  public void asyncTask(
+      final TaskDockerAggregate aggregate,
+      @TaskId final String taskId) {
+
+    countInvocation("asyncTask", aggregate);
+    aggregate.setTaskId(taskId);
+    aggregate.appendResult("async-open");
+
+  }
+
+}

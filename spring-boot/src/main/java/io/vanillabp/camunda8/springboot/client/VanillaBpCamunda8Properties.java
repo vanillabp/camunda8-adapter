@@ -36,4 +36,109 @@ public class VanillaBpCamunda8Properties {
    */
   private Map<String, Camunda8AdapterConfiguration> adapters = Map.of();
 
+  /**
+   * The workflow-module sections of the shared tree - the overlay mirrors the
+   * levels of the most-specific-wins resolution of scope-specific adapter keys
+   * (task &gt; workflow &gt; workflow-module &gt; adapter), currently:
+   * <code>job-timeout</code>.
+   */
+  private Map<String, ModuleOverlay> workflowModules = Map.of();
+
+  /**
+   * Resolves the job timeout for a task with most-specific-wins semantics across
+   * the four levels; falls back to the adapter-level value and finally the
+   * default.
+   */
+  public java.time.Duration jobTimeoutFor(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String taskDefinition,
+      final String adapterId) {
+
+    final var module = workflowModuleId != null
+        ? workflowModules.get(workflowModuleId)
+        : null;
+    final var workflow = (module != null) && (bpmnProcessId != null)
+        ? module.getWorkflows().get(bpmnProcessId)
+        : null;
+    final var task = (workflow != null) && (taskDefinition != null)
+        ? workflow.getTasks().get(taskDefinition)
+        : null;
+
+    final var levelsMostSpecificFirst = new java.util.LinkedList<Map<String, Camunda8ScopedKeys>>();
+    if (task != null) {
+      levelsMostSpecificFirst.add(task.getAdapters());
+    }
+    if (workflow != null) {
+      levelsMostSpecificFirst.add(workflow.getAdapters());
+    }
+    if (module != null) {
+      levelsMostSpecificFirst.add(module.getAdapters());
+    }
+    final var scoped = levelsMostSpecificFirst
+        .stream()
+        .map(level -> level.get(adapterId))
+        .filter(java.util.Objects::nonNull)
+        .map(Camunda8ScopedKeys::getJobTimeout)
+        .filter(java.util.Objects::nonNull)
+        .findFirst();
+    if (scoped.isPresent()) {
+      return scoped.get();
+    }
+    final var adapter = adapters.get(adapterId);
+    return (adapter != null) && (adapter.getJobTimeout() != null)
+        ? adapter.getJobTimeout()
+        : io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT;
+
+  }
+
+  /**
+   * The scope-specific Camunda 8 keys of one <code>adapters.&lt;id&gt;</code>
+   * section below a workflow-module/workflow/task level.
+   */
+  @Getter
+  @Setter
+  public static class Camunda8ScopedKeys {
+
+    private java.time.Duration jobTimeout;
+
+  }
+
+  /**
+   * The Camunda 8 adapter's view of one workflow-module section.
+   */
+  @Getter
+  @Setter
+  public static class ModuleOverlay {
+
+    private Map<String, Camunda8ScopedKeys> adapters = Map.of();
+
+    private Map<String, WorkflowOverlay> workflows = Map.of();
+
+  }
+
+  /**
+   * The Camunda 8 adapter's view of one workflow section.
+   */
+  @Getter
+  @Setter
+  public static class WorkflowOverlay {
+
+    private Map<String, Camunda8ScopedKeys> adapters = Map.of();
+
+    private Map<String, TaskOverlay> tasks = Map.of();
+
+  }
+
+  /**
+   * The Camunda 8 adapter's view of one task section - the MOST specific level.
+   */
+  @Getter
+  @Setter
+  public static class TaskOverlay {
+
+    private Map<String, Camunda8ScopedKeys> adapters = Map.of();
+
+  }
+
 }

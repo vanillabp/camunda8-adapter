@@ -147,6 +147,71 @@ The phase-two outbox has at-least-once semantics: a crash between a successful
 `WorkflowInstanceRegistry` (a separate story); no Camunda-8-side workaround is attempted
 here.
 
+### Task processing (story 21c)
+
+`@WorkflowTask` methods are served by **polling job workers**: at
+`startWorkflowProcessing` the adapter opens ONE worker per distinct task definition
+(the `zeebe:taskDefinition` type) found in the workflow module's BPMN files. Task
+wiring is validated during `wireBpmn` (every BPMN task needs a matching
+`@WorkflowTask` method - service, send, business-rule and script tasks are
+scanned), and unwired `@WorkflowTask` methods are reported at the end of
+`deployResources` (per module; classes whose processes are served by another
+adapter are not reported - the migration policy).
+
+Execution model per delivered job (at-least-once ordering):
+
+1. open a NEW local transaction, load the aggregate by the ID variable
+   (named after `AggregatePersistenceAware.getAggregateIdName()`),
+2. invoke the `@WorkflowTask` method through the core's `WorkflowTaskInvoker`,
+3. save the aggregate and COMMIT,
+4. only then report the outcome to the cluster:
+   - normal return → `CompleteJob`; a `NOT_FOUND` answer is tolerated with a WARN
+     (the job was already completed by an earlier delivery - the documented
+     at-least-once residual, the handler must be idempotent);
+   - `TaskException` → `ThrowError` with the error code (BPMN error; the
+     aggregate changes stay COMMITTED - the V1 contract);
+   - any other exception → the local transaction is rolled back and the job is
+     failed with decremented retries (Camunda 8 redelivers).
+
+**Asynchronous tasks (`@TaskId`) and dormancy:** a handler receiving the task ID
+completes the task later via `ProcessService#completeTask` (upcoming story). Such a
+job must not be redelivered while it waits, so after the commit the adapter extends
+the job's lock ONCE via `UpdateJobTimeout` to the `async-task-timeout` (default 14
+days). The worker's own job timeout stays SHORT - it is the crash-recovery horizon
+for synchronous handlers.
+
+Task-scoped configuration (see the four-level pattern of the VanillaBP
+configuration model - the most specific configured value wins):
+
+```yaml
+vanillabp:
+  adapters:
+    myengine:
+      type: camunda8
+      job-timeout: PT5M           # adapter level (default PT5M)
+      async-task-timeout: P14D    # adapter level only (default P14D)
+  workflow-modules:
+    loan-approval:
+      adapters:
+        myengine:
+          job-timeout: PT2M       # per workflow module
+      workflows:
+        LoanApproval:
+          adapters:
+            myengine:
+              job-timeout: PT1M   # per workflow (BPMN process ID)
+          tasks:
+            assessRisk:
+              adapters:
+                myengine:
+                  job-timeout: PT10S  # per task (task definition)
+```
+
+Limitation: Camunda 8 workers subscribe by job type only. If the SAME task
+definition appears with DIFFERENT resolved job timeouts within one module, the
+startup fails with a guiding message (one worker per job type - give the
+definitions distinct names or align the timeouts).
+
 ### Testing
 
 - **Core unit tests** (no Docker): BPMN parsing / executable-process extraction, client

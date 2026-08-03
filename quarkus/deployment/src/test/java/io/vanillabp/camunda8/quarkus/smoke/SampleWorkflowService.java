@@ -2,6 +2,7 @@ package io.vanillabp.camunda8.quarkus.smoke;
 
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import io.vanillabp.spi.process.ProcessService;
+import io.vanillabp.spi.service.BpmnProcess;
 import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 import jakarta.inject.Inject;
@@ -13,7 +14,9 @@ import jakarta.inject.Singleton;
  * is implemented inline but never used (no workflow is started).
  */
 @Singleton
-@WorkflowService(workflowAggregateClass = Aggregate.class)
+@WorkflowService(
+    workflowAggregateClass = Aggregate.class,
+    bpmnProcess = @BpmnProcess(bpmnProcessId = "TestProcess"))
 public class SampleWorkflowService implements AggregatePersistenceAware<Aggregate> {
 
   @Inject
@@ -36,9 +39,10 @@ public class SampleWorkflowService implements AggregatePersistenceAware<Aggregat
     return null; // not necessary for this test
   }
 
-  @WorkflowTask
+  @WorkflowTask(taskDefinition = "test-job")
   public void doSomething() {
-    // no-op; only used to trigger process-service wiring
+    // no-op; satisfies the task-wiring validation (story 21c) for the smoke
+    // BPMN's service task - never invoked in these tests
   }
 
 }

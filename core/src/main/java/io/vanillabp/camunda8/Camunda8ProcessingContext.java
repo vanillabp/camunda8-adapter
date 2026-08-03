@@ -29,6 +29,21 @@ public class Camunda8ProcessingContext {
    */
   private final Map<String, BpmnModelInstance> resources = new LinkedHashMap<>();
 
+  /**
+   * The job-worker tasks of all executable processes of the module, collected
+   * during wireBpmn - startWorkflowProcessing opens one worker per distinct task
+   * definition.
+   */
+  @Getter
+  private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8TaskToWire> tasksToWire = new java.util.LinkedList<>();
+
+  /**
+   * The workers opened by startWorkflowProcessing, closed by
+   * stopWorkflowProcessing (reverse order).
+   */
+  @Getter
+  private final java.util.List<io.camunda.client.api.worker.JobWorker> openWorkers = new java.util.LinkedList<>();
+
   public Camunda8ProcessingContext(
       final String workflowModuleId) {
 

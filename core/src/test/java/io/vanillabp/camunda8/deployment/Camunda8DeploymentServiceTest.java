@@ -41,8 +41,11 @@ public class Camunda8DeploymentServiceTest {
   private Camunda8DeploymentService newDeploymentService() {
 
     // an unconfigured factory: getClient() would throw if ever called
-    return new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()));
+    return new Camunda8DeploymentService("c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), (
+        m2,
+        p2,
+        t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+            .ofDays(14));
 
   }
 
@@ -134,6 +137,51 @@ public class Camunda8DeploymentServiceTest {
     // null context (no BPMN files at all) and empty context must not build a client
     assertDoesNotThrow(() -> service.deployResources("module", null));
     assertDoesNotThrow(() -> service.deployResources("module", new Camunda8ProcessingContext("module")));
+
+  }
+
+
+  /**
+   * Wiring validation is exercised by the integration tests - unit tests use a
+   * permissive no-op invoker.
+   */
+  static class NoOpInvoker implements io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker {
+
+    @Override
+    public void validateTaskWiring(
+        final String workflowModuleId,
+        final String bpmnProcessId,
+        final java.util.Collection<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec> tasks) {
+    }
+
+    @Override
+    public void validateNoUnwiredWorkflowTaskMethods(
+        final String workflowModuleId) {
+    }
+
+    @Override
+    public io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome invokeWorkflowTask(
+        final String workflowModuleId,
+        final String bpmnProcessId,
+        final io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext context) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Object resolveWorkflowAggregateProperty(
+        final String workflowModuleId,
+        final String bpmnProcessId,
+        final String workflowAggregateId,
+        final String propertyName) {
+      return null;
+    }
+
+    @Override
+    public String resolveWorkflowAggregateIdName(
+        final String workflowModuleId,
+        final String bpmnProcessId) {
+      return "id";
+    }
 
   }
 

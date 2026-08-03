@@ -38,7 +38,13 @@ public class Camunda8DeploymentServiceProducer {
   })
   public List<AdapterDeploymentService<Object, Object>> camunda8DeploymentServices(
       final MigrationAdapterProperties properties,
-      final Camunda8ClientFactoryRegistry clientFactoryRegistry) {
+      final Camunda8ClientFactoryRegistry clientFactoryRegistry,
+      final io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry workflowTaskRegistry) {
+
+    final var overlay = org.eclipse.microprofile.config.ConfigProvider
+        .getConfig()
+        .unwrap(io.smallrye.config.SmallRyeConfig.class)
+        .getConfigMapping(VanillaBpCamunda8Properties.class);
 
     return (List) properties
         .adapterTypes()
@@ -47,7 +53,18 @@ public class Camunda8DeploymentServiceProducer {
         .filter(adapter -> Camunda8DeploymentService.ADAPTER_TYPE.equals(adapter.getValue()))
         .map(Map.Entry::getKey)
         .sorted()
-        .map(adapterId -> new Camunda8DeploymentService(adapterId, clientFactoryRegistry.getFactory(adapterId)))
+        .map(adapterId -> {
+          final var adapterKeys = overlay.adapters().get(adapterId);
+          final var asyncTaskTimeout = adapterKeys != null
+              ? adapterKeys.asyncTaskTimeout().orElse(java.time.Duration.ofDays(14))
+              : java.time.Duration.ofDays(14);
+          return new Camunda8DeploymentService(
+              adapterId, clientFactoryRegistry.getFactory(adapterId), workflowTaskRegistry, (
+                  workflowModuleId,
+                  bpmnProcessId,
+                  taskDefinition) -> overlay.jobTimeoutFor(
+                      workflowModuleId, bpmnProcessId, taskDefinition, adapterId), asyncTaskTimeout);
+        })
         .toList();
 
   }

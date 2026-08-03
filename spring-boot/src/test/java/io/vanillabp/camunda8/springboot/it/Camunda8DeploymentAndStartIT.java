@@ -5,10 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrowsExactly;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,7 +21,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
-import io.camunda.client.api.worker.JobWorker;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.spi.process.ProcessService;
 
@@ -55,12 +51,6 @@ public class Camunda8DeploymentAndStartIT {
 
   private static final String JOB_TYPE = "test-job";
 
-  /**
-   * The name of the process variable carrying the aggregate's ID: the adapter names it
-   * after the aggregate's ID property ({@link DockerAggregate#getId()}).
-   */
-  private static final String AGGREGATE_ID_VARIABLE = "id";
-
   private static final String COUNT_OUTBOX_ENTRIES = "select count(*) from TXNO_OUTBOX";
 
   @Container
@@ -79,10 +69,6 @@ public class Camunda8DeploymentAndStartIT {
           .forStatusCode(200)
           .withStartupTimeout(Duration.ofMinutes(3)));
 
-  /** Aggregate IDs seen by the job worker on the deployed process's service task. */
-  private static final List<String> ACTIVATED_AGGREGATE_IDS = new CopyOnWriteArrayList<>();
-
-  private static JobWorker jobWorker;
 
   @DynamicPropertySource
   static void camunda8Properties(
@@ -114,44 +100,12 @@ public class Camunda8DeploymentAndStartIT {
   private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   @BeforeEach
-  void openWorker() {
+  void resetRecording() {
 
-    ACTIVATED_AGGREGATE_IDS.clear();
-    if (jobWorker == null) {
-      // a raw Camunda 8 job worker completing the service task and recording the
-      // aggregate-ID variable, named after DockerAggregate's @Id property (adapter
-      // task wiring is a later story)
-      jobWorker = clientFactoryRegistry
-          .getFactory("c8")
-          .getClient()
-          .newWorker()
-          .jobType(JOB_TYPE)
-          .handler((
-              jobClient,
-              job) -> {
-            ACTIVATED_AGGREGATE_IDS.add(
-                String.valueOf(job.getVariablesAsMap().get(AGGREGATE_ID_VARIABLE)));
-            jobClient
-                .newCompleteCommand(job)
-                .send()
-                .join();
-          })
-          .name("it-worker")
-          .fetchVariables(AGGREGATE_ID_VARIABLE)
-          .open();
-    }
+    DockerWorkflowService.ACTIVATED_AGGREGATE_IDS.clear();
 
   }
 
-  @AfterAll
-  static void closeWorker() {
-
-    if (jobWorker != null) {
-      jobWorker.close();
-      jobWorker = null;
-    }
-
-  }
 
   private long countOutboxEntries() {
 
@@ -170,7 +124,7 @@ public class Camunda8DeploymentAndStartIT {
       final var saved = processService.startWorkflow(aggregate);
       // phase two runs only after commit - within the transaction no instance exists yet,
       // so the worker cannot have seen anything
-      assertTrue(ACTIVATED_AGGREGATE_IDS.isEmpty(),
+      assertTrue(DockerWorkflowService.ACTIVATED_AGGREGATE_IDS.isEmpty(),
           "no process instance may exist before the transaction commits");
       return saved;
     });
@@ -184,7 +138,7 @@ public class Camunda8DeploymentAndStartIT {
         "expected a process instance with aggregateId '"
             + expectedAggregateId
             + "' after commit, but the worker saw "
-            + ACTIVATED_AGGREGATE_IDS);
+            + DockerWorkflowService.ACTIVATED_AGGREGATE_IDS);
 
   }
 
@@ -214,9 +168,9 @@ public class Camunda8DeploymentAndStartIT {
     // have happened if the rollback had left an outbox entry behind - do not shrink
     // one without the other
     Thread.sleep(3000);
-    assertTrue(ACTIVATED_AGGREGATE_IDS.isEmpty(),
+    assertTrue(DockerWorkflowService.ACTIVATED_AGGREGATE_IDS.isEmpty(),
         "no process instance may be created on rollback, but the worker saw "
-            + ACTIVATED_AGGREGATE_IDS);
+            + DockerWorkflowService.ACTIVATED_AGGREGATE_IDS);
 
   }
 
@@ -226,12 +180,12 @@ public class Camunda8DeploymentAndStartIT {
 
     final var deadline = System.currentTimeMillis() + timeoutMillis;
     while (System.currentTimeMillis() < deadline) {
-      if (ACTIVATED_AGGREGATE_IDS.contains(aggregateId)) {
+      if (DockerWorkflowService.ACTIVATED_AGGREGATE_IDS.contains(aggregateId)) {
         return true;
       }
       Thread.sleep(200);
     }
-    return ACTIVATED_AGGREGATE_IDS.contains(aggregateId);
+    return DockerWorkflowService.ACTIVATED_AGGREGATE_IDS.contains(aggregateId);
 
   }
 
