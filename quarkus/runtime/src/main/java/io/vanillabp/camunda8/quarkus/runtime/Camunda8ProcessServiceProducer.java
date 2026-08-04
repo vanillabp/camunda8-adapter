@@ -30,7 +30,13 @@ public class Camunda8ProcessServiceProducer {
   @Produces
   public List<MigratableProcessService<Object>> camunda8MigratableProcessServices(
       final MigrationAdapterProperties properties,
-      final Camunda8ClientFactoryRegistry clientFactoryRegistry) {
+      final Camunda8ClientFactoryRegistry clientFactoryRegistry,
+      final jakarta.transaction.TransactionSynchronizationRegistry synchronizationRegistry) {
+
+    final var overlay = org.eclipse.microprofile.config.ConfigProvider
+        .getConfig()
+        .unwrap(io.smallrye.config.SmallRyeConfig.class)
+        .getConfigMapping(VanillaBpCamunda8Properties.class);
 
     return properties
         .adapterTypes()
@@ -39,8 +45,16 @@ public class Camunda8ProcessServiceProducer {
         .filter(adapter -> Camunda8DeploymentService.ADAPTER_TYPE.equals(adapter.getValue()))
         .map(Map.Entry::getKey)
         .sorted()
-        .<MigratableProcessService<Object>>map(
-            adapterId -> new Camunda8ProcessService<>(adapterId, clientFactoryRegistry.getFactory(adapterId)))
+        .<MigratableProcessService<Object>>map(adapterId -> {
+          final var adapterKeys = overlay.adapters().get(adapterId);
+          final var asyncTaskTimeout = adapterKeys != null
+              ? adapterKeys.asyncTaskTimeout().orElse(java.time.Duration.ofDays(14))
+              : java.time.Duration.ofDays(14);
+          return new Camunda8ProcessService<>(
+              adapterId, clientFactoryRegistry
+                  .getFactory(adapterId), asyncTaskTimeout, new Camunda8QuarkusPreCommitRegistrar(
+                      synchronizationRegistry));
+        })
         .toList();
 
   }

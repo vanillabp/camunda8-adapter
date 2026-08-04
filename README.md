@@ -174,7 +174,7 @@ Execution model per delivered job (at-least-once ordering):
      failed with decremented retries (Camunda 8 redelivers).
 
 **Asynchronous tasks (`@TaskId`) and dormancy:** a handler receiving the task ID
-completes the task later via `ProcessService#completeTask` (upcoming story). Such a
+completes the task later via `ProcessService#completeTask`. Such a
 job must not be redelivered while it waits, so after the commit the adapter extends
 the job's lock ONCE via `UpdateJobTimeout` to the `async-task-timeout` (default 14
 days). The worker's own job timeout stays SHORT - it is the crash-recovery horizon
@@ -211,6 +211,20 @@ Limitation: Camunda 8 workers subscribe by job type only. If the SAME task
 definition appears with DIFFERENT resolved job timeouts within one module, the
 startup fails with a guiding message (one worker per job type - give the
 definitions distinct names or align the timeouts).
+
+**Completing/canceling async tasks (`ProcessService#completeTask`/`#cancelTask`,
+story 22):** the adapter locates the job by its key (the `@TaskId` value). The
+awareness probe and the phase-one check are the same NON-ADVANCING command -
+`UpdateJobTimeout` to the `async-task-timeout` (which conveniently refreshes the
+dormant job's lock): success means the job exists, `NOT_FOUND` maps to
+"unknown", a connection failure to "BPMS unavailable" (never falls back to
+another adapter). The phase-one check runs as a PRE-COMMIT transaction
+synchronization - as late as possible, minimizing the window between check and
+the phase-two dispatch (fewer stale outbox entries). Phase two (after the
+commit, through the outbox) sends `CompleteJob` respectively `ThrowError` (the
+BPMN error code routes boundary events); a `NOT_FOUND` answer is tolerated with
+a WARN (at-least-once residual). Camunda 8 cannot deliver `@TaskEvent CANCELED`
+- Zeebe does not notify workers about canceled jobs.
 
 ### Testing
 

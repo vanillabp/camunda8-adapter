@@ -51,7 +51,8 @@ public class Camunda8ProcessServiceTest {
     final var configuration = new Camunda8AdapterConfiguration();
     // a bogus address that is never contacted in phase one
     configuration.setRestAddress("http://localhost:1");
-    return new Camunda8ProcessService<>("c8", new Camunda8ClientFactory("c8", configuration));
+    return new Camunda8ProcessService<>(
+        "c8", new Camunda8ClientFactory("c8", configuration), java.time.Duration.ofDays(14), Runnable::run);
 
   }
 
@@ -71,7 +72,8 @@ public class Camunda8ProcessServiceTest {
   public void phaseOneFailsIfNotConfigured() {
 
     final var service = new Camunda8ProcessService<Aggregate>(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()));
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), java.time.Duration
+            .ofDays(14), Runnable::run);
 
     final var exception = assertThrows(
         IllegalStateException.class,

@@ -263,6 +263,119 @@ public class Camunda8TaskProcessingIT {
 
   }
 
+  @Test
+  @DisplayName("completeTask completes the dormant job through the outbox after the commit")
+  public void completeTaskEndsDormantProcess() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("AsyncProcess", aggregateId);
+
+    awaitUntil(
+        () -> repository.findById(aggregateId).map(TaskDockerAggregate::getTaskId).orElse(null) != null,
+        60000,
+        "the async task to report its job key");
+
+    transactionTemplate.executeWithoutResult(status -> {
+      final var aggregate = repository.findById(aggregateId).orElseThrow();
+      aggregate.appendResult("completing");
+      workflowService.completeAsyncTask(aggregate, aggregate.getTaskId());
+    });
+
+    // phase two completes the job through the outbox after the commit; proven
+    // deterministically WITHOUT the eventually-consistent search API: once the
+    // job is gone, a further completion attempt probes UNKNOWN everywhere and
+    // raises the documented TaskNotFoundException
+    final var taskId = repository.findById(aggregateId).orElseThrow().getTaskId();
+    awaitUntil(
+        () -> {
+          try {
+            transactionTemplate.executeWithoutResult(status -> {
+              final var aggregate = repository.findById(aggregateId).orElseThrow();
+              workflowService.completeAsyncTask(aggregate, taskId);
+            });
+            return false; // job still there - phase two has not run yet
+          } catch (final io.vanillabp.spi.process.TaskNotFoundException e) {
+            return true; // job gone: the outbox-dispatched completion succeeded
+          } catch (final IllegalStateException e) {
+            // the job disappeared BETWEEN the awareness probe and the pre-commit
+            // check (the outbox dispatch of a previous loop iteration completed
+            // it) - the check aborted the commit, which equally proves the job
+            // is gone
+            return (e.getMessage() != null) && e.getMessage().contains("is gone");
+          }
+        },
+        60000,
+        "the dormant job to be completed through the outbox");
+    assertTrue(results(aggregateId).startsWith("async-open|completing"));
+    // the dormant job was NOT re-invoked by the completion flow
+    assertEquals(1, invocations("asyncTask", aggregateId));
+
+  }
+
+  @Test
+  @DisplayName("cancelTask throws the BPMN error and the boundary path runs")
+  public void cancelTaskRoutesErrorBoundary() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("AsyncCancelProcess", aggregateId);
+
+    awaitUntil(
+        () -> repository.findById(aggregateId).map(TaskDockerAggregate::getTaskId).orElse(null) != null,
+        60000,
+        "the await-cancel task to report its job key");
+
+    transactionTemplate.executeWithoutResult(status -> {
+      final var aggregate = repository.findById(aggregateId).orElseThrow();
+      workflowService.cancelAsyncTask(aggregate, aggregate.getTaskId(), "PAYMENT_FAILED");
+    });
+
+    awaitUntil(
+        () -> {
+          final var results = results(aggregateId);
+          return (results != null) && results.contains("cancel-handled");
+        },
+        60000,
+        "the BPMN error to route through the boundary");
+    assertEquals("await-cancel|cancel-handled", results(aggregateId));
+
+  }
+
+  @Test
+  @DisplayName("A stale completion converges: the task is gone, the operation is a warned no-op")
+  public void staleCompletionIsToleratedNoOp() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("AsyncProcess", aggregateId);
+
+    awaitUntil(
+        () -> repository.findById(aggregateId).map(TaskDockerAggregate::getTaskId).orElse(null) != null,
+        60000,
+        "the async task to report its job key");
+    final var taskId = repository.findById(aggregateId).orElseThrow().getTaskId();
+
+    // the job is completed OUTSIDE VanillaBP (simulating a concurrent completion)
+    workflowServiceClient()
+        .newCompleteCommand(Long.parseLong(taskId))
+        .send()
+        .join();
+
+    // the probe answers UNKNOWN for the gone job - completeTask converges as the
+    // documented TaskNotFoundException (no adapter knows the task anymore)
+    org.junit.jupiter.api.Assertions.assertThrows(
+        io.vanillabp.spi.process.TaskNotFoundException.class,
+        () -> transactionTemplate.executeWithoutResult(status -> {
+          final var aggregate = repository.findById(aggregateId).orElseThrow();
+          workflowService.completeAsyncTask(aggregate, taskId);
+        }));
+
+  }
+
   private void startSecondaryProcess(
       final String bpmnProcessId,
       final Long aggregateId) {

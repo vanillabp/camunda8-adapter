@@ -93,4 +93,37 @@
       <bpmn:incoming>AP_f2</bpmn:incoming>
     </bpmn:endEvent>
   </bpmn:process>
+  <bpmn:process id="AsyncCancelProcess" isExecutable="true">
+    <bpmn:startEvent id="ACP_start">
+      <bpmn:outgoing>ACP_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="ACP_f1" sourceRef="ACP_start" targetRef="ACP_task" />
+    <bpmn:serviceTask id="ACP_task">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="awaitCancelTask" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>ACP_f1</bpmn:incoming>
+      <bpmn:outgoing>ACP_f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:boundaryEvent id="ACP_boundary" attachedToRef="ACP_task">
+      <bpmn:outgoing>ACP_fErr</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="ACP_errDef" errorRef="ErrPayment" />
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="ACP_fErr" sourceRef="ACP_boundary" targetRef="ACP_handle" />
+    <bpmn:serviceTask id="ACP_handle">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="cancelHandled" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>ACP_fErr</bpmn:incoming>
+      <bpmn:outgoing>ACP_f3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="ACP_f2" sourceRef="ACP_task" targetRef="ACP_end" />
+    <bpmn:sequenceFlow id="ACP_f3" sourceRef="ACP_handle" targetRef="ACP_endHandled" />
+    <bpmn:endEvent id="ACP_end">
+      <bpmn:incoming>ACP_f2</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="ACP_endHandled">
+      <bpmn:incoming>ACP_f3</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
 </bpmn:definitions>

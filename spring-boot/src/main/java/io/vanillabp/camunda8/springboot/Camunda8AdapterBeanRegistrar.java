@@ -45,17 +45,16 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
               spec -> spec.supplier(supplierContext -> new Camunda8ProcessService<>(
                   adapterId, supplierContext
                       .bean(Camunda8ClientFactoryRegistry.class)
-                      .getFactory(adapterId))));
+                      .getFactory(adapterId), asyncTaskTimeoutOf(
+                          supplierContext.bean(VanillaBpCamunda8Properties.class),
+                          adapterId), new Camunda8SpringPreCommitRegistrar())));
 
           registry.registerBean(
               "Camunda8_DeploymentService_%s".formatted(adapterId),
               Camunda8DeploymentService.class,
               spec -> spec.supplier(supplierContext -> {
                 final var overlay = supplierContext.bean(VanillaBpCamunda8Properties.class);
-                final var adapterKeys = overlay.getAdapters().get(adapterId);
-                final var asyncTaskTimeout = (adapterKeys != null) && (adapterKeys.getAsyncTaskTimeout() != null)
-                    ? adapterKeys.getAsyncTaskTimeout()
-                    : java.time.Duration.ofDays(14);
+                final var asyncTaskTimeout = asyncTaskTimeoutOf(overlay, adapterId);
                 return new Camunda8DeploymentService(
                     adapterId, supplierContext
                         .bean(Camunda8ClientFactoryRegistry.class)
@@ -68,6 +67,21 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
               }));
 
         });
+
+  }
+
+  /**
+   * The adapter-level async-task timeout (default 14 days) - the dormancy horizon
+   * granted to open async tasks and refreshed by awareness probes.
+   */
+  private static java.time.Duration asyncTaskTimeoutOf(
+      final VanillaBpCamunda8Properties overlay,
+      final String adapterId) {
+
+    final var adapterKeys = overlay.getAdapters().get(adapterId);
+    return (adapterKeys != null) && (adapterKeys.getAsyncTaskTimeout() != null)
+        ? adapterKeys.getAsyncTaskTimeout()
+        : java.time.Duration.ofDays(14);
 
   }
 

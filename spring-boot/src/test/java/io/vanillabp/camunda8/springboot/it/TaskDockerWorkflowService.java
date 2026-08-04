@@ -25,7 +25,7 @@ import io.vanillabp.spi.service.WorkflowTask;
     bpmnProcess = @BpmnProcess(bpmnProcessId = "TaskProcess"),
     secondaryBpmnProcesses = {
         @BpmnProcess(bpmnProcessId = "FailProcess"), @BpmnProcess(bpmnProcessId = "AsyncProcess"), @BpmnProcess(
-            bpmnProcessId = "RetryProcess")
+            bpmnProcessId = "RetryProcess"), @BpmnProcess(bpmnProcessId = "AsyncCancelProcess")
     })
 public class TaskDockerWorkflowService {
 
@@ -123,6 +123,43 @@ public class TaskDockerWorkflowService {
     // transaction; the job is failed with decremented retries
     aggregate.appendResult("must-never-be-visible");
     throw new IllegalStateException("boom-c8");
+
+  }
+
+  public TaskDockerAggregate completeAsyncTask(
+      final TaskDockerAggregate aggregate,
+      final String taskId) {
+
+    return processService.completeTask(aggregate, taskId);
+
+  }
+
+  public TaskDockerAggregate cancelAsyncTask(
+      final TaskDockerAggregate aggregate,
+      final String taskId,
+      final String bpmnErrorCode) {
+
+    return processService.cancelTask(aggregate, taskId, bpmnErrorCode);
+
+  }
+
+  @WorkflowTask
+  public void awaitCancelTask(
+      final TaskDockerAggregate aggregate,
+      @TaskId final String taskId) {
+
+    countInvocation("awaitCancelTask", aggregate);
+    aggregate.setTaskId(taskId);
+    aggregate.appendResult("await-cancel");
+
+  }
+
+  @WorkflowTask
+  public void cancelHandled(
+      final TaskDockerAggregate aggregate) {
+
+    countInvocation("cancelHandled", aggregate);
+    aggregate.appendResult("cancel-handled");
 
   }
 

@@ -2,6 +2,7 @@ package io.vanillabp.camunda8.processservice;
 
 import io.camunda.client.api.response.ProcessInstanceEvent;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
@@ -46,6 +47,19 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   private final Camunda8ClientFactory clientFactory;
 
+  /**
+   * The one-time job-lock extension applied by awareness probes and phase-one
+   * checks (the same duration the job worker grants a dormant async task - see
+   * story 21c's dormancy design).
+   */
+  private final java.time.Duration asyncTaskTimeout;
+
+  /**
+   * Runs phase-one existence checks right before the commit (platform-supplied) -
+   * minimizes the window between check and phase two.
+   */
+  private final Camunda8PreCommitRegistrar preCommitRegistrar;
+
   @Override
   public String getAdapterId() {
 
@@ -65,7 +79,163 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final Object workflowAggregateId,
       final String taskId) {
 
-    throw new UnsupportedOperationException("awarenessOfTask is implemented in a later story");
+    // the probe is UpdateJobTimeout - a NON-ADVANCING command which doubles as the
+    // dormancy lock refresh (the job's lock is set to the async-task timeout, the
+    // same value the worker granted when the task went dormant). Camunda 8 cannot
+    // answer COMPLETED for jobs (a completed job is indistinguishable from a
+    // never-existing one without the eventually-consistent search API), so a
+    // successful "not found" maps to UNKNOWN_TO_BPMS.
+    try {
+      updateJobTimeout(taskId);
+      return WorkflowAwareness.ACTIVE;
+    } catch (final Exception e) {
+      if (Camunda8Errors.jobAlreadyGone(e)) {
+        return WorkflowAwareness.UNKNOWN_TO_BPMS;
+      }
+      log.warn(
+          "Camunda8[{}]: could not determine awareness of task '{}' - reporting BPMS_UNAVAILABLE",
+          adapterId,
+          taskId,
+          e);
+      return WorkflowAwareness.BPMS_UNAVAILABLE;
+    }
+
+  }
+
+  private void updateJobTimeout(
+      final String taskId) {
+
+    clientFactory
+        .getClient()
+        .newUpdateTimeoutCommand(Long.parseLong(taskId))
+        .timeout(asyncTaskTimeout)
+        .send()
+        .join();
+
+  }
+
+  @Override
+  public void completeTaskPhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final A workflowAggregate,
+      final String taskId) {
+
+    registerPreCommitExistenceCheck(taskId, "completing");
+
+  }
+
+  @Override
+  public void cancelTaskPhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final A workflowAggregate,
+      final String taskId,
+      final String bpmnErrorCode) {
+
+    registerPreCommitExistenceCheck(taskId, "canceling");
+
+  }
+
+  /**
+   * The phase-one contract for remote BPMS: a NON-ADVANCING existence check whose
+   * only purpose is to abort the local transaction early when the task is already
+   * gone. Registered as a PRE-COMMIT synchronization (not run at method-call time)
+   * so the window between check and phase-two dispatch - and therefore the number
+   * of stale outbox entries - stays minimal (the V1 refinement). The check is the
+   * same UpdateJobTimeout used by the awareness probe: it refreshes the dormant
+   * job's lock as a side effect and never advances the process.
+   */
+  private void registerPreCommitExistenceCheck(
+      final String taskId,
+      final String operationDescription) {
+
+    preCommitRegistrar.beforeCommit(() -> {
+      try {
+        updateJobTimeout(taskId);
+      } catch (final Exception e) {
+        if (Camunda8Errors.jobAlreadyGone(e)) {
+          throw new IllegalStateException(
+              ("The task '%s' is gone (completed or canceled meanwhile) - aborting the transaction "
+                  + "%s it! If this task was completed by a concurrent redelivery, retrying the "
+                  + "business operation will end in the documented no-op.")
+                  .formatted(taskId, operationDescription), e);
+        }
+        throw e;
+      }
+    });
+
+  }
+
+  @Override
+  public void completeTaskPhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String taskId) {
+
+    try {
+      clientFactory
+          .getClient()
+          .newCompleteCommand(Long.parseLong(taskId))
+          .send()
+          .join();
+      log.info(
+          "Camunda8[{}]: completed task '{}' of BPMN process '{}' of workflow module '{}'",
+          adapterId,
+          taskId,
+          bpmnProcessId,
+          workflowModuleId);
+    } catch (final Exception e) {
+      if (!Camunda8Errors.jobAlreadyGone(e)) {
+        throw e;
+      }
+      // stale outbox entry: the job disappeared between the dispatch-time probe
+      // and this command - the at-least-once residual, the entry is consumed
+      log.warn(
+          "Camunda8[{}]: task '{}' is gone - skipping the redelivered phase-two completion",
+          adapterId,
+          taskId);
+    }
+
+  }
+
+  @Override
+  public void cancelTaskPhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String taskId,
+      final String bpmnErrorCode) {
+
+    try {
+      clientFactory
+          .getClient()
+          .newThrowErrorCommand(Long.parseLong(taskId))
+          .errorCode(bpmnErrorCode)
+          .errorMessage("canceled via ProcessService#cancelTask")
+          .send()
+          .join();
+      log.info(
+          "Camunda8[{}]: canceled task '{}' (error code '{}') of BPMN process '{}' of workflow module '{}'",
+          adapterId,
+          taskId,
+          bpmnErrorCode,
+          bpmnProcessId,
+          workflowModuleId);
+    } catch (final Exception e) {
+      if (!Camunda8Errors.jobAlreadyGone(e)) {
+        throw e;
+      }
+      log.warn(
+          "Camunda8[{}]: task '{}' is gone - skipping the redelivered phase-two cancellation",
+          adapterId,
+          taskId);
+    }
 
   }
 

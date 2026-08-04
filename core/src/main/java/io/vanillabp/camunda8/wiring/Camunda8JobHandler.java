@@ -3,7 +3,6 @@ package io.vanillabp.camunda8.wiring;
 import java.time.Duration;
 
 import io.camunda.client.CamundaClient;
-import io.camunda.client.api.command.ProblemException;
 import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.client.api.worker.JobClient;
 import io.camunda.client.api.worker.JobHandler;
@@ -34,7 +33,7 @@ import lombok.extern.slf4j.Slf4j;
  * DORMANCY: the job's lock is extended once to the adapter's
  * <code>async-task-timeout</code> (days), so the handler is NOT re-invoked while
  * the workflow waits for the asynchronous completion
- * (<code>ProcessService#completeTask</code>, upcoming story). The worker's regular
+ * (<code>ProcessService#completeTask</code>). The worker's regular
  * job timeout stays short - crash recovery of non-async tasks is not delayed.</li>
  * </ul>
  */
@@ -161,7 +160,7 @@ public class Camunda8JobHandler implements JobHandler {
           .send()
           .join();
     } catch (final Exception e) {
-      if (jobAlreadyGone(e)) {
+      if (io.vanillabp.camunda8.client.Camunda8Errors.jobAlreadyGone(e)) {
         log.warn(
             "Camunda8[{}]: job '{}' (type '{}') was already completed - a redelivery of the same "
                 + "task converged (at-least-once semantics); the business method ran more than once",
@@ -175,24 +174,6 @@ public class Camunda8JobHandler implements JobHandler {
 
   }
 
-  private static boolean jobAlreadyGone(
-      final Throwable throwable) {
-
-    var current = throwable;
-    while (current != null) {
-      if (current instanceof ProblemException problem && (problem.details() != null) && (problem.details()
-          .getStatus() == 404)) {
-        return true;
-      }
-      final var message = current.getMessage();
-      if ((message != null) && (message.contains("NOT_FOUND") || message.contains("was not found"))) {
-        return true;
-      }
-      current = current.getCause();
-    }
-    return false;
-
-  }
 
   /**
    * The neutral invocation context built from an activated Camunda 8 job.
