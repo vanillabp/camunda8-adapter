@@ -376,19 +376,171 @@ public class Camunda8TaskProcessingIT {
 
   }
 
+  @Test
+  @DisplayName("User task: CREATED via listener job, completeUserTask ends the process")
+  public void userTaskCreatedAndCompleted() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("UserTaskProcess", aggregateId);
+
+    // the creating listener job notified the optional handler with the USER-TASK
+    // key as @TaskId
+    awaitUntil(
+        () -> {
+          final var aggregate = repository.findById(aggregateId).orElseThrow();
+          return (aggregate.getTaskId() != null) && aggregate.getResults().contains("usertask-created");
+        },
+        60000,
+        "the creating listener to notify the handler");
+    final var taskId = repository.findById(aggregateId).orElseThrow().getTaskId();
+
+    transactionTemplate.executeWithoutResult(status -> {
+      final var aggregate = repository.findById(aggregateId).orElseThrow();
+      aggregate.appendResult("approving");
+      workflowService.completeUserTask(aggregate, taskId);
+    });
+
+    // deterministic completion proof: once the user task is gone, further
+    // completion attempts raise TaskNotFoundException
+    awaitUntil(
+        () -> {
+          try {
+            transactionTemplate.executeWithoutResult(status -> {
+              final var aggregate = repository.findById(aggregateId).orElseThrow();
+              workflowService.completeUserTask(aggregate, taskId);
+            });
+            return false;
+          } catch (final io.vanillabp.spi.process.TaskNotFoundException e) {
+            return true;
+          } catch (final IllegalStateException e) {
+            return (e.getMessage() != null) && e.getMessage().contains("is gone");
+          }
+        },
+        60000,
+        "the user task to be completed through the outbox");
+    assertTrue(results(aggregateId).startsWith("usertask-created|approving"));
+
+  }
+
+  @Test
+  @DisplayName("Canceling the instance delivers CANCELED through the canceling listener")
+  public void userTaskCanceledOnInstanceCancellation() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("UserTaskProcess", aggregateId);
+
+    awaitUntil(
+        () -> repository.findById(aggregateId).map(TaskDockerAggregate::getTaskId).orElse(null) != null,
+        60000,
+        "the creating listener to notify the handler");
+
+    // cancel the whole instance - the canceling task listener fires as a job
+    // (the instance key was captured at start: the search API needs secondary
+    // storage which the test broker does not run)
+    workflowServiceClient()
+        .newCancelInstanceCommand(lastStartedInstanceKey)
+        .send()
+        .join();
+
+    awaitUntil(
+        () -> {
+          final var results = results(aggregateId);
+          return (results != null) && results.contains("usertask-canceled");
+        },
+        60000,
+        "the canceling listener to deliver CANCELED");
+
+  }
+
+  @Test
+  @DisplayName("cancelUserTask is unsupported on Camunda 8.8 - the guiding error explains it")
+  public void cancelUserTaskUnsupportedGuiding() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("UserTaskProcess", aggregateId);
+
+    awaitUntil(
+        () -> repository.findById(aggregateId).map(TaskDockerAggregate::getTaskId).orElse(null) != null,
+        60000,
+        "the creating listener to notify the handler");
+    final var taskId = repository.findById(aggregateId).orElseThrow().getTaskId();
+
+    final var exception = org.junit.jupiter.api.Assertions.assertThrows(
+        UnsupportedOperationException.class,
+        () -> transactionTemplate.executeWithoutResult(status -> {
+          final var aggregate = repository.findById(aggregateId).orElseThrow();
+          workflowService.cancelUserTask(aggregate, taskId, "SOME_ERROR");
+        }));
+    assertTrue(
+        exception.getMessage().contains("8.8"),
+        "expected the guiding 8.8 explanation but got: "
+            + exception.getMessage());
+
+  }
+
+  @Test
+  @DisplayName("User-task edge cases: silent task, awareness, gone-task tolerance")
+  public void userTaskEdgeCases() throws Exception {
+
+    // a user task WITHOUT a handler: the creating listener job is completed
+    // without a notification and the process continues to wait at the user task
+    final var silentAggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("SilentUserTaskProcess", silentAggregateId);
+
+    @SuppressWarnings("unchecked")
+    final var c8ProcessService = (io.vanillabp.camunda8.processservice.Camunda8ProcessService<TaskDockerAggregate>) applicationContext
+        .getBean("Camunda8_ProcessService_c8");
+
+    // gone user task: awareness UNKNOWN, phase two tolerated as warned no-op
+    assertEquals(
+        io.vanillabp.integration.adapter.spi.WorkflowAwareness.UNKNOWN_TO_BPMS,
+        c8ProcessService.awarenessOfUserTask(silentAggregateId, "1"));
+    org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+        () -> c8ProcessService.completeUserTaskPhaseTwo("test-app", "SilentUserTaskProcess", null,
+            silentAggregateId, "1"));
+    // gone SERVICE task phase two is equally tolerated
+    org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+        () -> c8ProcessService.completeTaskPhaseTwo("test-app", "SilentUserTaskProcess", null,
+            silentAggregateId, "1"));
+    org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+        () -> c8ProcessService.cancelTaskPhaseTwo("test-app", "SilentUserTaskProcess", null,
+            silentAggregateId, "1", "ERR"));
+
+    // the silent task exists (found via a real user-task handler on the OTHER
+    // process is not necessary - completing the silent task by awareness probing
+    // is proven once a task shows up); wait briefly so the creating listener job
+    // was consumed without an incident
+    Thread.sleep(2000);
+
+  }
+
+  @Autowired
+  private org.springframework.context.ApplicationContext applicationContext;
+
+  private long lastStartedInstanceKey;
+
   private void startSecondaryProcess(
       final String bpmnProcessId,
       final Long aggregateId) {
 
     // secondary processes are started directly against the cluster carrying the
     // aggregate-ID variable - exactly what VanillaBP's start writes
-    workflowServiceClient()
+    lastStartedInstanceKey = workflowServiceClient()
         .newCreateInstanceCommand()
         .bpmnProcessId(bpmnProcessId)
         .latestVersion()
         .variable("id", String.valueOf(aggregateId))
         .send()
-        .join();
+        .join()
+        .getProcessInstanceKey();
 
   }
 

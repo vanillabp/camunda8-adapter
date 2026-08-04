@@ -156,14 +156,22 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // definition) and validate them against the registered @WorkflowTask methods;
     // throwing here honors the deployment-failure policy
     final var tasks = Camunda8TaskWiring.tasksOf(model, bpmnProcessId);
-    workflowTaskInvoker.validateTaskWiring(
-        workflowModuleId,
-        bpmnProcessId,
-        tasks
-            .stream()
-            .map(Camunda8TaskWiring.Camunda8TaskToWire::toSpec)
-            .toList());
+    // Camunda-managed user tasks (story 24): the V1-compatible lifecycle task
+    // listeners are ADDED TO THE MODEL here (wireBpmn is the BPMN-modification
+    // stage of the pipeline) - the modified model is what deployResources deploys
+    final var userTasks = Camunda8TaskWiring.userTasksOf(model, bpmnProcessId, workflowModuleId, filename);
+    final var specs = new java.util.ArrayList<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec>();
+    tasks
+        .stream()
+        .map(Camunda8TaskWiring.Camunda8TaskToWire::toSpec)
+        .forEach(specs::add);
+    userTasks
+        .stream()
+        .map(Camunda8TaskWiring.Camunda8UserTaskToWire::toSpec)
+        .forEach(specs::add);
+    workflowTaskInvoker.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
     context.getTasksToWire().addAll(tasks);
+    context.getUserTasksToWire().addAll(userTasks);
 
     log.info(
         "Camunda8[{}]: wired {} task(s) of BPMN process '{}' (file '{}', workflow module '{}')",
@@ -266,6 +274,33 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                         adapterId));
           }
         });
+    // user-task lifecycle listeners (story 24): one worker per distinct listener
+    // job type; listener jobs are consumed like normal jobs
+    final var userTasksByListenerJobType = new LinkedHashMap<String, java.util.List<String>>();
+    bpmsProcessingContext
+        .getUserTasksToWire()
+        .forEach(userTask -> userTasksByListenerJobType
+            .computeIfAbsent(userTask.listenerJobType(), key -> new java.util.LinkedList<>())
+            .add(userTask.bpmnProcessId()));
+    userTasksByListenerJobType.forEach((
+        listenerJobType,
+        bpmnProcessIds) -> {
+      final var worker = client
+          .newWorker()
+          .jobType(listenerJobType)
+          .handler(new io.vanillabp.camunda8.wiring.Camunda8UserTaskListenerHandler(
+              adapterId, workflowModuleId, workflowTaskInvoker))
+          .timeout(java.time.Duration.ofMinutes(1))
+          .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType))
+          .open();
+      bpmsProcessingContext.getOpenWorkers().add(worker);
+      log.info(
+          "Camunda8[{}]: opened user-task listener worker for '{}' of workflow module '{}'",
+          adapterId,
+          listenerJobType,
+          workflowModuleId);
+    });
+
     timeoutsByDefinition.forEach((
         taskDefinition,
         timeout) -> {

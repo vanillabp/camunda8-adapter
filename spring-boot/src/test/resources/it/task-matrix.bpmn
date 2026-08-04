@@ -126,4 +126,40 @@
       <bpmn:incoming>ACP_f3</bpmn:incoming>
     </bpmn:endEvent>
   </bpmn:process>
+  <bpmn:process id="UserTaskProcess" isExecutable="true">
+    <bpmn:startEvent id="UTP_start">
+      <bpmn:outgoing>UTP_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="UTP_f1" sourceRef="UTP_start" targetRef="UTP_task" />
+    <bpmn:userTask id="UTP_task">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition externalReference="approveUser" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>UTP_f1</bpmn:incoming>
+      <bpmn:outgoing>UTP_f2</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="UTP_f2" sourceRef="UTP_task" targetRef="UTP_end" />
+    <bpmn:endEvent id="UTP_end">
+      <bpmn:incoming>UTP_f2</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmn:process id="SilentUserTaskProcess" isExecutable="true">
+    <bpmn:startEvent id="SUT_start">
+      <bpmn:outgoing>SUT_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="SUT_f1" sourceRef="SUT_start" targetRef="SUT_task" />
+    <bpmn:userTask id="SUT_task">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition externalReference="silentApprove" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>SUT_f1</bpmn:incoming>
+      <bpmn:outgoing>SUT_f2</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="SUT_f2" sourceRef="SUT_task" targetRef="SUT_end" />
+    <bpmn:endEvent id="SUT_end">
+      <bpmn:incoming>SUT_f2</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
 </bpmn:definitions>

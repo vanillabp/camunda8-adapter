@@ -38,6 +38,13 @@ public class Camunda8ProcessingContext {
   private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8TaskToWire> tasksToWire = new java.util.LinkedList<>();
 
   /**
+   * The Camunda-managed user tasks collected during {@code wireBpmn} (story 24) -
+   * one listener-job worker is opened per distinct listener job type.
+   */
+  @Getter
+  private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8UserTaskToWire> userTasksToWire = new java.util.LinkedList<>();
+
+  /**
    * The workers opened by startWorkflowProcessing, closed by
    * stopWorkflowProcessing (reverse order).
    */

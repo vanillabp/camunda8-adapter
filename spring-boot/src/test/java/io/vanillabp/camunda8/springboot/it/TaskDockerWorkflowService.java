@@ -25,7 +25,8 @@ import io.vanillabp.spi.service.WorkflowTask;
     bpmnProcess = @BpmnProcess(bpmnProcessId = "TaskProcess"),
     secondaryBpmnProcesses = {
         @BpmnProcess(bpmnProcessId = "FailProcess"), @BpmnProcess(bpmnProcessId = "AsyncProcess"), @BpmnProcess(
-            bpmnProcessId = "RetryProcess"), @BpmnProcess(bpmnProcessId = "AsyncCancelProcess")
+            bpmnProcessId = "RetryProcess"), @BpmnProcess(bpmnProcessId = "AsyncCancelProcess"), @BpmnProcess(
+                bpmnProcessId = "UserTaskProcess"), @BpmnProcess(bpmnProcessId = "SilentUserTaskProcess")
     })
 public class TaskDockerWorkflowService {
 
@@ -160,6 +161,40 @@ public class TaskDockerWorkflowService {
 
     countInvocation("cancelHandled", aggregate);
     aggregate.appendResult("cancel-handled");
+
+  }
+
+  public TaskDockerAggregate completeUserTask(
+      final TaskDockerAggregate aggregate,
+      final String taskId) {
+
+    return processService.completeUserTask(aggregate, taskId);
+
+  }
+
+  public TaskDockerAggregate cancelUserTask(
+      final TaskDockerAggregate aggregate,
+      final String taskId,
+      final String bpmnErrorCode) {
+
+    return processService.cancelUserTask(aggregate, taskId, bpmnErrorCode);
+
+  }
+
+  @WorkflowTask(taskDefinition = "approveUser")
+  public void approveUserNotification(
+      final TaskDockerAggregate aggregate,
+      @TaskId final String taskId,
+      @io.vanillabp.spi.service.TaskEvent final io.vanillabp.spi.service.TaskEvent.Event event) {
+
+    countInvocation("approveUser", aggregate);
+    if (event == io.vanillabp.spi.service.TaskEvent.Event.CREATED) {
+      aggregate.setTaskId(taskId);
+      aggregate.appendResult("usertask-created");
+    } else {
+      aggregate.appendResult("usertask-"
+          + event.name().toLowerCase());
+    }
 
   }
 

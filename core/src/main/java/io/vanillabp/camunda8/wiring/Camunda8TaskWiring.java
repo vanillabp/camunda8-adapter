@@ -14,7 +14,13 @@ import io.camunda.zeebe.model.bpmn.instance.ScriptTask;
 import io.camunda.zeebe.model.bpmn.instance.SendTask;
 import io.camunda.zeebe.model.bpmn.instance.ServiceTask;
 import io.camunda.zeebe.model.bpmn.instance.Task;
+import io.camunda.zeebe.model.bpmn.instance.UserTask;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeFormDefinition;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskDefinition;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListener;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListenerEventType;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListeners;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeUserTask;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 
 /**
@@ -73,6 +79,141 @@ public final class Camunda8TaskWiring {
                   : null));
         });
     return tasks;
+
+  }
+
+  /**
+   * The V1-compatible job-type prefix of user-task listeners: the listener type is
+   * this prefix plus the user task's external form reference. MUST NOT change -
+   * upgrading a V1 application has to produce a byte-identical BPMN so the
+   * deployment does not create a new process version.
+   */
+  public static final String TASKDEFINITION_USERTASK_ZEEBE = "io.vanillabp.userTask:";
+
+  /**
+   * One user task to be served by listener-job workers (story 24).
+   *
+   * @param bpmnProcessId The BPMN process ID
+   * @param activityId The BPMN activity ID
+   * @param externalFormReference The <code>zeebe:formDefinition</code> external
+   *          reference (= the VanillaBP task definition of the user task)
+   */
+  public record Camunda8UserTaskToWire(
+                                       String bpmnProcessId,
+                                       String activityId,
+                                       String externalFormReference) {
+
+    public BpmnTaskSpec toSpec() {
+
+      return BpmnTaskSpec.userTask(activityId, externalFormReference);
+
+    }
+
+    /**
+     * The job type of this user task's lifecycle listeners.
+     */
+    public String listenerJobType() {
+
+      return TASKDEFINITION_USERTASK_ZEEBE + externalFormReference;
+
+    }
+
+  }
+
+  /**
+   * The Camunda-managed user tasks (<code>zeebe:userTask</code>) of the given
+   * executable process AND - for NEW models - adds the V1-compatible lifecycle
+   * task listeners to the model: per user task a <code>creating</code> listener as
+   * the FIRST and a <code>canceling</code> listener as the LAST listener (custom
+   * modeller-defined listeners stay in between), both with <code>retries="0"</code>
+   * and the type {@link #TASKDEFINITION_USERTASK_ZEEBE} + external form reference.
+   * A user task without an external form reference fails with a guiding message
+   * (the V1 convention: the external form reference IS the task definition).
+   */
+  public static List<Camunda8UserTaskToWire> userTasksOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId,
+      final String workflowModuleId,
+      final String filename) {
+
+    final var userTasks = new LinkedList<Camunda8UserTaskToWire>();
+    model
+        .getModelElementsByType(UserTask.class)
+        .stream()
+        .filter(task -> bpmnProcessId.equals(owningProcessId(task)))
+        // only Camunda-managed user tasks (zeebe:userTask, the 8.8 default);
+        // worker-based user tasks (a zeebe:taskDefinition instead) are handled
+        // like service tasks by tasksOf
+        .filter(task -> task.getSingleExtensionElement(ZeebeUserTask.class) != null)
+        .forEach(task -> {
+          final var formDefinition = task.getSingleExtensionElement(ZeebeFormDefinition.class);
+          final var externalFormReference = formDefinition != null
+              ? formDefinition.getExternalReference()
+              : null;
+          if ((externalFormReference == null) || externalFormReference.isBlank()) {
+            throw new IllegalStateException(
+                ("User task '%s' of BPMN process '%s' (file '%s', workflow module '%s') has no "
+                    + "external form reference! VanillaBP's Camunda 8 convention: the user task's "
+                    + "form is referenced externally and the reference IS the task definition - "
+                    + "set 'External form reference' in the modeler (zeebe:formDefinition "
+                    + "externalReference).")
+                    .formatted(task.getId(), bpmnProcessId, filename, workflowModuleId));
+          }
+          addUserTaskListeners(task, externalFormReference);
+          userTasks.add(new Camunda8UserTaskToWire(bpmnProcessId, task.getId(), externalFormReference));
+        });
+    return userTasks;
+
+  }
+
+  /**
+   * V1 listener order per element: VanillaBP <code>creating</code> FIRST, any
+   * custom listeners in between, VanillaBP <code>canceling</code> LAST. Listeners
+   * already carrying the VanillaBP prefix are not duplicated (re-wiring an
+   * already-processed model).
+   */
+  private static void addUserTaskListeners(
+      final UserTask task,
+      final String externalFormReference) {
+
+    final var listenerJobType = TASKDEFINITION_USERTASK_ZEEBE + externalFormReference;
+
+    final ZeebeTaskListeners taskListeners;
+    final boolean isNew;
+    if (task.getSingleExtensionElement(ZeebeTaskListeners.class) != null) {
+      taskListeners = task.getSingleExtensionElement(ZeebeTaskListeners.class);
+      final var alreadyWired = taskListeners
+          .getTaskListeners()
+          .stream()
+          .anyMatch(listener -> listenerJobType.equals(listener.getType()));
+      if (alreadyWired) {
+        return;
+      }
+      isNew = false;
+    } else {
+      taskListeners = task.getExtensionElements().addExtensionElement(ZeebeTaskListeners.class);
+      isNew = true;
+    }
+
+    final var createListener = task.getModelInstance().newInstance(ZeebeTaskListener.class);
+    createListener.setEventType(ZeebeTaskListenerEventType.creating);
+    createListener.setType(listenerJobType);
+    createListener.setRetries("0");
+    taskListeners.insertElementAfter(createListener, null); // first listener
+
+    final var cancelListener = task.getModelInstance().newInstance(ZeebeTaskListener.class);
+    cancelListener.setEventType(ZeebeTaskListenerEventType.canceling);
+    cancelListener.setType(listenerJobType);
+    cancelListener.setRetries("0");
+    if (isNew) {
+      taskListeners.insertElementAfter(cancelListener, createListener);
+    } else {
+      final var previousListeners = new LinkedList<>(taskListeners.getTaskListeners());
+      taskListeners.insertElementAfter(
+          cancelListener, previousListeners.isEmpty()
+              ? createListener
+              : previousListeners.getLast());
+    }
 
   }
 

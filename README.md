@@ -226,6 +226,27 @@ BPMN error code routes boundary events); a `NOT_FOUND` answer is tolerated with
 a WARN (at-least-once residual). Camunda 8 cannot deliver `@TaskEvent CANCELED`
 - Zeebe does not notify workers about canceled jobs.
 
+**User tasks (story 24):** Camunda-managed user tasks (`zeebe:userTask`) with an
+EXTERNAL form reference - the reference IS the task definition (V1 convention).
+During `wireBpmn` the adapter adds the V1-COMPATIBLE lifecycle task listeners to
+the BPMN model: per user task `creating` (→ `@TaskEvent CREATED`) and `canceling`
+(→ CANCELED), type `io.vanillabp.userTask:<external form reference>`,
+`retries="0"`; the VanillaBP `creating` listener is inserted as the FIRST and the
+`canceling` listener as the LAST listener (modeller-defined ones stay in
+between). Upgrading a V1 application produces a byte-identical BPMN - no new
+process version. Listener jobs are consumed like normal jobs (one worker per
+listener job type), ALWAYS completed, and deliver the USER-TASK KEY as `@TaskId`;
+a failing notification fails the listener job (retries 0 → incident). The
+notification handler is OPTIONAL. `completeUserTask` sends `CompleteUserTask` by
+the user-task key after the commit (phase one re-checks existence pre-commit via
+an empty `UpdateUserTask` carrying only an audit `action` - also the awareness
+probe; note: modeller-defined `updating` listeners would fire on probes).
+**`cancelUserTask` is NOT supported on Camunda 8.8:** the engine offers no
+command to cancel a Camunda-managed user task by BPMN error (ThrowError is
+job-based) and V1's marker-variable workaround is broken by V1's own admission -
+a guiding error explains it; expected to arrive with the Camunda 8.10 listener
+support (see the prepared follow-up prompt).
+
 ### Testing
 
 - **Core unit tests** (no Docker): BPMN parsing / executable-process extraction, client

@@ -170,6 +170,150 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   @Override
+  public WorkflowAwareness awarenessOfUserTask(
+      final Object workflowAggregateId,
+      final String taskId) {
+
+    // the probe is an EMPTY UpdateUserTask - an engine command (unlike the
+    // query API it needs no secondary storage) which never advances the task;
+    // it answers NOT_FOUND for gone tasks. Side effect: modeller-defined
+    // 'updating' task listeners fire - documented in the README.
+    try {
+      updateUserTask(taskId);
+      return WorkflowAwareness.ACTIVE;
+    } catch (final Exception e) {
+      if (Camunda8Errors.jobAlreadyGone(e)) {
+        return WorkflowAwareness.UNKNOWN_TO_BPMS;
+      }
+      log.warn(
+          "Camunda8[{}]: could not determine awareness of user task '{}' - reporting BPMS_UNAVAILABLE",
+          adapterId,
+          taskId,
+          e);
+      return WorkflowAwareness.BPMS_UNAVAILABLE;
+    }
+
+  }
+
+  private void updateUserTask(
+      final String taskId) {
+
+    // an update carrying ONLY an 'action' (an audit metadatum) is the minimal
+    // valid update - no task attribute changes, nothing advances
+    clientFactory
+        .getClient()
+        .newUpdateUserTaskCommand(Long.parseLong(taskId))
+        .action("io.vanillabp:probe")
+        .send()
+        .join();
+
+  }
+
+  @Override
+  public void completeUserTaskPhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final A workflowAggregate,
+      final String taskId) {
+
+    // pre-commit existence check (non-advancing empty update) - same shape as
+    // service tasks, see registerPreCommitExistenceCheck
+    preCommitRegistrar.beforeCommit(() -> {
+      try {
+        updateUserTask(taskId);
+      } catch (final Exception e) {
+        if (Camunda8Errors.jobAlreadyGone(e)) {
+          throw new IllegalStateException(
+              ("The user task '%s' is gone (completed or canceled meanwhile) - aborting the "
+                  + "transaction completing it!")
+                  .formatted(taskId), e);
+        }
+        throw e;
+      }
+    });
+
+  }
+
+  @Override
+  public void completeUserTaskPhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String taskId) {
+
+    try {
+      clientFactory
+          .getClient()
+          .newCompleteUserTaskCommand(Long.parseLong(taskId))
+          .send()
+          .join();
+      log.info(
+          "Camunda8[{}]: completed user task '{}' of BPMN process '{}' of workflow module '{}'",
+          adapterId,
+          taskId,
+          bpmnProcessId,
+          workflowModuleId);
+    } catch (final Exception e) {
+      if (!Camunda8Errors.jobAlreadyGone(e)) {
+        throw e;
+      }
+      log.warn(
+          "Camunda8[{}]: user task '{}' is gone - skipping the redelivered phase-two completion",
+          adapterId,
+          taskId);
+    }
+
+  }
+
+  @Override
+  public void cancelUserTaskPhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final A workflowAggregate,
+      final String taskId,
+      final String bpmnErrorCode) {
+
+    // fail EARLY inside the caller's transaction: see cancelUserTaskPhaseTwo
+    throw newCancelUserTaskUnsupported(taskId, bpmnProcessId);
+
+  }
+
+  @Override
+  public void cancelUserTaskPhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String taskId,
+      final String bpmnErrorCode) {
+
+    throw newCancelUserTaskUnsupported(taskId, bpmnProcessId);
+
+  }
+
+  private UnsupportedOperationException newCancelUserTaskUnsupported(
+      final String taskId,
+      final String bpmnProcessId) {
+
+    // Camunda 8.8 offers NO command to cancel a Camunda-managed user task by BPMN
+    // error: ThrowError is job-based (a zeebe:userTask has no job), and the V1
+    // workaround (completing the task with a marker variable evaluated by a
+    // listener) is marked "currently not working" in the V1 adapter itself.
+    // Task/execution listeners of Camunda 8.10 are expected to enable this - see
+    // the prepared follow-up prompt.
+    return new UnsupportedOperationException(
+        ("Canceling user task '%s' of BPMN process '%s' by BPMN error is not supported on "
+            + "Camunda 8.8! The engine offers no command for it (ThrowError is job-based; a "
+            + "Camunda-managed user task has no job). Model the error path explicitly (e.g. a "
+            + "boundary message/signal) or wait for the Camunda 8.10 listener support.")
+            .formatted(taskId, bpmnProcessId));
+
+  }
+
+  @Override
   public void completeTaskPhaseTwo(
       final String workflowModuleId,
       final String bpmnProcessId,
