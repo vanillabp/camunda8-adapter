@@ -141,11 +141,19 @@ guiding failure message as backstop.
 
 ### Idempotency limitation
 
-The phase-two outbox has at-least-once semantics: a crash between a successful
-`CreateProcessInstance` and the removal of the outbox entry can start the same workflow
-**twice** (at-least-once, duplicates possible). Strict deduplication needs the core-side
-`WorkflowInstanceRegistry` (a separate story); no Camunda-8-side workaround is attempted
-here.
+The phase-two outbox has at-least-once semantics. The duplicate-start window is
+**minimized** by several layers: the outbox entry's unique idempotency key (one entry
+per workflow module, BPMN process and aggregate), the DONE-retention of dispatched
+entries, and — since the election story — a probe before every RE-dispatched start
+(`awarenessOfWorkflowForRedispatch`: an entry dispatched before checks whether the
+workflow already exists via the process-instance search; if so, the entry is consumed
+without a second `CreateProcessInstance`). A **residual window remains and is
+accepted** as an eventual-consistency property: after a hard crash between a
+successful `CreateProcessInstance` and recording the dispatch, the retry's probe may
+not see the instance yet (query-API lag), and without secondary storage the probe
+cannot run at all (it then answers honestly "unknown" and the idempotent start
+proceeds — deliberately NOT the optimistic ACTIVE of the election probe, which would
+skip and thereby LOSE workflows). Do not build on exactly-once semantics.
 
 ### Task processing (story 21c)
 

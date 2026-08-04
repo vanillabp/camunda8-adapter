@@ -99,6 +99,9 @@ public class Camunda8DeploymentAndStartIT {
   @Autowired
   private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
+  @Autowired
+  private io.vanillabp.camunda8.processservice.Camunda8ProcessService<DockerAggregate> camunda8ProcessService;
+
   @BeforeEach
   void resetRecording() {
 
@@ -171,6 +174,30 @@ public class Camunda8DeploymentAndStartIT {
     assertTrue(DockerWorkflowService.ACTIVATED_AGGREGATE_IDS.isEmpty(),
         "no process instance may be created on rollback, but the worker saw "
             + DockerWorkflowService.ACTIVATED_AGGREGATE_IDS);
+
+  }
+
+  @Test
+  @DisplayName("the re-dispatch probe never claims to know an unstarted workflow - unlike the election's awareness")
+  public void redispatchProbeIsNeverOptimistic() {
+
+    // this cluster runs WITHOUT secondary storage (see the container's
+    // CAMUNDA_DATA_SECONDARYSTORAGE_TYPE), so the query API is unavailable - the
+    // situation in which the two probes deliberately differ:
+    final var neverStartedAggregateId = "no-such-aggregate";
+
+    // the ELECTION probe answers optimistically, so message correlation keeps
+    // working on a plain broker (documented as unsafe for multi-BPMS setups)
+    assertEquals(
+        io.vanillabp.integration.adapter.spi.WorkflowAwareness.ACTIVE,
+        camunda8ProcessService.awarenessOfWorkflow(neverStartedAggregateId));
+
+    // the START RE-DISPATCH probe must never do that: an optimistic "known" would
+    // skip a recovered start and thereby LOSE the workflow, whereas proceeding
+    // only risks the documented at-least-once duplicate
+    assertEquals(
+        io.vanillabp.integration.adapter.spi.WorkflowAwareness.UNKNOWN_TO_BPMS,
+        camunda8ProcessService.awarenessOfWorkflowForRedispatch(neverStartedAggregateId));
 
   }
 

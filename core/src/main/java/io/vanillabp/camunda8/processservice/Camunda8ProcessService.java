@@ -438,6 +438,57 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
+  /**
+   * The START re-dispatch mitigation probe (story 25) - STRICTER contract than
+   * {@link #awarenessOfWorkflow(Object)}: the answer must NEVER be optimistic
+   * (an optimistic ACTIVE would SKIP a recovered start = a lost workflow,
+   * whereas a duplicate start is the accepted at-least-once residual).
+   * Differences to the election probe:
+   * <ul>
+   * <li>no state filter - a workflow COMPLETED since the crashed start still
+   * proves the start succeeded;</li>
+   * <li>without secondary storage the answer is an honest
+   * {@link WorkflowAwareness#UNKNOWN_TO_BPMS} (instead of the election's
+   * optimistic ACTIVE): the start proceeds and this adapter's
+   * {@link #startWorkflowPhaseTwo} at-least-once contract applies.</li>
+   * </ul>
+   */
+  @Override
+  public WorkflowAwareness awarenessOfWorkflowForRedispatch(
+      final Object workflowAggregateId) {
+
+    try {
+      final var found = clientFactory
+          .getClient()
+          .newProcessInstanceSearchRequest()
+          .filter(filter -> filter
+              .variables(java.util.Map
+                  .of(aggregateIdVariableName(), String.valueOf(workflowAggregateId))))
+          .send()
+          .join();
+      return found.items().isEmpty()
+          ? WorkflowAwareness.UNKNOWN_TO_BPMS
+          : WorkflowAwareness.ACTIVE;
+    } catch (final Exception e) {
+      if (isSecondaryStorageMissing(e)) {
+        log.debug(
+            "Camunda8[{}]: no secondary storage - the re-dispatch mitigation cannot probe, the "
+                + "start proceeds (duplicates within the documented at-least-once residual are "
+                + "possible)",
+            adapterId);
+        return WorkflowAwareness.UNKNOWN_TO_BPMS;
+      }
+      log.warn(
+          "Camunda8[{}]: could not probe the workflow of aggregate '{}' before re-dispatching "
+              + "its start - reporting BPMS_UNAVAILABLE (the outbox entry is retried)",
+          adapterId,
+          workflowAggregateId,
+          e);
+      return WorkflowAwareness.BPMS_UNAVAILABLE;
+    }
+
+  }
+
   private static boolean isSecondaryStorageMissing(
       final Throwable throwable) {
 

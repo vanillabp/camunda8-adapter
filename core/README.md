@@ -39,9 +39,14 @@ configuration, create beans, run the bean lifecycle).
   the deployment pipeline: workflow-module ID, deployable resources (per filename) and the
   discovered BPMN process IDs.
 
-Methods of features not implemented yet (awareness/election, etc.) throw
+Methods of features not implemented yet (viewer/history, `@SyncWithBPMS`) throw
 `UnsupportedOperationException("<method> is implemented in a later story")` - never a
-silent no-op, so wiring bugs surface loudly.
+silent no-op, so wiring bugs surface loudly. The election awareness probes are
+implemented: `awarenessOfTask` (job-timeout refresh), `awarenessOfUserTask` (empty
+user-task update), `awarenessOfWorkflow` (instance search; optimistic ACTIVE without
+secondary storage) and the stricter `awarenessOfWorkflowForRedispatch` (instance
+search without state filter; honest UNKNOWN without secondary storage - never
+optimistic, see the root README's idempotency section).
 
 ## BPMN model type
 

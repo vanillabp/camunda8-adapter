@@ -82,4 +82,22 @@ public class Camunda8ProcessServiceTest {
 
   }
 
+  @Test
+  @DisplayName("the re-dispatch probe never answers ACTIVE on a failing query - a recovered start must not be skipped")
+  public void redispatchProbeIsNeverOptimisticOnFailure() {
+
+    // an unreachable cluster must yield BPMS_UNAVAILABLE (the outbox entry stays
+    // pending and is retried) - answering ACTIVE would SKIP a recovered start and
+    // thereby lose the workflow, which is why this probe is stricter than the
+    // election's awarenessOfWorkflow (that one may answer optimistically when the
+    // query API is absent)
+    final var awareness = configuredService().awarenessOfWorkflowForRedispatch("agg-1");
+
+    assertTrue(
+        awareness == io.vanillabp.integration.adapter.spi.WorkflowAwareness.BPMS_UNAVAILABLE,
+        "expected BPMS_UNAVAILABLE but got "
+            + awareness);
+
+  }
+
 }
