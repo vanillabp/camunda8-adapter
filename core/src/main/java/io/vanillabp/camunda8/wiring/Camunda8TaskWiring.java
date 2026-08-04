@@ -217,6 +217,80 @@ public final class Camunda8TaskWiring {
 
   }
 
+  /**
+   * Wires the correlation keys of the given executable process' MESSAGE
+   * subscriptions (story 23): publishing with
+   * <code>correlationKey = workflow-aggregate ID</code> only correlates if the
+   * deployed model's message subscriptions carry a matching
+   * <code>zeebe:subscription</code> correlation-key expression. For every message
+   * referenced by a catch element of this process WITHOUT such an expression the
+   * V2 convention <code>=&lt;aggregate-ID variable&gt;</code> is INJECTED (the
+   * engine-specific BPMN modification of the pipeline); an existing expression is
+   * left untouched (the modeller may correlate by an own variable, e.g. for
+   * correlation-id scenarios - V1 models keep working byte-identically). Message
+   * START events need no correlation key and are skipped.
+   *
+   * @param model The BPMN model (modified in place)
+   * @param bpmnProcessId The executable process to wire
+   * @param aggregateIdVariableName Supplies the name of the process variable
+   *          holding the workflow-aggregate ID - resolved ONLY if an injection is
+   *          actually necessary, so a process without message catch elements does
+   *          not require the aggregate's ID property to be resolvable
+   */
+  public static void wireMessageSubscriptions(
+      final BpmnModelInstance model,
+      final String bpmnProcessId,
+      final java.util.function.Supplier<String> aggregateIdVariableName) {
+
+    final var messages = new java.util.LinkedHashSet<io.camunda.zeebe.model.bpmn.instance.Message>();
+
+    // intermediate catch events + boundary events + receive tasks of THIS process
+    model
+        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.CatchEvent.class)
+        .stream()
+        .filter(event -> bpmnProcessId.equals(owningProcessId(event)))
+        // message START events correlate by name only - no correlation key
+        .filter(event -> !(event instanceof io.camunda.zeebe.model.bpmn.instance.StartEvent))
+        .flatMap(event -> event
+            .getEventDefinitions()
+            .stream()
+            .filter(io.camunda.zeebe.model.bpmn.instance.MessageEventDefinition.class::isInstance)
+            .map(io.camunda.zeebe.model.bpmn.instance.MessageEventDefinition.class::cast))
+        .map(io.camunda.zeebe.model.bpmn.instance.MessageEventDefinition::getMessage)
+        .filter(java.util.Objects::nonNull)
+        .forEach(messages::add);
+    model
+        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.ReceiveTask.class)
+        .stream()
+        .filter(task -> bpmnProcessId.equals(owningProcessId(task)))
+        .map(io.camunda.zeebe.model.bpmn.instance.ReceiveTask::getMessage)
+        .filter(java.util.Objects::nonNull)
+        .forEach(messages::add);
+
+    messages.forEach(message -> {
+      final var existing = message
+          .getSingleExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeSubscription.class);
+      if (existing != null) {
+        // the modeller correlates deliberately (e.g. by an own correlation-id
+        // variable) - leave it untouched, V1 models stay byte-identical
+        return;
+      }
+      final var extensionElements = message.getExtensionElements() != null
+          ? message.getExtensionElements()
+          : (io.camunda.zeebe.model.bpmn.instance.ExtensionElements) message
+              .getModelInstance()
+              .newInstance(io.camunda.zeebe.model.bpmn.instance.ExtensionElements.class);
+      if (message.getExtensionElements() == null) {
+        message.addChildElement(extensionElements);
+      }
+      final var subscription = extensionElements
+          .addExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeSubscription.class);
+      subscription.setCorrelationKey("="
+          + aggregateIdVariableName.get());
+    });
+
+  }
+
   private static String owningProcessId(
       final FlowElement element) {
 

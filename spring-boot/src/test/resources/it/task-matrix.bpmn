@@ -162,4 +162,47 @@
       <bpmn:incoming>SUT_f2</bpmn:incoming>
     </bpmn:endEvent>
   </bpmn:process>
+  <bpmn:message id="Msg_C8Payment" name="C8PaymentReceived" />
+  <bpmn:message id="Msg_C8Order" name="C8OrderPlaced" />
+  <bpmn:process id="MessageProcess" isExecutable="true">
+    <bpmn:startEvent id="CMP_start">
+      <bpmn:outgoing>CMP_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="CMP_f1" sourceRef="CMP_start" targetRef="CMP_wait" />
+    <bpmn:intermediateCatchEvent id="CMP_wait">
+      <bpmn:incoming>CMP_f1</bpmn:incoming>
+      <bpmn:outgoing>CMP_f2</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="CMP_msgDef" messageRef="Msg_C8Payment" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:sequenceFlow id="CMP_f2" sourceRef="CMP_wait" targetRef="CMP_done" />
+    <bpmn:serviceTask id="CMP_done">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="c8MessageArrived" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>CMP_f2</bpmn:incoming>
+      <bpmn:outgoing>CMP_f3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="CMP_f3" sourceRef="CMP_done" targetRef="CMP_end" />
+    <bpmn:endEvent id="CMP_end">
+      <bpmn:incoming>CMP_f3</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <bpmn:process id="MessageStartProcess" isExecutable="true">
+    <bpmn:startEvent id="CMS_start">
+      <bpmn:outgoing>CMS_f1</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="CMS_msgDef" messageRef="Msg_C8Order" />
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="CMS_f1" sourceRef="CMS_start" targetRef="CMS_task" />
+    <bpmn:serviceTask id="CMS_task">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="c8OrderPlaced" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>CMS_f1</bpmn:incoming>
+      <bpmn:outgoing>CMS_f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="CMS_f2" sourceRef="CMS_task" targetRef="CMS_end" />
+    <bpmn:endEvent id="CMS_end">
+      <bpmn:incoming>CMS_f2</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
 </bpmn:definitions>

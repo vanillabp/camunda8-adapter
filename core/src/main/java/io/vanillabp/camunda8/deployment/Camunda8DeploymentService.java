@@ -170,6 +170,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .map(Camunda8TaskWiring.Camunda8UserTaskToWire::toSpec)
         .forEach(specs::add);
     workflowTaskInvoker.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
+    // message correlation (story 23): inject the correlation-key expression
+    // '=<aggregate-ID variable>' into message subscriptions lacking one - the V2
+    // convention enabling ProcessService#correlateMessage without manual model
+    // tweaks (existing expressions stay untouched, V1 models deploy unchanged)
+    Camunda8TaskWiring.wireMessageSubscriptions(
+        model,
+        bpmnProcessId,
+        () -> workflowTaskInvoker.resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId));
     context.getTasksToWire().addAll(tasks);
     context.getUserTasksToWire().addAll(userTasks);
 

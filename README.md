@@ -247,6 +247,22 @@ job-based) and V1's marker-variable workaround is broken by V1's own admission -
 a guiding error explains it; expected to arrive with the Camunda 8.10 listener
 support (see the prepared follow-up prompt).
 
+**Message correlation (story 23):** `correlateMessage` publishes AFTER the commit
+(outbox) with `correlationKey = correlationId ?? aggregate ID` and NO variables
+(payload doctrine). During `wireBpmn` the adapter INJECTS the `zeebe:subscription`
+correlation-key expression `=<aggregate-ID variable>` into message subscriptions
+lacking one - catch events correlate via the aggregate ID without manual model
+tweaks (existing expressions stay untouched; V1 models deploy byte-identically).
+WITH a correlation id the outbox idempotency key doubles as the Zeebe `messageId`,
+so redelivered dispatches are rejected engine-side WITHIN THE MESSAGE TTL (engine
+default; a redelivery after the TTL could correlate again - the documented
+uniqueness window). WITHOUT one, deduplication is deliberately absent.
+`startWorkflowByMessage` publishes with an empty correlation key, the start's
+idempotency key as `messageId` and ONLY the aggregate-ID variable.
+`awarenessOfWorkflow` uses the process-instance search (query API): without
+secondary storage the adapter answers OPTIMISTICALLY (one-time guiding WARN) -
+fine for single-BPMS setups, configure secondary storage for migration scenarios.
+
 ### Testing
 
 - **Core unit tests** (no Docker): BPMN parsing / executable-process extraction, client

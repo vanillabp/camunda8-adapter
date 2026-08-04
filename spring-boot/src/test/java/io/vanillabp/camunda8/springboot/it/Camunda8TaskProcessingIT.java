@@ -522,6 +522,93 @@ public class Camunda8TaskProcessingIT {
 
   }
 
+  @Test
+  @DisplayName("correlateMessage resumes the instance via the INJECTED zeebe:subscription (no manual model tweaks)")
+  public void correlateMessageResumesInstanceViaInjectedSubscription() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("MessageProcess", aggregateId);
+
+    // no reliable waiting-state query without secondary storage - correlate
+    // (buffered by the engine's message TTL, so timing is not critical)
+    Thread.sleep(2000);
+    transactionTemplate.executeWithoutResult(status -> {
+      final var aggregate = repository.findById(aggregateId).orElseThrow();
+      aggregate.appendResult("correlating");
+      workflowService.correlate(aggregate, "C8PaymentReceived");
+    });
+
+    awaitUntil(
+        () -> {
+          final var results = results(aggregateId);
+          return (results != null) && results.contains("message-arrived");
+        },
+        60000,
+        "the correlated message to resume the instance");
+    assertEquals("correlating|message-arrived", results(aggregateId));
+
+  }
+
+  @Test
+  @DisplayName("The messageId deduplicates: a redelivered phase-two correlation does not double-fire")
+  public void duplicateCorrelationDispatchIsDeduplicated() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("MessageProcess", aggregateId);
+    Thread.sleep(2000);
+
+    @SuppressWarnings("unchecked")
+    final var c8ProcessService = (io.vanillabp.camunda8.processservice.Camunda8ProcessService<TaskDockerAggregate>) applicationContext
+        .getBean("Camunda8_ProcessService_c8");
+
+    // simulate an at-least-once redelivery of the SAME phase-two dispatch (same
+    // correlation id -> same messageId): the second publish is rejected by the
+    // engine and tolerated as the documented no-op
+    c8ProcessService.correlateMessagePhaseTwo(
+        "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "pay-1");
+    c8ProcessService.correlateMessagePhaseTwo(
+        "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "pay-1");
+
+    // the correlation id 'pay-1' does not match the injected '=id' subscription -
+    // nothing may fire; now correlate properly ONCE and prove single delivery
+    Thread.sleep(1000);
+    assertEquals(0, invocations("c8MessageArrived", aggregateId));
+    c8ProcessService.correlateMessagePhaseTwo(
+        "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", String.valueOf(aggregateId));
+    awaitUntil(
+        () -> invocations("c8MessageArrived", aggregateId) >= 1,
+        60000,
+        "the matching correlation to resume the instance");
+    Thread.sleep(1500);
+    assertEquals(1, invocations("c8MessageArrived", aggregateId), "no double-fire");
+
+  }
+
+  @Test
+  @DisplayName("startWorkflowByMessage starts the instance via the message start event")
+  public void startWorkflowByMessageStartsInstance() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> {
+      final var aggregate = new TaskDockerAggregate();
+      final var saved = repository.save(aggregate);
+      workflowService.startByMessage(saved, "C8OrderPlaced");
+      return saved.getId();
+    });
+
+    awaitUntil(
+        () -> {
+          final var results = results(aggregateId);
+          return (results != null) && results.contains("order-placed");
+        },
+        60000,
+        "the message start event to start the instance");
+
+  }
+
   @Autowired
   private org.springframework.context.ApplicationContext applicationContext;
 

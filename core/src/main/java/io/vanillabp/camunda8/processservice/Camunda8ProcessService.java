@@ -383,11 +383,250 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
+  /**
+   * Logged once per adapter: probing workflow awareness needs the query API
+   * (secondary storage) - without it the adapter answers OPTIMISTICALLY.
+   */
+  private final java.util.concurrent.atomic.AtomicBoolean noSecondaryStorageWarned = new java.util.concurrent.atomic.AtomicBoolean();
+
   @Override
   public WorkflowAwareness awarenessOfWorkflow(
       final Object workflowAggregateId) {
 
-    throw new UnsupportedOperationException("awarenessOfWorkflow is implemented in a later story");
+    // Zeebe offers NO engine command answering "does an instance for this
+    // aggregate exist" - only the eventually-consistent query API (requires
+    // secondary storage, standard in any real Camunda 8 setup). The search
+    // filters by the aggregate-ID process variable.
+    try {
+      final var found = clientFactory
+          .getClient()
+          .newProcessInstanceSearchRequest()
+          .filter(filter -> filter
+              .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
+              .variables(java.util.Map
+                  .of(aggregateIdVariableName(), String.valueOf(workflowAggregateId))))
+          .send()
+          .join();
+      return found.items().isEmpty()
+          ? WorkflowAwareness.UNKNOWN_TO_BPMS
+          : WorkflowAwareness.ACTIVE;
+    } catch (final Exception e) {
+      if (isSecondaryStorageMissing(e)) {
+        // OPTIMISTIC fallback: without the query API the instance's existence
+        // cannot be probed. Correlation publishes are buffered by the engine
+        // anyway (message TTL); in MULTI-BPMS migration setups this answer may
+        // route an operation to the wrong BPMS - configure secondary storage
+        // there (guiding WARN below).
+        if (noSecondaryStorageWarned.compareAndSet(false, true)) {
+          log.warn(
+              "Camunda8[{}]: the cluster runs WITHOUT secondary storage - workflow awareness "
+                  + "cannot be probed and is answered OPTIMISTICALLY (ACTIVE). Fine for "
+                  + "single-BPMS setups; for BPMS migration scenarios configure the query API "
+                  + "(camunda.database.type / secondary storage).",
+              adapterId);
+        }
+        return WorkflowAwareness.ACTIVE;
+      }
+      log.warn(
+          "Camunda8[{}]: could not determine awareness of the workflow of aggregate '{}' - "
+              + "reporting BPMS_UNAVAILABLE",
+          adapterId,
+          workflowAggregateId,
+          e);
+      return WorkflowAwareness.BPMS_UNAVAILABLE;
+    }
+
+  }
+
+  private static boolean isSecondaryStorageMissing(
+      final Throwable throwable) {
+
+    var current = throwable;
+    while (current != null) {
+      final var message = current.getMessage();
+      if ((message != null) && message.contains("secondary storage")) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
+
+  }
+
+  /**
+   * The name of the process variable holding the workflow-aggregate ID. Kept as a
+   * field set by the deployment wiring would be nicer, but the process service is
+   * decoupled from deployment - the name is resolved per call via the aggregate
+   * persistence passed into the SPI methods where available; awareness probes
+   * fall back to the value set by {@link #rememberAggregateIdName(String)}.
+   */
+  private volatile String aggregateIdVariableName = "id";
+
+  private String aggregateIdVariableName() {
+
+    return aggregateIdVariableName;
+
+  }
+
+  /**
+   * Remembers the aggregate-ID variable name for awareness probes (called from
+   * the SPI methods which receive the persistence).
+   *
+   * @param name The variable name
+   */
+  private void rememberAggregateIdName(
+      final String name) {
+
+    if (name != null) {
+      this.aggregateIdVariableName = name;
+    }
+
+  }
+
+  @Override
+  public void correlateMessagePhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final A workflowAggregate,
+      final String messageName,
+      final String correlationId) {
+
+    // no cheap NON-ADVANCING existence check exists for a waiting message
+    // subscription (the query API is eventually consistent) - like workflow
+    // starts, phase one only validates the configuration; an unreachable cluster
+    // just makes the phase-two publish wait in the outbox
+    rememberAggregateIdName(aggregatePersistence.getAggregateIdName());
+    clientFactory.validateConfigured();
+
+  }
+
+  @Override
+  public void correlateMessagePhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String messageName,
+      final String correlationId) {
+
+    // correlationKey: the correlation id if given, the aggregate ID otherwise
+    // (V1 semantics; the wired zeebe:subscription evaluates '=<idName>' - a
+    // correlation id requires a model-side subscription on the matching variable).
+    // messageId: the idempotency key WHERE ONE EXISTS (with a correlation id) -
+    // the engine then deduplicates redeliveries within the message TTL; without
+    // one, an at-least-once redelivery may double-correlate (documented).
+    // PAYLOAD DOCTRINE: no variables travel.
+    final var correlationKey = correlationId != null
+        ? correlationId
+        : String.valueOf(workflowAggregateId);
+    var command = clientFactory
+        .getClient()
+        .newPublishMessageCommand()
+        .messageName(messageName)
+        .correlationKey(correlationKey);
+    if (correlationId != null) {
+      command = command.messageId(
+          "%s|%s|%s|%s|%s".formatted(
+              workflowModuleId, bpmnProcessId, workflowAggregateId, messageName, correlationId));
+    }
+    try {
+      command
+          .send()
+          .join();
+      log.info(
+          "Camunda8[{}]: published message '{}' (correlation key '{}') for BPMN process '{}' of "
+              + "workflow module '{}'",
+          adapterId,
+          messageName,
+          correlationKey,
+          bpmnProcessId,
+          workflowModuleId);
+    } catch (final Exception e) {
+      if (!isMessageAlreadyPublished(e)) {
+        throw e;
+      }
+      // the engine deduplicated by messageId - a redelivered at-least-once
+      // dispatch, the entry is consumed
+      log.warn(
+          "Camunda8[{}]: message '{}' (id-deduplicated) was already published - skipping the "
+              + "redelivered phase-two correlation",
+          adapterId,
+          messageName);
+    }
+
+  }
+
+  private static boolean isMessageAlreadyPublished(
+      final Throwable throwable) {
+
+    var current = throwable;
+    while (current != null) {
+      final var message = current.getMessage();
+      if ((message != null) && (message.contains("ALREADY_EXISTS") || message.contains("already been published"))) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
+
+  }
+
+  @Override
+  public void startWorkflowByMessagePhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final A workflowAggregate,
+      final String messageName) {
+
+    rememberAggregateIdName(aggregatePersistence.getAggregateIdName());
+    clientFactory.validateConfigured();
+
+  }
+
+  @Override
+  public void startWorkflowByMessagePhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String messageName) {
+
+    // message START events ignore the correlation key; the aggregate-ID variable
+    // is the ONLY variable published (the same technical field a regular start
+    // sets - not message content). messageId = the start's idempotency key so the
+    // engine deduplicates redelivered dispatches within the message TTL.
+    try {
+      clientFactory
+          .getClient()
+          .newPublishMessageCommand()
+          .messageName(messageName)
+          .correlationKey("")
+          .messageId("%s|%s|%s".formatted(workflowModuleId, bpmnProcessId, workflowAggregateId))
+          .variables(java.util.Map.of(
+              aggregatePersistence.getAggregateIdName(), String.valueOf(workflowAggregateId)))
+          .send()
+          .join();
+      log.info(
+          "Camunda8[{}]: published start message '{}' for BPMN process '{}' of workflow module "
+              + "'{}' (aggregate '{}')",
+          adapterId,
+          messageName,
+          bpmnProcessId,
+          workflowModuleId,
+          workflowAggregateId);
+    } catch (final Exception e) {
+      if (!isMessageAlreadyPublished(e)) {
+        throw e;
+      }
+      log.info(
+          "Camunda8[{}]: start message '{}' for aggregate '{}' was already published - skipping "
+              + "the redelivered phase-two start",
+          adapterId,
+          messageName,
+          workflowAggregateId);
+    }
 
   }
 

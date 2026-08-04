@@ -26,7 +26,8 @@ import io.vanillabp.spi.service.WorkflowTask;
     secondaryBpmnProcesses = {
         @BpmnProcess(bpmnProcessId = "FailProcess"), @BpmnProcess(bpmnProcessId = "AsyncProcess"), @BpmnProcess(
             bpmnProcessId = "RetryProcess"), @BpmnProcess(bpmnProcessId = "AsyncCancelProcess"), @BpmnProcess(
-                bpmnProcessId = "UserTaskProcess"), @BpmnProcess(bpmnProcessId = "SilentUserTaskProcess")
+                bpmnProcessId = "UserTaskProcess"), @BpmnProcess(bpmnProcessId = "SilentUserTaskProcess"), @BpmnProcess(
+                    bpmnProcessId = "MessageProcess"), @BpmnProcess(bpmnProcessId = "MessageStartProcess")
     })
 public class TaskDockerWorkflowService {
 
@@ -195,6 +196,49 @@ public class TaskDockerWorkflowService {
       aggregate.appendResult("usertask-"
           + event.name().toLowerCase());
     }
+
+  }
+
+  public TaskDockerAggregate correlate(
+      final TaskDockerAggregate aggregate,
+      final String messageName) {
+
+    return processService.correlateMessage(aggregate, messageName);
+
+  }
+
+  public TaskDockerAggregate correlate(
+      final TaskDockerAggregate aggregate,
+      final String messageName,
+      final String correlationId) {
+
+    return processService.correlateMessage(aggregate, messageName, correlationId);
+
+  }
+
+  public TaskDockerAggregate startByMessage(
+      final TaskDockerAggregate aggregate,
+      final String messageName) {
+
+    return processService.startWorkflowByMessage(aggregate, messageName);
+
+  }
+
+  @WorkflowTask
+  public void c8MessageArrived(
+      final TaskDockerAggregate aggregate) {
+
+    countInvocation("c8MessageArrived", aggregate);
+    aggregate.appendResult("message-arrived");
+
+  }
+
+  @WorkflowTask
+  public void c8OrderPlaced(
+      final TaskDockerAggregate aggregate) {
+
+    countInvocation("c8OrderPlaced", aggregate);
+    aggregate.appendResult("order-placed");
 
   }
 
