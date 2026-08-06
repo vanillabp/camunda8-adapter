@@ -32,6 +32,15 @@ public class Camunda8ClientFactory implements AutoCloseable {
   @Getter
   private final Camunda8AdapterConfiguration configuration;
 
+  /**
+   * The per-adapter-id record of what this application version deployed (story
+   * 26's viewer API). It lives here because the factory is the one object BOTH
+   * the deployment service (which fills it) and the process service (which reads
+   * it) already receive per adapter id on both platforms.
+   */
+  @Getter
+  private final io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses deployedProcesses = new io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses();
+
   private CamundaClient client;
 
   public Camunda8ClientFactory(

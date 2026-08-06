@@ -763,4 +763,61 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
+
+  /**
+   * The viewer/history API (story 26) - see {@link Camunda8WorkflowViewer} for the
+   * two data sources (what this application version deployed vs. the cluster's
+   * query API) and the consistency caveats.
+   */
+  private volatile Camunda8WorkflowViewer viewer;
+
+  private Camunda8WorkflowViewer viewer() {
+
+    // built on first use: this class is constructed by Lombok's all-args
+    // constructor, so a field initializer could not reference the final fields
+    if (viewer == null) {
+      viewer = new Camunda8WorkflowViewer(adapterId, clientFactory);
+    }
+    return viewer;
+
+  }
+
+  @Override
+  public java.util.List<io.vanillabp.spi.process.ProcessDefinition> getProcessDefinitions(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String historyContext) {
+
+    rememberAggregateIdName(aggregatePersistence.getAggregateIdName());
+    return viewer().getProcessDefinitions(
+        workflowModuleId, bpmnProcessId, aggregateIdVariableName(), workflowAggregateId, historyContext);
+
+  }
+
+  @Override
+  public java.io.InputStream getBpmnXml(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String processDefinitionId) {
+
+    return viewer().getBpmnXml(processDefinitionId);
+
+  }
+
+  @Override
+  public io.vanillabp.spi.process.WorkflowHistory getWorkflowHistory(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String historyContext) {
+
+    rememberAggregateIdName(aggregatePersistence.getAggregateIdName());
+    return viewer().getWorkflowHistory(
+        workflowModuleId, bpmnProcessId, aggregateIdVariableName(), workflowAggregateId, historyContext);
+
+  }
+
 }

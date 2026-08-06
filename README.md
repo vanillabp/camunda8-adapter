@@ -281,6 +281,35 @@ idempotency key as `messageId` and ONLY the aggregate-ID variable.
 secondary storage the adapter answers OPTIMISTICALLY (one-time guiding WARN) -
 fine for single-BPMS setups, configure secondary storage for migration scenarios.
 
+### Viewing workflows (story 26)
+
+`ProcessService#getProcessDefinitions`, `#getBpmnXml` and `#getWorkflowHistory` are served
+from two sources:
+
+1. **What this application version deployed** - VanillaBP's deployment pipeline reads every
+   workflow module's BPMN at each boot, so the adapter keeps those models (per adapter id,
+   with the process definition key and version the CLUSTER assigned at deployment) and serves
+   definitions and BPMN XML from them: no cluster round trip, no consistency lag, and it works
+   on clusters WITHOUT secondary storage.
+2. **The cluster's query API** (secondary storage) for everything instance-related: which
+   version a running workflow actually uses, the element history, and definitions deployed by
+   PREVIOUS application versions (a long-running workflow surviving a redeployment).
+
+**Consistency caveats - by design, never errors:**
+
+- Without secondary storage the element history is reported as `null` (the SPI's "not
+  supported by the underlying BPMS") and the definitions of the currently deployed version
+  are reported; a guiding WARN naming the reason is logged once per adapter id.
+- The query API is eventually consistent: a workflow started moments ago may not be visible
+  yet. The adapter reports what is visible - a viewer polling shortly after sees the data.
+- Definitions of previous application versions are only resolvable through the cluster;
+  without the query API `getBpmnXml` answers with the core's guiding
+  `ProcessDefinitionNotFoundException`.
+
+The adapter-native process definition id is the **process definition key**, the history
+context of a call activity its called **process instance key**, and the XML returned is the
+model AS DEPLOYED (VanillaBP's wiring modifications included).
+
 ### Testing
 
 - **Core unit tests** (no Docker): BPMN parsing / executable-process extraction, client

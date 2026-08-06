@@ -222,6 +222,26 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final var deployment = command
           .send()
           .join();
+      // remember what was deployed: the viewer API serves definitions and BPMN XML
+      // from these models instead of the eventually consistent query API (see
+      // Camunda8DeployedProcesses)
+      deployment
+          .getProcesses()
+          .forEach(process -> {
+            final var model = bpmsProcessingContext
+                .getResources()
+                .get(process.getResourceName());
+            if (model == null) {
+              return;
+            }
+            clientFactory
+                .getDeployedProcesses()
+                .record(
+                    new Camunda8DeployedProcesses.DeployedProcess(
+                        workflowModuleId, process.getBpmnProcessId(), String
+                            .valueOf(process.getProcessDefinitionKey()), process.getVersion(), model));
+          });
+
       log.info("Deployed {} BPMN resource(s) of workflow module '{}' to Camunda 8 "
           + "(adapter '{}', deployment key {}, tenant '{}'): {}",
           bpmsProcessingContext.getResources().size(),
