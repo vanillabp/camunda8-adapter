@@ -20,7 +20,6 @@ import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.BpmnParseException;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -39,7 +38,6 @@ import lombok.extern.slf4j.Slf4j;
  * (closed on {@code stopWorkflowProcessing}).
  */
 @Slf4j
-@RequiredArgsConstructor
 public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnModelInstance, Camunda8ProcessingContext> {
 
   /**
@@ -69,6 +67,58 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * completion (see {@link Camunda8JobHandler}).
    */
   private final Duration asyncTaskTimeout;
+
+  /**
+   * Resolves an adapter id's connection configuration - platform-supplied, used by
+   * {@link #validateDistinctAdapterInstances(List)}. May be <code>null</code>
+   * (tests): the check is skipped then.
+   */
+  private final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations;
+
+  /**
+   * Convenience constructor without the configuration resolver (tests) - two
+   * adapter ids of this type are not checked for distinctness then.
+   */
+  public Camunda8DeploymentService(
+      final String adapterId,
+      final Camunda8ClientFactory clientFactory,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Camunda8JobTimeoutResolver jobTimeoutResolver,
+      final Duration asyncTaskTimeout) {
+
+    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskTimeout, null);
+
+  }
+
+  public Camunda8DeploymentService(
+      final String adapterId,
+      final Camunda8ClientFactory clientFactory,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Camunda8JobTimeoutResolver jobTimeoutResolver,
+      final Duration asyncTaskTimeout,
+      final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations) {
+
+    this.adapterId = adapterId;
+    this.clientFactory = clientFactory;
+    this.workflowTaskInvoker = workflowTaskInvoker;
+    this.jobTimeoutResolver = jobTimeoutResolver;
+    this.asyncTaskTimeout = asyncTaskTimeout;
+    this.configurations = configurations;
+
+  }
+
+  /**
+   * Two <code>camunda8</code> adapter ids are only distinct if they address
+   * different clusters - or one cluster with different credentials/tenants (see
+   * {@link io.vanillabp.camunda8.client.Camunda8InstanceIdentity}).
+   */
+  @Override
+  public void validateDistinctAdapterInstances(
+      final List<String> adapterIdsOfThisType) {
+
+    io.vanillabp.camunda8.client.Camunda8InstanceIdentity.validateDistinct(adapterIdsOfThisType, configurations);
+
+  }
 
   @Override
   public String getAdapterId() {

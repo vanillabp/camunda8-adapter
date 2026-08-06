@@ -63,7 +63,11 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                 workflowModuleId,
                                 bpmnProcessId,
                                 taskDefinition) -> overlay.jobTimeoutFor(
-                                    workflowModuleId, bpmnProcessId, taskDefinition, adapterId), asyncTaskTimeout);
+                                    workflowModuleId, bpmnProcessId, taskDefinition,
+                                    adapterId), asyncTaskTimeout, id -> supplierContext
+                                        .bean(Camunda8ClientFactoryRegistry.class)
+                                        .getFactory(id)
+                                        .getConfiguration());
               }));
 
         });

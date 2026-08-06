@@ -63,7 +63,10 @@ public class Camunda8DeploymentServiceProducer {
                   workflowModuleId,
                   bpmnProcessId,
                   taskDefinition) -> overlay.jobTimeoutFor(
-                      workflowModuleId, bpmnProcessId, taskDefinition, adapterId), asyncTaskTimeout);
+                      workflowModuleId, bpmnProcessId, taskDefinition,
+                      adapterId), asyncTaskTimeout, id -> clientFactoryRegistry
+                          .getFactory(id)
+                          .getConfiguration());
         })
         .toList();
 
