@@ -60,6 +60,63 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    */
   private final Camunda8PreCommitRegistrar preCommitRegistrar;
 
+  /**
+   * The core's sync model (story 28): which aggregate attributes are shared with
+   * the cluster. Camunda 8 is REMOTE, so its default is
+   * {@link AggregateSyncMode#FULL} - a BPMN expression can only see what VanillaBP
+   * pushed as a process variable. May be <code>null</code> (tests): only the
+   * technical aggregate-ID variable is written then.
+   */
+  private final io.vanillabp.integration.adapter.spi.WorkflowAggregateSync aggregateSync;
+
+  /**
+   * The default of this adapter: everything is shared unless the application
+   * excludes it ({@code @NoSyncWithBPMS}).
+   */
+  public static final io.vanillabp.integration.adapter.spi.AggregateSyncMode SYNC_MODE = io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL;
+
+  /**
+   * The process variables written whenever this adapter talks to the cluster on
+   * behalf of a workflow: the aggregate's shared attributes PLUS - always, no
+   * matter what the sync model says - the technical variable carrying the
+   * aggregate's ID (named after the aggregate's ID property). Camunda 8 has no
+   * business key: that variable is how VanillaBP finds the workflow again.
+   *
+   * @param aggregatePersistence The aggregate's persistence
+   * @param workflowAggregateId The aggregate's ID
+   * @return The variables (never <code>null</code>)
+   */
+  private java.util.Map<String, Object> variablesOf(
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId) {
+
+    final var variables = new java.util.LinkedHashMap<String, Object>();
+    if (aggregatePersistence == null) {
+      // no persistence at hand (e.g. a test driving the SPI directly): neither the
+      // shared attributes nor the technical ID variable can be determined
+      return variables;
+    }
+    if (aggregateSync != null) {
+      final var aggregate = aggregatePersistence.loadById(workflowAggregateId);
+      if (aggregate != null) {
+        variables.putAll(aggregateSync.syncedValues(aggregate, SYNC_MODE));
+      } else {
+        log.warn(
+            "Camunda8[{}]: the workflow aggregate '{}' could not be loaded - only the technical "
+                + "aggregate-ID variable is written to the cluster",
+            adapterId,
+            workflowAggregateId);
+      }
+    }
+    variables.put(
+        aggregatePersistence.getAggregateIdName(),
+        workflowAggregateId == null
+            ? null
+            : workflowAggregateId.toString());
+    return variables;
+
+  }
+
   @Override
   public String getAdapterId() {
 
@@ -247,6 +304,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       clientFactory
           .getClient()
           .newCompleteUserTaskCommand(Long.parseLong(taskId))
+          .variables(variablesOf(aggregatePersistence, workflowAggregateId))
           .send()
           .join();
       log.info(
@@ -325,6 +383,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       clientFactory
           .getClient()
           .newCompleteCommand(Long.parseLong(taskId))
+          // story 28: the aggregate changed before the task was completed - the
+          // cluster only sees what VanillaBP pushes
+          .variables(variablesOf(aggregatePersistence, workflowAggregateId))
           .send()
           .join();
       log.info(
@@ -567,7 +628,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // messageId: the idempotency key WHERE ONE EXISTS (with a correlation id) -
     // the engine then deduplicates redeliveries within the message TTL; without
     // one, an at-least-once redelivery may double-correlate (documented).
-    // PAYLOAD DOCTRINE: no variables travel.
+    // PAYLOAD DOCTRINE: no message CONTENT travels - what does travel is the
+    // aggregate state shared with the BPMS (story 28), because the cluster can
+    // only evaluate BPMN expressions against variables it was given.
     final var correlationKey = correlationId != null
         ? correlationId
         : String.valueOf(workflowAggregateId);
@@ -575,7 +638,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
         .getClient()
         .newPublishMessageCommand()
         .messageName(messageName)
-        .correlationKey(correlationKey);
+        .correlationKey(correlationKey)
+        .variables(variablesOf(aggregatePersistence, workflowAggregateId));
     if (correlationId != null) {
       command = command.messageId(
           "%s|%s|%s|%s|%s".formatted(
@@ -655,8 +719,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .messageName(messageName)
           .correlationKey("")
           .messageId("%s|%s|%s".formatted(workflowModuleId, bpmnProcessId, workflowAggregateId))
-          .variables(java.util.Map.of(
-              aggregatePersistence.getAggregateIdName(), String.valueOf(workflowAggregateId)))
+          .variables(variablesOf(aggregatePersistence, workflowAggregateId))
           .send()
           .join();
       log.info(
@@ -711,7 +774,10 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
-    createProcessInstance(bpmnProcessId, aggregatePersistence.getAggregateIdName(), workflowAggregateId);
+    createProcessInstance(
+        bpmnProcessId,
+        variablesOf(aggregatePersistence, workflowAggregateId),
+        workflowAggregateId);
 
   }
 
@@ -737,7 +803,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    */
   public ProcessInstanceEvent createProcessInstance(
       final String bpmnProcessId,
-      final String aggregateIdName,
+      final java.util.Map<String, Object> variables,
       final Object workflowAggregateId) {
 
     final var client = clientFactory.getClient();
@@ -745,9 +811,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
         .newCreateInstanceCommand()
         .bpmnProcessId(bpmnProcessId)
         .latestVersion()
-        .variable(
-            aggregateIdName,
-            workflowAggregateId == null ? null : workflowAggregateId.toString());
+        .variables(variables);
 
     final var tenantId = clientFactory.getConfiguration().getTenantId();
     if (tenantId != null && !tenantId.isBlank()) {

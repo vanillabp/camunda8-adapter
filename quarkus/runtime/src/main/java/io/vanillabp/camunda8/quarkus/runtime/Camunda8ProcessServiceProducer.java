@@ -31,7 +31,8 @@ public class Camunda8ProcessServiceProducer {
   public List<MigratableProcessService<Object>> camunda8MigratableProcessServices(
       final MigrationAdapterProperties properties,
       final Camunda8ClientFactoryRegistry clientFactoryRegistry,
-      final jakarta.transaction.TransactionSynchronizationRegistry synchronizationRegistry) {
+      final jakarta.transaction.TransactionSynchronizationRegistry synchronizationRegistry,
+      final io.vanillabp.integration.adapter.spi.WorkflowAggregateSync aggregateSync) {
 
     final var overlay = org.eclipse.microprofile.config.ConfigProvider
         .getConfig()
@@ -53,7 +54,7 @@ public class Camunda8ProcessServiceProducer {
           return new Camunda8ProcessService<>(
               adapterId, clientFactoryRegistry
                   .getFactory(adapterId), asyncTaskTimeout, new Camunda8QuarkusPreCommitRegistrar(
-                      synchronizationRegistry));
+                      synchronizationRegistry), aggregateSync);
         })
         .toList();
 

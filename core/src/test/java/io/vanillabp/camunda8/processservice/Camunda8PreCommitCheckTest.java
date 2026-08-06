@@ -49,7 +49,7 @@ public class Camunda8PreCommitCheckTest {
     // closed port: every cluster contact raises immediately
     configuration.setRestAddress("http://localhost:1");
     return new Camunda8ProcessService<>(
-        "c8", new Camunda8ClientFactory("c8", configuration), Duration.ofDays(14), registrar);
+        "c8", new Camunda8ClientFactory("c8", configuration), Duration.ofDays(14), registrar, null);
 
   }
 
