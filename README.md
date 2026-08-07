@@ -17,12 +17,19 @@ on are documented in the [VanillaBP Wiki](https://github.com/vanillabp/adapter-p
 
 ## Status
 
-**Early.** This repository connects to a Camunda 8 cluster, deploys the BPMN resources of
-each workflow module on startup and starts workflow instances end-to-end via the
-two-phase outbox (see [Behavior](#behavior)). Not yet implemented (later stories): job
-workers / `@WorkflowTask` execution, message correlation, awareness/election,
-`@SyncWithBPMS` variable sync and the viewer/history API - those SPI methods still throw
-`UnsupportedOperationException`.
+**Feature-complete against the VanillaBP 2 adapter SPI.** The adapter connects to a
+Camunda 8 cluster, deploys each workflow module's BPMN on startup, starts workflows
+through the two-phase outbox (see [Behavior](#behavior)), executes `@WorkflowTask`
+methods through polling job workers, completes and cancels asynchronous tasks, serves
+user tasks incl. their lifecycle notifications, correlates messages, pushes the
+aggregate's shared attributes as process variables and answers the viewer/history API.
+
+The ONE deliberate gap is **`cancelUserTask`**: Camunda 8.8 offers no command to cancel a
+Camunda-managed user task by BPMN error, so the operation throws a guiding error instead
+of pretending to work — expected to arrive with the 8.10 task-listener capabilities.
+Everything else that cannot be answered honestly (e.g. workflow awareness on a cluster
+without secondary storage) is documented as such rather than guessed; see
+[Behavior](#behavior).
 
 ## Dependencies
 

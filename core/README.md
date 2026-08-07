@@ -1,7 +1,9 @@
 # Camunda 8 adapter - core
 
 Contributor documentation for the platform-neutral core of the VanillaBP Camunda 8
-adapter. (User-facing documentation is in the repository-root `README.md`.)
+adapter. User-facing documentation lives in
+[this adapter's wiki](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki); the
+repository-root `README.md` documents the repository for contributors.
 
 The `core` module is **plain Java** - no Spring or Quarkus dependencies. It holds the
 adapter SPI implementations and all Camunda 8 client logic. The platform modules
@@ -29,19 +31,25 @@ configuration, create beans, run the bean lifecycle).
   one entry per executable `<process>`; `prepareBpmn` accumulates the deployable resources
   (deduplicated per filename) into the context; `deployResources` sends one
   `DeployResourceCommand` per workflow module (configured tenant or default). `wireBpmn`
-  and `startWorkflowProcessing` only log (task wiring / job workers are later stories).
+  validates the task wiring against the core's `WorkflowTaskInvoker` and injects what V1
+  injected (user-task listeners, subscription correlation keys);
+  `startWorkflowProcessing` opens one polling job worker per task definition plus one per
+  user-task listener type, `stopWorkflowProcessing` closes them again.
 - `Camunda8ProcessService<A> implements MigratableProcessService<A>` -
   `needsTwoPhaseCommitForStartingWorkflows()` returns `true`. Phase one validates only
   (resolve aggregate ID, verify client configured; no cluster call). Phase two creates the
-  instance via `createProcessInstance(bpmnProcessId, aggregateId)` (latest version, single
-  `aggregateId` variable).
+  instance via `createProcessInstance(bpmnProcessId, variables, aggregateId)` (latest
+  version), carrying the values the aggregate shares plus the technical variable named
+  after the aggregate's ID property.
 - `Camunda8ProcessingContext` - the adapter-specific processing context threaded through
   the deployment pipeline: workflow-module ID, deployable resources (per filename) and the
   discovered BPMN process IDs.
 
-Methods of features not implemented yet (viewer/history, `@SyncWithBPMS`) throw
-`UnsupportedOperationException("<method> is implemented in a later story")` - never a
-silent no-op, so wiring bugs surface loudly. The election awareness probes are
+The adapter SPI is served completely - deployment, workflow start (two-phase), task
+processing, user tasks, message correlation, aggregate sync and the viewer/history API.
+The ONE deliberate gap is `cancelUserTask`, which Camunda 8.8 offers no command for: it
+throws a guiding `UnsupportedOperationException` instead of pretending to work (expected
+to arrive with the 8.10 listener support). The election awareness probes are
 implemented: `awarenessOfTask` (job-timeout refresh), `awarenessOfUserTask` (empty
 user-task update), `awarenessOfWorkflow` (instance search; optimistic ACTIVE without
 secondary storage) and the stricter `awarenessOfWorkflowForRedispatch` (instance
@@ -54,8 +62,8 @@ The BPMN model type is `io.camunda.zeebe.model.bpmn.BpmnModelInstance`, shipped 
 artifact `io.camunda:zeebe-bpmn-model`. Against the resolved Camunda 8 client
 `io.camunda:camunda-client-java:8.8.31`, `zeebe-bpmn-model:8.8.31` is a transitive
 dependency and the class/artifact are **unchanged** from Camunda 7-era Zeebe (no rename
-in 8.8). The skeleton only needs `getModelType()` to return this class; BPMN parsing is
-a later story.
+in 8.8). `readBpmn` parses with it, `prepareBpmn`/`wireBpmn` modify the model (listener
+and subscription injection) and `deployResources` serializes it back.
 
 ## Client artifact
 
