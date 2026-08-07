@@ -11,6 +11,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -108,12 +110,161 @@ public class Camunda8InstanceIdentityTest {
   }
 
   @Test
+  @DisplayName("Story 35: two ids on ONE cluster are distinct if their name-clash-avoidance modes differ")
+  public void differingNameClashAvoidanceMakesIdsDistinct() {
+
+    final var configurations = Map.of(
+        "c8-tenants", selfManaged("http://localhost:8080"),
+        "c8-prefixed", selfManaged("http://localhost:8080"));
+    final var modes = Map.of(
+        "c8-tenants", NameClashAvoidance.BY_ADAPTER,
+        "c8-prefixed", NameClashAvoidance.USE_PREFIX);
+
+    // the tenants-to-prefix migration: ONE cluster, two adapter ids differing only in
+    // the mode - the identifiers they use are disjoint, so this has to be accepted
+    assertDoesNotThrow(
+        () -> Camunda8InstanceIdentity.validateDistinct(
+            List.copyOf(configurations.keySet()),
+            configurations::get,
+            modeResolver(modes)));
+
+    // the SAME mode on the same cluster is still the same instance
+    final var sameMode = Map.of(
+        "c8-tenants", NameClashAvoidance.BY_ADAPTER,
+        "c8-prefixed", NameClashAvoidance.BY_ADAPTER);
+    final var exception = assertThrows(
+        IllegalStateException.class,
+        () -> Camunda8InstanceIdentity.validateDistinct(
+            List.copyOf(configurations.keySet()),
+            configurations::get,
+            modeResolver(sameMode)));
+    assertTrue(exception.getMessage().contains("name-clash-avoidance"), exception::getMessage);
+
+  }
+
+  @Test
   @DisplayName("A single id is never checked, and an unavailable resolver skips the check")
   public void singleIdAndMissingResolverAreNoOps() {
 
     assertDoesNotThrow(() -> Camunda8InstanceIdentity.validateDistinct(List.of("c8"), id -> null));
     assertDoesNotThrow(() -> Camunda8InstanceIdentity.validateDistinct(List.of("a", "b"), null));
     assertDoesNotThrow(() -> Camunda8InstanceIdentity.validateDistinct(null, id -> null));
+
+  }
+
+  /**
+   * A {@link NameClashAvoidanceSupport} answering only {@code modeFor} - the identity
+   * check needs nothing else, and the core's implementation is not available in the
+   * Camunda 8 core (it depends on the adapter SPI only).
+   */
+  private static NameClashAvoidanceSupport modeResolver(
+      final Map<String, NameClashAvoidance> modesByAdapterId) {
+
+    return new NameClashAvoidanceSupport() {
+
+      @Override
+      public NameClashAvoidance modeFor(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String adapterId) {
+
+        return modesByAdapterId.get(adapterId);
+
+      }
+
+      @Override
+      public String scopedProcessId(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String adapterId) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+      @Override
+      public String scopedIdentifier(
+          final String workflowModuleId,
+          final String identifier,
+          final String adapterId) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+      @Override
+      public String scopedTaskDefinition(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String taskDefinition,
+          final String adapterId) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+      @Override
+      public String plainProcessId(
+          final String workflowModuleId,
+          final String scopedBpmnProcessId,
+          final String adapterId) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+      @Override
+      public String plainIdentifier(
+          final String workflowModuleId,
+          final String scopedIdentifier,
+          final String adapterId) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+      @Override
+      public String plainTaskDefinition(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String scopedTaskDefinition,
+          final String adapterId) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+      @Override
+      public String tenantIdFor(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String adapterId,
+          final String configuredTenantId) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+      @Override
+      public void validateNativeIsolationSupported(
+          final String adapterId,
+          final String workflowModuleId,
+          final String bpmsDescription) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+      @Override
+      public void validateNoCollidingProcessIds(
+          final String adapterId,
+          final java.util.Collection<DeployedProcess> deployedProcesses) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+    };
 
   }
 

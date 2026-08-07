@@ -76,6 +76,73 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   public static final io.vanillabp.integration.adapter.spi.AggregateSyncMode SYNC_MODE = io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL;
 
   /**
+   * The core's name-clash-avoidance model (story 35): translates BPMN process ids,
+   * message names and error codes into what the cluster knows, and decides the
+   * tenant an operation runs in. May be <code>null</code> (tests): identifiers are
+   * passed through and the configured tenant is used, as before.
+   */
+  private io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
+
+  /**
+   * Sets the name-clash-avoidance support (constructor injection is not possible -
+   * this class is built by Lombok's all-args constructor, which the platform
+   * modules call).
+   *
+   * @param scoping The name-clash-avoidance support
+   */
+  public void setScoping(
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+
+    this.scoping = scoping;
+
+  }
+
+  /**
+   * The BPMN process id as the cluster knows it.
+   */
+  private String scopedProcessId(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    return scoping == null
+        ? bpmnProcessId
+        : scoping.scopedProcessId(workflowModuleId, bpmnProcessId, adapterId);
+
+  }
+
+  /**
+   * A message name / error code as the cluster knows it.
+   */
+  private String scopedIdentifier(
+      final String workflowModuleId,
+      final String identifier) {
+
+    return scoping == null
+        ? identifier
+        : scoping.scopedIdentifier(workflowModuleId, identifier, adapterId);
+
+  }
+
+  /**
+   * The tenant an operation of the given workflow module runs in - see the
+   * name-clash-avoidance mode (story 35).
+   */
+  private String tenantIdOf(
+      final String workflowModuleId) {
+
+    final var configuredTenantId = clientFactory
+        .getConfiguration()
+        .getTenantId();
+    if (scoping == null) {
+      return (configuredTenantId != null) && !configuredTenantId.isBlank()
+          ? configuredTenantId
+          : null;
+    }
+    return scoping.tenantIdFor(workflowModuleId, null, adapterId, configuredTenantId);
+
+  }
+
+  /**
    * The process variables written whenever this adapter talks to the cluster on
    * behalf of a workflow: the aggregate's shared attributes PLUS - always, no
    * matter what the sync model says - the technical variable carrying the
@@ -421,7 +488,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       clientFactory
           .getClient()
           .newThrowErrorCommand(Long.parseLong(taskId))
-          .errorCode(bpmnErrorCode)
+          // the model's error codes are prefixed too (story 35)
+          .errorCode(scopedIdentifier(workflowModuleId, bpmnErrorCode))
           .errorMessage("canceled via ProcessService#cancelTask")
           // story 28b: the error boundary's outgoing path may branch on the
           // aggregate, which the caller changed before canceling the task
@@ -640,9 +708,13 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     var command = clientFactory
         .getClient()
         .newPublishMessageCommand()
-        .messageName(messageName)
+        .messageName(scopedIdentifier(workflowModuleId, messageName))
         .correlationKey(correlationKey)
         .variables(variablesOf(aggregatePersistence, workflowAggregateId));
+    final var correlationTenantId = tenantIdOf(workflowModuleId);
+    if (correlationTenantId != null) {
+      command = command.tenantId(correlationTenantId);
+    }
     if (correlationId != null) {
       command = command.messageId(
           "%s|%s|%s|%s|%s".formatted(
@@ -716,13 +788,18 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // sets - not message content). messageId = the start's idempotency key so the
     // engine deduplicates redelivered dispatches within the message TTL.
     try {
-      clientFactory
+      var startCommand = clientFactory
           .getClient()
           .newPublishMessageCommand()
-          .messageName(messageName)
+          .messageName(scopedIdentifier(workflowModuleId, messageName))
           .correlationKey("")
           .messageId("%s|%s|%s".formatted(workflowModuleId, bpmnProcessId, workflowAggregateId))
-          .variables(variablesOf(aggregatePersistence, workflowAggregateId))
+          .variables(variablesOf(aggregatePersistence, workflowAggregateId));
+      final var startTenantId = tenantIdOf(workflowModuleId);
+      if (startTenantId != null) {
+        startCommand = startCommand.tenantId(startTenantId);
+      }
+      startCommand
           .send()
           .join();
       log.info(
@@ -778,9 +855,10 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final Object workflowAggregateId) {
 
     createProcessInstance(
-        bpmnProcessId,
+        scopedProcessId(workflowModuleId, bpmnProcessId),
         variablesOf(aggregatePersistence, workflowAggregateId),
-        workflowAggregateId);
+        workflowAggregateId,
+        tenantIdOf(workflowModuleId));
 
   }
 
@@ -809,6 +887,27 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final java.util.Map<String, Object> variables,
       final Object workflowAggregateId) {
 
+    return createProcessInstance(bpmnProcessId, variables, workflowAggregateId, tenantIdOf(null));
+
+  }
+
+  /**
+   * Creates the instance in the given tenant - which the name-clash-avoidance mode
+   * decides (story 35): the workflow module id under {@code by-adapter}, none under
+   * {@code use-prefix}/{@code none}.
+   *
+   * @param bpmnProcessId The BPMN process ID AS THE CLUSTER KNOWS IT
+   * @param variables The process variables
+   * @param workflowAggregateId The workflow aggregate's ID (for logging)
+   * @param tenantId The tenant or <code>null</code>
+   * @return The created process-instance event
+   */
+  public ProcessInstanceEvent createProcessInstance(
+      final String bpmnProcessId,
+      final java.util.Map<String, Object> variables,
+      final Object workflowAggregateId,
+      final String tenantId) {
+
     final var client = clientFactory.getClient();
     var command = client
         .newCreateInstanceCommand()
@@ -816,7 +915,6 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
         .latestVersion()
         .variables(variables);
 
-    final var tenantId = clientFactory.getConfiguration().getTenantId();
     if (tenantId != null && !tenantId.isBlank()) {
       command = command.tenantId(tenantId);
     }
@@ -843,7 +941,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // built on first use: this class is constructed by Lombok's all-args
     // constructor, so a field initializer could not reference the final fields
     if (viewer == null) {
-      viewer = new Camunda8WorkflowViewer(adapterId, clientFactory);
+      viewer = new Camunda8WorkflowViewer(adapterId, clientFactory, this::scopedProcessId, this::tenantIdOf);
     }
     return viewer;
 

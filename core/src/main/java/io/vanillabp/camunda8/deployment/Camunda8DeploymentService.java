@@ -76,6 +76,15 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations;
 
   /**
+   * The core's name-clash-avoidance model (story 35): decides whether a workflow
+   * module is isolated by a TENANT ({@code by-adapter}, the default and version 1's
+   * behavior), by PREFIXING the identifiers ({@code use-prefix} - no tenant, which
+   * is what makes tenant licenses avoidable) or not at all ({@code none}). May be
+   * <code>null</code> (tests): the default applies then.
+   */
+  private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
+
+  /**
    * Convenience constructor without the configuration resolver (tests) - two
    * adapter ids of this type are not checked for distinctness then.
    */
@@ -86,7 +95,22 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskTimeout) {
 
-    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskTimeout, null);
+    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskTimeout, null, null);
+
+  }
+
+  /**
+   * Convenience constructor without the name-clash-avoidance support (tests).
+   */
+  public Camunda8DeploymentService(
+      final String adapterId,
+      final Camunda8ClientFactory clientFactory,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Camunda8JobTimeoutResolver jobTimeoutResolver,
+      final Duration asyncTaskTimeout,
+      final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations) {
+
+    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskTimeout, configurations, null);
 
   }
 
@@ -96,7 +120,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final WorkflowTaskInvoker workflowTaskInvoker,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskTimeout,
-      final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations) {
+      final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
     this.adapterId = adapterId;
     this.clientFactory = clientFactory;
@@ -104,6 +129,74 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     this.jobTimeoutResolver = jobTimeoutResolver;
     this.asyncTaskTimeout = asyncTaskTimeout;
     this.configurations = configurations;
+    this.scoping = scoping;
+
+  }
+
+  /**
+   * The tenant a workflow module is deployed to, respectively its operations are
+   * executed in - decided by the name-clash-avoidance mode (story 35), with the
+   * adapter's configured <code>tenant-id</code> naming it under
+   * {@code by-adapter}.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @return The tenant ID or <code>null</code> if no tenant is used
+   */
+  /**
+   * The BPMN process id as the CLUSTER knows it (story 35) - the model carries the
+   * scoped ids after {@code prepareBpmn}, while the core is keyed by the plain ones.
+   */
+  private String scopedProcessId(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    return scoping == null
+        ? bpmnProcessId
+        : scoping.scopedProcessId(workflowModuleId, bpmnProcessId, adapterId);
+
+  }
+
+  /**
+   * The inverse of {@link #scopedProcessId}.
+   */
+  private String plainProcessId(
+      final String workflowModuleId,
+      final String scopedBpmnProcessId) {
+
+    return scoping == null
+        ? scopedBpmnProcessId
+        : scoping.plainProcessId(workflowModuleId, scopedBpmnProcessId, adapterId);
+
+  }
+
+  /**
+   * The task definition as the core knows it - the model (and therefore the job type
+   * a worker subscribes to) carries the scoped one.
+   */
+  private String plainTaskDefinition(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String scopedTaskDefinition) {
+
+    return scoping == null
+        ? scopedTaskDefinition
+        : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
+
+  }
+
+  private String tenantIdOf(
+      final String workflowModuleId) {
+
+    final var configuredTenantId = clientFactory
+        .getConfiguration()
+        .getTenantId();
+    if (scoping == null) {
+      // no name-clash-avoidance support (tests): the configured tenant, as before
+      return (configuredTenantId != null) && !configuredTenantId.isBlank()
+          ? configuredTenantId
+          : null;
+    }
+    return scoping.tenantIdFor(workflowModuleId, null, adapterId, configuredTenantId);
 
   }
 
@@ -116,7 +209,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   public void validateDistinctAdapterInstances(
       final List<String> adapterIdsOfThisType) {
 
-    io.vanillabp.camunda8.client.Camunda8InstanceIdentity.validateDistinct(adapterIdsOfThisType, configurations);
+    io.vanillabp.camunda8.client.Camunda8InstanceIdentity
+        .validateDistinct(adapterIdsOfThisType, configurations, scoping);
 
   }
 
@@ -189,7 +283,20 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     final var context = existingContext != null
         ? existingContext
         : new Camunda8ProcessingContext(workflowModuleId);
+    // story 35: rewrite the identifiers the cluster resolves globally BEFORE wiring,
+    // so everything downstream (wiring validation, listener injection, workers) sees
+    // what the cluster will see. A no-op unless the mode is 'use-prefix'. The core
+    // calls prepareBpmn once per executable PROCESS while all processes of a file
+    // share ONE model, so scoping has to happen once per FILE - otherwise a
+    // multi-process file would collect one prefix per process.
+    final var modelAlreadyScoped = context
+        .getResources()
+        .containsKey(filename);
+    if (!modelAlreadyScoped) {
+      io.vanillabp.camunda8.wiring.Camunda8Scoping.apply(model, workflowModuleId, adapterId, scoping);
+    }
     context.addResource(filename, model);
+    context.recordDeployedProcess(bpmnProcessId);
     return context;
 
   }
@@ -202,22 +309,30 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final BpmnModelInstance model,
       final Camunda8ProcessingContext context) {
 
+    // the model carries the identifiers the CLUSTER will know (prepareBpmn rewrote
+    // them in mode 'use-prefix'), while the core is keyed by the plain ones - so the
+    // model is searched by the SCOPED process id and the invoker is called with the
+    // plain one (story 35)
+    final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
     // extract the job-worker tasks (zeebe:taskDefinition type = VanillaBP task
     // definition) and validate them against the registered @WorkflowTask methods;
     // throwing here honors the deployment-failure policy
-    final var tasks = Camunda8TaskWiring.tasksOf(model, bpmnProcessId);
+    final var tasks = Camunda8TaskWiring.tasksOf(model, scopedBpmnProcessId);
     // Camunda-managed user tasks (story 24): the V1-compatible lifecycle task
     // listeners are ADDED TO THE MODEL here (wireBpmn is the BPMN-modification
     // stage of the pipeline) - the modified model is what deployResources deploys
-    final var userTasks = Camunda8TaskWiring.userTasksOf(model, bpmnProcessId, workflowModuleId, filename);
+    final var userTasks = Camunda8TaskWiring.userTasksOf(model, scopedBpmnProcessId, workflowModuleId, filename);
     final var specs = new java.util.ArrayList<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec>();
     tasks
         .stream()
-        .map(Camunda8TaskWiring.Camunda8TaskToWire::toSpec)
+        .map(task -> new io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec(
+            task.activityId(), plainTaskDefinition(workflowModuleId, bpmnProcessId, task.taskDefinition())))
         .forEach(specs::add);
     userTasks
         .stream()
-        .map(Camunda8TaskWiring.Camunda8UserTaskToWire::toSpec)
+        .map(userTask -> io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec.userTask(
+            userTask.activityId(),
+            plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
     workflowTaskInvoker.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
     // message correlation (story 23): inject the correlation-key expression
@@ -226,7 +341,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // tweaks (existing expressions stay untouched, V1 models deploy unchanged)
     Camunda8TaskWiring.wireMessageSubscriptions(
         model,
-        bpmnProcessId,
+        scopedBpmnProcessId,
         () -> workflowTaskInvoker.resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId));
     context.getTasksToWire().addAll(tasks);
     context.getUserTasksToWire().addAll(userTasks);
@@ -260,12 +375,25 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       command = next.addProcessModel(resource.getValue(), resource.getKey());
     }
 
-    // Camunda 8 has no C7-style tenant per workflow module: use the configured
-    // multi-tenancy tenant if any, otherwise the default tenant. Module isolation
-    // therefore relies on unique BPMN process IDs for now (see README).
-    final var tenantId = clientFactory.getConfiguration().getTenantId();
-    if (tenantId != null && !tenantId.isBlank()) {
+    // story 35: which tenant a workflow module is deployed to is decided by the
+    // name-clash-avoidance mode - 'by-adapter' (the default, version 1's behavior)
+    // uses the workflow module id, overridable by the adapter's 'tenant-id';
+    // 'use-prefix' and 'none' use no tenant at all (the identifiers were prefixed
+    // respectively are unique by contract).
+    final var tenantId = tenantIdOf(workflowModuleId);
+    if (tenantId != null) {
       command = command.tenantId(tenantId);
+    }
+    // prefixing may not merge two different processes into one identifier
+    if (scoping != null) {
+      scoping.validateNoCollidingProcessIds(
+          adapterId,
+          bpmsProcessingContext
+              .getDeployedProcessIds()
+              .stream()
+              .map(processId -> new io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.DeployedProcess(
+                  workflowModuleId, processId))
+              .toList());
     }
 
     try {
@@ -284,11 +412,16 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             if (model == null) {
               return;
             }
+            // the cluster reports the id IT knows; the viewer API is keyed by the
+            // PLAIN one, like every other core-facing identifier (story 35)
+            final var plainBpmnProcessId = scoping == null
+                ? process.getBpmnProcessId()
+                : scoping.plainProcessId(workflowModuleId, process.getBpmnProcessId(), adapterId);
             clientFactory
                 .getDeployedProcesses()
                 .record(
                     new Camunda8DeployedProcesses.DeployedProcess(
-                        workflowModuleId, process.getBpmnProcessId(), String
+                        workflowModuleId, plainBpmnProcessId, String
                             .valueOf(process.getProcessDefinitionKey()), process.getVersion(), model));
           });
 
@@ -330,10 +463,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           if (task.taskDefinition() == null) {
             return; // already reported by the wiring validation
           }
+          // the records carry what the CLUSTER knows (the worker subscribes to it),
+          // but the configuration is keyed by the PLAIN names (story 35)
+          final var plainBpmnProcessId = plainProcessId(workflowModuleId, task.bpmnProcessId());
           final var timeout = jobTimeoutResolver.jobTimeoutFor(
               workflowModuleId,
-              task.bpmnProcessId(),
-              task.taskDefinition());
+              plainBpmnProcessId,
+              plainTaskDefinition(workflowModuleId, plainBpmnProcessId, task.taskDefinition()));
           final var previous = timeoutsByDefinition.putIfAbsent(task.taskDefinition(), timeout);
           if ((previous != null) && !previous.equals(timeout)) {
             throw new IllegalStateException(
@@ -363,14 +499,20 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     userTasksByListenerJobType.forEach((
         listenerJobType,
         bpmnProcessIds) -> {
-      final var worker = client
+      var listenerWorkerBuilder = client
           .newWorker()
           .jobType(listenerJobType)
           .handler(new io.vanillabp.camunda8.wiring.Camunda8UserTaskListenerHandler(
-              adapterId, workflowModuleId, workflowTaskInvoker))
+              adapterId, workflowModuleId, workflowTaskInvoker, scoping))
           .timeout(java.time.Duration.ofMinutes(1))
-          .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType))
-          .open();
+          .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType));
+      final var listenerTenantId = tenantIdOf(workflowModuleId);
+      if (listenerTenantId != null) {
+        // story 35 / 'by-adapter': jobs of a tenant are only delivered to workers
+        // subscribing for that tenant
+        listenerWorkerBuilder = listenerWorkerBuilder.tenantId(listenerTenantId);
+      }
+      final var worker = listenerWorkerBuilder.open();
       bpmsProcessingContext.getOpenWorkers().add(worker);
       log.info(
           "Camunda8[{}]: opened user-task listener worker for '{}' of workflow module '{}'",
@@ -382,13 +524,18 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     timeoutsByDefinition.forEach((
         taskDefinition,
         timeout) -> {
-      final var worker = client
+      var workerBuilder = client
           .newWorker()
           .jobType(taskDefinition)
-          .handler(new Camunda8JobHandler(adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskTimeout))
+          .handler(new Camunda8JobHandler(
+              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskTimeout, scoping))
           .timeout(timeout)
-          .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition))
-          .open();
+          .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition));
+      final var workerTenantId = tenantIdOf(workflowModuleId);
+      if (workerTenantId != null) {
+        workerBuilder = workerBuilder.tenantId(workerTenantId);
+      }
+      final var worker = workerBuilder.open();
       bpmsProcessingContext.getOpenWorkers().add(worker);
       log.info(
           "Camunda8[{}]: opened job worker for task definition '{}' of workflow module '{}' "

@@ -42,13 +42,18 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
           registry.registerBean(
               "Camunda8_ProcessService_%s".formatted(adapterId),
               Camunda8ProcessService.class,
-              spec -> spec.supplier(supplierContext -> new Camunda8ProcessService<>(
-                  adapterId, supplierContext
-                      .bean(Camunda8ClientFactoryRegistry.class)
-                      .getFactory(adapterId), asyncTaskTimeoutOf(
-                          supplierContext.bean(VanillaBpCamunda8Properties.class),
-                          adapterId), new Camunda8SpringPreCommitRegistrar(), supplierContext
-                              .bean(io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.class))));
+              spec -> spec.supplier(supplierContext -> {
+                final var processService = new Camunda8ProcessService<>(
+                    adapterId, supplierContext
+                        .bean(Camunda8ClientFactoryRegistry.class)
+                        .getFactory(adapterId), asyncTaskTimeoutOf(
+                            supplierContext.bean(VanillaBpCamunda8Properties.class),
+                            adapterId), new Camunda8SpringPreCommitRegistrar(), supplierContext
+                                .bean(io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.class));
+                processService.setScoping(
+                    supplierContext.bean(io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class));
+                return processService;
+              }));
 
           registry.registerBean(
               "Camunda8_DeploymentService_%s".formatted(adapterId),
@@ -68,7 +73,9 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                     adapterId), asyncTaskTimeout, id -> supplierContext
                                         .bean(Camunda8ClientFactoryRegistry.class)
                                         .getFactory(id)
-                                        .getConfiguration());
+                                        .getConfiguration(), supplierContext
+                                            .bean(
+                                                io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class));
               }));
 
         });

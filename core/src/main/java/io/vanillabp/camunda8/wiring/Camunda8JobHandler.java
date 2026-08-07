@@ -64,6 +64,13 @@ public class Camunda8JobHandler implements JobHandler {
 
   private final Duration asyncTaskTimeout;
 
+  /**
+   * Translates the identifiers the cluster reports back into the plain ones the core
+   * knows (story 35) - a no-op unless the workflow module uses prefixes. May be
+   * <code>null</code> (tests).
+   */
+  private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
+
   public Camunda8JobHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -71,11 +78,24 @@ public class Camunda8JobHandler implements JobHandler {
       final WorkflowTaskInvoker workflowTaskInvoker,
       final Duration asyncTaskTimeout) {
 
+    this(adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskTimeout, null);
+
+  }
+
+  public Camunda8JobHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final CamundaClient camundaClient,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Duration asyncTaskTimeout,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
     this.camundaClient = camundaClient;
     this.workflowTaskInvoker = workflowTaskInvoker;
     this.asyncTaskTimeout = asyncTaskTimeout;
+    this.scoping = scoping;
 
   }
 
@@ -84,8 +104,14 @@ public class Camunda8JobHandler implements JobHandler {
       final JobClient client,
       final ActivatedJob job) {
 
-    final var bpmnProcessId = job.getBpmnProcessId();
-    final var taskDefinition = job.getType();
+    // the cluster reports the identifiers IT knows - translate them back into the
+    // plain ones the core's registries are keyed by (story 35)
+    final var bpmnProcessId = scoping == null
+        ? job.getBpmnProcessId()
+        : scoping.plainProcessId(workflowModuleId, job.getBpmnProcessId(), adapterId);
+    final var taskDefinition = scoping == null
+        ? job.getType()
+        : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, job.getType(), adapterId);
 
     final WorkflowTaskOutcome outcome;
     final String aggregateIdName;
@@ -135,7 +161,11 @@ public class Camunda8JobHandler implements JobHandler {
           variablesOf(bpmnProcessId, aggregateIdName, aggregateId));
       case BPMN_ERROR -> client
           .newThrowErrorCommand(job.getKey())
-          .errorCode(outcome.errorCode())
+          // the model's error codes are prefixed too (story 35), so the code the
+          // business method raised has to be translated on its way to the cluster
+          .errorCode(scoping == null
+              ? outcome.errorCode()
+              : scoping.scopedIdentifier(workflowModuleId, outcome.errorCode(), adapterId))
           .errorMessage(String.valueOf(outcome.errorName()))
           // the error boundary's outgoing path may branch on the aggregate, too
           .variables(variablesOf(bpmnProcessId, aggregateIdName, aggregateId))

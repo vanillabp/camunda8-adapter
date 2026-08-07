@@ -59,6 +59,21 @@ public class Camunda8WorkflowViewer {
   private final Camunda8ClientFactory clientFactory;
 
   /**
+   * Maps (workflow module ID, plain BPMN process ID) to the process definition id the
+   * CLUSTER knows - the name-clash-avoidance mode may prefix it (story 35). Queries
+   * against the cluster have to use the scoped id, while everything served from the
+   * deployment record stays plain.
+   */
+  private final java.util.function.BinaryOperator<String> scopedProcessId;
+
+  /**
+   * The tenant a workflow module's instances live in, or <code>null</code> if the mode
+   * uses none. Queries have to be restricted to it: without a tenant filter another
+   * module deploying the same BPMN process id could be reported.
+   */
+  private final java.util.function.UnaryOperator<String> tenantIdOf;
+
+  /**
    * Logged once per adapter: the viewer needs the query API (secondary storage)
    * for instance-related data.
    */
@@ -358,10 +373,16 @@ public class Camunda8WorkflowViewer {
       final Object workflowAggregateId,
       final String historyContext) {
 
+    final var tenantId = tenantIdOf.apply(workflowModuleId);
     final var primaryInstance = searchOne(
-        filter -> filter
-            .processDefinitionId(bpmnProcessId)
-            .variables(java.util.Map.of(aggregateIdName, String.valueOf(workflowAggregateId))));
+        filter -> {
+          filter
+              .processDefinitionId(scopedProcessId.apply(workflowModuleId, bpmnProcessId))
+              .variables(java.util.Map.of(aggregateIdName, String.valueOf(workflowAggregateId)));
+          if (tenantId != null) {
+            filter.tenantId(tenantId);
+          }
+        });
     if (historyContext == null) {
       return primaryInstance;
     }

@@ -17,7 +17,12 @@ import java.util.function.Function;
  * legitimate setup (separated permissions or quotas per workflow module), so the
  * client id counts;</li>
  * <li>additionally the <code>tenant-id</code>: the same cluster with different
- * multi-tenancy tenants are different systems from the application's view.</li>
+ * multi-tenancy tenants are different systems from the application's view;</li>
+ * <li>and - since story 35 - a different <code>name-clash-avoidance</code> mode: the
+ * identifiers of the SAME workflow module look different in each of them (a tenant
+ * versus prefixed identifiers), which is exactly the setup used to MIGRATE from
+ * tenants to prefixes: two ids on one cluster, differing only in that mode, the new
+ * one first in <code>prioritized-adapters</code>.</li>
  * </ul>
  * Two ids whose relevant keys are identical are the same instance - configuring
  * them as separate adapters is an error.
@@ -34,6 +39,33 @@ public final class Camunda8InstanceIdentity {
    * @return The identity (never <code>null</code>)
    */
   static String identityOf(
+      final Camunda8AdapterConfiguration configuration) {
+
+    return identityOf(configuration, null);
+
+  }
+
+  /**
+   * The comparable identity of an adapter id's connection configuration, including
+   * the name-clash-avoidance mode it uses (story 35).
+   *
+   * @param configuration The adapter id's connection configuration
+   * @param nameClashAvoidance The mode configured for the adapter or
+   *          <code>null</code> if unknown
+   * @return The identity (never <code>null</code>)
+   */
+  static String identityOf(
+      final Camunda8AdapterConfiguration configuration,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidance nameClashAvoidance) {
+
+    final var scoping = nameClashAvoidance == null
+        ? ""
+        : ", name-clash avoidance '%s'".formatted(nameClashAvoidance.name().toLowerCase().replace('_', '-'));
+    return connectionIdentityOf(configuration) + scoping;
+
+  }
+
+  private static String connectionIdentityOf(
       final Camunda8AdapterConfiguration configuration) {
 
     if (configuration == null) {
@@ -66,6 +98,23 @@ public final class Camunda8InstanceIdentity {
       final List<String> adapterIds,
       final Function<String, Camunda8AdapterConfiguration> configurationResolver) {
 
+    validateDistinct(adapterIds, configurationResolver, null);
+
+  }
+
+  /**
+   * Fails the boot if two of the given adapter ids address the same cluster with the
+   * same credentials, tenant AND name-clash-avoidance mode (see the class comment).
+   *
+   * @param adapterIds The configured adapter ids of type <code>camunda8</code>
+   * @param configurationResolver Resolves an adapter id's connection configuration
+   * @param scoping The core's name-clash-avoidance support or <code>null</code>
+   */
+  public static void validateDistinct(
+      final List<String> adapterIds,
+      final Function<String, Camunda8AdapterConfiguration> configurationResolver,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+
     if ((adapterIds == null) || (adapterIds.size() < 2) || (configurationResolver == null)) {
       return;
     }
@@ -73,7 +122,13 @@ public final class Camunda8InstanceIdentity {
     final var idsByIdentity = new LinkedHashMap<String, List<String>>();
     adapterIds.forEach(
         adapterId -> idsByIdentity
-            .computeIfAbsent(identityOf(configurationResolver.apply(adapterId)), identity -> new LinkedList<>())
+            .computeIfAbsent(
+                identityOf(
+                    configurationResolver.apply(adapterId),
+                    scoping == null
+                        ? null
+                        : scoping.modeFor(null, null, adapterId)),
+                identity -> new LinkedList<>())
             .add(adapterId));
 
     idsByIdentity.forEach((
@@ -92,6 +147,8 @@ public final class Camunda8InstanceIdentity {
               (respectively 'grpc-address'),
                 - SaaS: give each id its own 'vanillabp.adapters.<id>.cluster-id' or - to \
               address one cluster with separated permissions - its own 'client-id',
+                - or, when MIGRATING from tenants to prefixed identifiers on ONE cluster: give \
+              each id its own 'vanillabp.adapters.<id>.name-clash-avoidance',
               or remove all but one of these adapters."""
               .formatted(String.join("', '", idsSharingIt), identity));
     });

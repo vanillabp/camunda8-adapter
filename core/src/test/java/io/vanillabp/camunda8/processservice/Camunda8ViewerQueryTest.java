@@ -134,7 +134,9 @@ public class Camunda8ViewerQueryTest {
     when(client.newElementInstanceSearchRequest()).thenReturn(elementSearch);
     when(elementSearch.send()).thenAnswer(invocation -> future(response(foundElementInstances)));
 
-    viewer = new Camunda8WorkflowViewer("c8", clientFactory);
+    viewer = new Camunda8WorkflowViewer("c8", clientFactory, (
+        module,
+        process) -> process, module -> null);
 
   }
 

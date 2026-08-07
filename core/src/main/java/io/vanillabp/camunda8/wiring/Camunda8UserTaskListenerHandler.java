@@ -52,14 +52,32 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
 
   private final WorkflowTaskInvoker workflowTaskInvoker;
 
+  /**
+   * Translates the identifiers the cluster reports back into the plain ones (story
+   * 35) - a no-op unless the workflow module uses prefixes. May be
+   * <code>null</code> (tests).
+   */
+  private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
+
   public Camunda8UserTaskListenerHandler(
       final String adapterId,
       final String workflowModuleId,
       final WorkflowTaskInvoker workflowTaskInvoker) {
 
+    this(adapterId, workflowModuleId, workflowTaskInvoker, null);
+
+  }
+
+  public Camunda8UserTaskListenerHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
     this.workflowTaskInvoker = workflowTaskInvoker;
+    this.scoping = scoping;
 
   }
 
@@ -68,7 +86,9 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
       final JobClient client,
       final ActivatedJob job) {
 
-    final var bpmnProcessId = job.getBpmnProcessId();
+    final var bpmnProcessId = scoping == null
+        ? job.getBpmnProcessId()
+        : scoping.plainProcessId(workflowModuleId, job.getBpmnProcessId(), adapterId);
     final var event = job.getListenerEventType() == io.camunda.client.api.search.enums.ListenerEventType.CANCELING
         ? TaskEvent.Event.CANCELED
         : TaskEvent.Event.CREATED;
@@ -77,9 +97,14 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     final var userTaskKey = job.getUserTask() != null
         ? String.valueOf(job.getUserTask().getUserTaskKey())
         : String.valueOf(job.getKey());
-    final var taskDefinition = job
+    // the listener job type is '<marker><external form reference>', and the form
+    // reference is the task definition - prefixed like any other one (story 35)
+    final var scopedTaskDefinition = job
         .getType()
         .substring(Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE.length());
+    final var taskDefinition = scoping == null
+        ? scopedTaskDefinition
+        : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
 
     try {
       if (workflowTaskInvoker.workflowTaskHandlerExists(workflowModuleId, bpmnProcessId, taskDefinition)) {

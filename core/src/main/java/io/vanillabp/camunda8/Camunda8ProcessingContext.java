@@ -65,6 +65,28 @@ public class Camunda8ProcessingContext {
    * @param filename The BPMN filename (used as the deployment resource name)
    * @param model The parsed BPMN model
    */
+  /**
+   * The PLAIN BPMN process ids of the module's executable processes, collected in
+   * {@code prepareBpmn} - the input of the collision check of story 35 (two
+   * processes must not end up under the same prefixed identifier).
+   */
+  @Getter
+  private final java.util.List<String> deployedProcessIds = new java.util.LinkedList<>();
+
+  /**
+   * Records an executable BPMN process of this workflow module.
+   *
+   * @param bpmnProcessId The plain BPMN process ID
+   */
+  public void recordDeployedProcess(
+      final String bpmnProcessId) {
+
+    if ((bpmnProcessId != null) && !deployedProcessIds.contains(bpmnProcessId)) {
+      deployedProcessIds.add(bpmnProcessId);
+    }
+
+  }
+
   public void addResource(
       final String filename,
       final BpmnModelInstance model) {

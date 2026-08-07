@@ -39,7 +39,8 @@ public class Camunda8DeploymentServiceProducer {
   public List<AdapterDeploymentService<Object, Object>> camunda8DeploymentServices(
       final MigrationAdapterProperties properties,
       final Camunda8ClientFactoryRegistry clientFactoryRegistry,
-      final io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry workflowTaskRegistry) {
+      final io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry workflowTaskRegistry,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
     final var overlay = org.eclipse.microprofile.config.ConfigProvider
         .getConfig()
@@ -66,7 +67,7 @@ public class Camunda8DeploymentServiceProducer {
                       workflowModuleId, bpmnProcessId, taskDefinition,
                       adapterId), asyncTaskTimeout, id -> clientFactoryRegistry
                           .getFactory(id)
-                          .getConfiguration());
+                          .getConfiguration(), scoping);
         })
         .toList();
 

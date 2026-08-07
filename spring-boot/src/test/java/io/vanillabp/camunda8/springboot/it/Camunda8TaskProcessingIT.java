@@ -655,10 +655,13 @@ public class Camunda8TaskProcessingIT {
       final Long aggregateId) {
 
     // secondary processes are started directly against the cluster carrying the
-    // aggregate-ID variable - exactly what VanillaBP's start writes
+    // aggregate-ID variable - exactly what VanillaBP's start writes. The name-clash
+    // avoidance mode of these tests is 'use-prefix', so the CLUSTER knows the process
+    // under its prefixed id (story 35)
     lastStartedInstanceKey = workflowServiceClient()
         .newCreateInstanceCommand()
-        .bpmnProcessId(bpmnProcessId)
+        .bpmnProcessId("test-app__"
+            + bpmnProcessId)
         .latestVersion()
         .variable("id", String.valueOf(aggregateId))
         .send()

@@ -96,7 +96,9 @@ public class Camunda8WorkflowViewerTest {
   @DisplayName("Without the query API the definitions of the deployed version are reported, incl. call activities")
   public void definitionsAreServedFromTheDeployedVersion() {
 
-    final var viewer = new Camunda8WorkflowViewer("c8", clientFactoryWithDeployedProcesses());
+    final var viewer = new Camunda8WorkflowViewer("c8", clientFactoryWithDeployedProcesses(), (
+        module,
+        process) -> process, module -> null);
 
     final var definitions = viewer.getProcessDefinitions("test-module", "ParentProcess", "id", "42", null);
 
@@ -117,7 +119,9 @@ public class Camunda8WorkflowViewerTest {
   @DisplayName("The BPMN XML is served from the deployed model; an unknown definition answers null")
   public void bpmnXmlIsServedFromTheDeployedModel() throws Exception {
 
-    final var viewer = new Camunda8WorkflowViewer("c8", clientFactoryWithDeployedProcesses());
+    final var viewer = new Camunda8WorkflowViewer("c8", clientFactoryWithDeployedProcesses(), (
+        module,
+        process) -> process, module -> null);
 
     try (var xml = viewer.getBpmnXml("111")) {
       final var deployedXml = new String(xml.readAllBytes(), StandardCharsets.UTF_8);
@@ -138,7 +142,9 @@ public class Camunda8WorkflowViewerTest {
   @DisplayName("Without the query API a history without elements is reported - never an error")
   public void historyDegradesToNoElements() {
 
-    final var viewer = new Camunda8WorkflowViewer("c8", clientFactoryWithDeployedProcesses());
+    final var viewer = new Camunda8WorkflowViewer("c8", clientFactoryWithDeployedProcesses(), (
+        module,
+        process) -> process, module -> null);
 
     final var history = viewer.getWorkflowHistory("test-module", "ParentProcess", "id", "42", null);
 
@@ -160,7 +166,9 @@ public class Camunda8WorkflowViewerTest {
   @DisplayName("A process never deployed by this application version is unknown to the adapter")
   public void unknownProcessIsReportedAsUnknown() {
 
-    final var viewer = new Camunda8WorkflowViewer("c8", clientFactoryWithDeployedProcesses());
+    final var viewer = new Camunda8WorkflowViewer("c8", clientFactoryWithDeployedProcesses(), (
+        module,
+        process) -> process, module -> null);
 
     assertEquals(List.of(), viewer.getProcessDefinitions("test-module", "OtherProcess", "id", "42", null));
     assertNull(viewer.getWorkflowHistory("test-module", "OtherProcess", "id", "42", null));
