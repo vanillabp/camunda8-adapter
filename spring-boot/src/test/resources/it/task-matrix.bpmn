@@ -205,4 +205,49 @@
       <bpmn:incoming>CMS_f2</bpmn:incoming>
     </bpmn:endEvent>
   </bpmn:process>
+  <bpmn:process id="SyncProcess" isExecutable="true">
+    <bpmn:startEvent id="SP_start">
+      <bpmn:outgoing>SP_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="SP_f1" sourceRef="SP_start" targetRef="SP_task" />
+    <bpmn:serviceTask id="SP_task">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="syncTask" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>SP_f1</bpmn:incoming>
+      <bpmn:outgoing>SP_f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="SP_f2" sourceRef="SP_task" targetRef="SP_gateway" />
+    <bpmn:exclusiveGateway id="SP_gateway" default="SP_fRejected">
+      <bpmn:incoming>SP_f2</bpmn:incoming>
+      <bpmn:outgoing>SP_fApproved</bpmn:outgoing>
+      <bpmn:outgoing>SP_fRejected</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sequenceFlow id="SP_fApproved" sourceRef="SP_gateway" targetRef="SP_approved">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">=approved = true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="SP_fRejected" sourceRef="SP_gateway" targetRef="SP_rejected" />
+    <bpmn:serviceTask id="SP_approved">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="syncApproved" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>SP_fApproved</bpmn:incoming>
+      <bpmn:outgoing>SP_f3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="SP_rejected">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="syncRejected" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>SP_fRejected</bpmn:incoming>
+      <bpmn:outgoing>SP_f4</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="SP_f3" sourceRef="SP_approved" targetRef="SP_end" />
+    <bpmn:sequenceFlow id="SP_f4" sourceRef="SP_rejected" targetRef="SP_endRejected" />
+    <bpmn:endEvent id="SP_end">
+      <bpmn:incoming>SP_f3</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="SP_endRejected">
+      <bpmn:incoming>SP_f4</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
 </bpmn:definitions>

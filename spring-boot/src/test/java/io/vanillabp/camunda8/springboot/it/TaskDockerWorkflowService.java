@@ -27,7 +27,8 @@ import io.vanillabp.spi.service.WorkflowTask;
         @BpmnProcess(bpmnProcessId = "FailProcess"), @BpmnProcess(bpmnProcessId = "AsyncProcess"), @BpmnProcess(
             bpmnProcessId = "RetryProcess"), @BpmnProcess(bpmnProcessId = "AsyncCancelProcess"), @BpmnProcess(
                 bpmnProcessId = "UserTaskProcess"), @BpmnProcess(bpmnProcessId = "SilentUserTaskProcess"), @BpmnProcess(
-                    bpmnProcessId = "MessageProcess"), @BpmnProcess(bpmnProcessId = "MessageStartProcess")
+                    bpmnProcessId = "MessageProcess"), @BpmnProcess(
+                        bpmnProcessId = "MessageStartProcess"), @BpmnProcess(bpmnProcessId = "SyncProcess")
     })
 public class TaskDockerWorkflowService {
 
@@ -239,6 +240,51 @@ public class TaskDockerWorkflowService {
 
     countInvocation("c8OrderPlaced", aggregate);
     aggregate.appendResult("order-placed");
+
+  }
+
+  /**
+   * The variables the cluster delivered to {@code syncApproved} - i.e. what the
+   * completion of {@code syncTask} pushed (story 28b).
+   */
+  public static final Map<String, Object> OBSERVED_VARIABLES = new ConcurrentHashMap<>();
+
+  @WorkflowTask
+  public void syncTask(
+      final TaskDockerAggregate aggregate) {
+
+    countInvocation("syncTask", aggregate);
+    // both changes happen AFTER the workflow was started, so the cluster can only
+    // know them if the job completion pushes the aggregate state
+    aggregate.setApproved(true);
+    aggregate.setSecret("s3cr3t");
+    aggregate.appendResult("sync-task");
+
+  }
+
+  @WorkflowTask
+  public void syncApproved(
+      final TaskDockerAggregate aggregate,
+      @io.vanillabp.spi.service.TaskParam("approved") final Object approved,
+      @io.vanillabp.spi.service.TaskParam("results") final Object results,
+      @io.vanillabp.spi.service.TaskParam("secret") final Object secret) {
+
+    countInvocation("syncApproved", aggregate);
+    // @TaskParam reads the variables of the delivered job: the cluster's view
+    OBSERVED_VARIABLES.put("approved", String.valueOf(approved));
+    OBSERVED_VARIABLES.put("results", String.valueOf(results));
+    OBSERVED_VARIABLES.put("secret", String.valueOf(secret));
+    aggregate.appendResult("sync-approved");
+
+  }
+
+  @WorkflowTask
+  public void syncRejected(
+      final TaskDockerAggregate aggregate) {
+
+    countInvocation("syncRejected", aggregate);
+    // reached only if the gateway evaluated STALE data (the defect story 28b fixes)
+    aggregate.appendResult("sync-rejected");
 
   }
 

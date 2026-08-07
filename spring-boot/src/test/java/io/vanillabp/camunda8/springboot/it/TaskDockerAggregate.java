@@ -25,6 +25,21 @@ public class TaskDockerAggregate {
 
   private String taskId;
 
+  /**
+   * The attribute a FEEL gateway condition of {@code SyncProcess} branches on - it
+   * is set by the {@code @WorkflowTask} method right before that gateway, so the
+   * cluster can only evaluate it if the job completion PUSHED it (story 28b).
+   */
+  private boolean approved;
+
+  /**
+   * Never shared with the cluster. Since story 28b this one annotation also derives
+   * the CLASS mode "share everything else" (opt-out) - which is what this aggregate
+   * relies on.
+   */
+  @io.vanillabp.spi.service.NoSyncWithBPMS
+  private String secret;
+
   public void appendResult(
       final String result) {
 

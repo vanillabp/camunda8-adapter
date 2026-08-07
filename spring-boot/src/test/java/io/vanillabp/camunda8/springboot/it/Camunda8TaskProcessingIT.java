@@ -614,6 +614,42 @@ public class Camunda8TaskProcessingIT {
 
   private long lastStartedInstanceKey;
 
+  @Test
+  @DisplayName("A gateway right after a @WorkflowTask sees the values that task produced (story 28b)")
+  public void gatewayAfterTaskSeesTheNewValues() throws Exception {
+
+    TaskDockerWorkflowService.OBSERVED_VARIABLES.clear();
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    // the instance is started with the aggregate-ID variable ONLY - everything the
+    // gateway evaluates has to be pushed by the completion of 'syncTask'
+    startSecondaryProcess("SyncProcess", aggregateId);
+
+    awaitUntil(
+        () -> {
+          final var results = results(aggregateId);
+          return (results != null) && (results.contains("sync-approved") || results.contains("sync-rejected"));
+        },
+        60000,
+        "SyncProcess to pass the FEEL gateway");
+
+    // the exclusive gateway's FEEL condition '=approved = true' branched on the
+    // value the @WorkflowTask method produced - without the push it would have
+    // taken the default (rejected) flow
+    assertEquals("sync-task|sync-approved", results(aggregateId));
+
+    // what the cluster delivered to the task behind the gateway proves what was
+    // pushed: the shared attributes, but never a @NoSyncWithBPMS one
+    assertEquals("true", TaskDockerWorkflowService.OBSERVED_VARIABLES.get("approved"));
+    assertEquals("sync-task", TaskDockerWorkflowService.OBSERVED_VARIABLES.get("results"));
+    assertEquals(
+        "null",
+        TaskDockerWorkflowService.OBSERVED_VARIABLES.get("secret"),
+        "a @NoSyncWithBPMS attribute must never appear in the cluster's variables");
+
+  }
+
   private void startSecondaryProcess(
       final String bpmnProcessId,
       final Long aggregateId) {

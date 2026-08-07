@@ -423,6 +423,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .newThrowErrorCommand(Long.parseLong(taskId))
           .errorCode(bpmnErrorCode)
           .errorMessage("canceled via ProcessService#cancelTask")
+          // story 28b: the error boundary's outgoing path may branch on the
+          // aggregate, which the caller changed before canceling the task
+          .variables(variablesOf(aggregatePersistence, workflowAggregateId))
           .send()
           .join();
       log.info(

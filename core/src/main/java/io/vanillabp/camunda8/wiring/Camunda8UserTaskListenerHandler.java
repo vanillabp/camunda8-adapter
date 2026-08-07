@@ -25,6 +25,23 @@ import lombok.extern.slf4j.Slf4j;
  * including deliveries without a handler. A failing notification fails the
  * listener job; with the V1-compatible <code>retries="0"</code> this raises an
  * incident for the operator (notification defects must not be silently lost).
+ * <p>
+ * <b>The listener completion carries NO variables (decided in story 28b).</b>
+ * Unlike a service-task job - whose completion is the moment the process advances
+ * past the task, so a gateway right behind it needs the new values - a listener job
+ * only gates a lifecycle transition of a user task that stays in the cluster:
+ * <ul>
+ * <li><code>creating</code>: nothing downstream is evaluated yet. The aggregate
+ * state reaches the cluster at the next real sync point - the completion of that
+ * very user task ({@code ProcessService#completeUserTask}), which DOES push all
+ * shared values;</li>
+ * <li><code>canceling</code>: the task is being removed - the path taken is decided
+ * by whatever canceled it (an interrupting event, or
+ * {@code ProcessService#cancelUserTask}), not by this job.</li>
+ * </ul>
+ * A listener notification is also OPTIONAL: pushing variables from a path an
+ * application may not even implement would make the cluster's view depend on
+ * whether a notification handler exists.
  */
 @Slf4j
 public class Camunda8UserTaskListenerHandler implements JobHandler {

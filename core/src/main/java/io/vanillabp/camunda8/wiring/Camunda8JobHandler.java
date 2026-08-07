@@ -29,6 +29,16 @@ import lombok.extern.slf4j.Slf4j;
  * changes committed);</li>
  * <li>any other exception fails the job with decremented retries - the local
  * transaction was already rolled back by the core;</li>
+ * <li>the completion CARRIES THE AGGREGATE STATE (story 28b): the values the
+ * aggregate shares with the BPMS plus - always - the technical aggregate-ID
+ * variable. Without them a gateway right after the service task would evaluate the
+ * values of the last {@code ProcessService}-driven sync point, i.e. STALE data. The
+ * values are read through the core's
+ * {@link WorkflowTaskInvoker#syncedWorkflowAggregateValues} AFTER the local
+ * transaction committed (in its own transaction) - a failing read never prevents
+ * the completion, the job is then completed with the ID variable only. The same
+ * holds for the BPMN_ERROR path: the error boundary's outgoing flow may branch on
+ * the aggregate, too;</li>
  * <li>a {@code @TaskId} method returning without completing puts the job into
  * DORMANCY: the job's lock is extended once to the adapter's
  * <code>async-task-timeout</code> (days), so the handler is NOT re-invoked while
@@ -78,11 +88,13 @@ public class Camunda8JobHandler implements JobHandler {
     final var taskDefinition = job.getType();
 
     final WorkflowTaskOutcome outcome;
+    final String aggregateIdName;
+    final Object aggregateId;
     try {
-      final var aggregateIdName = workflowTaskInvoker.resolveWorkflowAggregateIdName(
+      aggregateIdName = workflowTaskInvoker.resolveWorkflowAggregateIdName(
           workflowModuleId,
           bpmnProcessId);
-      final var aggregateId = job.getVariablesAsMap().get(aggregateIdName);
+      aggregateId = job.getVariablesAsMap().get(aggregateIdName);
       if (aggregateId == null) {
         throw new IllegalStateException(
             """
@@ -117,11 +129,16 @@ public class Camunda8JobHandler implements JobHandler {
     }
 
     switch (outcome.kind()) {
-      case COMPLETED -> completeTolerantly(client, job);
+      case COMPLETED -> completeTolerantly(
+          client,
+          job,
+          variablesOf(bpmnProcessId, aggregateIdName, aggregateId));
       case BPMN_ERROR -> client
           .newThrowErrorCommand(job.getKey())
           .errorCode(outcome.errorCode())
           .errorMessage(String.valueOf(outcome.errorName()))
+          // the error boundary's outgoing path may branch on the aggregate, too
+          .variables(variablesOf(bpmnProcessId, aggregateIdName, aggregateId))
           .send()
           .join();
       case COMPLETION_PENDING -> {
@@ -146,17 +163,49 @@ public class Camunda8JobHandler implements JobHandler {
   }
 
   /**
+   * The variables the completion of a job carries: the values the workflow
+   * aggregate shares with the cluster (story 28b - the {@code @WorkflowTask} method
+   * just changed it and a gateway right after this task has to see the NEW values)
+   * plus - always, no matter what the sync model says - the technical variable
+   * holding the aggregate's ID.
+   *
+   * @param bpmnProcessId The BPMN process ID
+   * @param aggregateIdName The name of the aggregate's ID property
+   * @param aggregateId The aggregate's ID as it arrived in the job's variables
+   * @return The variables (never <code>null</code>)
+   */
+  private java.util.Map<String, Object> variablesOf(
+      final String bpmnProcessId,
+      final String aggregateIdName,
+      final Object aggregateId) {
+
+    final var variables = new java.util.LinkedHashMap<String, Object>(
+        // the core loads the aggregate in its OWN transaction (the task's one is
+        // committed) and never throws - a failed read yields an empty map
+        workflowTaskInvoker.syncedWorkflowAggregateValues(
+            workflowModuleId,
+            bpmnProcessId,
+            String.valueOf(aggregateId),
+            io.vanillabp.camunda8.processservice.Camunda8ProcessService.SYNC_MODE));
+    variables.put(aggregateIdName, String.valueOf(aggregateId));
+    return variables;
+
+  }
+
+  /**
    * Completes the job, tolerating that a parallel redelivery (at-least-once) has
    * already completed it - the documented residual of completing AFTER the local
    * transaction committed.
    */
   private void completeTolerantly(
       final JobClient client,
-      final ActivatedJob job) {
+      final ActivatedJob job,
+      final java.util.Map<String, Object> variables) {
 
     try {
       client
           .newCompleteCommand(job.getKey())
+          .variables(variables)
           .send()
           .join();
     } catch (final Exception e) {
