@@ -70,3 +70,15 @@ and subscription injection) and `deployResources` serializes it back.
 The core depends on `io.camunda:camunda-client-java` (which brings `zeebe-bpmn-model`
 transitively). The plain Java client is used deliberately instead of Camunda's Spring
 SDK - see the root `README.md`.
+
+## Platform version guard
+
+`META-INF/vanillabp/adapter-camunda8.properties` carries this adapter's version and the
+version of the VanillaBP platform integration it was built against
+(`platform.version=${adapter-platform.version}`, filled by resource filtering configured
+in `pom.xml`). The `Camunda8DeploymentService` constructor passes it to
+`AdapterPlatformVersion.requireCompatiblePlatform(...)`, which aborts the startup with a
+guiding message if the platform integration on the classpath is older — Maven does not
+report that as a conflict, because a version managed by the application always wins over
+the version required transitively by this adapter, even as a downgrade. See
+`migration-adapter/README.md`, section "Adapter/platform version guard".

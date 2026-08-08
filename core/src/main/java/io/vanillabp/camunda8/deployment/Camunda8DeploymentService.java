@@ -18,6 +18,7 @@ import io.vanillabp.camunda8.wiring.Camunda8JobHandler;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
+import io.vanillabp.integration.adapter.spi.AdapterPlatformVersion;
 import io.vanillabp.integration.adapter.spi.BpmnParseException;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
 import lombok.extern.slf4j.Slf4j;
@@ -122,6 +123,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final Duration asyncTaskTimeout,
       final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+
+    AdapterPlatformVersion.requireCompatiblePlatform(ADAPTER_TYPE, Camunda8DeploymentService.class);
 
     this.adapterId = adapterId;
     this.clientFactory = clientFactory;
