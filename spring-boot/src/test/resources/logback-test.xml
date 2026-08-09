@@ -1,0 +1,19 @@
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Docker environment detection, the Ryuk reaper and image pulls happen before any
+         JUnit extension can redirect the output: '@Testcontainers(disabledWithoutDocker = true)'
+         probes Docker from an ExecutionCondition, and conditions run before 'beforeAll'.
+         SuppressOutputExtension therefore cannot swallow this part - the level does. -->
+    <logger name="org.testcontainers" level="WARN"/>
+    <logger name="tc" level="WARN"/>
+    <logger name="com.github.dockerjava" level="WARN"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
