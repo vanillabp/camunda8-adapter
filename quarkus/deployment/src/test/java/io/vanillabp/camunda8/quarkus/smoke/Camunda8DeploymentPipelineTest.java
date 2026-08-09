@@ -4,9 +4,11 @@ import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusUnitTest;
+import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * Proves the platform's runtime deployment pipeline (story 26b) drives the Camunda 8
@@ -21,6 +23,7 @@ import io.quarkus.test.QuarkusUnitTest;
  * covered by the Spring Boot module's Docker-based {@code Camunda8DeploymentAndStartIT}
  * (the deployment logic is shared {@code core} code) - see the README.
  */
+@ExtendWith(SuppressOutputExtension.class)
 public class Camunda8DeploymentPipelineTest {
 
   @RegisterExtension

@@ -4,15 +4,18 @@ import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusUnitTest;
+import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * Startup-validation boot test (story 26c) on Quarkus: an adapter WITHOUT any
  * connection configuration still boots - the {@code StartupEvent} observer forces
  * the validation which emits a guiding WARN naming the exact property keys to add.
  */
+@ExtendWith(SuppressOutputExtension.class)
 public class Camunda8StartupValidationTest {
 
   @RegisterExtension

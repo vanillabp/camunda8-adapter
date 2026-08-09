@@ -13,18 +13,21 @@ import java.io.InputStream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.vanillabp.camunda8.Camunda8ProcessingContext;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.integration.adapter.spi.BpmnParseException;
+import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * Unit tests of {@link Camunda8DeploymentService} not requiring a cluster: BPMN parsing
  * (executable-process extraction, parse errors) and that deployment of an empty module
  * does not touch the client.
  */
+@ExtendWith(SuppressOutputExtension.class)
 public class Camunda8DeploymentServiceTest {
 
   private static final String TWO_PROCESSES_ONE_EXECUTABLE = """

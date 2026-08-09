@@ -6,6 +6,7 @@ import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import io.quarkus.test.QuarkusUnitTest;
@@ -13,6 +14,7 @@ import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.runtime.processservice.ProcessServiceBaseCdiBean;
+import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.process.ProcessService;
 import jakarta.inject.Inject;
 
@@ -22,6 +24,7 @@ import jakarta.inject.Inject;
  * BPMN files are provided and no workflow is started, so neither the deployment pipeline
  * nor a client/cluster is required.
  */
+@ExtendWith(SuppressOutputExtension.class)
 public class Camunda8AdapterDiscoveryTest {
 
   @RegisterExtension

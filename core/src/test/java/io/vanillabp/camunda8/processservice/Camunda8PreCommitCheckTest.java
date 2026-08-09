@@ -11,9 +11,11 @@ import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * The pre-commit shape of the phase-one existence check (story 22, the V1
@@ -25,6 +27,7 @@ import io.vanillabp.camunda8.client.Camunda8ClientFactory;
  * port, so any contact raises - no exception until the hook runs, exception when
  * it runs.
  */
+@ExtendWith(SuppressOutputExtension.class)
 public class Camunda8PreCommitCheckTest {
 
   static class RecordingRegistrar implements Camunda8PreCommitRegistrar {

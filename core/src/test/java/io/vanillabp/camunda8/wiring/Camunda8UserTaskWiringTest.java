@@ -10,12 +10,14 @@ import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.instance.UserTask;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListener;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListenerEventType;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListeners;
+import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * The V1-COMPATIBILITY contract of the user-task listener injection (story 24):
@@ -24,6 +26,7 @@ import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListeners;
  * VanillaBP "canceling" LAST) - upgrading a V1 application must produce a
  * byte-identical BPMN so no new process version is deployed.
  */
+@ExtendWith(SuppressOutputExtension.class)
 public class Camunda8UserTaskWiringTest {
 
   private static io.camunda.zeebe.model.bpmn.BpmnModelInstance model(

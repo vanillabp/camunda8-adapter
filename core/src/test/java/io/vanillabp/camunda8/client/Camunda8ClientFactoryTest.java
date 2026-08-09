@@ -8,6 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+
+import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * Unit tests of {@link Camunda8ClientFactory} / {@link Camunda8AdapterConfiguration}: an
@@ -15,6 +18,7 @@ import org.junit.jupiter.api.Test;
  * missing property is reported on first use, naming the exact property. Building the
  * self-managed client does not contact any cluster.
  */
+@ExtendWith(SuppressOutputExtension.class)
 public class Camunda8ClientFactoryTest {
 
   @Test

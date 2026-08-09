@@ -42,12 +42,12 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * real application configuration.</li>
  * </ul>
  */
+@ExtendWith(SuppressOutputExtension.class)
+@SuppressOutputExtension.SuppressBackgroundOutput
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
-@ExtendWith(SuppressOutputExtension.class)
-@SuppressOutputExtension.SuppressBackgroundOutput
 public class Camunda8TaskProcessingIT {
 
   @Container
