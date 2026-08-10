@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
-import io.quarkus.test.QuarkusUnitTest;
+import io.quarkus.test.QuarkusExtensionTest;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
@@ -28,7 +28,7 @@ import jakarta.inject.Inject;
 public class Camunda8AdapterDiscoveryTest {
 
   @RegisterExtension
-  static final QuarkusUnitTest unitTest = new QuarkusUnitTest()
+  static final QuarkusExtensionTest extensionTest = new QuarkusExtensionTest()
       .setArchiveProducer(() -> ShrinkWrap
           .create(JavaArchive.class)
           .addClass(Aggregate.class)
@@ -78,7 +78,7 @@ public class Camunda8AdapterDiscoveryTest {
 
     // the client-factory registry and the deployment service are produced (client and
     // deployment-service creation are covered here; a Docker-based start test is not
-    // practical in a QuarkusUnitTest - see the Spring Boot module's
+    // practical in a QuarkusExtensionTest - see the Spring Boot module's
     // Camunda8DeploymentAndStartIT and the README)
     Assertions.assertNotNull(clientFactoryRegistry.getFactory("c8"));
     Assertions.assertEquals(1, deploymentServices.size());
