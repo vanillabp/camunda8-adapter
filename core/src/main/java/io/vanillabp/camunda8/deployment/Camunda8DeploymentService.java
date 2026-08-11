@@ -217,6 +217,58 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   }
 
+  /**
+   * Camunda 8 deploys without any name-clash avoidance unless the application asks
+   * for one: multi-tenancy is switched off in a cluster started from the stock image
+   * and such a cluster rejects a deploy command carrying a tenant id, so
+   * {@link io.vanillabp.integration.adapter.spi.NameClashAvoidance#BY_ADAPTER} would
+   * fail the boot of an application which configured nothing at all. Since
+   * {@code none} protects nothing, every workflow module deployed under it is
+   * reported by {@link #warnAboutUnscopedIdentifiers(String, boolean)}.
+   */
+  @Override
+  public io.vanillabp.integration.adapter.spi.NameClashAvoidance defaultNameClashAvoidance() {
+
+    return io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE;
+
+  }
+
+  /**
+   * Names what Camunda 8 offers instead of {@code none}: prefixing, a tenant per
+   * workflow module (which needs a cluster with multi-tenancy enabled) or a cluster
+   * per workflow module.
+   */
+  @Override
+  public void warnAboutUnscopedIdentifiers(
+      final String workflowModuleId,
+      final boolean fromDefault) {
+
+    log.warn(
+        """
+            Workflow module '{}' is deployed to Camunda 8 (adapter '{}') with name-clash-avoidance \
+            'none'{}. Its identifiers reach the cluster as they are - BPMN process ids, message and \
+            signal names, error codes, job types and user-task form references - so a second workflow \
+            module using the same identifier addresses the very same processes and jobs, and neither \
+            VanillaBP nor the cluster can tell. Keep 'none' only as long as your identifiers are \
+            unique across ALL workflow modules of this application. Otherwise choose:
+              vanillabp.adapters.{}.name-clash-avoidance: use-prefix   # VanillaBP prefixes the identifiers, no tenant needed
+              vanillabp.adapters.{}.name-clash-avoidance: by-adapter   # a tenant per workflow module - only on a cluster with multi-tenancy enabled
+            A third option is a Camunda 8 cluster per workflow module, configured as one adapter id \
+            per cluster. The same key may be set per workflow module \
+            (vanillabp.workflow-modules.{}.adapters.{}.name-clash-avoidance). The mode is not a \
+            runtime switch - changing it once workflows are running is a BPMS migration.""",
+        workflowModuleId,
+        adapterId,
+        fromDefault
+            ? " (nothing is configured, so the adapter's default applies)"
+            : "",
+        adapterId,
+        adapterId,
+        workflowModuleId,
+        adapterId);
+
+  }
+
   @Override
   public String getAdapterId() {
 
