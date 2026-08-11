@@ -83,6 +83,7 @@ public class Camunda8ClientProducer {
     keys.grpcAddress().ifPresent(configuration::setGrpcAddress);
     keys.preferRestOverGrpc().ifPresent(configuration::setPreferRestOverGrpc);
     keys.tenantId().ifPresent(configuration::setTenantId);
+    keys.acceptUnscopedIdentifiers().ifPresent(configuration::setAcceptUnscopedIdentifiers);
     keys.clusterId().ifPresent(configuration::setClusterId);
     keys.region().ifPresent(configuration::setRegion);
     keys.clientId().ifPresent(configuration::setClientId);

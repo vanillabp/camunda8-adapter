@@ -318,17 +318,9 @@ public class Camunda8DeploymentServiceTest {
         }
 
         @Override
-        public String tenantIdFor(
-            final String workflowModuleId,
-            final String bpmnProcessId,
+        public void validateNoneNameClashStrategy(
             final String adapterId,
-            final String configuredTenantId) {
-          if (mode != io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER) {
-            return null;
-          }
-          return (configuredTenantId != null) && !configuredTenantId.isBlank()
-              ? configuredTenantId
-              : workflowModuleId;
+            final String byAdapterOnlyPropertyKey) {
         }
 
         @Override
@@ -379,8 +371,14 @@ public class Camunda8DeploymentServiceTest {
       // behavior, overridable by the adapter's tenant-id)
       assertEquals(
           MODULE,
-          scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER)
-              .tenantIdFor(MODULE, null, "c8", null));
+          io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
+              scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER), MODULE, "c8", null));
+      // ... unless the adapter configured a name
+      assertEquals(
+          "banking",
+          io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
+              scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER), MODULE, "c8",
+              "banking"));
 
     }
 
@@ -399,8 +397,9 @@ public class Camunda8DeploymentServiceTest {
           () -> "the job type is scoped per module AND process but was: "
               + xml);
       assertNull(
-          scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.USE_PREFIX)
-              .tenantIdFor(MODULE, null, "c8", "banking"),
+          io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
+              scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.USE_PREFIX), MODULE, "c8",
+              "banking"),
           "the prefix IS the isolation - no tenant, which is what saves tenant licenses");
 
     }
@@ -439,8 +438,8 @@ public class Camunda8DeploymentServiceTest {
 
       assertNotNull(model.getModelElementById("RiskAssessment"));
       assertNull(
-          scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE)
-              .tenantIdFor(MODULE, null, "c8", null));
+          io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
+              scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE), MODULE, "c8", null));
 
     }
 
@@ -518,6 +517,30 @@ public class Camunda8DeploymentServiceTest {
       // a configured 'none' is reported as the deliberate choice it is
       final var configured = warningsOf(() -> service.warnAboutUnscopedIdentifiers(MODULE, false));
       assertTrue(!configured.getFirst().contains("nothing is configured"), () -> configured.toString());
+      // ... and the way out of the warning is part of it
+      assertTrue(
+          configured.getFirst().contains("vanillabp.adapters.myengine.accept-unscoped-identifiers: true"),
+          () -> configured.toString());
+
+    }
+
+    @Test
+    @DisplayName("Accepting unscoped identifiers deliberately silences the warning")
+    public void acceptedUnscopedIdentifiersStaySilent() {
+
+      final var configuration = new Camunda8AdapterConfiguration();
+      configuration.setAcceptUnscopedIdentifiers(true);
+      final var service = new Camunda8DeploymentService(
+          "myengine", new Camunda8ClientFactory("myengine", configuration), new NoOpInvoker(), (
+              m2,
+              p2,
+              t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                  .ofDays(14), null, null);
+
+      assertEquals(
+          java.util.List.of(),
+          warningsOf(() -> service.warnAboutUnscopedIdentifiers(MODULE, true)),
+          "the decision is on record, so there is nothing left to ask");
 
     }
 
