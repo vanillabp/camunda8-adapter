@@ -91,6 +91,179 @@ public final class Camunda8TaskWiring {
   public static final String TASKDEFINITION_USERTASK_ZEEBE = "io.vanillabp.userTask:";
 
   /**
+   * The job-type prefix of the start execution listeners VanillaBP attaches to start
+   * events the cluster fires on its own (story 41): this prefix plus the scoped BPMN
+   * process id plus the start event's id. The job type has to be unique across the
+   * tenant, hence the process id - and one worker serves exactly one start event.
+   */
+  public static final String TASKDEFINITION_BPMS_INITIATED_START = "io.vanillabp.bpmsStart:";
+
+  /**
+   * One start event the cluster fires on its own, to be served by a start
+   * execution-listener worker (story 41).
+   *
+   * @param bpmnProcessId The SCOPED BPMN process id (what the cluster knows)
+   * @param startEventId The BPMN id of the start event
+   * @param kind Which kind of start event it is
+   * @param signalName The PLAIN signal name for a signal start event
+   */
+  public record Camunda8BpmsInitiatedStartToWire(
+                                                 String bpmnProcessId,
+                                                 String startEventId,
+                                                 io.vanillabp.spi.service.BpmsStartTrigger.Kind kind,
+                                                 String signalName) {
+
+    /**
+     * @return The job type of this start event's execution listener
+     */
+    public String listenerJobType() {
+
+      return listenerJobTypeOf(bpmnProcessId, startEventId);
+
+    }
+
+  }
+
+  /**
+   * @param scopedBpmnProcessId The BPMN process id the cluster knows
+   * @param startEventId The BPMN id of the start event
+   * @return The job type of the start event's execution listener
+   */
+  public static String listenerJobTypeOf(
+      final String scopedBpmnProcessId,
+      final String startEventId) {
+
+    return "%s%s:%s".formatted(TASKDEFINITION_BPMS_INITIATED_START, scopedBpmnProcessId, startEventId);
+
+  }
+
+  /**
+   * The start events of the given executable process which the CLUSTER fires on its
+   * own (timer, signal, conditional) - and attaches a <code>start</code> execution
+   * listener to each of them, which is how VanillaBP learns about such a start and
+   * gets to build the workflow aggregate before anything else runs.
+   * <p>
+   * Message start events are not among them: those are triggered by the application
+   * through {@code ProcessService#startWorkflowByMessage}, which carries the
+   * aggregate. Camunda 8 has no conditional events at all; the kind is part of the
+   * model here so an unsupported model fails at the cluster, not silently.
+   *
+   * @param model The BPMN model, already scoped by <code>prepareBpmn</code>
+   * @param bpmnProcessId The SCOPED BPMN process id
+   * @param signalNameResolver Turns the scoped signal name of the model into the
+   *          plain one the application modelled
+   * @return The start events to be wired
+   */
+  public static List<Camunda8BpmsInitiatedStartToWire> bpmsInitiatedStartsOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId,
+      final java.util.function.UnaryOperator<String> signalNameResolver) {
+
+    final var startEvents = new LinkedList<Camunda8BpmsInitiatedStartToWire>();
+    model
+        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.StartEvent.class)
+        .stream()
+        .filter(startEvent -> bpmnProcessId.equals(owningProcessId(startEvent)))
+        .forEach(startEvent -> {
+          final var definitions = startEvent.getEventDefinitions();
+          final var timer = definitions
+              .stream()
+              .anyMatch(io.camunda.zeebe.model.bpmn.instance.TimerEventDefinition.class::isInstance);
+          final var signal = definitions
+              .stream()
+              .filter(io.camunda.zeebe.model.bpmn.instance.SignalEventDefinition.class::isInstance)
+              .map(io.camunda.zeebe.model.bpmn.instance.SignalEventDefinition.class::cast)
+              .findFirst();
+          final var conditional = definitions
+              .stream()
+              .anyMatch(io.camunda.zeebe.model.bpmn.instance.ConditionalEventDefinition.class::isInstance);
+
+          final io.vanillabp.spi.service.BpmsStartTrigger.Kind kind;
+          final String signalName;
+          if (timer) {
+            kind = io.vanillabp.spi.service.BpmsStartTrigger.Kind.TIMER;
+            signalName = null;
+          } else if (signal.isPresent()) {
+            kind = io.vanillabp.spi.service.BpmsStartTrigger.Kind.SIGNAL;
+            signalName = signal
+                .map(definition -> definition.getSignal() == null
+                    ? null
+                    : definition.getSignal().getName())
+                .map(signalNameResolver)
+                .orElse(null);
+          } else if (conditional) {
+            kind = io.vanillabp.spi.service.BpmsStartTrigger.Kind.CONDITIONAL;
+            signalName = null;
+          } else {
+            return;
+          }
+
+          addStartExecutionListener(startEvent, listenerJobTypeOf(bpmnProcessId, startEvent.getId()));
+          startEvents
+              .add(
+                  new Camunda8BpmsInitiatedStartToWire(
+                      bpmnProcessId, startEvent.getId(), kind, signalName));
+        });
+    return startEvents;
+
+  }
+
+  /**
+   * Attaches a <code>start</code> execution listener to the start event, unless the
+   * model already carries it (re-wiring an already-processed model). Retries stay at
+   * the Camunda default: unlike the user-task listeners, a failure here means the
+   * workflow has no aggregate, which is worth retrying before it becomes an incident.
+   */
+  private static void addStartExecutionListener(
+      final io.camunda.zeebe.model.bpmn.instance.StartEvent startEvent,
+      final String listenerJobType) {
+
+    final io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners listeners;
+    if (startEvent
+        .getSingleExtensionElement(
+            io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class) != null) {
+      listeners = startEvent
+          .getSingleExtensionElement(
+              io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class);
+      final var alreadyWired = listeners
+          .getExecutionListeners()
+          .stream()
+          .anyMatch(listener -> listenerJobType.equals(listener.getType()));
+      if (alreadyWired) {
+        return;
+      }
+    } else {
+      // a start event carrying no extension elements at all: the container has to
+      // be created before a listener can be added to it
+      if (startEvent.getExtensionElements() == null) {
+        startEvent
+            .setExtensionElements(
+                startEvent
+                    .getModelInstance()
+                    .newInstance(io.camunda.zeebe.model.bpmn.instance.ExtensionElements.class));
+      }
+      listeners = startEvent
+          .getExtensionElements()
+          .addExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class);
+    }
+
+    final var listener = startEvent
+        .getModelInstance()
+        .newInstance(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListener.class);
+    // 'end' on the start event, not 'start': the cluster rejects start execution
+    // listeners on start events (8.8), while an end listener still gates the
+    // transition - it runs before the flow leaves the start event, so nothing of
+    // the process can run before the workflow aggregate exists
+    listener
+        .setEventType(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListenerEventType.end);
+    listener.setType(listenerJobType);
+    // the workflow aggregate is built here: VanillaBP's listener has to run before
+    // any listener the model brings along
+    listeners.insertElementAfter(listener, null);
+
+  }
+
+  /**
    * One user task to be served by listener-job workers (story 24).
    *
    * @param bpmnProcessId The BPMN process ID

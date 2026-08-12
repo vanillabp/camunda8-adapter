@@ -59,7 +59,7 @@ public class Camunda8DeploymentServiceProducer {
           final var asyncTaskTimeout = adapterKeys != null
               ? adapterKeys.asyncTaskTimeout().orElse(java.time.Duration.ofDays(14))
               : java.time.Duration.ofDays(14);
-          return new Camunda8DeploymentService(
+          final var deploymentService = new Camunda8DeploymentService(
               adapterId, clientFactoryRegistry.getFactory(adapterId), workflowTaskRegistry, (
                   workflowModuleId,
                   bpmnProcessId,
@@ -68,6 +68,8 @@ public class Camunda8DeploymentServiceProducer {
                       adapterId), asyncTaskTimeout, id -> clientFactoryRegistry
                           .getFactory(id)
                           .getConfiguration(), scoping);
+          deploymentService.setBpmsInitiatedStartInvoker(workflowTaskRegistry);
+          return deploymentService;
         })
         .toList();
 
