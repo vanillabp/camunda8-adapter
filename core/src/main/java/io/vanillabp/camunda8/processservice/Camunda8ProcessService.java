@@ -770,6 +770,46 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
+  /**
+   * A remote BPMS must not act before the caller's transaction committed: phase one
+   * does nothing, the broadcast happens in phase two through the outbox.
+   */
+  @Override
+  public void sendSignalPhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String signalName) {
+
+  }
+
+  @Override
+  public void sendSignalPhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String signalName) {
+
+    // no variables travel with a signal, and there is nothing to deduplicate by:
+    // unlike a message, a broadcast carries no correlation key the cluster could
+    // recognize a redelivery from (documented at-least-once residual)
+    var command = clientFactory
+        .getClient()
+        .newBroadcastSignalCommand()
+        .signalName(scopedIdentifier(workflowModuleId, signalName));
+    final var signalTenantId = tenantIdOf(workflowModuleId);
+    if (signalTenantId != null) {
+      command = command.tenantId(signalTenantId);
+    }
+    command
+        .send()
+        .join();
+    log.info(
+        "Camunda8[{}]: broadcast signal '{}' of workflow module '{}'",
+        adapterId,
+        signalName,
+        workflowModuleId);
+
+  }
+
   @Override
   public void startWorkflowByMessagePhaseTwo(
       final String workflowModuleId,
