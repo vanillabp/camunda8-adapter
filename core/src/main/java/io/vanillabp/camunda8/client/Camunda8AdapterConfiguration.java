@@ -99,6 +99,16 @@ public class Camunda8AdapterConfiguration {
   private java.time.Duration jobTimeout;
 
   /**
+   * Whether the application states that its identifiers are unique across all of its
+   * workflow modules, which is what the name-clash-avoidance mode <code>none</code>
+   * relies on. It silences the WARN the adapter logs per workflow module while that
+   * mode applies - a deliberate acknowledgement, not a log-level setting: with a wrong
+   * one, two workflow modules address the same processes and jobs. Default
+   * <code>false</code>.
+   */
+  private boolean acceptUnscopedIdentifiers = false;
+
+  /**
    * How long a <code>&#64;TaskId</code> job stays dormant awaiting its
    * asynchronous completion (the job's lock is extended once to this duration
    * when the handler returns without completing). Default: 14 days.

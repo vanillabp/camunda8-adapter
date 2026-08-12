@@ -130,15 +130,10 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   private String tenantIdOf(
       final String workflowModuleId) {
 
-    final var configuredTenantId = clientFactory
-        .getConfiguration()
-        .getTenantId();
-    if (scoping == null) {
-      return (configuredTenantId != null) && !configuredTenantId.isBlank()
-          ? configuredTenantId
-          : null;
-    }
-    return scoping.tenantIdFor(workflowModuleId, null, adapterId, configuredTenantId);
+    return io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
+        scoping, workflowModuleId, adapterId, clientFactory
+            .getConfiguration()
+            .getTenantId());
 
   }
 

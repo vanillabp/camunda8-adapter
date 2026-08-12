@@ -235,14 +235,9 @@ public class Camunda8InstanceIdentityTest {
       }
 
       @Override
-      public String tenantIdFor(
-          final String workflowModuleId,
-          final String bpmnProcessId,
+      public void validateNoneNameClashStrategy(
           final String adapterId,
-          final String configuredTenantId) {
-
-        throw new UnsupportedOperationException();
-
+          final String byAdapterOnlyPropertyKey) {
       }
 
       @Override

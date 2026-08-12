@@ -154,6 +154,16 @@ public interface VanillaBpCamunda8Properties {
     Optional<String> clientSecret();
 
     /**
+     * OPTIONAL acknowledgement that the application's identifiers are unique across
+     * all of its workflow modules - it silences the WARN logged while the
+     * name-clash-avoidance mode <code>none</code> applies. Default
+     * <code>false</code>.
+     *
+     * @return Whether unscoped identifiers are accepted deliberately
+     */
+    Optional<Boolean> acceptUnscopedIdentifiers();
+
+    /**
      * The worker's job timeout (lock duration) - adapter-level base of the
      * most-specific-wins resolution.
      *

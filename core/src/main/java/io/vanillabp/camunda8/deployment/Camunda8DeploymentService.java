@@ -78,12 +78,24 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * The core's name-clash-avoidance model (story 35): decides whether a workflow
-   * module is isolated by a TENANT ({@code by-adapter}, the default and version 1's
-   * behavior), by PREFIXING the identifiers ({@code use-prefix} - no tenant, which
-   * is what makes tenant licenses avoidable) or not at all ({@code none}). May be
-   * <code>null</code> (tests): the default applies then.
+   * module is isolated by a TENANT ({@code by-adapter}, version 1's behavior), by
+   * PREFIXING the identifiers ({@code use-prefix} - no tenant, which is what makes
+   * tenant licenses avoidable) or not at all ({@code none}, this adapter's default).
+   * May be <code>null</code> (tests): nothing is scoped then.
    */
   private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
+
+  /**
+   * The tenants already verified against the cluster - asked once per tenant, not once
+   * per workflow module (several modules may share a configured tenant).
+   */
+  private final java.util.Set<String> verifiedTenants = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+  /**
+   * Whether the configured tenant was already checked against the mode (once per adapter
+   * instance, the check is adapter-wide).
+   */
+  private boolean tenantConfigurationValidated;
 
   /**
    * Convenience constructor without the configuration resolver (tests) - two
@@ -187,19 +199,38 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   }
 
-  private String tenantIdOf(
-      final String workflowModuleId) {
+  /**
+   * Fails the boot if a tenant is configured for this adapter id although no workflow
+   * module is deployed into one, i.e. the mode says {@code none} or {@code use-prefix}
+   * everywhere. Whether a tenant is what only {@code by-adapter} can use is this
+   * adapter's knowledge; the core answers which modes apply. Checked once per adapter
+   * instance while deploying, before anything reaches the cluster.
+   */
+  private void validateTenantConfiguration() {
 
+    if (tenantConfigurationValidated || (scoping == null)) {
+      return;
+    }
+    tenantConfigurationValidated = true;
     final var configuredTenantId = clientFactory
         .getConfiguration()
         .getTenantId();
-    if (scoping == null) {
-      // no name-clash-avoidance support (tests): the configured tenant, as before
-      return (configuredTenantId != null) && !configuredTenantId.isBlank()
-          ? configuredTenantId
-          : null;
+    if ((configuredTenantId == null) || configuredTenantId.isBlank()) {
+      return;
     }
-    return scoping.tenantIdFor(workflowModuleId, null, adapterId, configuredTenantId);
+    scoping.validateNoneNameClashStrategy(
+        adapterId,
+        io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.propertyKey(adapterId, "tenant-id"));
+
+  }
+
+  private String tenantIdOf(
+      final String workflowModuleId) {
+
+    return io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
+        scoping, workflowModuleId, adapterId, clientFactory
+            .getConfiguration()
+            .getTenantId());
 
   }
 
@@ -214,6 +245,77 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     io.vanillabp.camunda8.client.Camunda8InstanceIdentity
         .validateDistinct(adapterIdsOfThisType, configurations, scoping);
+
+  }
+
+  /**
+   * Camunda 8 deploys without any name-clash avoidance unless the application asks
+   * for one: multi-tenancy is switched off in a cluster started from the stock image
+   * and such a cluster rejects a deploy command carrying a tenant id, so
+   * {@link io.vanillabp.integration.adapter.spi.NameClashAvoidance#BY_ADAPTER} would
+   * fail the boot of an application which configured nothing at all. Since
+   * {@code none} protects nothing, every workflow module deployed under it is
+   * reported by {@link #warnAboutUnscopedIdentifiers(String, boolean)}.
+   */
+  @Override
+  public io.vanillabp.integration.adapter.spi.NameClashAvoidance defaultNameClashAvoidance() {
+
+    return io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE;
+
+  }
+
+  /**
+   * Names what Camunda 8 offers instead of {@code none}: prefixing, a tenant per
+   * workflow module (which needs a cluster with multi-tenancy enabled) or a cluster
+   * per workflow module.
+   * <p>
+   * Silent if the application accepted unscoped identifiers deliberately
+   * ({@code vanillabp.adapters.<id>.accept-unscoped-identifiers}) - the point of the
+   * warning is the DECISION, and once it is on record there is nothing left to ask.
+   */
+  @Override
+  public void warnAboutUnscopedIdentifiers(
+      final String workflowModuleId,
+      final boolean fromDefault) {
+
+    if (clientFactory
+        .getConfiguration()
+        .isAcceptUnscopedIdentifiers()) {
+      log.debug(
+          "Camunda8[{}]: workflow module '{}' is deployed with name-clash-avoidance 'none', accepted by "
+              + "'{}'",
+          adapterId,
+          workflowModuleId,
+          io.vanillabp.camunda8.client.Camunda8AdapterConfiguration
+              .propertyKey(adapterId, "accept-unscoped-identifiers"));
+      return;
+    }
+    log.warn(
+        """
+            Workflow module '{}' is deployed to Camunda 8 (adapter '{}') with name-clash-avoidance \
+            'none'{}. Its identifiers reach the cluster as they are - BPMN process ids, message and \
+            signal names, error codes, job types and user-task form references - so a second workflow \
+            module using the same identifier addresses the very same processes and jobs, and neither \
+            VanillaBP nor the cluster can tell. Keep 'none' only as long as your identifiers are \
+            unique across ALL workflow modules of this application. Otherwise choose:
+              vanillabp.adapters.{}.name-clash-avoidance: use-prefix   # VanillaBP prefixes the identifiers, no tenant needed
+              vanillabp.adapters.{}.name-clash-avoidance: by-adapter   # a tenant per workflow module - only on a cluster with multi-tenancy enabled
+            A third option is a Camunda 8 cluster per workflow module, configured as one adapter id \
+            per cluster. The same key may be set per workflow module \
+            (vanillabp.workflow-modules.{}.adapters.{}.name-clash-avoidance). The mode is not a \
+            runtime switch - changing it once workflows are running is a BPMS migration. If the \
+            identifiers ARE unique, say so once and this warning is gone:
+              vanillabp.adapters.{}.accept-unscoped-identifiers: true""",
+        workflowModuleId,
+        adapterId,
+        fromDefault
+            ? " (nothing is configured, so the adapter's default applies)"
+            : "",
+        adapterId,
+        adapterId,
+        workflowModuleId,
+        adapterId,
+        adapterId);
 
   }
 
@@ -383,8 +485,15 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // uses the workflow module id, overridable by the adapter's 'tenant-id';
     // 'use-prefix' and 'none' use no tenant at all (the identifiers were prefixed
     // respectively are unique by contract).
+    validateTenantConfiguration();
     final var tenantId = tenantIdOf(workflowModuleId);
     if (tenantId != null) {
+      // asking beforehand turns the cluster's "multi-tenancy is disabled" respectively an
+      // unknown tenant into a message naming the property to change (GAPS G2)
+      if (verifiedTenants.add(tenantId)) {
+        io.vanillabp.camunda8.client.Camunda8TenantCheck
+            .requireUsableTenant(adapterId, workflowModuleId, tenantId, client);
+      }
       command = command.tenantId(tenantId);
     }
     // prefixing may not merge two different processes into one identifier
