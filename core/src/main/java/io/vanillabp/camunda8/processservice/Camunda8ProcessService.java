@@ -531,7 +531,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .filter(filter -> filter
               .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
               .variables(java.util.Map
-                  .of(aggregateIdVariableName(), String.valueOf(workflowAggregateId))))
+                  .of(aggregateIdVariableName(), aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
       return found.items().isEmpty()
@@ -590,7 +590,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .newProcessInstanceSearchRequest()
           .filter(filter -> filter
               .variables(java.util.Map
-                  .of(aggregateIdVariableName(), String.valueOf(workflowAggregateId))))
+                  .of(aggregateIdVariableName(), aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
       return found.items().isEmpty()
@@ -807,6 +807,196 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
         adapterId,
         signalName,
         workflowModuleId);
+
+  }
+
+  @Override
+  public void aggregateChangedPhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final A workflowAggregate,
+      final String taskId) {
+
+    // a remote BPMS: writing here would show the cluster values of a transaction
+    // which may still roll back - the push happens in phase two
+
+  }
+
+  @Override
+  public void aggregateChangedPhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String taskId) {
+
+    final var variables = variablesOf(aggregatePersistence, workflowAggregateId);
+
+    if (taskId == null) {
+      final var processInstanceKey = processInstanceKeyOf(workflowAggregateId);
+      if (processInstanceKey == null) {
+        // at-least-once residual: the workflow ended between the dispatch-time
+        // election and now - there is nothing left to write to
+        log.warn(
+            "Camunda8[{}]: no active workflow found for aggregate '{}' - skipping the push of the "
+                + "changed aggregate",
+            adapterId,
+            workflowAggregateId);
+        return;
+      }
+      clientFactory
+          .getClient()
+          .newSetVariablesCommand(processInstanceKey)
+          .variables(variables)
+          // the workflow's own scope, which is what a gateway behind the current
+          // element and every other branch reads
+          .local(false)
+          .send()
+          .join();
+      log.info(
+          "Camunda8[{}]: pushed the changed aggregate '{}' into process instance '{}'",
+          adapterId,
+          workflowAggregateId,
+          processInstanceKey);
+      return;
+    }
+
+    final var elementInstanceKey = elementInstanceKeyOf(taskId);
+    if (elementInstanceKey == null) {
+      log.warn(
+          "Camunda8[{}]: no element instance found for task '{}' of aggregate '{}' - skipping the "
+              + "push of the changed aggregate. The task was completed meanwhile, or the query API "
+              + "has not caught up with it yet",
+          adapterId,
+          taskId,
+          workflowAggregateId);
+      return;
+    }
+    clientFactory
+        .getClient()
+        .newSetVariablesCommand(elementInstanceKey)
+        .variables(variables)
+        // the scope of THIS element instance only - a workflow-wide write would be
+        // a lost update between the instances of a multi-instance activity
+        .local(true)
+        .send()
+        .join();
+    log.info(
+        "Camunda8[{}]: pushed the changed aggregate '{}' into element instance '{}' (task '{}')",
+        adapterId,
+        workflowAggregateId,
+        elementInstanceKey,
+        taskId);
+
+  }
+
+  /**
+   * The key of the ACTIVE process instance carrying the aggregate's ID variable -
+   * Camunda 8 has no business key, so the eventually-consistent query API answers
+   * (like {@link #awarenessOfWorkflow(Object)}).
+   *
+   * @param workflowAggregateId The aggregate's ID
+   * @return The process instance key or <code>null</code> if none is active
+   */
+  private Long processInstanceKeyOf(
+      final Object workflowAggregateId) {
+
+    try {
+      final var found = clientFactory
+          .getClient()
+          .newProcessInstanceSearchRequest()
+          .filter(filter -> filter
+              .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
+              .variables(java.util.Map
+                  .of(aggregateIdVariableName(), aggregateIdSearchValue(workflowAggregateId))))
+          .send()
+          .join();
+      return found.items().isEmpty()
+          ? null
+          : found.items().getFirst().getProcessInstanceKey();
+    } catch (final Exception e) {
+      throw queryApiRequired(e, "the workflow of aggregate '%s'".formatted(workflowAggregateId));
+    }
+
+  }
+
+  /**
+   * The element instance a task belongs to. A VanillaBP task ID is the job's key,
+   * and a job knows its element instance - the key {@code SetVariables} needs for a
+   * scoped write. The query API answers, so a task activated a moment ago may not be
+   * found yet (the caller tolerates it).
+   *
+   * @param taskId The task ID reported to the application (the job key)
+   * @return The element instance key or <code>null</code> if the job is unknown
+   */
+  private Long elementInstanceKeyOf(
+      final String taskId) {
+
+    try {
+      final var found = clientFactory
+          .getClient()
+          .newJobSearchRequest()
+          .filter(filter -> filter.jobKey(Long.parseLong(taskId)))
+          .send()
+          .join();
+      return found.items().isEmpty()
+          ? null
+          : found.items().getFirst().getElementInstanceKey();
+    } catch (final Exception e) {
+      throw queryApiRequired(e, "the task '%s'".formatted(taskId));
+    }
+
+  }
+
+  /**
+   * The aggregate ID as the query API wants to see it in a variable filter: variable
+   * values are stored as JSON, so the ID of a String-typed aggregate ID has to be
+   * quoted - the client passes the filter value through verbatim. Without the quotes
+   * a search finds nothing at all, which looks exactly like "no such workflow".
+   *
+   * @param workflowAggregateId The aggregate's ID
+   * @return The JSON representation of the ID
+   */
+  private String aggregateIdSearchValue(
+      final Object workflowAggregateId) {
+
+    return "\"%s\"".formatted(
+        String
+            .valueOf(workflowAggregateId)
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\""));
+
+  }
+
+  /**
+   * The guiding failure of a push which cannot find WHERE to write. Camunda 8 has
+   * neither a business key nor a command addressing a workflow by one of its
+   * variables, so the query API is the only way from an aggregate ID to the keys
+   * {@code SetVariables} needs - a cluster without secondary storage cannot serve
+   * this feature at all.
+   *
+   * @param cause What the search failed with
+   * @param subject What was searched for
+   * @return The exception to throw
+   */
+  private RuntimeException queryApiRequired(
+      final Exception cause,
+      final String subject) {
+
+    if (isSecondaryStorageMissing(cause)) {
+      return new UnsupportedOperationException(
+          ("Camunda8[%s]: cannot push a changed workflow-aggregate - %s cannot be located because "
+              + "the cluster runs WITHOUT secondary storage. Camunda 8 addresses variables by "
+              + "process-instance and element-instance keys only, and the query API is what "
+              + "translates the aggregate's ID into them: configure secondary storage "
+              + "(camunda.database.type) or push the aggregate by completing a task instead.")
+              .formatted(adapterId, subject), cause);
+    }
+    if (cause instanceof RuntimeException runtimeException) {
+      return runtimeException;
+    }
+    return new RuntimeException(cause);
 
   }
 
