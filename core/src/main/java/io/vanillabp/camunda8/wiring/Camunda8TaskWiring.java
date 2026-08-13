@@ -117,6 +117,36 @@ public final class Camunda8TaskWiring {
   }
 
   /**
+   * The version tag the modeller gave the process
+   * (<code>zeebe:versionTag</code>) - the name a
+   * <code>&#64;WorkflowTask(version = "release-2026")</code> refers to (story 48).
+   *
+   * @param model The BPMN model as deployed
+   * @param bpmnProcessId The SCOPED BPMN process id
+   * @return The version tag or <code>null</code> if the model carries none
+   */
+  public static String versionTagOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    final var process = model
+        .getModelElementsByType(Process.class)
+        .stream()
+        .filter(candidate -> bpmnProcessId.equals(candidate.getId()))
+        .findFirst()
+        .orElse(null);
+    if (process == null) {
+      return null;
+    }
+    final var versionTag = process
+        .getSingleExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeVersionTag.class);
+    return versionTag == null
+        ? null
+        : versionTag.getValue();
+
+  }
+
+  /**
    * Attaches an <code>end</code> execution listener to the PROCESS element, which
    * is what tells VanillaBP that a workflow ended. Only called where the
    * application declared a <code>&#64;WorkflowEnded</code> method: a model must not

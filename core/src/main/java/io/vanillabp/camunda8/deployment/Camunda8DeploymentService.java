@@ -182,8 +182,18 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     this.asyncTaskTimeout = asyncTaskTimeout;
     this.configurations = configurations;
     this.scoping = scoping;
+    // story 48: what the cluster's process definitions are versioned as - the version
+    // travels with every job, the version TAGS come from here
+    this.processVersions = new Camunda8ProcessVersions(
+        adapterId, clientFactory::getClient, this::scopedProcessId, this::tenantIdOf);
 
   }
+
+  /**
+   * The versions of this cluster's process definitions (story 48): the catalog the core
+   * resolves version TAGS through. The version itself travels with every job.
+   */
+  private final Camunda8ProcessVersions processVersions;
 
   /**
    * The tenant a workflow module is deployed to, respectively its operations are
@@ -491,6 +501,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
     workflowTaskInvoker.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
+
+    // story 48: the cluster can be asked which versions of this process it has, which
+    // is what a version specification naming a version TAG needs
+    workflowTaskInvoker
+        .registerProcessVersions(adapterId, workflowModuleId, bpmnProcessId, processVersions);
+
     // message correlation (story 23): inject the correlation-key expression
     // '=<aggregate-ID variable>' into message subscriptions lacking one - the V2
     // convention enabling ProcessService#correlateMessage without manual model
@@ -614,6 +630,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                     new Camunda8DeployedProcesses.DeployedProcess(
                         workflowModuleId, plainBpmnProcessId, String
                             .valueOf(process.getProcessDefinitionKey()), process.getVersion(), model));
+            // story 48: the version the cluster just assigned, together with the
+            // version tag of the model deployed - no query needed for either
+            processVersions
+                .recordDeployed(
+                    workflowModuleId,
+                    plainBpmnProcessId,
+                    process.getVersion(),
+                    Camunda8TaskWiring.versionTagOf(model, process.getBpmnProcessId()));
           });
 
       log.info("Deployed {} BPMN resource(s) of workflow module '{}' to Camunda 8 "
@@ -633,6 +657,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // after ALL processes of the module were wired: methods matching no task of
     // any wired process are a defect (per-module check, honors the policy)
     workflowTaskInvoker.validateNoUnwiredWorkflowTaskMethods(workflowModuleId);
+
+    // story 48: the deployment is done, so the version tags the application's
+    // annotations name can be resolved against what the cluster has now
+    workflowTaskInvoker.resolveProcessVersions(workflowModuleId);
 
   }
 
