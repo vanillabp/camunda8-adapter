@@ -99,6 +99,92 @@ public final class Camunda8TaskWiring {
   public static final String TASKDEFINITION_BPMS_INITIATED_START = "io.vanillabp.bpmsStart:";
 
   /**
+   * The job-type prefix of the end execution listener VanillaBP attaches to a
+   * process whose application wants to be told that a workflow ended (story 43):
+   * this prefix plus the scoped BPMN process id.
+   */
+  public static final String TASKDEFINITION_WORKFLOW_ENDED = "io.vanillabp.workflowEnd:";
+
+  /**
+   * @param scopedBpmnProcessId The BPMN process id the cluster knows
+   * @return The job type of the process' end execution listener
+   */
+  public static String workflowEndedJobTypeOf(
+      final String scopedBpmnProcessId) {
+
+    return TASKDEFINITION_WORKFLOW_ENDED + scopedBpmnProcessId;
+
+  }
+
+  /**
+   * Attaches an <code>end</code> execution listener to the PROCESS element, which
+   * is what tells VanillaBP that a workflow ended. Only called where the
+   * application declared a <code>&#64;WorkflowEnded</code> method: a model must not
+   * pay for a notification nobody asked for.
+   *
+   * @param model The BPMN model, already scoped by <code>prepareBpmn</code>
+   * @param bpmnProcessId The SCOPED BPMN process id
+   * @return Whether a listener was attached (false if the process is not in this
+   *         model)
+   */
+  public static boolean attachWorkflowEndedListener(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    final var process = model
+        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.Process.class)
+        .stream()
+        .filter(candidate -> bpmnProcessId.equals(candidate.getId()))
+        .findFirst()
+        .orElse(null);
+    if (process == null) {
+      return false;
+    }
+
+    final var jobType = workflowEndedJobTypeOf(bpmnProcessId);
+    final io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners listeners;
+    if (process
+        .getSingleExtensionElement(
+            io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class) != null) {
+      listeners = process
+          .getSingleExtensionElement(
+              io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class);
+      final var alreadyWired = listeners
+          .getExecutionListeners()
+          .stream()
+          .anyMatch(listener -> jobType.equals(listener.getType()));
+      if (alreadyWired) {
+        return true;
+      }
+    } else {
+      if (process.getExtensionElements() == null) {
+        process
+            .setExtensionElements(
+                process
+                    .getModelInstance()
+                    .newInstance(io.camunda.zeebe.model.bpmn.instance.ExtensionElements.class));
+      }
+      listeners = process
+          .getExtensionElements()
+          .addExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class);
+    }
+
+    final var listener = process
+        .getModelInstance()
+        .newInstance(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListener.class);
+    listener
+        .setEventType(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListenerEventType.end);
+    listener.setType(jobType);
+    // LAST listener: whatever the model itself does at the end of the process runs
+    // before the application is told the workflow ended
+    listeners.getExecutionListeners().forEach(existing -> {
+    });
+    listeners.addChildElement(listener);
+    return true;
+
+  }
+
+  /**
    * One start event the cluster fires on its own, to be served by a start
    * execution-listener worker (story 41).
    *

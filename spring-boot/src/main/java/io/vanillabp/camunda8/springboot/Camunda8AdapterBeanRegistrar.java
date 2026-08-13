@@ -76,6 +76,11 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                         .getConfiguration(), supplierContext
                                             .bean(
                                                 io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class));
+                deploymentService.setWorkflowEndedInvoker(
+                    supplierContext
+                        .beanProvider(
+                            io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker.class)
+                        .getIfAvailable());
                 deploymentService.setBpmsInitiatedStartInvoker(
                     supplierContext
                         .beanProvider(

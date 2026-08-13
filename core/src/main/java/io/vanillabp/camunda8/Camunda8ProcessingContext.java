@@ -52,6 +52,13 @@ public class Camunda8ProcessingContext {
   private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8BpmsInitiatedStartToWire> bpmsInitiatedStartsToWire = new java.util.LinkedList<>();
 
   /**
+   * The BPMN processes whose end has to be reported to the application (story 43),
+   * as (scoped process id) - one worker each once workflow processing starts.
+   */
+  @Getter
+  private final java.util.List<String> workflowEndedProcessesToWire = new java.util.LinkedList<>();
+
+  /**
    * The workers opened by startWorkflowProcessing, closed by
    * stopWorkflowProcessing (reverse order).
    */

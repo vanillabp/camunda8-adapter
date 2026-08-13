@@ -65,6 +65,24 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker;
 
   /**
+   * The core's entry point for workflows which ended (story 43). May be
+   * <code>null</code> (tests) - no end listener is attached then.
+   */
+  private io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker workflowEndedInvoker;
+
+  /**
+   * Hands over the core's entry point for workflows which ended.
+   *
+   * @param workflowEndedInvoker The core's invoker
+   */
+  public void setWorkflowEndedInvoker(
+      final io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker workflowEndedInvoker) {
+
+    this.workflowEndedInvoker = workflowEndedInvoker;
+
+  }
+
+  /**
    * Hands over the core's entry point for workflows the cluster starts on its own.
    *
    * @param bpmsInitiatedStartInvoker The core's invoker
@@ -504,6 +522,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       context.getBpmsInitiatedStartsToWire().addAll(bpmsInitiatedStarts);
     }
 
+    // the end of a workflow is reported only where the application asked for it -
+    // a model must not pay for a listener nobody wants (story 43)
+    if ((workflowEndedInvoker != null) && workflowEndedInvoker
+        .workflowEndedHandlerExists(workflowModuleId, bpmnProcessId) && Camunda8TaskWiring
+            .attachWorkflowEndedListener(model, scopedBpmnProcessId)) {
+      context.getWorkflowEndedProcessesToWire().add(scopedBpmnProcessId);
+    }
+
     log.info(
         "Camunda8[{}]: wired {} task(s) of BPMN process '{}' (file '{}', workflow module '{}')",
         adapterId,
@@ -709,6 +735,31 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               "Camunda8[{}]: opened start-event worker for '{}' of workflow module '{}'",
               adapterId,
               startEvent.listenerJobType(),
+              workflowModuleId);
+        });
+
+    // one worker per process whose end is reported (story 43)
+    bpmsProcessingContext
+        .getWorkflowEndedProcessesToWire()
+        .forEach(scopedProcessId -> {
+          final var plainProcessId = plainProcessId(workflowModuleId, scopedProcessId);
+          var endWorkerBuilder = client
+              .newWorker()
+              .jobType(Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId))
+              .handler(new io.vanillabp.camunda8.wiring.Camunda8WorkflowEndedHandler(
+                  adapterId, workflowModuleId, plainProcessId, workflowTaskInvoker
+                      .resolveWorkflowAggregateIdName(workflowModuleId, plainProcessId), workflowEndedInvoker))
+              .timeout(java.time.Duration.ofMinutes(1))
+              .name("vanillabp-%s-%s".formatted(adapterId, scopedProcessId));
+          final var endTenantId = tenantIdOf(workflowModuleId);
+          if (endTenantId != null) {
+            endWorkerBuilder = endWorkerBuilder.tenantId(endTenantId);
+          }
+          bpmsProcessingContext.getOpenWorkers().add(endWorkerBuilder.open());
+          log.info(
+              "Camunda8[{}]: opened workflow-end worker for BPMN process '{}' of workflow module '{}'",
+              adapterId,
+              plainProcessId,
               workflowModuleId);
         });
 

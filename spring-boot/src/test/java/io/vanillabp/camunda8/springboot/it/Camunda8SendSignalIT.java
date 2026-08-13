@@ -115,23 +115,36 @@ public class Camunda8SendSignalIT {
     final var first = start();
     final var second = start();
 
-    // the instances are created after the commit (phase two) and then reach the
-    // catch event - give the cluster a moment before broadcasting
-    Thread.sleep(2000);
-
-    // the application passes the PLAIN signal name; the deployed model carries the
-    // prefixed one
-    transactionTemplate.executeWithoutResult(status -> workflowService.broadcast("OrderReceived"));
-
-    for (final var aggregateId : java.util.List.of(first, second)) {
-      awaitUntil(
-          () -> "recordSignal".equals(
-              repository
-                  .findById(aggregateId)
-                  .map(SignalDockerAggregate::getProcessedBy)
-                  .orElse(null)),
-          "the task behind the signal catch event of aggregate '%s' to run".formatted(aggregateId));
+    // A SIGNAL IS NOT BUFFERED: it reaches whoever waits at that very moment. The
+    // instances here are created after the commit (phase two) and need a moment to
+    // reach the catch event, so the test broadcasts REPEATEDLY until both continued
+    // instead of guessing a sleep - which is also what an application would do if it
+    // cared, and harmless because a signal has no deduplication anyway.
+    final var deadline = System.currentTimeMillis() + 60_000;
+    while (!bothContinued(first, second)) {
+      if (System.currentTimeMillis() > deadline) {
+        throw new AssertionError("the workflows waiting for the signal never continued");
+      }
+      // the application passes the PLAIN signal name; the deployed model carries the
+      // prefixed one
+      transactionTemplate.executeWithoutResult(status -> workflowService.broadcast("OrderReceived"));
+      Thread.sleep(2000);
     }
+
+  }
+
+  private boolean bothContinued(
+      final Long first,
+      final Long second) {
+
+    return java.util.List
+        .of(first, second)
+        .stream()
+        .allMatch(aggregateId -> "recordSignal".equals(
+            repository
+                .findById(aggregateId)
+                .map(SignalDockerAggregate::getProcessedBy)
+                .orElse(null)));
 
   }
 

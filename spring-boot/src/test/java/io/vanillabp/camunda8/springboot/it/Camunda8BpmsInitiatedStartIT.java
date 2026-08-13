@@ -120,6 +120,16 @@ public class Camunda8BpmsInitiatedStartIT {
                 .orElse(null)),
         "the task following the timer start event to be processed");
 
+    // story 43: the cluster reports the end of the workflow, and the application's
+    // method ran against the aggregate
+    awaitUntil(
+        () -> "COMPLETED".equals(
+            repository
+                .findById(aggregate.getId())
+                .map(TimerStartDockerAggregate::getEndedAs)
+                .orElse(null)),
+        "the end of the workflow to be reported");
+
   }
 
 }

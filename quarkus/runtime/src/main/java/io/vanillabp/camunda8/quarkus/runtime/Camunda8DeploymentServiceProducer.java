@@ -69,6 +69,7 @@ public class Camunda8DeploymentServiceProducer {
                           .getFactory(id)
                           .getConfiguration(), scoping);
           deploymentService.setBpmsInitiatedStartInvoker(workflowTaskRegistry);
+          deploymentService.setWorkflowEndedInvoker(workflowTaskRegistry);
           return deploymentService;
         })
         .toList();
