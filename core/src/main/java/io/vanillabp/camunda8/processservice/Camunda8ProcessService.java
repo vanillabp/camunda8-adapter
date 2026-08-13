@@ -73,6 +73,13 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * The default of this adapter: everything is shared unless the application
    * excludes it ({@code @NoSyncWithBPMS}).
    */
+  /**
+   * How deeply the scope hierarchy is walked when a task-scoped push looks for the
+   * scope a task runs in. Ten levels of nested subprocesses are a model nobody reads
+   * any more, and the bound keeps a broken answer of the query API from looping.
+   */
+  private static final int MAX_SCOPE_DEPTH = 10;
+
   public static final io.vanillabp.integration.adapter.spi.AggregateSyncMode SYNC_MODE = io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL;
 
   /**
@@ -531,7 +538,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .filter(filter -> filter
               .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
               .variables(java.util.Map
-                  .of(aggregateIdVariableName(), String.valueOf(workflowAggregateId))))
+                  .of(aggregateIdVariableName(), Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
       return found.items().isEmpty()
@@ -590,7 +597,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .newProcessInstanceSearchRequest()
           .filter(filter -> filter
               .variables(java.util.Map
-                  .of(aggregateIdVariableName(), String.valueOf(workflowAggregateId))))
+                  .of(aggregateIdVariableName(), Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
       return found.items().isEmpty()
@@ -767,6 +774,337 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
     rememberAggregateIdName(aggregatePersistence.getAggregateIdName());
     clientFactory.validateConfigured();
+
+  }
+
+  /**
+   * A remote BPMS must not act before the caller's transaction committed: phase one
+   * does nothing, the broadcast happens in phase two through the outbox.
+   */
+  @Override
+  public void sendSignalPhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String signalName) {
+
+  }
+
+  @Override
+  public void sendSignalPhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String signalName) {
+
+    // no variables travel with a signal, and there is nothing to deduplicate by:
+    // unlike a message, a broadcast carries no correlation key the cluster could
+    // recognize a redelivery from (documented at-least-once residual)
+    var command = clientFactory
+        .getClient()
+        .newBroadcastSignalCommand()
+        .signalName(scopedIdentifier(workflowModuleId, signalName));
+    final var signalTenantId = tenantIdOf(workflowModuleId);
+    if (signalTenantId != null) {
+      command = command.tenantId(signalTenantId);
+    }
+    command
+        .send()
+        .join();
+    log.info(
+        "Camunda8[{}]: broadcast signal '{}' of workflow module '{}'",
+        adapterId,
+        signalName,
+        workflowModuleId);
+
+  }
+
+  @Override
+  public void aggregateChangedPhaseOne(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final A workflowAggregate,
+      final String taskId) {
+
+    // a remote BPMS: writing here would show the cluster values of a transaction
+    // which may still roll back - the push happens in phase two
+
+  }
+
+  @Override
+  public void aggregateChangedPhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String taskId) {
+
+    final var variables = variablesOf(aggregatePersistence, workflowAggregateId);
+
+    if (taskId == null) {
+      final var processInstanceKey = processInstanceKeyOf(workflowAggregateId);
+      if (processInstanceKey == null) {
+        // at-least-once residual: the workflow ended between the dispatch-time
+        // election and now - there is nothing left to write to
+        log.warn(
+            "Camunda8[{}]: no active workflow found for aggregate '{}' - skipping the push of the "
+                + "changed aggregate",
+            adapterId,
+            workflowAggregateId);
+        return;
+      }
+      clientFactory
+          .getClient()
+          .newSetVariablesCommand(processInstanceKey)
+          .variables(variables)
+          // the workflow's own scope, which is what a gateway behind the current
+          // element and every other branch reads
+          .local(false)
+          .send()
+          .join();
+      log.info(
+          "Camunda8[{}]: pushed the changed aggregate '{}' into process instance '{}'",
+          adapterId,
+          workflowAggregateId,
+          processInstanceKey);
+      return;
+    }
+
+    final var elementInstanceKey = flowScopeKeyOf(taskId);
+    if (elementInstanceKey == null) {
+      log.warn(
+          "Camunda8[{}]: the scope of task '{}' of aggregate '{}' was not found - skipping the push "
+              + "of the changed aggregate. The task was completed meanwhile, or the query API has "
+              + "not caught up with it yet",
+          adapterId,
+          taskId,
+          workflowAggregateId);
+      return;
+    }
+    clientFactory
+        .getClient()
+        .newSetVariablesCommand(elementInstanceKey)
+        .variables(variables)
+        // the scope the task RUNS IN - a workflow-wide write would be a lost update
+        // between the iterations of a multi-instance subprocess
+        .local(true)
+        .send()
+        .join();
+    log.info(
+        "Camunda8[{}]: pushed the changed aggregate '{}' into element instance '{}' (task '{}')",
+        adapterId,
+        workflowAggregateId,
+        elementInstanceKey,
+        taskId);
+
+  }
+
+  /**
+   * The key of the ACTIVE process instance carrying the aggregate's ID variable -
+   * Camunda 8 has no business key, so the eventually-consistent query API answers
+   * (like {@link #awarenessOfWorkflow(Object)}).
+   *
+   * @param workflowAggregateId The aggregate's ID
+   * @return The process instance key or <code>null</code> if none is active
+   */
+  private Long processInstanceKeyOf(
+      final Object workflowAggregateId) {
+
+    try {
+      final var found = clientFactory
+          .getClient()
+          .newProcessInstanceSearchRequest()
+          .filter(filter -> filter
+              .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
+              .variables(java.util.Map
+                  .of(aggregateIdVariableName(), Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
+          .send()
+          .join();
+      return found.items().isEmpty()
+          ? null
+          : found.items().getFirst().getProcessInstanceKey();
+    } catch (final Exception e) {
+      throw queryApiRequired(e, "the workflow of aggregate '%s'".formatted(workflowAggregateId));
+    }
+
+  }
+
+  /**
+   * The element instance of the scope the task RUNS IN: the process instance, an
+   * embedded subprocess, or the one iteration of a multi-instance embedded subprocess
+   * it belongs to.
+   * <p>
+   * Not the task's own element instance: in Camunda 8 every element instance is a
+   * variable scope of its own, and one belonging to a task disappears with the task -
+   * values written there would be read by nothing. The scope AROUND the task is what
+   * the rest of that scope evaluates.
+   * <p>
+   * Camunda 8 reports no parent for an element instance, so the scope is found by
+   * walking DOWN from the process instance (the query API filters element instances
+   * by their scope) until the task's element instance shows up. A multi-instance BODY
+   * on the way is skipped: it is the technical wrapper around the instances, not a
+   * scope of the model.
+   *
+   * @param taskId The task ID reported to the application (the job key)
+   * @return The element instance key to write at, or <code>null</code> if the task is
+   *         unknown to the query API
+   */
+  private Long flowScopeKeyOf(
+      final String taskId) {
+
+    final var job = jobOf(taskId);
+    if (job == null) {
+      return null;
+    }
+    final var processInstanceKey = job.getProcessInstanceKey();
+    final var scopes = scopePathOf(processInstanceKey, job.getElementInstanceKey());
+    // innermost first: the scope holding the task, then its own scopes
+    for (final var scope : scopes) {
+      if (scope.type() != io.camunda.client.api.search.enums.ElementInstanceType.MULTI_INSTANCE_BODY) {
+        return scope.key();
+      }
+    }
+    return processInstanceKey;
+
+  }
+
+  /**
+   * A scope on the way from the process instance down to an element instance.
+   *
+   * @param key The element instance key of the scope
+   * @param type What kind of element it is
+   */
+  private record Scope(Long key, io.camunda.client.api.search.enums.ElementInstanceType type) {
+  }
+
+  /**
+   * The scopes containing the given element instance, innermost first. Walks down
+   * from the process instance, because Camunda 8 reports children of a scope but
+   * never the parent of one.
+   *
+   * @param processInstanceKey The workflow's process instance
+   * @param elementInstanceKey The element instance to find
+   * @return The containing scopes, innermost first (empty if the element instance was
+   *         not found below the process instance)
+   */
+  private java.util.List<Scope> scopePathOf(
+      final Long processInstanceKey,
+      final Long elementInstanceKey) {
+
+    final var path = new java.util.LinkedList<Scope>();
+    if ((processInstanceKey == null) || (elementInstanceKey == null)) {
+      return path;
+    }
+    if (findScopePath(
+        new Scope(processInstanceKey, io.camunda.client.api.search.enums.ElementInstanceType.PROCESS),
+        elementInstanceKey,
+        path,
+        0)) {
+      return path;
+    }
+    return path;
+
+  }
+
+  /**
+   * Depth-first walk down the scope hierarchy, collecting the scopes containing the
+   * wanted element instance.
+   *
+   * @param scope The scope to look below
+   * @param elementInstanceKey The element instance to find
+   * @param path Filled with the containing scopes, innermost first
+   * @param depth The current nesting depth (bounded - a BPMN model is not a graph)
+   * @return Whether the element instance was found below this scope
+   */
+  private boolean findScopePath(
+      final Scope scope,
+      final Long elementInstanceKey,
+      final java.util.LinkedList<Scope> path,
+      final int depth) {
+
+    if (depth > MAX_SCOPE_DEPTH) {
+      return false;
+    }
+    final var children = clientFactory
+        .getClient()
+        .newElementInstanceSearchRequest()
+        .filter(filter -> filter.elementInstanceScopeKey(scope.key()))
+        .send()
+        .join()
+        .items();
+    for (final var child : children) {
+      if (elementInstanceKey.equals(child.getElementInstanceKey())) {
+        path.add(scope);
+        return true;
+      }
+    }
+    for (final var child : children) {
+      if (findScopePath(
+          new Scope(child.getElementInstanceKey(), child.getType()),
+          elementInstanceKey,
+          path,
+          depth + 1)) {
+        path.add(scope);
+        return true;
+      }
+    }
+    return false;
+
+  }
+
+  /**
+   * The job behind a task ID - a VanillaBP task ID IS the job's key, and the job
+   * knows which element instance and which process instance it belongs to.
+   *
+   * @param taskId The task ID reported to the application
+   * @return The job or <code>null</code> if the query API does not know it
+   */
+  private io.camunda.client.api.search.response.Job jobOf(
+      final String taskId) {
+
+    try {
+      final var found = clientFactory
+          .getClient()
+          .newJobSearchRequest()
+          .filter(filter -> filter.jobKey(Long.parseLong(taskId)))
+          .send()
+          .join();
+      return found.items().isEmpty()
+          ? null
+          : found.items().getFirst();
+    } catch (final Exception e) {
+      throw queryApiRequired(e, "the task '%s'".formatted(taskId));
+    }
+
+  }
+
+  /**
+   * The guiding failure of a push which cannot find WHERE to write. Camunda 8 has
+   * neither a business key nor a command addressing a workflow by one of its
+   * variables, so the query API is the only way from an aggregate ID to the keys
+   * {@code SetVariables} needs - a cluster without secondary storage cannot serve
+   * this feature at all.
+   *
+   * @param cause What the search failed with
+   * @param subject What was searched for
+   * @return The exception to throw
+   */
+  private RuntimeException queryApiRequired(
+      final Exception cause,
+      final String subject) {
+
+    if (isSecondaryStorageMissing(cause)) {
+      return new UnsupportedOperationException(
+          ("Camunda8[%s]: cannot push a changed workflow-aggregate - %s cannot be located because "
+              + "the cluster runs WITHOUT secondary storage. Camunda 8 addresses variables by "
+              + "process-instance and element-instance keys only, and the query API is what "
+              + "translates the aggregate's ID into them: configure secondary storage "
+              + "(camunda.database.type) or push the aggregate by completing a task instead.")
+              .formatted(adapterId, subject), cause);
+    }
+    if (cause instanceof RuntimeException runtimeException) {
+      return runtimeException;
+    }
+    return new RuntimeException(cause);
 
   }
 

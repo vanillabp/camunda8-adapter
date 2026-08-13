@@ -284,6 +284,15 @@ public class Camunda8JobHandler implements JobHandler {
     }
 
     @Override
+    public String getProcessVersion() {
+
+      // the version of the deployed process definition this job belongs to - the
+      // cluster ships it with every job, so nothing has to be queried (story 48)
+      return String.valueOf(job.getProcessDefinitionVersion());
+
+    }
+
+    @Override
     public String getWorkflowAggregateId() {
 
       return workflowAggregateId;

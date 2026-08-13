@@ -39,6 +39,11 @@ import io.vanillabp.spi.process.ProcessService;
  * (the SPI's "not supported by the underlying BPMS"), NEVER as an error.</li>
  * </ul>
  * The full history requires the query API - see the README.
+ * <p>
+ * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
+ * awareness probe answers optimistically - what this test exercises is that fallback.
+ * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
+ * Elasticsearch (story 52).
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput

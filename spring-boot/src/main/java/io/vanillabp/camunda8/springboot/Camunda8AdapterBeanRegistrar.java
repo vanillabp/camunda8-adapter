@@ -61,7 +61,7 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
               spec -> spec.supplier(supplierContext -> {
                 final var overlay = supplierContext.bean(VanillaBpCamunda8Properties.class);
                 final var asyncTaskTimeout = asyncTaskTimeoutOf(overlay, adapterId);
-                return new Camunda8DeploymentService(
+                final var deploymentService = new Camunda8DeploymentService(
                     adapterId, supplierContext
                         .bean(Camunda8ClientFactoryRegistry.class)
                         .getFactory(adapterId), supplierContext
@@ -76,6 +76,17 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                         .getConfiguration(), supplierContext
                                             .bean(
                                                 io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class));
+                deploymentService.setWorkflowEndedInvoker(
+                    supplierContext
+                        .beanProvider(
+                            io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker.class)
+                        .getIfAvailable());
+                deploymentService.setBpmsInitiatedStartInvoker(
+                    supplierContext
+                        .beanProvider(
+                            io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker.class)
+                        .getIfAvailable());
+                return deploymentService;
               }));
 
         });

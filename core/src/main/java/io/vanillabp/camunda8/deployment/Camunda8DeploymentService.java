@@ -58,6 +58,43 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final WorkflowTaskInvoker workflowTaskInvoker;
 
   /**
+   * The core's entry point for workflows the cluster starts on its own (story 41):
+   * the start events of a process are reported here while wiring, and the start
+   * execution-listener workers dispatch through it. May be <code>null</code> (tests).
+   */
+  private io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker;
+
+  /**
+   * The core's entry point for workflows which ended (story 43). May be
+   * <code>null</code> (tests) - no end listener is attached then.
+   */
+  private io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker workflowEndedInvoker;
+
+  /**
+   * Hands over the core's entry point for workflows which ended.
+   *
+   * @param workflowEndedInvoker The core's invoker
+   */
+  public void setWorkflowEndedInvoker(
+      final io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker workflowEndedInvoker) {
+
+    this.workflowEndedInvoker = workflowEndedInvoker;
+
+  }
+
+  /**
+   * Hands over the core's entry point for workflows the cluster starts on its own.
+   *
+   * @param bpmsInitiatedStartInvoker The core's invoker
+   */
+  public void setBpmsInitiatedStartInvoker(
+      final io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker) {
+
+    this.bpmsInitiatedStartInvoker = bpmsInitiatedStartInvoker;
+
+  }
+
+  /**
    * Resolves the per-task job timeout from the adapter's configuration overlay
    * (task &gt; workflow &gt; workflow-module &gt; adapter, most specific wins).
    */
@@ -145,8 +182,18 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     this.asyncTaskTimeout = asyncTaskTimeout;
     this.configurations = configurations;
     this.scoping = scoping;
+    // story 48: what the cluster's process definitions are versioned as - the version
+    // travels with every job, the version TAGS come from here
+    this.processVersions = new Camunda8ProcessVersions(
+        adapterId, clientFactory::getClient, this::scopedProcessId, this::tenantIdOf);
 
   }
+
+  /**
+   * The versions of this cluster's process definitions (story 48): the catalog the core
+   * resolves version TAGS through. The version itself travels with every job.
+   */
+  private final Camunda8ProcessVersions processVersions;
 
   /**
    * The tenant a workflow module is deployed to, respectively its operations are
@@ -181,6 +228,20 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     return scoping == null
         ? scopedBpmnProcessId
         : scoping.plainProcessId(workflowModuleId, scopedBpmnProcessId, adapterId);
+
+  }
+
+  /**
+   * The identifier as the application modelled it - the model carries the scoped one
+   * where the workflow module prefixes its identifiers (story 35).
+   */
+  private String plainIdentifier(
+      final String workflowModuleId,
+      final String scopedIdentifier) {
+
+    return (scoping == null) || (scopedIdentifier == null)
+        ? scopedIdentifier
+        : scoping.plainIdentifier(workflowModuleId, scopedIdentifier, adapterId);
 
   }
 
@@ -440,6 +501,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
     workflowTaskInvoker.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
+
+    // story 48: the cluster can be asked which versions of this process it has, which
+    // is what a version specification naming a version TAG needs
+    workflowTaskInvoker
+        .registerProcessVersions(adapterId, workflowModuleId, bpmnProcessId, processVersions);
+
     // message correlation (story 23): inject the correlation-key expression
     // '=<aggregate-ID variable>' into message subscriptions lacking one - the V2
     // convention enabling ProcessService#correlateMessage without manual model
@@ -450,6 +517,34 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         () -> workflowTaskInvoker.resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId));
     context.getTasksToWire().addAll(tasks);
     context.getUserTasksToWire().addAll(userTasks);
+
+    // start events the cluster fires on its own (story 41): the start execution
+    // listener building the workflow aggregate is ADDED TO THE MODEL here as well
+    if (bpmsInitiatedStartInvoker != null) {
+      final var bpmsInitiatedStarts = Camunda8TaskWiring
+          .bpmsInitiatedStartsOf(
+              model,
+              scopedBpmnProcessId,
+              signalName -> plainIdentifier(workflowModuleId, signalName));
+      bpmsInitiatedStartInvoker
+          .validateBpmsInitiatedStarts(
+              workflowModuleId,
+              bpmnProcessId,
+              bpmsInitiatedStarts
+                  .stream()
+                  .map(startEvent -> new io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartSpec(
+                      startEvent.startEventId(), startEvent.kind(), startEvent.signalName(), null))
+                  .toList());
+      context.getBpmsInitiatedStartsToWire().addAll(bpmsInitiatedStarts);
+    }
+
+    // the end of a workflow is reported only where the application asked for it -
+    // a model must not pay for a listener nobody wants (story 43)
+    if ((workflowEndedInvoker != null) && workflowEndedInvoker
+        .workflowEndedHandlerExists(workflowModuleId, bpmnProcessId) && Camunda8TaskWiring
+            .attachWorkflowEndedListener(model, scopedBpmnProcessId)) {
+      context.getWorkflowEndedProcessesToWire().add(scopedBpmnProcessId);
+    }
 
     log.info(
         "Camunda8[{}]: wired {} task(s) of BPMN process '{}' (file '{}', workflow module '{}')",
@@ -535,6 +630,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                     new Camunda8DeployedProcesses.DeployedProcess(
                         workflowModuleId, plainBpmnProcessId, String
                             .valueOf(process.getProcessDefinitionKey()), process.getVersion(), model));
+            // story 48: the version the cluster just assigned, together with the
+            // version tag of the model deployed - no query needed for either
+            processVersions
+                .recordDeployed(
+                    workflowModuleId,
+                    plainBpmnProcessId,
+                    process.getVersion(),
+                    Camunda8TaskWiring.versionTagOf(model, process.getBpmnProcessId()));
           });
 
       log.info("Deployed {} BPMN resource(s) of workflow module '{}' to Camunda 8 "
@@ -554,6 +657,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // after ALL processes of the module were wired: methods matching no task of
     // any wired process are a defect (per-module check, honors the policy)
     workflowTaskInvoker.validateNoUnwiredWorkflowTaskMethods(workflowModuleId);
+
+    // story 48: the deployment is done, so the version tags the application's
+    // annotations name can be resolved against what the cluster has now
+    workflowTaskInvoker.resolveProcessVersions(workflowModuleId);
 
   }
 
@@ -632,6 +739,57 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           listenerJobType,
           workflowModuleId);
     });
+
+    // start events the cluster fires on its own (story 41): one worker per start
+    // event, since its job type carries the process and the element
+    bpmsProcessingContext
+        .getBpmsInitiatedStartsToWire()
+        .forEach(startEvent -> {
+          final var plainProcessId = plainProcessId(workflowModuleId, startEvent.bpmnProcessId());
+          var startWorkerBuilder = client
+              .newWorker()
+              .jobType(startEvent.listenerJobType())
+              .handler(new io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler(
+                  adapterId, workflowModuleId, plainProcessId, startEvent.startEventId(), startEvent.kind(), startEvent
+                      .signalName(), bpmsInitiatedStartInvoker))
+              .timeout(java.time.Duration.ofMinutes(1))
+              .name("vanillabp-%s-%s".formatted(adapterId, startEvent.listenerJobType()));
+          final var startTenantId = tenantIdOf(workflowModuleId);
+          if (startTenantId != null) {
+            startWorkerBuilder = startWorkerBuilder.tenantId(startTenantId);
+          }
+          bpmsProcessingContext.getOpenWorkers().add(startWorkerBuilder.open());
+          log.info(
+              "Camunda8[{}]: opened start-event worker for '{}' of workflow module '{}'",
+              adapterId,
+              startEvent.listenerJobType(),
+              workflowModuleId);
+        });
+
+    // one worker per process whose end is reported (story 43)
+    bpmsProcessingContext
+        .getWorkflowEndedProcessesToWire()
+        .forEach(scopedProcessId -> {
+          final var plainProcessId = plainProcessId(workflowModuleId, scopedProcessId);
+          var endWorkerBuilder = client
+              .newWorker()
+              .jobType(Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId))
+              .handler(new io.vanillabp.camunda8.wiring.Camunda8WorkflowEndedHandler(
+                  adapterId, workflowModuleId, plainProcessId, workflowTaskInvoker
+                      .resolveWorkflowAggregateIdName(workflowModuleId, plainProcessId), workflowEndedInvoker))
+              .timeout(java.time.Duration.ofMinutes(1))
+              .name("vanillabp-%s-%s".formatted(adapterId, scopedProcessId));
+          final var endTenantId = tenantIdOf(workflowModuleId);
+          if (endTenantId != null) {
+            endWorkerBuilder = endWorkerBuilder.tenantId(endTenantId);
+          }
+          bpmsProcessingContext.getOpenWorkers().add(endWorkerBuilder.open());
+          log.info(
+              "Camunda8[{}]: opened workflow-end worker for BPMN process '{}' of workflow module '{}'",
+              adapterId,
+              plainProcessId,
+              workflowModuleId);
+        });
 
     timeoutsByDefinition.forEach((
         taskDefinition,

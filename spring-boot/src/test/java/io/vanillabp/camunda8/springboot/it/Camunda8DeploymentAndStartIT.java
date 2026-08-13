@@ -44,6 +44,11 @@ import io.vanillabp.spi.process.ProcessService;
  * </ul>
  * The class is skipped when Docker is unavailable
  * ({@code @Testcontainers(disabledWithoutDocker = true)}).
+ * <p>
+ * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
+ * awareness probe answers optimistically - what this test exercises is that fallback.
+ * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
+ * Elasticsearch (story 52).
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
