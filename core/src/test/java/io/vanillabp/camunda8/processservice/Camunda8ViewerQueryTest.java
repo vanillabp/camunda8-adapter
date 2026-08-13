@@ -383,7 +383,7 @@ public class Camunda8ViewerQueryTest {
   }
 
   @Test
-  @DisplayName("The aggregate-ID filter is applied to the instance search")
+  @DisplayName("The instance search filters by the aggregate ID as the cluster stores it")
   public void theInstanceSearchFiltersByTheAggregateIdVariable() {
 
     // proves the filter callback is executed (it is a consumer of the filter API)
@@ -401,9 +401,13 @@ public class Camunda8ViewerQueryTest {
 
     assertNull(viewer.getWorkflowHistory("test-module", "ParentProcess", "aggregateId", "42", null).elementsHistory());
 
+    // story 52: the cluster compares a variable against its stored JSON, so the ID
+    // travels quoted. This assertion used to pin the plain value and thereby pinned
+    // the defect - the viewer found no workflow at all on a cluster with secondary
+    // storage
     org.mockito.Mockito
         .verify(filter)
-        .variables(java.util.Map.of("aggregateId", "42"));
+        .variables(java.util.Map.of("aggregateId", "\"42\""));
 
   }
 

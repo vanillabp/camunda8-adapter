@@ -41,6 +41,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <li>the job timeout resolves through all four configuration levels from the
  * real application configuration.</li>
  * </ul>
+ * <p>
+ * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
+ * awareness probe answers optimistically - what this test exercises is that fallback.
+ * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
+ * Elasticsearch (story 52).
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput

@@ -378,7 +378,12 @@ public class Camunda8WorkflowViewer {
         filter -> {
           filter
               .processDefinitionId(scopedProcessId.apply(workflowModuleId, bpmnProcessId))
-              .variables(java.util.Map.of(aggregateIdName, String.valueOf(workflowAggregateId)));
+              // the cluster compares the variable's JSON, so the ID travels quoted
+              .variables(
+                  java.util.Map
+                      .of(
+                          aggregateIdName,
+                          Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId)));
           if (tenantId != null) {
             filter.tenantId(tenantId);
           }

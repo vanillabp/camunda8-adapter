@@ -538,7 +538,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .filter(filter -> filter
               .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
               .variables(java.util.Map
-                  .of(aggregateIdVariableName(), aggregateIdSearchValue(workflowAggregateId))))
+                  .of(aggregateIdVariableName(), Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
       return found.items().isEmpty()
@@ -597,7 +597,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .newProcessInstanceSearchRequest()
           .filter(filter -> filter
               .variables(java.util.Map
-                  .of(aggregateIdVariableName(), aggregateIdSearchValue(workflowAggregateId))))
+                  .of(aggregateIdVariableName(), Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
       return found.items().isEmpty()
@@ -916,7 +916,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .filter(filter -> filter
               .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
               .variables(java.util.Map
-                  .of(aggregateIdVariableName(), aggregateIdSearchValue(workflowAggregateId))))
+                  .of(aggregateIdVariableName(), Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
       return found.items().isEmpty()
@@ -1074,26 +1074,6 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     } catch (final Exception e) {
       throw queryApiRequired(e, "the task '%s'".formatted(taskId));
     }
-
-  }
-
-  /**
-   * The aggregate ID as the query API wants to see it in a variable filter: variable
-   * values are stored as JSON, so the ID of a String-typed aggregate ID has to be
-   * quoted - the client passes the filter value through verbatim. Without the quotes
-   * a search finds nothing at all, which looks exactly like "no such workflow".
-   *
-   * @param workflowAggregateId The aggregate's ID
-   * @return The JSON representation of the ID
-   */
-  private String aggregateIdSearchValue(
-      final Object workflowAggregateId) {
-
-    return "\"%s\"".formatted(
-        String
-            .valueOf(workflowAggregateId)
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\""));
 
   }
 

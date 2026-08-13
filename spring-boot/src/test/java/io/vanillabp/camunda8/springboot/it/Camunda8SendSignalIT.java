@@ -33,6 +33,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * The cluster is deployed with prefixed identifiers (the module's
  * name-clash-avoidance mode), so the signal reaches its subscription only if the
  * adapter scopes the plain name the application passed.
+ * <p>
+ * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
+ * awareness probe answers optimistically - what this test exercises is that fallback.
+ * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
+ * Elasticsearch (story 52).
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
