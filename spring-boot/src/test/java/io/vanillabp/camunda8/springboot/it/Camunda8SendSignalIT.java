@@ -88,7 +88,10 @@ public class Camunda8SendSignalIT {
       final Supplier<Boolean> condition,
       final String description) throws InterruptedException {
 
-    final var deadline = System.currentTimeMillis() + 60_000;
+    // generous since this module also runs a two-container test (story 44): under that
+    // load the cluster needs longer to reach the catch event, and a signal is not
+    // buffered - the broadcast has to keep meeting a workflow which already waits
+    final var deadline = System.currentTimeMillis() + 150_000;
     while (!Boolean.TRUE.equals(condition.get())) {
       if (System.currentTimeMillis() > deadline) {
         throw new AssertionError("timed out waiting for: "
@@ -120,7 +123,10 @@ public class Camunda8SendSignalIT {
     // reach the catch event, so the test broadcasts REPEATEDLY until both continued
     // instead of guessing a sleep - which is also what an application would do if it
     // cared, and harmless because a signal has no deduplication anyway.
-    final var deadline = System.currentTimeMillis() + 60_000;
+    // generous since this module also runs a two-container test (story 44): under that
+    // load the cluster needs longer to reach the catch event, and a signal is not
+    // buffered - the broadcast has to keep meeting a workflow which already waits
+    final var deadline = System.currentTimeMillis() + 150_000;
     while (!bothContinued(first, second)) {
       if (System.currentTimeMillis() > deadline) {
         throw new AssertionError("the workflows waiting for the signal never continued");

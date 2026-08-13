@@ -73,6 +73,13 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * The default of this adapter: everything is shared unless the application
    * excludes it ({@code @NoSyncWithBPMS}).
    */
+  /**
+   * How deeply the scope hierarchy is walked when a task-scoped push looks for the
+   * scope a task runs in. Ten levels of nested subprocesses are a model nobody reads
+   * any more, and the bound keeps a broken answer of the query API from looping.
+   */
+  private static final int MAX_SCOPE_DEPTH = 10;
+
   public static final io.vanillabp.integration.adapter.spi.AggregateSyncMode SYNC_MODE = io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL;
 
   /**
@@ -862,12 +869,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       return;
     }
 
-    final var elementInstanceKey = elementInstanceKeyOf(taskId);
+    final var elementInstanceKey = flowScopeKeyOf(taskId);
     if (elementInstanceKey == null) {
       log.warn(
-          "Camunda8[{}]: no element instance found for task '{}' of aggregate '{}' - skipping the "
-              + "push of the changed aggregate. The task was completed meanwhile, or the query API "
-              + "has not caught up with it yet",
+          "Camunda8[{}]: the scope of task '{}' of aggregate '{}' was not found - skipping the push "
+              + "of the changed aggregate. The task was completed meanwhile, or the query API has "
+              + "not caught up with it yet",
           adapterId,
           taskId,
           workflowAggregateId);
@@ -877,8 +884,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
         .getClient()
         .newSetVariablesCommand(elementInstanceKey)
         .variables(variables)
-        // the scope of THIS element instance only - a workflow-wide write would be
-        // a lost update between the instances of a multi-instance activity
+        // the scope the task RUNS IN - a workflow-wide write would be a lost update
+        // between the iterations of a multi-instance subprocess
         .local(true)
         .send()
         .join();
@@ -922,15 +929,136 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
-   * The element instance a task belongs to. A VanillaBP task ID is the job's key,
-   * and a job knows its element instance - the key {@code SetVariables} needs for a
-   * scoped write. The query API answers, so a task activated a moment ago may not be
-   * found yet (the caller tolerates it).
+   * The element instance of the scope the task RUNS IN: the process instance, an
+   * embedded subprocess, or the one iteration of a multi-instance embedded subprocess
+   * it belongs to.
+   * <p>
+   * Not the task's own element instance: in Camunda 8 every element instance is a
+   * variable scope of its own, and one belonging to a task disappears with the task -
+   * values written there would be read by nothing. The scope AROUND the task is what
+   * the rest of that scope evaluates.
+   * <p>
+   * Camunda 8 reports no parent for an element instance, so the scope is found by
+   * walking DOWN from the process instance (the query API filters element instances
+   * by their scope) until the task's element instance shows up. A multi-instance BODY
+   * on the way is skipped: it is the technical wrapper around the instances, not a
+   * scope of the model.
    *
    * @param taskId The task ID reported to the application (the job key)
-   * @return The element instance key or <code>null</code> if the job is unknown
+   * @return The element instance key to write at, or <code>null</code> if the task is
+   *         unknown to the query API
    */
-  private Long elementInstanceKeyOf(
+  private Long flowScopeKeyOf(
+      final String taskId) {
+
+    final var job = jobOf(taskId);
+    if (job == null) {
+      return null;
+    }
+    final var processInstanceKey = job.getProcessInstanceKey();
+    final var scopes = scopePathOf(processInstanceKey, job.getElementInstanceKey());
+    // innermost first: the scope holding the task, then its own scopes
+    for (final var scope : scopes) {
+      if (scope.type() != io.camunda.client.api.search.enums.ElementInstanceType.MULTI_INSTANCE_BODY) {
+        return scope.key();
+      }
+    }
+    return processInstanceKey;
+
+  }
+
+  /**
+   * A scope on the way from the process instance down to an element instance.
+   *
+   * @param key The element instance key of the scope
+   * @param type What kind of element it is
+   */
+  private record Scope(Long key, io.camunda.client.api.search.enums.ElementInstanceType type) {
+  }
+
+  /**
+   * The scopes containing the given element instance, innermost first. Walks down
+   * from the process instance, because Camunda 8 reports children of a scope but
+   * never the parent of one.
+   *
+   * @param processInstanceKey The workflow's process instance
+   * @param elementInstanceKey The element instance to find
+   * @return The containing scopes, innermost first (empty if the element instance was
+   *         not found below the process instance)
+   */
+  private java.util.List<Scope> scopePathOf(
+      final Long processInstanceKey,
+      final Long elementInstanceKey) {
+
+    final var path = new java.util.LinkedList<Scope>();
+    if ((processInstanceKey == null) || (elementInstanceKey == null)) {
+      return path;
+    }
+    if (findScopePath(
+        new Scope(processInstanceKey, io.camunda.client.api.search.enums.ElementInstanceType.PROCESS),
+        elementInstanceKey,
+        path,
+        0)) {
+      return path;
+    }
+    return path;
+
+  }
+
+  /**
+   * Depth-first walk down the scope hierarchy, collecting the scopes containing the
+   * wanted element instance.
+   *
+   * @param scope The scope to look below
+   * @param elementInstanceKey The element instance to find
+   * @param path Filled with the containing scopes, innermost first
+   * @param depth The current nesting depth (bounded - a BPMN model is not a graph)
+   * @return Whether the element instance was found below this scope
+   */
+  private boolean findScopePath(
+      final Scope scope,
+      final Long elementInstanceKey,
+      final java.util.LinkedList<Scope> path,
+      final int depth) {
+
+    if (depth > MAX_SCOPE_DEPTH) {
+      return false;
+    }
+    final var children = clientFactory
+        .getClient()
+        .newElementInstanceSearchRequest()
+        .filter(filter -> filter.elementInstanceScopeKey(scope.key()))
+        .send()
+        .join()
+        .items();
+    for (final var child : children) {
+      if (elementInstanceKey.equals(child.getElementInstanceKey())) {
+        path.add(scope);
+        return true;
+      }
+    }
+    for (final var child : children) {
+      if (findScopePath(
+          new Scope(child.getElementInstanceKey(), child.getType()),
+          elementInstanceKey,
+          path,
+          depth + 1)) {
+        path.add(scope);
+        return true;
+      }
+    }
+    return false;
+
+  }
+
+  /**
+   * The job behind a task ID - a VanillaBP task ID IS the job's key, and the job
+   * knows which element instance and which process instance it belongs to.
+   *
+   * @param taskId The task ID reported to the application
+   * @return The job or <code>null</code> if the query API does not know it
+   */
+  private io.camunda.client.api.search.response.Job jobOf(
       final String taskId) {
 
     try {
@@ -942,7 +1070,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .join();
       return found.items().isEmpty()
           ? null
-          : found.items().getFirst().getElementInstanceKey();
+          : found.items().getFirst();
     } catch (final Exception e) {
       throw queryApiRequired(e, "the task '%s'".formatted(taskId));
     }

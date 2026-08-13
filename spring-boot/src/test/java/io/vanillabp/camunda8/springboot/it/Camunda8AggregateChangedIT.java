@@ -169,6 +169,23 @@ public class Camunda8AggregateChangedIT {
 
   }
 
+  /**
+   * The element instance of the task itself - the scope a push must NOT write into.
+   */
+  private Long elementInstanceKeyOfTask(
+      final String taskId) {
+
+    return client()
+        .newJobSearchRequest()
+        .filter(filter -> filter.jobKey(Long.parseLong(taskId)))
+        .send()
+        .join()
+        .items()
+        .getFirst()
+        .getElementInstanceKey();
+
+  }
+
   private String taskIdsOf(
       final Long aggregateId) {
 
@@ -208,8 +225,8 @@ public class Camunda8AggregateChangedIT {
   }
 
   @Test
-  @DisplayName("a task-scoped push stays in that instance and leaves the global value alone")
-  public void aTaskScopedPushStaysLocal() throws Exception {
+  @DisplayName("a task-scoped push lands in the scope the task runs in, not at the workflow's")
+  public void aTaskScopedPushReachesTheEnclosingScope() throws Exception {
 
     final var aggregateId = transactionTemplate
         .execute(status -> workflowService.saveAggregate().getId());
@@ -231,7 +248,7 @@ public class Camunda8AggregateChangedIT {
           final var taskIds = taskIdsOf(aggregateId);
           return (taskIds != null) && (taskIds.split(",").length == 2);
         },
-        "both instances of the multi-instance activity to park");
+        "both iterations of the multi-instance subprocess to park");
 
     final var taskIds = taskIdsOf(aggregateId).split(",");
     awaitUntil(() -> processInstanceKeyOf(aggregateId) != null, "the query API to know the instance");
@@ -256,6 +273,10 @@ public class Camunda8AggregateChangedIT {
         processInstanceKey,
         local.getFirst().getScopeKey(),
         "a task-scoped push may not land at the workflow's scope");
+    assertNotEquals(
+        elementInstanceKeyOfTask(taskIds[0]),
+        local.getFirst().getScopeKey(),
+        "and not in the task's own element instance, which disappears with the task");
     assertTrue(
         notes
             .stream()
