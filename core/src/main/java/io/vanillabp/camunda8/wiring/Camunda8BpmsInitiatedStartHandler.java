@@ -102,6 +102,11 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
     return new BpmsInitiatedStartContext() {
 
       @Override
+      public String getAdapterId() {
+        return adapterId;
+      }
+
+      @Override
       public String getStartEventId() {
         return startEventId;
       }

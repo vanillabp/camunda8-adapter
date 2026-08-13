@@ -132,7 +132,7 @@ public class Camunda8JobHandler implements JobHandler {
       outcome = workflowTaskInvoker.invokeWorkflowTask(
           workflowModuleId,
           bpmnProcessId,
-          new Camunda8TaskInvocationContext(taskDefinition, String.valueOf(aggregateId), job));
+          new Camunda8TaskInvocationContext(adapterId, taskDefinition, String.valueOf(aggregateId), job));
     } catch (final Exception e) {
       // the core rolled the local transaction back - fail the job so Camunda 8
       // applies its retry semantics (retries reach 0 -> incident)
@@ -259,6 +259,8 @@ public class Camunda8JobHandler implements JobHandler {
    */
   static class Camunda8TaskInvocationContext implements TaskInvocationContext {
 
+    private final String adapterId;
+
     private final String taskDefinition;
 
     private final String workflowAggregateId;
@@ -266,13 +268,22 @@ public class Camunda8JobHandler implements JobHandler {
     private final ActivatedJob job;
 
     Camunda8TaskInvocationContext(
+        final String adapterId,
         final String taskDefinition,
         final String workflowAggregateId,
         final ActivatedJob job) {
 
+      this.adapterId = adapterId;
       this.taskDefinition = taskDefinition;
       this.workflowAggregateId = workflowAggregateId;
       this.job = job;
+
+    }
+
+    @Override
+    public String getAdapterId() {
+
+      return adapterId;
 
     }
 

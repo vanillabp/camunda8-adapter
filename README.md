@@ -486,11 +486,25 @@ would skip the start and thereby LOSE the workflow, see
 
 The query API lags behind the engine, which everything in the list above inherits. The viewer
 tolerates it by design, since a viewer polling shortly after sees the data. The awareness
-probe does not: a workflow started moments ago is not searchable yet, the probe reports
-`UNKNOWN_TO_BPMS` and the core raises `WorkflowNotFoundException` with causes that all do not
-apply. Starting a workflow and correlating a message to it in quick succession is the
-everyday case. Story 54 puts a retry into the core with the adapter naming the time window,
-and fills VanillaBP's workflow-adapter cache where the answer is known for certain.
+probe cannot: a workflow started moments ago is not searchable yet, and reporting
+`UNKNOWN_TO_BPMS` would make the core raise `WorkflowNotFoundException` with causes that all
+do not apply.
+
+Since story 54 the adapter reports a window instead
+(`workflowVisibilityDelay()`, configured as
+`vanillabp.adapters.<id>.workflow-visibility-timeout`, default 10 seconds, zero switches it
+off), and the core keeps asking for that long - but only while probing an adapter its
+`WorkflowAdapterCache` names for that workflow, which VanillaBP fills after phase two of a
+start and on every inbound delivery. A workflow nobody ever started has no such hint and
+still fails immediately.
+
+The residual: an application on several nodes without a SHARED adapter cache. An operation
+reaching a node which neither started the workflow nor received a delivery for it knows
+nothing about where the workflow lives, so it does not wait. Retrying the business operation
+works, and an application bean implementing `WorkflowAdapterCache` removes the case
+altogether. The alternative - asking the phase-two outbox whether a start for this aggregate
+is open or was just dispatched - was weighed and dropped; the reasoning is in
+[`migration-adapter/README.md`](https://github.com/vanillabp/adapter-platform-integration/blob/main/migration-adapter/README.md).
 
 ### Cancel user task
 

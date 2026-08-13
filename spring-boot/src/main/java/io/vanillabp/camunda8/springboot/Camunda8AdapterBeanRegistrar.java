@@ -49,7 +49,9 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                         .getFactory(adapterId), asyncTaskTimeoutOf(
                             supplierContext.bean(VanillaBpCamunda8Properties.class),
                             adapterId), new Camunda8SpringPreCommitRegistrar(), supplierContext
-                                .bean(io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.class));
+                                .bean(
+                                    io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.class), workflowVisibilityTimeoutOf(
+                                        supplierContext.bean(VanillaBpCamunda8Properties.class), adapterId));
                 processService.setScoping(
                     supplierContext.bean(io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class));
                 return processService;
@@ -97,6 +99,21 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
    * The adapter-level async-task timeout (default 14 days) - the dormancy horizon
    * granted to open async tasks and refreshed by awareness probes.
    */
+  /**
+   * The adapter-level window the core waits for a workflow of this cluster to
+   * become findable by the awareness probe (default 10 seconds).
+   */
+  private static java.time.Duration workflowVisibilityTimeoutOf(
+      final VanillaBpCamunda8Properties overlay,
+      final String adapterId) {
+
+    final var adapterKeys = overlay.getAdapters().get(adapterId);
+    return (adapterKeys != null) && (adapterKeys.getWorkflowVisibilityTimeout() != null)
+        ? adapterKeys.getWorkflowVisibilityTimeout()
+        : io.vanillabp.camunda8.processservice.Camunda8ProcessService.DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT;
+
+  }
+
   private static java.time.Duration asyncTaskTimeoutOf(
       final VanillaBpCamunda8Properties overlay,
       final String adapterId) {

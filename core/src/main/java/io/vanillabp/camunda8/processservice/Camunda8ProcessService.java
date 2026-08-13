@@ -70,6 +70,49 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   private final io.vanillabp.integration.adapter.spi.WorkflowAggregateSync aggregateSync;
 
   /**
+   * How long a workflow of this cluster may stay invisible to the query API the
+   * awareness probe searches (configured per adapter id, default
+   * {@link #DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT}). May be <code>null</code>
+   * (tests): the default applies then.
+   */
+  private final java.time.Duration workflowVisibilityTimeout;
+
+  /**
+   * How long VanillaBP waits for a workflow this cluster holds to become findable.
+   * Ten seconds is generous for a healthy exporter and still short enough to stay
+   * inside the caller's transaction, which the waiting keeps open.
+   */
+  public static final java.time.Duration DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT = java.time.Duration
+      .ofSeconds(10);
+
+  /**
+   * How often the probe is repeated while waiting - deliberately not configurable:
+   * the window is what an operator may have to raise, the sampling rate is not.
+   */
+  private static final java.time.Duration WORKFLOW_VISIBILITY_PROBE_INTERVAL = java.time.Duration
+      .ofMillis(250);
+
+  /**
+   * Camunda 8 answers awareness probes from its query API, which an exporter feeds
+   * asynchronously: a workflow started moments ago exists in the engine and is not
+   * searchable yet. The core waits this window out where it knows this cluster
+   * holds the workflow, so the everyday "start a workflow, then correlate the
+   * message which lets it continue" works without the application retrying.
+   */
+  @Override
+  public io.vanillabp.integration.adapter.spi.WorkflowVisibilityDelay workflowVisibilityDelay() {
+
+    final var window = workflowVisibilityTimeout == null
+        ? DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT
+        : workflowVisibilityTimeout;
+    return window.isZero() || window.isNegative()
+        ? io.vanillabp.integration.adapter.spi.WorkflowVisibilityDelay.none()
+        : new io.vanillabp.integration.adapter.spi.WorkflowVisibilityDelay(
+            window, WORKFLOW_VISIBILITY_PROBE_INTERVAL);
+
+  }
+
+  /**
    * The default of this adapter: everything is shared unless the application
    * excludes it ({@code @NoSyncWithBPMS}).
    */
@@ -525,6 +568,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   @Override
   public WorkflowAwareness awarenessOfWorkflow(
+      final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
     // Zeebe offers NO engine command answering "does an instance for this
@@ -538,7 +582,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .filter(filter -> filter
               .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
               .variables(java.util.Map
-                  .of(aggregateIdVariableName(), Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
+                  .of(aggregateIdVariableName(aggregatePersistence),
+                      Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
       return found.items().isEmpty()
@@ -574,7 +619,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   /**
    * The START re-dispatch mitigation probe (story 25) - STRICTER contract than
-   * {@link #awarenessOfWorkflow(Object)}: the answer must NEVER be optimistic
+   * {@link #awarenessOfWorkflow(AggregatePersistenceAware, Object)}: the answer must NEVER be optimistic
    * (an optimistic ACTIVE would SKIP a recovered start = a lost workflow,
    * whereas a duplicate start is the accepted at-least-once residual).
    * Differences to the election probe:
@@ -589,6 +634,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    */
   @Override
   public WorkflowAwareness awarenessOfWorkflowForRedispatch(
+      final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
     try {
@@ -597,7 +643,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .newProcessInstanceSearchRequest()
           .filter(filter -> filter
               .variables(java.util.Map
-                  .of(aggregateIdVariableName(), Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
+                  .of(aggregateIdVariableName(aggregatePersistence),
+                      Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
       return found.items().isEmpty()
@@ -639,32 +686,34 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
-   * The name of the process variable holding the workflow-aggregate ID. Kept as a
-   * field set by the deployment wiring would be nicer, but the process service is
-   * decoupled from deployment - the name is resolved per call via the aggregate
-   * persistence passed into the SPI methods where available; awareness probes
-   * fall back to the value set by {@link #rememberAggregateIdName(String)}.
-   */
-  private volatile String aggregateIdVariableName = "id";
-
-  private String aggregateIdVariableName() {
-
-    return aggregateIdVariableName;
-
-  }
-
-  /**
-   * Remembers the aggregate-ID variable name for awareness probes (called from
-   * the SPI methods which receive the persistence).
+   * The name of the process variable holding the workflow-aggregate ID: Camunda 8
+   * has no business key, so every lookup of a workflow filters by that variable.
+   * <p>
+   * It is ALWAYS derived from the aggregate persistence of the call at hand, never
+   * remembered between calls. One process service serves every workflow module and
+   * aggregate of its adapter id, so a remembered name would be the one of whichever
+   * aggregate was handled last. That was this adapter's bug until story 54: the
+   * awareness probe ran before any call carrying a persistence and searched for the
+   * placeholder name, which found nothing on a cluster with secondary storage, so
+   * every operation locating its workflow by the probe failed.
    *
-   * @param name The variable name
+   * @param aggregatePersistence The persistence of the aggregate of this call
+   * @return The variable name
    */
-  private void rememberAggregateIdName(
-      final String name) {
+  private String aggregateIdVariableName(
+      final AggregatePersistenceAware<A> aggregatePersistence) {
 
-    if (name != null) {
-      this.aggregateIdVariableName = name;
+    final var name = aggregatePersistence == null
+        ? null
+        : aggregatePersistence.getAggregateIdName();
+    if (name == null) {
+      throw new IllegalStateException(
+          """
+              Camunda 8 cannot look up the workflow of an aggregate without knowing the name of \
+              its ID attribute! The aggregate persistence has to answer getAggregateIdName() - \
+              it names the process variable VanillaBP writes the aggregate's ID into.""");
     }
+    return name;
 
   }
 
@@ -681,7 +730,6 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // subscription (the query API is eventually consistent) - like workflow
     // starts, phase one only validates the configuration; an unreachable cluster
     // just makes the phase-two publish wait in the outbox
-    rememberAggregateIdName(aggregatePersistence.getAggregateIdName());
     clientFactory.validateConfigured();
 
   }
@@ -772,7 +820,6 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final A workflowAggregate,
       final String messageName) {
 
-    rememberAggregateIdName(aggregatePersistence.getAggregateIdName());
     clientFactory.validateConfigured();
 
   }
@@ -841,7 +888,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     final var variables = variablesOf(aggregatePersistence, workflowAggregateId);
 
     if (taskId == null) {
-      final var processInstanceKey = processInstanceKeyOf(workflowAggregateId);
+      final var processInstanceKey = processInstanceKeyOf(aggregatePersistence, workflowAggregateId);
       if (processInstanceKey == null) {
         // at-least-once residual: the workflow ended between the dispatch-time
         // election and now - there is nothing left to write to
@@ -901,12 +948,13 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   /**
    * The key of the ACTIVE process instance carrying the aggregate's ID variable -
    * Camunda 8 has no business key, so the eventually-consistent query API answers
-   * (like {@link #awarenessOfWorkflow(Object)}).
+   * (like {@link #awarenessOfWorkflow(AggregatePersistenceAware, Object)}).
    *
    * @param workflowAggregateId The aggregate's ID
    * @return The process instance key or <code>null</code> if none is active
    */
   private Long processInstanceKeyOf(
+      final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
     try {
@@ -916,7 +964,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .filter(filter -> filter
               .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
               .variables(java.util.Map
-                  .of(aggregateIdVariableName(), Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
+                  .of(aggregateIdVariableName(aggregatePersistence),
+                      Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
       return found.items().isEmpty()
@@ -1288,9 +1337,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final Object workflowAggregateId,
       final String historyContext) {
 
-    rememberAggregateIdName(aggregatePersistence.getAggregateIdName());
     return viewer().getProcessDefinitions(
-        workflowModuleId, bpmnProcessId, aggregateIdVariableName(), workflowAggregateId, historyContext);
+        workflowModuleId, bpmnProcessId, aggregateIdVariableName(aggregatePersistence), workflowAggregateId,
+        historyContext);
 
   }
 
@@ -1312,9 +1361,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final Object workflowAggregateId,
       final String historyContext) {
 
-    rememberAggregateIdName(aggregatePersistence.getAggregateIdName());
     return viewer().getWorkflowHistory(
-        workflowModuleId, bpmnProcessId, aggregateIdVariableName(), workflowAggregateId, historyContext);
+        workflowModuleId, bpmnProcessId, aggregateIdVariableName(aggregatePersistence), workflowAggregateId,
+        historyContext);
 
   }
 

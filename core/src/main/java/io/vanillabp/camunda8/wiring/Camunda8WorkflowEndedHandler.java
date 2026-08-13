@@ -92,6 +92,11 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
     return new WorkflowEndedContext() {
 
       @Override
+      public String getAdapterId() {
+        return adapterId;
+      }
+
+      @Override
       public String getWorkflowAggregateId() {
         return aggregateId;
       }

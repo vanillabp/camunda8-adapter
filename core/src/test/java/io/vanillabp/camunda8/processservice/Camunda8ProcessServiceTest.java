@@ -55,7 +55,8 @@ public class Camunda8ProcessServiceTest {
     // a bogus address that is never contacted in phase one
     configuration.setRestAddress("http://localhost:1");
     return new Camunda8ProcessService<>(
-        "c8", new Camunda8ClientFactory("c8", configuration), java.time.Duration.ofDays(14), Runnable::run, null);
+        "c8", new Camunda8ClientFactory("c8", configuration), java.time.Duration
+            .ofDays(14), Runnable::run, null, java.time.Duration.ZERO);
 
   }
 
@@ -76,7 +77,7 @@ public class Camunda8ProcessServiceTest {
 
     final var service = new Camunda8ProcessService<Aggregate>(
         "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), java.time.Duration
-            .ofDays(14), Runnable::run, null);
+            .ofDays(14), Runnable::run, null, java.time.Duration.ZERO);
 
     final var exception = assertThrows(
         IllegalStateException.class,
@@ -94,7 +95,7 @@ public class Camunda8ProcessServiceTest {
     // thereby lose the workflow, which is why this probe is stricter than the
     // election's awarenessOfWorkflow (that one may answer optimistically when the
     // query API is absent)
-    final var awareness = configuredService().awarenessOfWorkflowForRedispatch("agg-1");
+    final var awareness = configuredService().awarenessOfWorkflowForRedispatch(persistence("agg-1"), "agg-1");
 
     assertTrue(
         awareness == io.vanillabp.integration.adapter.spi.WorkflowAwareness.BPMS_UNAVAILABLE,

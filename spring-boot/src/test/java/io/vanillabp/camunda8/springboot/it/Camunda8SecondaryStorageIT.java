@@ -86,6 +86,11 @@ public class Camunda8SecondaryStorageIT {
                 + CAMUNDA.getHost()
                 + ":"
                 + CAMUNDA.getMappedPort(8080));
+    // the correlation right after the start waits for two things to happen: the
+    // phase-two outbox dispatching the start (poll interval 10s) and the exporter
+    // feeding the query API. The production default of 10s covers the export lag of
+    // a warm cluster, not a cold container plus a poll interval
+    registry.add("vanillabp.adapters.c8.workflow-visibility-timeout", () -> "PT60S");
     registry
         .add(
             "vanillabp.adapters.c8.grpc-address",
@@ -143,7 +148,7 @@ public class Camunda8SecondaryStorageIT {
 
     return !client()
         .newProcessInstanceSearchRequest()
-        .filter(filter -> filter.variables(java.util.Map.of("id", "\"%s\"".formatted(aggregateId))))
+        .filter(filter -> filter.variables(java.util.Map.of("loanRequestId", "\"%s\"".formatted(aggregateId))))
         .send()
         .join()
         .items()
@@ -154,7 +159,7 @@ public class Camunda8SecondaryStorageIT {
   private Long startedWorkflow() throws Exception {
 
     final var aggregateId = transactionTemplate
-        .execute(status -> workflowService.startWorkflow().getId());
+        .execute(status -> workflowService.startWorkflow().getLoanRequestId());
     assertNotNull(aggregateId);
     awaitUntil(() -> queryApiKnows(aggregateId), "the query API to know the started workflow");
     return aggregateId;
@@ -170,6 +175,30 @@ public class Camunda8SecondaryStorageIT {
     // before the fix this threw WorkflowNotFoundException: the probe searched the
     // aggregate-ID variable without its JSON quotes, matched nothing, and reported
     // that no BPMS knows the workflow
+    transactionTemplate.executeWithoutResult(status -> workflowService.correlate(aggregateId));
+
+    awaitUntil(
+        () -> "messageArrived".equals(
+            repository
+                .findById(aggregateId)
+                .map(SecondaryStorageDockerAggregate::getProcessedBy)
+                .orElse(null)),
+        "the task behind the message catch event to run");
+
+  }
+
+  @Test
+  @DisplayName("correlating RIGHT AFTER the start works - the core waits out the query API's lag")
+  public void correlatingRightAfterTheStartWorks() throws Exception {
+
+    // deliberately NO awaitUntil(queryApiKnows(...)) here: this is the everyday
+    // sequence "start a workflow, then correlate the message which lets it
+    // continue", and until story 54 it failed with WorkflowNotFoundException
+    // because the exporter had not fed the query API yet
+    final var aggregateId = transactionTemplate
+        .execute(status -> workflowService.startWorkflow().getLoanRequestId());
+    assertNotNull(aggregateId);
+
     transactionTemplate.executeWithoutResult(status -> workflowService.correlate(aggregateId));
 
     awaitUntil(

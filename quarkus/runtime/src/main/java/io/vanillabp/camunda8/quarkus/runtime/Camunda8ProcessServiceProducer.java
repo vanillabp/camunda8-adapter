@@ -52,10 +52,15 @@ public class Camunda8ProcessServiceProducer {
           final var asyncTaskTimeout = adapterKeys != null
               ? adapterKeys.asyncTaskTimeout().orElse(java.time.Duration.ofDays(14))
               : java.time.Duration.ofDays(14);
+          final var workflowVisibilityTimeout = adapterKeys != null
+              ? adapterKeys
+                  .workflowVisibilityTimeout()
+                  .orElse(Camunda8ProcessService.DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT)
+              : Camunda8ProcessService.DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT;
           final var processService = new Camunda8ProcessService<>(
               adapterId, clientFactoryRegistry
                   .getFactory(adapterId), asyncTaskTimeout, new Camunda8QuarkusPreCommitRegistrar(
-                      synchronizationRegistry), aggregateSync);
+                      synchronizationRegistry), aggregateSync, workflowVisibilityTimeout);
           processService.setScoping(scoping);
           return processService;
         })

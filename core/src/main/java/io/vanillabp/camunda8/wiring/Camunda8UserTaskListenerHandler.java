@@ -122,7 +122,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
             workflowModuleId,
             bpmnProcessId,
             new Camunda8UserTaskInvocationContext(
-                taskDefinition, String.valueOf(aggregateId), userTaskKey, event, job));
+                adapterId, taskDefinition, String.valueOf(aggregateId), userTaskKey, event, job));
         if (outcome.kind() == WorkflowTaskOutcome.Kind.BPMN_ERROR) {
           throw new IllegalStateException(
               ("The @WorkflowTask method notified about the %s event of user task '%s' (BPMN "
@@ -172,6 +172,8 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
    */
   static class Camunda8UserTaskInvocationContext implements TaskInvocationContext {
 
+    private final String adapterId;
+
     private final String taskDefinition;
 
     private final String workflowAggregateId;
@@ -183,17 +185,26 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     private final ActivatedJob job;
 
     Camunda8UserTaskInvocationContext(
+        final String adapterId,
         final String taskDefinition,
         final String workflowAggregateId,
         final String userTaskKey,
         final TaskEvent.Event event,
         final ActivatedJob job) {
 
+      this.adapterId = adapterId;
       this.taskDefinition = taskDefinition;
       this.workflowAggregateId = workflowAggregateId;
       this.userTaskKey = userTaskKey;
       this.event = event;
       this.job = job;
+
+    }
+
+    @Override
+    public String getAdapterId() {
+
+      return adapterId;
 
     }
 

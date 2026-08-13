@@ -116,6 +116,18 @@ public class Camunda8AdapterConfiguration {
   private java.time.Duration asyncTaskTimeout;
 
   /**
+   * How long a workflow this cluster holds may stay invisible to the query API the
+   * awareness probe searches: the exporter feeding that read model runs behind the
+   * engine, so a workflow started moments ago is not findable yet.
+   * <p>
+   * VanillaBP waits this out where it knows the workflow is here (after a start it
+   * dispatched, or after this cluster delivered a job of that workflow), and never
+   * for a workflow nobody ever heard of. Raise it for a slow exporter, set it to
+   * zero to switch the waiting off. Default: 10 seconds.
+   */
+  private java.time.Duration workflowVisibilityTimeout;
+
+  /**
    * Whether NO connection property is set at all - the "not configured yet" state:
    * the application still boots (with a guiding startup warning), only using the
    * adapter fails. The defaulted properties ({@link #mode},

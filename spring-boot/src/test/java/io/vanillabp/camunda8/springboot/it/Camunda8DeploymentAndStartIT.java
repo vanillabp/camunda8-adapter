@@ -111,6 +111,29 @@ public class Camunda8DeploymentAndStartIT {
   @Autowired
   private io.vanillabp.camunda8.processservice.Camunda8ProcessService<DockerAggregate> camunda8ProcessService;
 
+  /**
+   * The probes take the aggregate's persistence because the aggregate-ID VARIABLE
+   * is named after its ID attribute - this cluster runs without secondary storage,
+   * so nothing is searched here, but the name has to be answerable.
+   */
+  private static final io.vanillabp.integration.spi.AggregatePersistenceAware<DockerAggregate> AGGREGATE_PERSISTENCE = new io.vanillabp.integration.spi.AggregatePersistenceAware<>() {
+
+    @Override
+    public Class<DockerAggregate> getAggregateClass() {
+
+      return DockerAggregate.class;
+
+    }
+
+    @Override
+    public String getAggregateIdName() {
+
+      return "id";
+
+    }
+
+  };
+
   @BeforeEach
   void resetRecording() {
 
@@ -199,14 +222,14 @@ public class Camunda8DeploymentAndStartIT {
     // working on a plain broker (documented as unsafe for multi-BPMS setups)
     assertEquals(
         io.vanillabp.integration.adapter.spi.WorkflowAwareness.ACTIVE,
-        camunda8ProcessService.awarenessOfWorkflow(neverStartedAggregateId));
+        camunda8ProcessService.awarenessOfWorkflow(AGGREGATE_PERSISTENCE, neverStartedAggregateId));
 
     // the START RE-DISPATCH probe must never do that: an optimistic "known" would
     // skip a recovered start and thereby LOSE the workflow, whereas proceeding
     // only risks the documented at-least-once duplicate
     assertEquals(
         io.vanillabp.integration.adapter.spi.WorkflowAwareness.UNKNOWN_TO_BPMS,
-        camunda8ProcessService.awarenessOfWorkflowForRedispatch(neverStartedAggregateId));
+        camunda8ProcessService.awarenessOfWorkflowForRedispatch(AGGREGATE_PERSISTENCE, neverStartedAggregateId));
 
   }
 

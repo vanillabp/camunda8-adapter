@@ -179,6 +179,15 @@ public interface VanillaBpCamunda8Properties {
      */
     Optional<java.time.Duration> asyncTaskTimeout();
 
+    /**
+     * How long a workflow this cluster holds may stay invisible to the query API
+     * the awareness probe searches (the exporter feeding it runs behind the
+     * engine). Zero switches the waiting off. Default: 10 seconds.
+     *
+     * @return The visibility window
+     */
+    Optional<java.time.Duration> workflowVisibilityTimeout();
+
   }
 
 
