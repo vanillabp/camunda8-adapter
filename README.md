@@ -24,12 +24,10 @@ methods through polling job workers, completes and cancels asynchronous tasks, s
 user tasks incl. their lifecycle notifications, correlates messages, pushes the
 aggregate's shared attributes as process variables and answers the viewer/history API.
 
-The ONE deliberate gap is **`cancelUserTask`**: Camunda 8.8 offers no command to cancel a
-Camunda-managed user task by BPMN error, so the operation throws a guiding error instead
-of pretending to work — expected to arrive with the 8.10 task-listener capabilities.
-Everything else that cannot be answered honestly (e.g. workflow awareness on a cluster
-without secondary storage) is documented as such rather than guessed; see
-[Behavior](#behavior).
+What this adapter cannot deliver is listed under [Known deviations](#known-deviations),
+`cancelUserTask` being the most prominent one. Everything that cannot be answered honestly
+(e.g. workflow awareness on a cluster without secondary storage) is documented as such
+rather than guessed.
 
 ## Documentation and supported platforms
 
@@ -148,10 +146,9 @@ guiding failure message as backstop.
 ### Behavior
 
 - **Deployment (on startup):** the BPMN resources of each workflow module are deployed in
-  a single `DeployResourceCommand` per module. Camunda 8 has no Camunda-7-style
-  tenant-per-module; the configured `tenant-id` (if any) is used, otherwise the default
-  tenant. **Workflow-module isolation therefore relies on unique BPMN process IDs across
-  modules for now.**
+  a single `DeployResourceCommand` per module. Which scope they land in is decided by the
+  name-clash-avoidance mode, see
+  [Keeping workflow modules apart](#keeping-workflow-modules-apart).
 - **Starting a workflow (two-phase):** Camunda 8 is remote and eventually consistent and
   cannot join the application's database transaction, so
   `needsTwoPhaseCommitForStartingWorkflows()` is `true`.
@@ -327,6 +324,104 @@ The adapter-native process definition id is the **process definition key**, the 
 context of a call activity its called **process instance key**, and the XML returned is the
 model AS DEPLOYED (VanillaBP's wiring modifications included).
 
+### Keeping workflow modules apart
+
+The [name-clash-avoidance mode](https://github.com/vanillabp/adapter-platform-integration/wiki/Workflow-modules#how-name-clashes-are-avoided)
+decides where a workflow module's models land. `by-adapter` deploys into a multi-tenancy
+tenant named after the module (`tenant-id` overrides the name) and the job workers
+subscribe for that tenant; `use-prefix` deploys into the default tenant with prefixed
+identifiers instead, process ids, message names, error codes, signal and escalation names,
+JOB TYPES and the user-task form reference, the latter two additionally scoped by their
+BPMN process; `none`, the default, scopes nothing.
+
+Prefixing is what makes tenants avoidable, which matters because Camunda licenses per
+tenant, and it is transparent: BPMN, business code and configuration keep the plain
+identifiers while the adapter translates at every boundary. The default is `none` rather
+than `by-adapter` because a cluster started from the stock image has multi-tenancy switched
+off and would reject a tenant id, so an application configuring nothing has to boot and
+deploy. While `none` applies, a WARN per workflow module names the alternatives until
+`accept-unscoped-identifiers` acknowledges that the identifiers are unique.
+
+Where `by-adapter` applies, the adapter looks the tenant up in the cluster BEFORE deploying,
+so the two ways this can go wrong are named as VanillaBP properties instead of as the
+engine's rejection: multi-tenancy switched off (the deploy command would answer `Failed with
+code 400 ... but multi-tenancy is disabled`, true but naming no property to change) and a
+tenant which does not exist. Only an answer of the cluster counts; an unreachable cluster is
+left to the deployment, which runs into it right after and reports it as the connection
+problem it is.
+
+### Sharing the workflow aggregate
+
+The cluster can only evaluate what it was given, so the default of this adapter is that
+everything is shared unless `@NoSyncWithBPMS` excludes it. The shared attributes travel at
+every sync point: starting a workflow (also by message), completing the job at the end of a
+`@WorkflowTask` method (a `TaskException` becoming a BPMN error included), completing or
+canceling an asynchronous task, completing a user task and correlating a message.
+
+The push at the end of a `@WorkflowTask` is what makes a gateway directly behind a service
+task work. The values are read AFTER the method's local transaction committed, in an own
+transaction, which keeps the at-least-once order of the worker untouched; if that read
+fails, the job is still completed, with the aggregate-ID variable only and a warning naming
+the workflow. User-task lifecycle listener jobs push nothing, because they gate a transition
+of a user task which stays in the cluster: after `creating` nothing downstream is evaluated
+yet, and `canceling` means the task is being removed.
+
+`aggregateChanged(aggregate)` sends `SetVariables` for the process instance,
+`aggregateChanged(aggregate, taskId)` sends it with `local(true)` for the element instance
+of the scope the task RUNS in, never for the task's own element instance: in Camunda 8 every
+element instance is a variable scope, and the one belonging to a task disappears with the
+task, so nothing would ever read what was written there. Finding that scope takes a few
+queries, since the API reports the children of a scope but never the parent of one, so the
+adapter walks down from the process instance until the task's element instance shows up. The
+operation carries no idempotency key at all, because the values are read when the push is
+dispatched and a retry is therefore harmless.
+
+Independent of the annotations the workflow aggregate's ID is written as a process variable
+named after the aggregate's ID attribute, always as a string, because Camunda 8 has no
+business key. A cluster stores variables as JSON and compares against that JSON, so an
+instance search has to quote the value (`{"name":"id","value":"\"4711\""}`); an unquoted
+filter finds nothing, which is what `Camunda8VariableFilters` encodes for the process
+service and the viewer alike.
+
+### Signals
+
+`sendSignal(name)` broadcasts through the cluster's `BroadcastSignal` command after the
+local transaction was committed, riding an outbox entry, so a rolled-back transaction never
+reaches the cluster. The command carries no payload, and there is nothing to deduplicate a
+signal by (unlike a message, which VanillaBP can give a message id), so a redelivered outbox
+entry broadcasts a second time.
+
+### Workflows the cluster starts itself, and the end of a workflow
+
+A process with a timer or signal start event runs without anybody calling `startWorkflow`.
+While deploying, the adapter adds an execution listener to that start event with event type
+`end`: the cluster rejects `start` listeners on start events, and an `end` listener still
+gates the transition, so nothing of the process runs before the listener job is completed.
+The listener job builds the workflow aggregate and completes with the aggregate-ID variable
+plus the shared values, the same variables a start through `ProcessService` would write. The
+aggregate's ID is the PROCESS INSTANCE KEY rather than the timer's scheduled time, which the
+cluster does not report to the listener; the instance key survives a retried listener job, so
+a redelivery finds the aggregate instead of building a second one.
+
+Where a workflow service declares a `@WorkflowEnded` method, the adapter adds an `end`
+execution listener to the PROCESS element and opens a worker for it. The job is activated
+after the last element completed, and its completion lets the instance disappear.
+
+### Versions of a process
+
+The cluster counts a process definition's version upwards per BPMN process id, and every
+activated job carries the version of the definition its instance runs on, which the adapter
+reports with every task, user-task listener job, BPMS-initiated start and workflow end. A
+version made of numbers therefore costs no query.
+
+A boundary naming the model's `zeebe:versionTag` is a different matter, since a job never
+carries the tag: the adapter asks the query API which version carries which tag
+(`newProcessDefinitionSearchRequest`). The queries are few by design, one per process while
+the application starts (after the deployment) and one for a version this application never
+deployed itself, which is what a rolling deployment produces while another node is already
+ahead. The version of the model deployed by this very start needs no query at all: the deploy
+command reports it and the tag is read from the model.
+
 ### Testing
 
 - **Core unit tests** (no Docker): BPMN parsing / executable-process extraction, client
@@ -354,6 +449,85 @@ model AS DEPLOYED (VanillaBP's wiring modifications included).
   deployment on Quarkus is not additionally tested: the deployment logic is shared
   `core` code, covered against a real cluster by the Spring Boot
   `Camunda8DeploymentAndStartIT` above.
+
+## Known deviations
+
+What this adapter does not deliver, mirrored in one sentence each on the wiki's
+[Deviations](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Deviations)
+page. The two-phase start and the at-least-once dispatch are not among them: that is what a
+remote BPMS looks like in VanillaBP, see [Behavior](#behavior).
+
+### What needs secondary storage
+
+Finding a workflow by its aggregate's ID is a query-API search
+(`newProcessInstanceSearchRequest` filtered by the aggregate-ID variable), and the query API
+exists only on a cluster WITH secondary storage. Four capabilities depend on it:
+
+1. `awarenessOfWorkflow`, the BPMS-election probe, which also carries `completeTask`,
+   `cancelTask`, the user-task operations, message correlation, `aggregateChanged` and the
+   viewer. Without the query API the adapter answers OPTIMISTICALLY with a one-time guiding
+   WARN, which is honest for a single-BPMS setup and unsafe in a migration setup, where a
+   wrong "yes" routes the operation to the wrong BPMS.
+2. `aggregateChanged`, which needs the process-instance respectively element-instance key
+   `SetVariables` addresses. It fails with a guiding message instead of pretending the push
+   happened, and a task completion remains the way to push the shared values.
+3. Version boundaries naming a `zeebe:versionTag`, since resolving a tag to a version is a
+   definition search. The adapter says so once, and boundaries made of numbers keep working.
+4. The viewer's instance-related answers: which version a running workflow uses, the element
+   history and the definitions of previous application versions. Without them the adapter
+   reports what THIS application version deployed plus a `null` element history.
+
+The redispatch probe of a start (`awarenessOfWorkflowForRedispatch`) is the deliberate
+exception: it answers "unknown" rather than optimistically, because an optimistic answer
+would skip the start and thereby LOSE the workflow, see
+[Idempotency limitation](#idempotency-limitation).
+
+### Eventual consistency of the query API
+
+The query API lags behind the engine, which everything in the list above inherits. The viewer
+tolerates it by design, since a viewer polling shortly after sees the data. The awareness
+probe does not: a workflow started moments ago is not searchable yet, the probe reports
+`UNKNOWN_TO_BPMS` and the core raises `WorkflowNotFoundException` with causes that all do not
+apply. Starting a workflow and correlating a message to it in quick succession is the
+everyday case. Story 54 puts a retry into the core with the adapter naming the time window,
+and fills VanillaBP's workflow-adapter cache where the answer is known for certain.
+
+### Cancel user task
+
+Camunda 8.8 offers no command to cancel a Camunda-managed user task by BPMN error: *throw
+error* is job-based, and a user task is not a job. Version 1's marker-variable workaround is
+broken by Version 1's own admission, so `cancelUserTask` throws a guiding error rather than
+pretending to work. Expected to arrive with the Camunda 8.10 task-listener capabilities.
+
+### Task cancellation is not reported
+
+`@TaskEvent CANCELED` cannot be delivered for service tasks, because Zeebe does not notify
+workers about canceled jobs, so a handler subscribing to lifecycle events never learns that
+an open asynchronous task's activity was canceled. Camunda 8.10 announces the event type
+`canceling`, which the prepared follow-up will verify before anything is reported.
+
+### The end of a workflow
+
+The cluster runs end listeners of COMPLETED instances only, so `@WorkflowEnded` methods see
+the kind `COMPLETED` and never `TERMINATED`: a cancelled instance is removed without running
+them. This waits on the same `canceling` event type as above. Independently of that the
+notification names no end event, because the listener sits on the process element rather than
+on an end event, which is structural rather than a gap to close.
+
+### Conditional events
+
+Camunda 8 has no conditional start, catch or boundary events, and a model carrying one is
+rejected by the cluster while deploying. `aggregateChanged` is still useful, since the cluster
+evaluates a gateway behind the current element against the values it holds, but there is
+nothing which reacts to a variable change on its own.
+
+### Message deduplication lasts for the message TTL
+
+A correlation carrying a correlation id deduplicates engine-side, because the outbox
+idempotency key travels as the Zeebe message id, and the engine remembers a message id for
+the message TTL only. A redelivery after the TTL could correlate a second time. Without a
+correlation id there is no deduplication at all, on purpose: the same message may legitimately
+arrive several times over a workflow's lifetime.
 
 ## Camunda 8 client
 
