@@ -930,12 +930,17 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     final var elementInstanceKey = flowScopeKeyOf(taskId);
     if (elementInstanceKey == null) {
       log.warn(
-          "Camunda8[{}]: the scope of task '{}' of aggregate '{}' was not found - skipping the push "
-              + "of the changed aggregate. The task was completed meanwhile, or the query API has "
-              + "not caught up with it yet",
+          "Camunda8[{}]: the scope of task '{}' of aggregate '{}' was not found within {} - skipping "
+              + "the push of the changed aggregate. Either the task was completed meanwhile, or the "
+              + "query API did not catch up with it: raise "
+              + "'vanillabp.adapters.{}.workflow-visibility-timeout' if this cluster's exporter "
+              + "regularly needs longer. The workflow's own scope is deliberately NOT written "
+              + "instead - it is read by every branch, and the task asked for its own scope",
           adapterId,
           taskId,
-          workflowAggregateId);
+          workflowAggregateId,
+          workflowVisibilityDelay().window(),
+          adapterId);
       return;
     }
     clientFactory
@@ -1003,27 +1008,65 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * by their scope) until the task's element instance shows up. A multi-instance BODY
    * on the way is skipped: it is the technical wrapper around the instances, not a
    * scope of the model.
+   * <p>
+   * The query API is fed by an exporter, so the task this push belongs to may not be
+   * reported yet - which is why the search is repeated for as long as
+   * {@link #workflowVisibilityDelay()} allows. A scope which stays unknown yields
+   * <code>null</code>: the process instance is NOT used as a substitute, because
+   * writing there is exactly the lost update between the iterations of a
+   * multi-instance subprocess this scoping exists to prevent.
    *
    * @param taskId The task ID reported to the application (the job key)
-   * @return The element instance key to write at, or <code>null</code> if the task is
-   *         unknown to the query API
+   * @return The element instance key to write at, or <code>null</code> if the scope
+   *         did not become known within the window
    */
   private Long flowScopeKeyOf(
+      final String taskId) {
+
+    final var delay = workflowVisibilityDelay();
+    final var deadline = System.currentTimeMillis() + (delay.isWaiting()
+        ? delay.window().toMillis()
+        : 0);
+    while (true) {
+      final var scopeKey = searchFlowScopeKeyOf(taskId);
+      if (scopeKey != null) {
+        return scopeKey;
+      }
+      if (System.currentTimeMillis() >= deadline) {
+        return null;
+      }
+      try {
+        Thread.sleep(delay.interval().toMillis());
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return null;
+      }
+    }
+
+  }
+
+  /**
+   * One attempt of {@link #flowScopeKeyOf(String)}.
+   *
+   * @param taskId The task ID reported to the application (the job key)
+   * @return The element instance key to write at, or <code>null</code> if the query
+   *         API knows neither the task nor its scope (yet)
+   */
+  private Long searchFlowScopeKeyOf(
       final String taskId) {
 
     final var job = jobOf(taskId);
     if (job == null) {
       return null;
     }
-    final var processInstanceKey = job.getProcessInstanceKey();
-    final var scopes = scopePathOf(processInstanceKey, job.getElementInstanceKey());
+    final var scopes = scopePathOf(job.getProcessInstanceKey(), job.getElementInstanceKey());
     // innermost first: the scope holding the task, then its own scopes
     for (final var scope : scopes) {
       if (scope.type() != io.camunda.client.api.search.enums.ElementInstanceType.MULTI_INSTANCE_BODY) {
         return scope.key();
       }
     }
-    return processInstanceKey;
+    return null;
 
   }
 
