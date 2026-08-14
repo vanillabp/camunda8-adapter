@@ -246,6 +246,17 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     }
 
     @Override
+    public String getDeliveryId() {
+
+      // the listener job's key: the notification of one user-task event is one job,
+      // redelivered under the same key until the cluster learns the result (story 51).
+      // The user-task key would be the wrong choice - creation and cancellation of the
+      // same user task share it, and they are two deliveries with two outcomes
+      return String.valueOf(job.getKey());
+
+    }
+
+    @Override
     public Object getTaskParameter(
         final String name) {
 

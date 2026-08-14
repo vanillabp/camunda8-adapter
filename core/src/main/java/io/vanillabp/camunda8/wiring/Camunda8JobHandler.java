@@ -319,6 +319,17 @@ public class Camunda8JobHandler implements JobHandler {
     }
 
     @Override
+    public String getDeliveryId() {
+
+      // the job key is stable across redeliveries of the same job (a failed job is
+      // re-activated under its key, and the key of a completed job is never handed out
+      // again), while every new element activation creates a new job - exactly the
+      // identity the core remembers a processed delivery by (story 51)
+      return String.valueOf(job.getKey());
+
+    }
+
+    @Override
     public Object getTaskParameter(
         final String name) {
 

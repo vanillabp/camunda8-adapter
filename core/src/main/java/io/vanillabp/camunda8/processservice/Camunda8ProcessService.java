@@ -244,6 +244,17 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   @Override
+  public boolean deliversTasksAtLeastOnce() {
+
+    // job workers report the outcome AFTER the local transaction was committed, so a
+    // crash in between makes the cluster hand the same job to a worker again (story
+    // 51). The identity across such a redelivery is the JOB KEY, reported by every
+    // invocation context.
+    return true;
+
+  }
+
+  @Override
   public WorkflowAwareness awarenessOfTask(
       final Object workflowAggregateId,
       final String taskId) {
