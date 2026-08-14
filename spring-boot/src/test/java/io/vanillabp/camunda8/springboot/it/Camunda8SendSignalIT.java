@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.time.Duration;
-import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
@@ -15,6 +14,7 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -55,6 +55,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
+// closed when the class is done: every IT here has a context of its own (its own
+// container), Spring would keep them all until the JVM exits, and a context outliving
+// its cluster keeps its job workers polling an address nobody answers - which is what
+// made the later classes of this module run into their timeouts
+@DirtiesContext
 public class Camunda8SendSignalIT {
 
   @Container
@@ -98,24 +103,6 @@ public class Camunda8SendSignalIT {
 
   @Autowired
   private TransactionTemplate transactionTemplate;
-
-  private void awaitUntil(
-      final Supplier<Boolean> condition,
-      final String description) throws InterruptedException {
-
-    // generous since this module also runs a two-container test (story 44): under that
-    // load the cluster needs longer to reach the catch event, and a signal is not
-    // buffered - the broadcast has to keep meeting a workflow which already waits
-    final var deadline = System.currentTimeMillis() + 150_000;
-    while (!Boolean.TRUE.equals(condition.get())) {
-      if (System.currentTimeMillis() > deadline) {
-        throw new AssertionError("timed out waiting for: "
-            + description);
-      }
-      Thread.sleep(200);
-    }
-
-  }
 
   private Long start() {
 

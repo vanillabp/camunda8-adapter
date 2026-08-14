@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -43,6 +44,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
+// closed when the class is done: every IT here has a context of its own (its own
+// container), Spring would keep them all until the JVM exits, and a context outliving
+// its cluster keeps its job workers polling an address nobody answers - which is what
+// made the later classes of this module run into their timeouts
+@DirtiesContext
 public class Camunda8AggregateChangedIT {
 
   static final Network NETWORK = Network.newNetwork();
