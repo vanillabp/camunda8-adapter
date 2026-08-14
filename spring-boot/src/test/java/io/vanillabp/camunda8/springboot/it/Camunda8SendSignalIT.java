@@ -8,7 +8,10 @@ import java.time.Duration;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -42,6 +45,13 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
 @Testcontainers(disabledWithoutDocker = true)
+// the order is part of the test: a broadcast reaches EVERY workflow of the module which
+// waits at that moment, and the broadcast test repeats its signal until both of its
+// instances continued. Whatever is still in flight from that loop would continue the
+// instance of the rollback test as well, which is what made it fail in the GitHub build
+// ('expected <null> but was <recordSignal>'). The rollback test therefore runs FIRST, on a
+// cluster nobody signalled yet.
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
@@ -117,6 +127,7 @@ public class Camunda8SendSignalIT {
   }
 
   @Test
+  @Order(2)
   @DisplayName("one broadcast continues every workflow waiting for the signal")
   public void broadcastContinuesEveryWaitingWorkflow() throws Exception {
 
@@ -160,6 +171,7 @@ public class Camunda8SendSignalIT {
   }
 
   @Test
+  @Order(1)
   @DisplayName("a broadcast in a rolled-back transaction never reaches the cluster")
   public void rollbackBroadcastsNothing() throws Exception {
 
