@@ -580,6 +580,73 @@ public final class Camunda8TaskWiring {
 
   }
 
+  /**
+   * The IDs of the elements of the given process which can put a SECOND token into a
+   * running workflow (story 59): a boundary event which does not cancel its activity,
+   * a parallel or inclusive gateway forking into more than one sequence flow, an
+   * activity marked as a PARALLEL multi-instance, and an event subprocess whose start
+   * event does not interrupt the process. Two tokens are two branches writing the
+   * same workflow aggregate - what that means is the core's decision, this method
+   * only reads the model.
+   *
+   * @param model The BPMN model
+   * @param bpmnProcessId The process' ID as the model knows it (the SCOPED ID)
+   * @return The element IDs, possibly empty
+   */
+  public static List<String> concurrentTokenElementIdsOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    return Stream
+        .of(
+            elementsOf(model, bpmnProcessId, io.camunda.zeebe.model.bpmn.instance.BoundaryEvent.class)
+                .filter(boundaryEvent -> !boundaryEvent.cancelActivity()),
+            elementsOf(model, bpmnProcessId, io.camunda.zeebe.model.bpmn.instance.ParallelGateway.class)
+                .filter(gateway -> gateway.getOutgoing().size() > 1),
+            elementsOf(model, bpmnProcessId, io.camunda.zeebe.model.bpmn.instance.InclusiveGateway.class)
+                .filter(gateway -> gateway.getOutgoing().size() > 1),
+            elementsOf(model, bpmnProcessId, io.camunda.zeebe.model.bpmn.instance.Activity.class)
+                .filter(Camunda8TaskWiring::isParallelMultiInstance),
+            elementsOf(model, bpmnProcessId, io.camunda.zeebe.model.bpmn.instance.SubProcess.class)
+                .filter(Camunda8TaskWiring::isNonInterruptingEventSubProcess))
+        .flatMap(elements -> elements)
+        .map(FlowElement::getId)
+        .distinct()
+        .toList();
+
+  }
+
+  private static <T extends FlowElement> Stream<T> elementsOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId,
+      final Class<T> type) {
+
+    return model
+        .getModelElementsByType(type)
+        .stream()
+        .filter(element -> bpmnProcessId.equals(owningProcessId(element)));
+
+  }
+
+  private static boolean isParallelMultiInstance(
+      final io.camunda.zeebe.model.bpmn.instance.Activity activity) {
+
+    return (activity
+        .getLoopCharacteristics() instanceof io.camunda.zeebe.model.bpmn.instance.MultiInstanceLoopCharacteristics loop) && !loop
+            .isSequential();
+
+  }
+
+  private static boolean isNonInterruptingEventSubProcess(
+      final io.camunda.zeebe.model.bpmn.instance.SubProcess subProcess) {
+
+    return subProcess.triggeredByEvent() && subProcess
+        .getChildElementsByType(io.camunda.zeebe.model.bpmn.instance.StartEvent.class)
+        .stream()
+        .anyMatch(startEvent -> !startEvent.isInterrupting());
+
+  }
+
   private static String owningProcessId(
       final FlowElement element) {
 

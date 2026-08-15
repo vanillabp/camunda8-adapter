@@ -83,7 +83,9 @@ public class Camunda8OldProcessVersionsIT {
 
       // the workflow of version 1 walks through both tasks - what matters for the
       // next boot is that the cluster holds the version and the exporter saw it
-      final var deadline = System.currentTimeMillis() + 60_000;
+      // generous on purpose: in a full build this class needs some 80 seconds of cluster
+      // time, and a deadline close to that fails on a loaded machine while nothing is wrong
+      final var deadline = System.currentTimeMillis() + 180_000;
       while (repository.findById(aggregate.getId()).orElseThrow().getServedBy() == null) {
         if (System.currentTimeMillis() > deadline) {
           throw new AssertionError("the workflow of version 1 did not run");
