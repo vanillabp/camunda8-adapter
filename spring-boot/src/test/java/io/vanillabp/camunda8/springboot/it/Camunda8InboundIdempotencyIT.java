@@ -167,15 +167,19 @@ public class Camunda8InboundIdempotencyIT {
       // adapter reports again on every redelivery. The record is looked up by task, not
       // by aggregate alone: every integration test class of this repository shares the
       // in-memory database, and their aggregate IDs start at 1 just like ours
-      assertTrue(
-          new JdbcTemplate(dataSource)
+      // awaited, not asserted right away: the counter above is incremented INSIDE the
+      // handler, while the record is written after it returned and becomes visible with
+      // the commit - reading it immediately is a race the test lost on a CI runner
+      awaitUntil(
+          () -> new JdbcTemplate(dataSource)
               .queryForList(
                   "SELECT OUTCOME FROM VANILLABP_TASK_DELIVERY WHERE AGGREGATE_ID = ? AND TASK_DEFINITION = ?",
                   String.class,
                   String.valueOf(aggregateId),
                   "asyncTask")
               .contains("COMPLETION_PENDING"),
-          "the delivery of the asynchronous task was recorded as pending completion");
+          30000,
+          "the delivery of the asynchronous task to be recorded as pending completion");
 
       // wait out several lock windows - each expiry hands the job out again
       awaitUntil(
