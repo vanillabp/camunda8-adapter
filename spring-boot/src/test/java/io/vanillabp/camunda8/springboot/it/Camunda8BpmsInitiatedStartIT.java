@@ -32,6 +32,13 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <p>
  * The class is skipped when Docker is unavailable.
  * <p>
+ * Every IT class of this module brings a Camunda 8 container of its own, and a fresh
+ * cluster hands out the same job keys again. Those keys are what VanillaBP remembers a
+ * delivery by (story 51), so the test configuration gives every class a DATABASE of its
+ * own (<code>spring.datasource.generate-unique-name</code>) - a shared one let the
+ * records of an earlier class answer this class' task with "processed before", and the
+ * handler never ran while the workflow completed.
+ * <p>
  * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
  * awareness probe answers optimistically - what this test exercises is that fallback.
  * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
