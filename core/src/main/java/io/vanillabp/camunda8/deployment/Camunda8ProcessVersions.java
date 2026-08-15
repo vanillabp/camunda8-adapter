@@ -47,6 +47,140 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   private final AtomicBoolean noQueryApiWarned = new AtomicBoolean();
 
+  /**
+   * Reads the tasks of a model the cluster holds - the deployment service' own
+   * extraction (story 57).
+   */
+  @FunctionalInterface
+  public interface TasksOfModel {
+
+    java.util.Collection<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec> of(
+        String workflowModuleId,
+        String bpmnProcessId,
+        String version,
+        io.camunda.zeebe.model.bpmn.BpmnModelInstance model);
+
+  }
+
+  private TasksOfModel tasksOfModel;
+
+  /**
+   * @param tasksOfModel How the deployment service reads a model
+   */
+  public void setTasksOfModel(
+      final TasksOfModel tasksOfModel) {
+
+    this.tasksOfModel = tasksOfModel;
+
+  }
+
+  @Override
+  public java.util.Collection<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec> tasksOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    if (tasksOfModel == null) {
+      return null;
+    }
+    final var definitionKey = definitionKeyOf(workflowModuleId, bpmnProcessId, version);
+    if (definitionKey == null) {
+      // no query API, or the cluster does not hold that version any more - the core
+      // says once that this BPMS cannot tell
+      return null;
+    }
+    try {
+      final var xml = client.get().newProcessDefinitionGetXmlRequest(definitionKey).send().join();
+      if (xml == null) {
+        return java.util.List.of();
+      }
+      final var model = io.camunda.zeebe.model.bpmn.Bpmn
+          .readModelFromStream(new java.io.ByteArrayInputStream(xml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+      return tasksOfModel.of(workflowModuleId, bpmnProcessId, version, model);
+    } catch (final RuntimeException e) {
+      log.warn(
+          "Camunda8[{}]: the model of version {} of BPMN process '{}' (workflow module '{}') could not be read, "
+              + "so VanillaBP cannot tell whether this application still serves it",
+          adapterId,
+          version,
+          bpmnProcessId,
+          workflowModuleId,
+          e);
+      return null;
+    }
+
+  }
+
+  @Override
+  public Long activeInstanceCountOf(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    final var definitionKey = definitionKeyOf(workflowModuleId, bpmnProcessId, version);
+    if (definitionKey == null) {
+      return null;
+    }
+    try {
+      final var found = client
+          .get()
+          .newProcessInstanceSearchRequest()
+          .filter(filter -> filter
+              .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
+              .processDefinitionKey(definitionKey))
+          .send()
+          .join();
+      return (long) found.items().size();
+    } catch (final RuntimeException e) {
+      if (isSecondaryStorageMissing(e)) {
+        return null;
+      }
+      throw e;
+    }
+
+  }
+
+  /**
+   * The cluster's process definition key of ONE version of a process - the handle both
+   * the model and the instance count are read by. Needs the query API.
+   */
+  private Long definitionKeyOf(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    if (!version.matches("\\d+")) {
+      return null;
+    }
+    final var scopedProcessId = scopedProcessIds.apply(workflowModuleId, bpmnProcessId);
+    final var tenantId = tenants.apply(workflowModuleId);
+    try {
+      return client
+          .get()
+          .newProcessDefinitionSearchRequest()
+          .filter(filter -> {
+            filter.processDefinitionId(scopedProcessId);
+            filter.version(Integer.valueOf(version));
+            if (tenantId != null) {
+              filter.tenantId(tenantId);
+            }
+          })
+          .send()
+          .join()
+          .items()
+          .stream()
+          .findFirst()
+          .map(definition -> definition.getProcessDefinitionKey())
+          .orElse(null);
+    } catch (final RuntimeException e) {
+      if (isSecondaryStorageMissing(e)) {
+        return null;
+      }
+      throw e;
+    }
+
+  }
+
   public Camunda8ProcessVersions(
       final String adapterId,
       final java.util.function.Supplier<CamundaClient> client,

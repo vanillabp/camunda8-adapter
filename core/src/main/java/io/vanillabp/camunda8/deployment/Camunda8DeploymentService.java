@@ -508,6 +508,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
     workflowTaskInvoker.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
+    // story 57: the same extraction serves the models of OLDER versions the cluster
+    // still holds, so both directions see a model the same way
+    processVersions.setTasksOfModel(this::taskSpecsOf);
 
     // story 48: the cluster can be asked which versions of this process it has, which
     // is what a version specification naming a version TAG needs
@@ -565,6 +568,41 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         bpmnProcessId,
         filename,
         workflowModuleId);
+
+  }
+
+  /**
+   * The tasks of ONE model as the core validates them - used for the model this boot
+   * deploys and for the models of older versions the cluster still holds (story 57).
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param version The version the cluster assigned, for messages
+   * @param model The model of that version
+   * @return The tasks of that model
+   */
+  private java.util.Collection<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec> taskSpecsOf(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version,
+      final BpmnModelInstance model) {
+
+    final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
+    final var specs = new java.util.ArrayList<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec>();
+    Camunda8TaskWiring
+        .tasksOf(model, scopedBpmnProcessId)
+        .stream()
+        .map(task -> new io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec(
+            task.activityId(), plainTaskDefinition(workflowModuleId, bpmnProcessId, task.taskDefinition())))
+        .forEach(specs::add);
+    Camunda8TaskWiring
+        .userTasksOf(model, scopedBpmnProcessId, workflowModuleId, "version %s".formatted(version))
+        .stream()
+        .map(userTask -> io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec.userTask(
+            userTask.activityId(),
+            plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
+        .forEach(specs::add);
+    return specs;
 
   }
 
@@ -650,6 +688,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                     plainBpmnProcessId,
                     process.getVersion(),
                     Camunda8TaskWiring.versionTagOf(model, process.getBpmnProcessId()));
+            // story 57: the border between the model this boot brought and the older
+            // versions the cluster still holds
+            workflowTaskInvoker
+                .registerDeployedVersion(
+                    adapterId, workflowModuleId, plainBpmnProcessId, String.valueOf(process.getVersion()));
           });
 
       log.info("Deployed {} BPMN resource(s) of workflow module '{}' to Camunda 8 "
