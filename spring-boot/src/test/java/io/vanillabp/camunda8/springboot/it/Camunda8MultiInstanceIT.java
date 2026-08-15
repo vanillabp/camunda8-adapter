@@ -1,0 +1,138 @@
+package io.vanillabp.camunda8.springboot.it;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
+import java.time.Duration;
+import java.util.function.Supplier;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+
+import io.vanillabp.integration.test.utils.SuppressOutputExtension;
+
+/**
+ * Multi-instance against a REAL Camunda 8 broker (story 62): the element, the index
+ * and the total of every iteration reach the {@code @WorkflowTask} method, including
+ * the iteration of the multi-instance SUBPROCESS a nested task runs in.
+ *
+ * <p>
+ * That last part is what this engine cannot answer by itself. It puts the index of
+ * an iteration into the variable {@code loopCounter} and the element into whatever
+ * {@code inputElement} names, so an inner iteration shadows an outer one, and it has
+ * no equivalent of {@code nrOfInstances} at all. The adapter therefore injects input
+ * mappings while deploying, one set per multi-instance element, named after that
+ * element - what this test proves is that the values arrive, unshadowed and in the
+ * order the SPI defines.
+ * </p>
+ */
+@ExtendWith(SuppressOutputExtension.class)
+@SuppressOutputExtension.SuppressBackgroundOutput
+@Testcontainers(disabledWithoutDocker = true)
+@SpringBootTest(
+    classes = DockerTestApplication.class,
+    properties = "spring.config.name=camunda8-it")
+public class Camunda8MultiInstanceIT {
+
+  @Container
+  static final GenericContainer<?> CAMUNDA = new GenericContainer<>(
+      DockerImageName.parse("camunda/zeebe:8.8.31"))
+      .withExposedPorts(8080, 26500, 9600)
+      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
+      .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
+      .waitingFor(Wait
+          .forHttp("/actuator/health/readiness")
+          .forPort(9600)
+          .forStatusCode(200)
+          .withStartupTimeout(Duration.ofMinutes(3)));
+
+  @DynamicPropertySource
+  static void camunda8Properties(
+      final DynamicPropertyRegistry registry) {
+
+    registry
+        .add(
+            "vanillabp.adapters.c8.rest-address",
+            () -> "http://"
+                + CAMUNDA.getHost()
+                + ":"
+                + CAMUNDA.getMappedPort(8080));
+    registry
+        .add(
+            "vanillabp.adapters.c8.grpc-address",
+            () -> "http://"
+                + CAMUNDA.getHost()
+                + ":"
+                + CAMUNDA.getMappedPort(26500));
+
+  }
+
+  @Autowired
+  private MiDockerWorkflowService workflowService;
+
+  @Autowired
+  private MiDockerAggregateRepository repository;
+
+  @Autowired
+  private TransactionTemplate transactionTemplate;
+
+  private void awaitUntil(
+      final Supplier<Boolean> condition,
+      final String description) throws InterruptedException {
+
+    final var deadline = System.currentTimeMillis() + 120_000;
+    while (!Boolean.TRUE.equals(condition.get())) {
+      if (System.currentTimeMillis() > deadline) {
+        throw new AssertionError("timed out waiting for: "
+            + description);
+      }
+      Thread.sleep(250);
+    }
+
+  }
+
+  @Test
+  @DisplayName("every iteration is handed its element, its index and its total - nested ones as well")
+  public void theIterationIsReported() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> workflowService.startWorkflow().getId());
+    assertNotNull(aggregateId);
+
+    awaitUntil(
+        () -> repository
+            .findById(aggregateId)
+            .map(MiDockerAggregate::getNested)
+            .filter(nested -> nested.split(",").length == 6)
+            .isPresent(),
+        "all six iterations of the nested multi-instance task to have run");
+
+    final var aggregate = repository
+        .findById(aggregateId)
+        .orElseThrow();
+
+    // the index counts from 0 like Camunda 7 does, although this engine counts from 1
+    assertEquals(
+        "a#0/2,b#1/2",
+        aggregate.getFlat(),
+        "element, index and total of the flat multi-instance task");
+
+    // two groups times three items, and every iteration knows about both levels
+    assertEquals(
+        "g1#0/2-x#0/3,g1#0/2-y#1/3,g1#0/2-z#2/3,g2#1/2-x#0/3,g2#1/2-y#1/3,g2#1/2-z#2/3",
+        aggregate.getNested(),
+        "the enclosing iteration of a nested task, which this engine shadows");
+
+  }
+
+}

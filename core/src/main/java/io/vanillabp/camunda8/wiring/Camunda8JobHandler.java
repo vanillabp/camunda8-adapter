@@ -71,6 +71,13 @@ public class Camunda8JobHandler implements JobHandler {
    */
   private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
 
+  /**
+   * Which multi-instance elements enclose the job's element (story 62). May be
+   * <code>null</code> (tests) - then no iteration is reported, which is what this
+   * adapter did before.
+   */
+  private final Camunda8MultiInstance.Registry multiInstanceRegistry;
+
   public Camunda8JobHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -90,12 +97,26 @@ public class Camunda8JobHandler implements JobHandler {
       final Duration asyncTaskTimeout,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
+    this(adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskTimeout, scoping, null);
+
+  }
+
+  public Camunda8JobHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final CamundaClient camundaClient,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Duration asyncTaskTimeout,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry) {
+
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
     this.camundaClient = camundaClient;
     this.workflowTaskInvoker = workflowTaskInvoker;
     this.asyncTaskTimeout = asyncTaskTimeout;
     this.scoping = scoping;
+    this.multiInstanceRegistry = multiInstanceRegistry;
 
   }
 
@@ -132,7 +153,8 @@ public class Camunda8JobHandler implements JobHandler {
       outcome = workflowTaskInvoker.invokeWorkflowTask(
           workflowModuleId,
           bpmnProcessId,
-          new Camunda8TaskInvocationContext(adapterId, taskDefinition, String.valueOf(aggregateId), job));
+          new Camunda8TaskInvocationContext(adapterId, taskDefinition, String
+              .valueOf(aggregateId), job, multiInstanceRegistry));
     } catch (final Exception e) {
       // the core rolled the local transaction back - fail the job so Camunda 8
       // applies its retry semantics (retries reach 0 -> incident)
@@ -267,16 +289,47 @@ public class Camunda8JobHandler implements JobHandler {
 
     private final ActivatedJob job;
 
+    private final Camunda8MultiInstance.Registry multiInstanceRegistry;
+
     Camunda8TaskInvocationContext(
         final String adapterId,
         final String taskDefinition,
         final String workflowAggregateId,
         final ActivatedJob job) {
 
+      this(adapterId, taskDefinition, workflowAggregateId, job, null);
+
+    }
+
+    Camunda8TaskInvocationContext(
+        final String adapterId,
+        final String taskDefinition,
+        final String workflowAggregateId,
+        final ActivatedJob job,
+        final Camunda8MultiInstance.Registry multiInstanceRegistry) {
+
       this.adapterId = adapterId;
       this.taskDefinition = taskDefinition;
       this.workflowAggregateId = workflowAggregateId;
       this.job = job;
+      this.multiInstanceRegistry = multiInstanceRegistry;
+
+    }
+
+    /**
+     * What the cluster knows about the iteration this job belongs to (story 62). The
+     * registry is keyed by the process id the CLUSTER knows, which is what the job
+     * reports - element ids themselves are never scoped.
+     */
+    @Override
+    public java.util.Map<String, io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue> getMultiInstances() {
+
+      if (multiInstanceRegistry == null) {
+        return java.util.Map.of();
+      }
+      return Camunda8MultiInstance.valuesOf(
+          multiInstanceRegistry.chainOf(job.getBpmnProcessId(), job.getElementId()),
+          job.getVariablesAsMap());
 
     }
 

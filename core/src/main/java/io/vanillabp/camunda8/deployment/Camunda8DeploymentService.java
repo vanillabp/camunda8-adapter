@@ -58,6 +58,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final WorkflowTaskInvoker workflowTaskInvoker;
 
   /**
+   * What this adapter knows about the multi-instance elements of the processes it
+   * deployed. Filled while wiring a model, read while dispatching a job - a job
+   * carries the ID of its own element and nothing about the iterations enclosing it.
+   */
+  private final io.vanillabp.camunda8.wiring.Camunda8MultiInstance.Registry multiInstanceRegistry = new io.vanillabp.camunda8.wiring.Camunda8MultiInstance.Registry();
+
+  /**
    * The core's entry point for workflows the cluster starts on its own (story 41):
    * the start events of a process are reported here while wiring, and the start
    * execution-listener workers dispatch through it. May be <code>null</code> (tests).
@@ -527,6 +534,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         model,
         scopedBpmnProcessId,
         () -> workflowTaskInvoker.resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId));
+    // multi-instance (story 62): the input mappings which make the element, the index
+    // and the total of every iteration readable from a job are ADDED TO THE MODEL
+    // here, and which iterations enclose which element is remembered for dispatch
+    io.vanillabp.camunda8.wiring.Camunda8MultiInstance
+        .wire(model, scopedBpmnProcessId, multiInstanceRegistry);
     context.getTasksToWire().addAll(tasks);
     context.getUserTasksToWire().addAll(userTasks);
 
@@ -774,7 +786,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           .newWorker()
           .jobType(listenerJobType)
           .handler(new io.vanillabp.camunda8.wiring.Camunda8UserTaskListenerHandler(
-              adapterId, workflowModuleId, workflowTaskInvoker, scoping))
+              adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry))
           .timeout(java.time.Duration.ofMinutes(1))
           .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType));
       final var listenerTenantId = tenantIdOf(workflowModuleId);
@@ -850,7 +862,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           .newWorker()
           .jobType(taskDefinition)
           .handler(new Camunda8JobHandler(
-              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskTimeout, scoping))
+              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskTimeout, scoping, multiInstanceRegistry))
           .timeout(timeout)
           .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition));
       final var workerTenantId = tenantIdOf(workflowModuleId);
