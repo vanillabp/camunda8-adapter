@@ -59,6 +59,12 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
    */
   private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
 
+  /**
+   * Which multi-instance elements enclose the user task (story 62) - a user task may
+   * be multi-instance like any other activity. May be <code>null</code> (tests).
+   */
+  private final Camunda8MultiInstance.Registry multiInstanceRegistry;
+
   public Camunda8UserTaskListenerHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -74,10 +80,22 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
       final WorkflowTaskInvoker workflowTaskInvoker,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
+    this(adapterId, workflowModuleId, workflowTaskInvoker, scoping, null);
+
+  }
+
+  public Camunda8UserTaskListenerHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry) {
+
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
     this.workflowTaskInvoker = workflowTaskInvoker;
     this.scoping = scoping;
+    this.multiInstanceRegistry = multiInstanceRegistry;
 
   }
 
@@ -122,7 +140,8 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
             workflowModuleId,
             bpmnProcessId,
             new Camunda8UserTaskInvocationContext(
-                adapterId, taskDefinition, String.valueOf(aggregateId), userTaskKey, event, job));
+                adapterId, taskDefinition, String
+                    .valueOf(aggregateId), userTaskKey, event, job, multiInstanceRegistry));
         if (outcome.kind() == WorkflowTaskOutcome.Kind.BPMN_ERROR) {
           throw new IllegalStateException(
               ("The @WorkflowTask method notified about the %s event of user task '%s' (BPMN "
@@ -184,6 +203,8 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
 
     private final ActivatedJob job;
 
+    private final Camunda8MultiInstance.Registry multiInstanceRegistry;
+
     Camunda8UserTaskInvocationContext(
         final String adapterId,
         final String taskDefinition,
@@ -192,12 +213,41 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
         final TaskEvent.Event event,
         final ActivatedJob job) {
 
+      this(adapterId, taskDefinition, workflowAggregateId, userTaskKey, event, job, null);
+
+    }
+
+    Camunda8UserTaskInvocationContext(
+        final String adapterId,
+        final String taskDefinition,
+        final String workflowAggregateId,
+        final String userTaskKey,
+        final TaskEvent.Event event,
+        final ActivatedJob job,
+        final Camunda8MultiInstance.Registry multiInstanceRegistry) {
+
       this.adapterId = adapterId;
       this.taskDefinition = taskDefinition;
       this.workflowAggregateId = workflowAggregateId;
       this.userTaskKey = userTaskKey;
       this.event = event;
       this.job = job;
+      this.multiInstanceRegistry = multiInstanceRegistry;
+
+    }
+
+    /**
+     * What the cluster knows about the iteration this user task belongs to (story 62).
+     */
+    @Override
+    public java.util.Map<String, io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue> getMultiInstances() {
+
+      if (multiInstanceRegistry == null) {
+        return java.util.Map.of();
+      }
+      return Camunda8MultiInstance.valuesOf(
+          multiInstanceRegistry.chainOf(job.getBpmnProcessId(), job.getElementId()),
+          job.getVariablesAsMap());
 
     }
 
