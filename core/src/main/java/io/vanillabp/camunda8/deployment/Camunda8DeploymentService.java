@@ -510,6 +510,15 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     workflowTaskInvoker
         .registerProcessVersions(adapterId, workflowModuleId, bpmnProcessId, processVersions);
 
+    // story 59: which elements can put a second token into a running workflow - two
+    // tokens are two writers on the workflow aggregate, and the core knows whether
+    // that aggregate can survive them
+    workflowTaskInvoker
+        .reportConcurrentTokenElements(
+            workflowModuleId,
+            bpmnProcessId,
+            Camunda8TaskWiring.concurrentTokenElementIdsOf(model, scopedBpmnProcessId));
+
     // message correlation (story 23): inject the correlation-key expression
     // '=<aggregate-ID variable>' into message subscriptions lacking one - the V2
     // convention enabling ProcessService#correlateMessage without manual model
