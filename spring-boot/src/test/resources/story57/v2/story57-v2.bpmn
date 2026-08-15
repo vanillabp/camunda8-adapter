@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Story 57, version 2: the task 'story57Gone' is gone, and the cluster still holds
+     version 1 which has it. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="Definitions_Story57V2" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Story57Process" isExecutable="true">
+    <bpmn:startEvent id="S57_Start">
+      <bpmn:outgoing>S57_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="S57_f1" sourceRef="S57_Start" targetRef="S57_Kept" />
+    <bpmn:serviceTask id="S57_Kept">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="story57Kept" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>S57_f1</bpmn:incoming>
+      <bpmn:outgoing>S57_f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="S57_f2" sourceRef="S57_Kept" targetRef="S57_End" />
+    <bpmn:endEvent id="S57_End">
+      <bpmn:incoming>S57_f2</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>
