@@ -422,6 +422,58 @@ deployed itself, which is what a rolling deployment produces while another node 
 ahead. The version of the model deployed by this very start needs no query at all: the deploy
 command reports it and the tag is read from the model.
 
+### Multi-instance
+
+A `@WorkflowTask` method may ask what the engine knows about the iteration it runs in:
+`@MultiInstanceElement`, `@MultiInstanceIndex` and `@MultiInstanceTotal`, each naming the
+BPMN id of the multi-instance element it asks about. On Camunda 8 all three are answered,
+and none of them can be read off a job directly.
+
+What a job carries is the variable `loopCounter` and whatever `inputElement` names. Both are
+local to the innermost iteration, so a task inside a multi-instance subprocess sees its own
+values and none of the subprocess', and there is no `nrOfInstances` at all - this engine
+does not report how many instances a multi-instance element has.
+
+The adapter closes that while deploying, which is the stage it modifies models anyway. Every
+multi-instance element of a deployed process gets input mappings named after that element:
+
+```
+vanillabpMiIndex_<element id>    = loopCounter
+vanillabpMiTotal_<element id>    = count(<the element's input collection>)
+vanillabpMiElement_<element id>  = <the element's input element>
+```
+
+Those names cannot be shadowed, so a job of a nested task carries one set per iteration it
+runs in. Which iterations enclose which element is model knowledge and is remembered while
+wiring, since a job reports the id of its own element only. The mappings are added once and
+a redeployment produces the same model - the BPMN is not rewritten twice, and no new process
+version comes out of an unchanged model.
+
+An application which already ran its models on an earlier version of this adapter deploys a
+NEW process version once, because the mappings are what changes the model. Workflows already
+running stay on the version they were started on, and a task of such an instance reports no
+iteration at all rather than a wrong one - the guiding message of the platform then names the
+element it was asked about.
+
+Two details of this engine are worth knowing when modelling:
+
+- **There is no loop cardinality.** A multi-instance element always iterates over an
+  `inputCollection`, and the collection is a process variable, so it should hold identifiers
+  rather than objects: it travels to the cluster with every sync point, and the business code
+  can look up the rest. `inputCollection="=partnerIds"` reads an attribute of the workflow
+  aggregate like any other expression does.
+- **The index counts from 0** in the application, as it does on every other BPMS, although
+  Camunda 8 counts iterations from 1. The adapter translates.
+
+Characters an element id may hold but a variable name may not are replaced by `_`. Two
+multi-instance elements of one process whose ids differ only in such characters would end up
+sharing variables, which fails the deployment with a message naming both.
+
+A parallel multi-instance element creates one token per instance, and each of them loads and
+saves the workflow aggregate. Two instances writing the same attribute means the one
+committing last puts back what it read, so an iteration should write a row of its own - see
+[workflow aggregates](https://github.com/vanillabp/adapter-platform-integration/wiki/Workflow-aggregates).
+
 ### Testing
 
 - **Core unit tests** (no Docker): BPMN parsing / executable-process extraction, client
@@ -534,6 +586,14 @@ Camunda 8 has no conditional start, catch or boundary events, and a model carryi
 rejected by the cluster while deploying. `aggregateChanged` is still useful, since the cluster
 evaluates a gateway behind the current element against the values it holds, but there is
 nothing which reacts to a variable change on its own.
+
+### Multi-instance has no loop cardinality
+
+Camunda 8 iterates a multi-instance element over an `inputCollection` and offers no
+cardinality, so a model saying "run this five times" has to hand over a collection of five
+elements. The count of the instances is not reported by the engine either; the adapter
+derives it from the collection while deploying, see [Multi-instance](#multi-instance).
+Nothing announced.
 
 ### Message deduplication lasts for the message TTL
 
