@@ -51,6 +51,13 @@ public class SecondaryStorageDockerWorkflowService {
 
   }
 
+  public io.vanillabp.spi.process.WorkflowHistory historyOf(
+      final Long aggregateId) {
+
+    return processService.getWorkflowHistory(repository.findById(aggregateId).orElseThrow(), null);
+
+  }
+
   @WorkflowTask(taskDefinition = "secondaryStorageMessageArrived")
   public void messageArrived(
       final SecondaryStorageDockerAggregate aggregate) {

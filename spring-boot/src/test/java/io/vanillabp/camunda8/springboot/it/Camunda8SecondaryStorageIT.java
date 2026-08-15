@@ -218,6 +218,39 @@ public class Camunda8SecondaryStorageIT {
   }
 
   @Test
+  @DisplayName("an ENDED workflow is still served - it is completed, not unknown")
+  public void anEndedWorkflowIsStillServed() throws Exception {
+
+    final var aggregateId = startedWorkflow();
+
+    transactionTemplate.executeWithoutResult(status -> workflowService.correlate(aggregateId));
+    awaitUntil(
+        () -> "messageArrived".equals(
+            repository
+                .findById(aggregateId)
+                .map(SecondaryStorageDockerAggregate::getProcessedBy)
+                .orElse(null)),
+        "the task behind the message catch event to run");
+
+    // the instance ends right after that task, and the exporter needs a moment to say so
+    awaitUntil(
+        () -> {
+          final var history = transactionTemplate.execute(status -> workflowService.historyOf(aggregateId));
+          return (history != null) && (history.endTime() != null);
+        },
+        "the query API to report the workflow as ended");
+
+    // the probe must answer COMPLETED here rather than UNKNOWN_TO_BPMS: an ended
+    // workflow still has definitions and a history, and 'unknown' is what makes the
+    // core raise WorkflowNotFoundException
+    final var definitions = transactionTemplate
+        .execute(status -> workflowService.definitionsOf(aggregateId));
+    assertNotNull(definitions);
+    assertFalse(definitions.isEmpty(), "an ended workflow still names the definition it ran on");
+
+  }
+
+  @Test
   @DisplayName("the viewer finds the workflow through the same search")
   public void theViewerFindsTheWorkflow() throws Exception {
 

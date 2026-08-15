@@ -586,20 +586,33 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // aggregate exist" - only the eventually-consistent query API (requires
     // secondary storage, standard in any real Camunda 8 setup). The search
     // filters by the aggregate-ID process variable.
+    //
+    // It does NOT filter by state, although only an ACTIVE instance can be advanced:
+    // an ended workflow is COMPLETED, not UNKNOWN_TO_BPMS. The difference is the whole
+    // point of the two values - "unknown" permits falling back to the next adapter and
+    // is what the viewer/history API reports as WorkflowNotFoundException, while
+    // "completed" says this BPMS is the one which held the workflow. Filtering here
+    // made every read of an ended workflow fail and turned an operation arriving too
+    // late into a lookup failure.
     try {
       final var found = clientFactory
           .getClient()
           .newProcessInstanceSearchRequest()
           .filter(filter -> filter
-              .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
               .variables(java.util.Map
                   .of(aggregateIdVariableName(aggregatePersistence),
                       Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
-      return found.items().isEmpty()
-          ? WorkflowAwareness.UNKNOWN_TO_BPMS
-          : WorkflowAwareness.ACTIVE;
+      if (found.items().isEmpty()) {
+        return WorkflowAwareness.UNKNOWN_TO_BPMS;
+      }
+      return found
+          .items()
+          .stream()
+          .anyMatch(instance -> instance.getState() == io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
+              ? WorkflowAwareness.ACTIVE
+              : WorkflowAwareness.COMPLETED;
     } catch (final Exception e) {
       if (isSecondaryStorageMissing(e)) {
         // OPTIMISTIC fallback: without the query API the instance's existence
