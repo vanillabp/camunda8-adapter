@@ -90,7 +90,10 @@ public class Camunda8BpmsInitiatedStartIT {
       final Supplier<Boolean> condition,
       final String description) throws InterruptedException {
 
-    final var deadline = System.currentTimeMillis() + 60_000;
+    // 60 seconds were not enough in a full build: the class alone needs some 45 of them
+    // (cluster start, the timer's cycle, the job worker's poll), so a loaded machine ran
+    // out of them while nothing was wrong
+    final var deadline = System.currentTimeMillis() + 180_000;
     while (!Boolean.TRUE.equals(condition.get())) {
       if (System.currentTimeMillis() > deadline) {
         throw new AssertionError("timed out waiting for: "
