@@ -56,7 +56,9 @@ public class Camunda8ProcessServiceTest {
     configuration.setRestAddress("http://localhost:1");
     return new Camunda8ProcessService<>(
         "c8", new Camunda8ClientFactory("c8", configuration), java.time.Duration
-            .ofDays(14), Runnable::run, null, java.time.Duration.ZERO);
+            .ofDays(14), (
+                aggregateClass,
+                check) -> check.run(), null, java.time.Duration.ZERO);
 
   }
 
@@ -77,7 +79,9 @@ public class Camunda8ProcessServiceTest {
 
     final var service = new Camunda8ProcessService<Aggregate>(
         "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), java.time.Duration
-            .ofDays(14), Runnable::run, null, java.time.Duration.ZERO);
+            .ofDays(14), (
+                aggregateClass,
+                check) -> check.run(), null, java.time.Duration.ZERO);
 
     final var exception = assertThrows(
         IllegalStateException.class,

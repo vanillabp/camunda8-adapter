@@ -31,7 +31,7 @@ public class Camunda8ProcessServiceProducer {
   public List<MigratableProcessService<Object>> camunda8MigratableProcessServices(
       final MigrationAdapterProperties properties,
       final Camunda8ClientFactoryRegistry clientFactoryRegistry,
-      final jakarta.transaction.TransactionSynchronizationRegistry synchronizationRegistry,
+      final io.vanillabp.integration.adapter.spi.PreCommitRegistrar preCommitRegistrar,
       final io.vanillabp.integration.adapter.spi.WorkflowAggregateSync aggregateSync,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
@@ -59,8 +59,8 @@ public class Camunda8ProcessServiceProducer {
               : Camunda8ProcessService.DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT;
           final var processService = new Camunda8ProcessService<>(
               adapterId, clientFactoryRegistry
-                  .getFactory(adapterId), asyncTaskTimeout, new Camunda8QuarkusPreCommitRegistrar(
-                      synchronizationRegistry), aggregateSync, workflowVisibilityTimeout);
+                  .getFactory(
+                      adapterId), asyncTaskTimeout, preCommitRegistrar, aggregateSync, workflowVisibilityTimeout);
           processService.setScoping(scoping);
           return processService;
         })

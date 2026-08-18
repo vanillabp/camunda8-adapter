@@ -48,10 +48,11 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                         .bean(Camunda8ClientFactoryRegistry.class)
                         .getFactory(adapterId), asyncTaskTimeoutOf(
                             supplierContext.bean(VanillaBpCamunda8Properties.class),
-                            adapterId), new Camunda8SpringPreCommitRegistrar(), supplierContext
-                                .bean(
-                                    io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.class), workflowVisibilityTimeoutOf(
-                                        supplierContext.bean(VanillaBpCamunda8Properties.class), adapterId));
+                            adapterId), supplierContext
+                                .bean(io.vanillabp.integration.adapter.spi.PreCommitRegistrar.class), supplierContext
+                                    .bean(
+                                        io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.class), workflowVisibilityTimeoutOf(
+                                            supplierContext.bean(VanillaBpCamunda8Properties.class), adapterId));
                 processService.setScoping(
                     supplierContext.bean(io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class));
                 return processService;

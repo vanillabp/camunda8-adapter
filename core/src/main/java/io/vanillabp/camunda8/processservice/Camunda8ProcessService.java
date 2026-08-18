@@ -55,10 +55,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   private final java.time.Duration asyncTaskTimeout;
 
   /**
-   * Runs phase-one existence checks right before the commit (platform-supplied) -
-   * minimizes the window between check and phase two.
+   * Runs phase-one existence checks right before the commit of the workflow aggregate's
+   * transaction (platform-supplied, story 87) - minimizes the window between check and
+   * phase two. The platform resolves the runner of the aggregate, so a unit of work the
+   * APPLICATION brought is the one hooked into.
    */
-  private final Camunda8PreCommitRegistrar preCommitRegistrar;
+  private final io.vanillabp.integration.adapter.spi.PreCommitRegistrar preCommitRegistrar;
 
   /**
    * The core's sync model (story 28): which aggregate attributes are shared with
@@ -302,7 +304,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final A workflowAggregate,
       final String taskId) {
 
-    registerPreCommitExistenceCheck(taskId, "completing");
+    registerPreCommitExistenceCheck(aggregateClassOf(aggregatePersistence), taskId, "completing");
 
   }
 
@@ -315,7 +317,27 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final String taskId,
       final String bpmnErrorCode) {
 
-    registerPreCommitExistenceCheck(taskId, "canceling");
+    registerPreCommitExistenceCheck(aggregateClassOf(aggregatePersistence), taskId, "canceling");
+
+  }
+
+  /**
+   * The workflow aggregate whose transaction a phase-one check belongs into (story 87).
+   * <p>
+   * The core always hands the aggregate's persistence along; only tests call phase one
+   * without one, and {@code Object.class} then resolves the platform's own runner - which
+   * is what a test without any aggregate persistence has anyway.
+   *
+   * @param aggregatePersistence The persistence of the call at hand, may be
+   *          <code>null</code> in tests
+   * @return The aggregate class
+   */
+  private Class<?> aggregateClassOf(
+      final AggregatePersistenceAware<A> aggregatePersistence) {
+
+    return aggregatePersistence == null
+        ? Object.class
+        : aggregatePersistence.getAggregateClass();
 
   }
 
@@ -329,10 +351,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * job's lock as a side effect and never advances the process.
    */
   private void registerPreCommitExistenceCheck(
+      final Class<?> workflowAggregateClass,
       final String taskId,
       final String operationDescription) {
 
-    preCommitRegistrar.beforeCommit(() -> {
+    preCommitRegistrar.beforeCommit(workflowAggregateClass, () -> {
       try {
         updateJobTimeout(taskId);
       } catch (final Exception e) {
@@ -399,7 +422,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
     // pre-commit existence check (non-advancing empty update) - same shape as
     // service tasks, see registerPreCommitExistenceCheck
-    preCommitRegistrar.beforeCommit(() -> {
+    preCommitRegistrar.beforeCommit(aggregateClassOf(aggregatePersistence), () -> {
       try {
         updateUserTask(taskId);
       } catch (final Exception e) {

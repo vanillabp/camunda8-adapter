@@ -79,7 +79,9 @@ public class Camunda8MessageDeclarationTest {
       final Camunda8ClientFactory clientFactory) {
 
     return new Camunda8ProcessService<>(
-        "c8", clientFactory, java.time.Duration.ofDays(14), Runnable::run, null, java.time.Duration.ZERO);
+        "c8", clientFactory, java.time.Duration.ofDays(14), (
+            aggregateClass,
+            check) -> check.run(), null, java.time.Duration.ZERO);
 
   }
 
