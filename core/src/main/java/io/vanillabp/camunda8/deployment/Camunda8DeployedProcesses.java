@@ -70,6 +70,28 @@ public class Camunda8DeployedProcesses {
    * @return The deployed process or <code>null</code> if not deployed by this
    *         application version
    */
+  /**
+   * Every process of a workflow module deployed by THIS application version - the
+   * models the message-name check of {@code correlateMessage} reads (story 73). A
+   * workflow module whose processes were deployed by a previous application version
+   * yields an empty collection, and the check then stays silent.
+   *
+   * @param workflowModuleId The workflow module
+   * @return The processes deployed by this application version
+   */
+  public java.util.Collection<DeployedProcess> ofWorkflowModule(
+      final String workflowModuleId) {
+
+    return byProcess
+        .values()
+        .stream()
+        .filter(deployed -> deployed
+            .workflowModuleId()
+            .equals(workflowModuleId))
+        .toList();
+
+  }
+
   public DeployedProcess byDefinitionKey(
       final String processDefinitionKey) {
 

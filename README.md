@@ -163,6 +163,44 @@ guiding failure message as backstop.
     as process variables. No other variables are set (aggregate attribute sync is the
     `@SyncWithBPMS` story).
 
+### Which phase-two failures are repeated (story 73)
+
+The phase-two outbox repeats a failed operation until the entry is blocked. That is right for
+a cluster which is busy, unreachable or lost a conflict, and pointless for a command the
+cluster rejects: the answer will not change, and the retries only fill the log while
+operations wait for the entry to block. The adapter therefore classifies a failure as
+permanent when the chain of causes holds one of these:
+
+|                 Failure                  |             Why a repetition cannot help              |
+|------------------------------------------|-------------------------------------------------------|
+| HTTP `400`, gRPC `INVALID_ARGUMENT`      | the cluster rejected the request itself               |
+| HTTP `403`, gRPC `PERMISSION_DENIED`     | credentials or tenant are wrong, not late             |
+| HTTP `405` / `501`, gRPC `UNIMPLEMENTED` | this cluster version has no such endpoint             |
+| `NumberFormatException`                  | the task or instance key of the entry is not a number |
+
+Everything else is repeated, including three cases which look permanent at first glance.
+`404` is the signature of eventual consistency, and for job commands it never reaches the
+classification at all - a gone job is the accepted at-least-once residual and consumes the
+entry. `401` is usually an expired token, which the client refreshes. `409`, `429` and every
+`5xx` are what the outbox exists for.
+
+### Why correlating a message has no cluster preflight
+
+Since 8.8 the client can search message subscriptions, so a preflight would be possible - and
+it would be wrong. The cluster BUFFERS a published message for its time-to-live, so
+correlating before the subscription exists is legitimate, and a search would reject exactly
+that case. The search also reads the eventually consistent secondary storage, whose window the
+caller would wait out inside their own transaction.
+
+What phase one does check is the MODEL: if no BPMN model of the workflow module deployed by
+this application version declares the message, the correlation fails where the application
+called it. That is the mistake a preflight could have caught - a typo, or a message renamed in
+the model - and without the check phase two would publish into the void: the cluster accepts
+the publication, the time-to-live passes, nothing correlates and nothing fails. Where this
+application version deployed no process of the workflow module (a workflow still running on a
+definition of a previous version), the declared names are unknown rather than absent and the
+check stays silent.
+
 ### Idempotency limitation
 
 The phase-two outbox has at-least-once semantics. The duplicate-start window is
