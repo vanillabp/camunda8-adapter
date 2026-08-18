@@ -742,6 +742,39 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   @Override
+  public boolean isPhaseTwoFailureRepeatable(
+      final Throwable failure) {
+
+    // story 73: the outbox repeats what a second attempt may fix - a cluster which
+    // is busy, unreachable or lost a conflict. A command the cluster REJECTS looks
+    // the same on every attempt, and so does a task key which is not a number. The
+    // list of those cases lives in Camunda8Errors, next to the job-gone rule
+    return !Camunda8Errors.permanentFailure(failure);
+
+  }
+
+  /**
+   * Phase one of a message correlation asks the MODEL, not the cluster (story 73).
+   * <p>
+   * A subscription search exists since the client version this adapter builds
+   * against, and it would be the wrong check: the cluster BUFFERS a message for its
+   * time-to-live, so correlating before the subscription exists is legitimate and a
+   * search would reject exactly that case - besides reading the eventually consistent
+   * secondary storage, whose window the caller would wait out inside their
+   * transaction.
+   * <p>
+   * What can be checked without asking anybody is whether the deployed models of this
+   * workflow module declare the message at all. A name no model knows is a typo or a
+   * renamed message, and phase two would publish it into the void: the cluster accepts
+   * the publication, the TTL passes, nothing ever correlates. So the mistake is
+   * reported where the application made the call.
+   * <p>
+   * The check stays silent where this application version deployed no process of the
+   * workflow module (a workflow still running on a definition of a previous version -
+   * see {@link Camunda8DeployedProcesses}), because then the declared names are
+   * unknown rather than absent.
+   */
+  @Override
   public void correlateMessagePhaseOne(
       final String workflowModuleId,
       final String bpmnProcessId,
@@ -750,11 +783,78 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final String messageName,
       final String correlationId) {
 
-    // no cheap NON-ADVANCING existence check exists for a waiting message
-    // subscription (the query API is eventually consistent) - like workflow
-    // starts, phase one only validates the configuration; an unreachable cluster
-    // just makes the phase-two publish wait in the outbox
     clientFactory.validateConfigured();
+    validateMessageIsDeclared(workflowModuleId, messageName);
+
+  }
+
+  /**
+   * Reports a message name the deployed models of the workflow module do not declare.
+   *
+   * @param workflowModuleId The workflow module of the correlation
+   * @param messageName The message name the application passed
+   */
+  private void validateMessageIsDeclared(
+      final String workflowModuleId,
+      final String messageName) {
+
+    final var deployed = clientFactory
+        .getDeployedProcesses()
+        .ofWorkflowModule(workflowModuleId);
+    if (deployed.isEmpty()) {
+      return;
+    }
+    // the models carry the SCOPED names (story 35 renames messages while deploying),
+    // so the name of the call is scoped the same way the publication scopes it
+    final var scopedMessageName = scopedIdentifier(workflowModuleId, messageName);
+    final var declared = deployed
+        .stream()
+        .flatMap(process -> declaredMessageNames(process.model()).stream())
+        .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new));
+    if (declared.contains(scopedMessageName)) {
+      return;
+    }
+    throw new IllegalArgumentException(
+        """
+            No BPMN model of workflow module '%s' declares a message '%s'! Camunda 8 would accept \
+            the publication and buffer the message until its time-to-live passed, so nothing would \
+            ever correlate and nothing would fail. The messages declared by the models this \
+            application deployed are: %s. Correct the name passed to correlateMessage, or declare \
+            the message at the event which waits for it."""
+            .formatted(
+                workflowModuleId,
+                scopedMessageName.equals(messageName)
+                    ? messageName
+                    : "%s (scoped: '%s')".formatted(messageName, scopedMessageName),
+                declared.isEmpty()
+                    ? "none"
+                    : declared));
+
+  }
+
+  /**
+   * The message names a deployed model declares: message catch events (intermediate,
+   * boundary, event-subprocess start) and receive tasks - the same elements
+   * {@code Camunda8TaskWiring#wireMessageSubscriptions} wires a correlation key into.
+   * Message START events are included as well: a start by message goes through
+   * {@code startWorkflowByMessage}, but declaring the name is what matters here.
+   *
+   * @param model The model as deployed
+   * @return The declared message names
+   */
+  private static java.util.Set<String> declaredMessageNames(
+      final io.camunda.zeebe.model.bpmn.BpmnModelInstance model) {
+
+    return model
+        .getModelElementsByType(model
+            .getModel()
+            .getType(io.camunda.zeebe.model.bpmn.instance.Message.class))
+        .stream()
+        .map(io.camunda.zeebe.model.bpmn.instance.Message.class::cast)
+        .map(io.camunda.zeebe.model.bpmn.instance.Message::getName)
+        .filter(java.util.Objects::nonNull)
+        .filter(name -> !name.isBlank())
+        .collect(java.util.stream.Collectors.toSet());
 
   }
 
