@@ -30,14 +30,20 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8PreCommitCheckTest {
 
-  static class RecordingRegistrar implements Camunda8PreCommitRegistrar {
+  static class RecordingRegistrar implements io.vanillabp.integration.adapter.spi.PreCommitRegistrar {
 
     final List<Runnable> registered = new ArrayList<>();
 
+    final List<Class<?>> aggregateClasses = new ArrayList<>();
+
     @Override
     public void beforeCommit(
+        final Class<?> workflowAggregateClass,
         final Runnable check) {
 
+      // story 87: the platform resolves the runner of THIS aggregate, so the adapter has
+      // to name it - the test keeps it to prove the adapter does
+      aggregateClasses.add(workflowAggregateClass);
       registered.add(check);
 
     }

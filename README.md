@@ -163,6 +163,20 @@ guiding failure message as backstop.
     as process variables. No other variables are set (aggregate attribute sync is the
     `@SyncWithBPMS` story).
 
+### When a phase-one check runs (story 87)
+
+The non-advancing checks of phase one - the job-timeout update for a service task, the empty
+update for a user task - run right before the caller's transaction commits, not when the
+application calls. The later the check, the smaller the window in which its answer can go
+stale before phase two acts on it, and a failing check aborts the commit, which is how the
+application learns about a task which is already gone.
+
+The adapter no longer carries that mechanism. It hands the check to the platform
+(`PreCommitRegistrar` of the adapter SPI), naming the workflow aggregate, and the platform
+asks the transaction runner of that aggregate - which since story 70 may be a unit of work the
+application brought. A runner which cannot offer a pre-commit hook runs the check immediately,
+the behaviour this adapter had before.
+
 ### Which phase-two failures are repeated (story 73)
 
 The phase-two outbox repeats a failed operation until the entry is blocked. That is right for
