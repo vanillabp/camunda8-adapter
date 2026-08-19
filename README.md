@@ -52,6 +52,11 @@ against IS the lowest cluster version that build accepts. As soon as an artifact
 anything only an 8.10 cluster has, every later bugfix in it is deliverable only together
 with a cluster upgrade.
 
+That the other direction really does fail is measured rather than assumed: the blueprints
+ran a build against `camunda/camunda:8.8.34` while the adapter was compiled against the
+8.9 client, and every job activation was rejected with `Request property [tenantFilter]
+cannot be parsed`, so a workflow started and its task was never delivered.
+
 The adapter is therefore published once per Camunda 8 minor, with the minor in the version:
 
 |   Channel   |        Version        |   Client pin    |         Tested cluster          |            What lands there            |
