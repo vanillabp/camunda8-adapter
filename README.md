@@ -39,10 +39,177 @@ This adapter runs on both platforms VanillaBP supports:
 Coverage is measured separately per platform - a platform's tests never cover the other
 platform's code. Click a badge to open the respective report.
 
+## Release lines
+
+A Camunda 8 cluster upgrade is expensive, more so organizationally than technically, and
+users sit on different minors at the same time. VanillaBP still has to move onto every new
+Camunda version quickly, because some of what users ask for exists only in the newest
+cluster and some of it is what the adapter itself needs.
+
+One artifact cannot do both. Camunda promises a client against clusters of its own version
+and newer, and says nothing about the other direction, so the client a build was compiled
+against IS the lowest cluster version that build accepts. As soon as an artifact uses
+anything only an 8.10 cluster has, every later bugfix in it is deliverable only together
+with a cluster upgrade.
+
+The adapter is therefore published once per Camunda 8 minor, with the minor in the version:
+
+|   Channel   |        Version        |   Client pin    |         Tested cluster          |            What lands there            |
+|-------------|-----------------------|-----------------|---------------------------------|----------------------------------------|
+| previous GA | `2.x.y-8.8`           | `8.8.35`        | `camunda/camunda:8.8.35`        | bugfixes only                          |
+| current GA  | `2.x.y-8.9`           | `8.9.16`        | `camunda/camunda:8.9.16`        | everything                             |
+| preview     | `2.x.y-8.10-alpha<n>` | `8.10.0-alpha4` | `camunda/camunda:8.10.0-alpha4` | everything, plus what only 8.10 can do |
+
+The tested cluster is the pinned client, and nothing else may appear here as a supported
+version: a newer cluster is not tested rather than not supported. Camunda documents its
+clients as forward compatible, so a line normally serves clusters above its pin as well,
+but that is Camunda's promise and not this project's test result.
+
+The preview line is not publishable at the moment. On `8.10.0-alpha4` the user-task listener
+job of the event type `creating` never reaches its worker, so three tests of
+`Camunda8TaskProcessingIT` time out while the other 34 tests of the line pass. The cause is an
+open Camunda bug, `camunda/camunda#58193`: the REST gateway throws a `NullPointerException`
+while converting a `TASK_LISTENER` job and drops the whole activate-jobs batch. Story 94
+carries it, and until it is settled the nightly matrix stays red on that line, which is the
+point of running it.
+
+Snapshots have no suffix yet. Until the first release they are `2.0.0-SNAPSHOT` of the
+current GA line, which is what a build without a profile produces.
+
+### Which line to use, and moving to the next one
+
+Take the line whose pin is at or below your cluster's minor. On 8.8 that is `-8.8`, on 8.9
+and above `-8.9`, and `-8.10-alpha<n>` if you run an alpha, usually because the cluster is
+not productive yet and you want everything the newest one offers.
+
+Moving to the next line means upgrading the cluster, so it is one decision and not two.
+Renovate will not do it behind your back: the version suffix is read as a compatibility
+value, and Renovate never proposes an update that changes it. Extend the preset shipped
+here to inherit that in your own application:
+
+```json
+{
+  "extends": ["github>vanillabp/camunda8-adapter//renovate/camunda8-lines.json"]
+}
+```
+
+The VanillaBP-facing API is identical on every line, checked in CI by
+`bin/api-identity.sh`. You never have to read a version suffix to find out which methods
+exist. Where a line's cluster cannot do something, the same method is there and fails with
+a message naming your line, the way `cancelUserTask` does. The adapter logs the line and
+the client it was built against once per adapter id at startup, so the log says which
+cluster minimum is in effect.
+
+### How long a line lives
+
+A GA line lives until the next minor goes GA, so there are two GA lines at a time plus the
+preview. When 8.10 goes GA in October 2026, 8.9 becomes the previous GA and 8.8 ends, even
+though Camunda supports 8.8 until April 2027. That is our policy and not a technical limit:
+it keeps the matrix at three builds and three cluster runs.
+
+### How the lines are built
+
+Every line is a build variant of this one source tree, not a maintenance branch. A line is
+a Maven profile that selects the client pin, and with it the cluster the integration tests
+run against:
+
+```bash
+mvn install verify                                          # current GA line, 2.0.0-SNAPSHOT
+mvn -Pline-8.8 -Drevision=2.1.0-8.8 clean install verify    # a release of the previous GA line
+mvn -Pline-8.10 -Drevision=2.1.0-8.10-alpha1 clean install verify
+```
+
+Switching a line always needs `clean`, and the CI does it that way. Classes compiled
+against one client are binary compatible with no other one: a method the 8.9 model library
+inherits from a type 8.8 does not have at all is called through the owner the compiler saw,
+so a stale `target/` fails at runtime with a `NoClassDefFoundError` rather than at compile
+time. Building the same line again is fine.
+
+The version is `${revision}`, resolved into the published POMs by `flatten-maven-plugin`,
+so the same commit produces every line. A fix therefore exists on every line the moment it
+is committed, and the version number proves it is the same fix. Branches cannot promise
+that, and the adapter changes constantly for reasons that have nothing to do with Camunda,
+which would mean cherry-picking every one of those changes into every line.
+
+Code that cannot be shared goes into a per-line source directory added by
+`build-helper-maven-plugin`, `src/main/java-line-<id>` and `src/test/java-line-<id>`. Only
+two kinds of code belong there: code that cannot compile against every supported client,
+and code that uses something only a newer cluster has. Today the main directories do not
+exist at all, because the same source compiles against 8.8, 8.9 and the 8.10 alpha. The
+test directories hold one test per line, which proves the pin reached the runtime.
+
+What a line did need so far is a dependency pin rather than code. The 8.10 client brings
+generated protobuf code linked against 4.35.1, and protobuf refuses a runtime older than
+its gencode, while the Spring Boot BOM manages 4.34.2 and an imported BOM beats a
+transitive version. The parent POM therefore manages `protobuf-java` itself, before that
+import, high enough for every pinned client. It has to be raised whenever a client's
+gencode goes above it; the failure otherwise is an `ExceptionInInitializerError` on the
+first command that touches the protocol, which the integration tests of the line catch.
+
+### The tripwire
+
+This scheme was chosen because the per-line delta is small. If the delta grows past a
+handful of classes, or the shared code stops compiling on a line in a way a small shim
+cannot bridge, then it has become a branch scheme in disguise, and the line is to be split
+off deliberately as a maintenance branch. Whoever hits that limit will not be
+the person who chose the scheme, so it is written down here.
+
+### Version ordering, and why Renovate does not use maven versioning
+
+Maven orders the suffix as an addition rather than as a pre-release, which is what makes it
+usable at all: `2.1.0-8.8 > 2.1.0`, and `2.1.0-8.9 < 2.1.0-8.10` numerically rather than
+lexically. One comparison goes wrong, and it is the whole risk of a suffix:
+`2.1.0-8.9 < 2.2.0-8.8`, so "the newest version" can cross a line boundary. Renovate reads
+the suffix as a compatibility value instead of a version part, which fixes exactly that.
+`renovate/verify-line-gating.js` runs the check in CI, including the case above.
+
+A pre-release of the preview line is `2.2.0-8.10-alpha1`: the qualifier comes after the
+line, so the line always sits in the same place, and Maven sorts
+`2.2.0-8.10-alpha1 < 2.2.0-8.10-alpha2 < 2.2.0-8.10`. `preview1` was rejected, because
+Maven ranks an unknown qualifier ABOVE the release: `2.2.0-8.10-preview1 > 2.2.0-8.10`.
+
+### What CI runs
+
+The nightly matrix (`.github/workflows/line-matrix.yaml`) builds every live line with its
+own version string and runs its integration tests against its own cluster. The matrix is
+read out of the `line-*` profiles, so it cannot fall behind the build. A pull request runs
+the current GA line alone: the Camunda 8 integration tests are the slowest thing in the
+workspace, and every story touching the adapter would otherwise pay for every line. What a
+pull request does run for all lines is the API identity check, which needs no cluster.
+
+### Handover to story 31 (release and CI plumbing)
+
+A release of one line consists of:
+
+1. `mvn -Pline-<id> -Drevision=<version>-<id> deploy` from the release commit, once per
+   live line, all from the same commit. The preview line publishes as a pre-release with
+   `-alpha<n>` appended.
+2. The nightly matrix green for every line, because that is the only evidence for the
+   tested-cluster column of the table above.
+3. The API identity check green, so no line gained or lost a method.
+4. The line table of this README and of the wiki updated when a pin moved.
+5. The version property of every consumer pointed at the suffixed coordinates. The
+   blueprints carry `camunda8-adapter.version`, which is `2.0.0-SNAPSHOT` today and has to
+   become a suffixed version with the first release. That switch is the moment the suffix
+   becomes visible to users, and `UPGRADE.md` describes it.
+6. The consumers of the snapshot follow the current GA line too. The blueprints start a
+   Camunda 8 cluster of their own for the CI (`bin/camunda8_cluster.sh`), and that cluster
+   has to be at least the client the adapter was built against, so it moves with the
+   default line.
+7. One real `renovate --dry-run` against the published artifacts. The gating is proven
+   today by `renovate/verify-line-gating.js`, which asks Renovate's own versioning module
+   what it would offer a consumer of each line; a full dry run needs versions in a
+   datasource, and until the first release there are none.
+
+Rotating the lines when a minor goes GA touches four places: the `line-*` profiles and the
+pin properties of the parent POM, the boundary rule of `renovate.json`, the table above,
+and the wiki.
+
 ## Dependencies
 
-All artifacts use the groupId `org.camunda.community.vanillabp` and version
-`2.0.0-SNAPSHOT`.
+All artifacts use the groupId `org.camunda.community.vanillabp`. Their version carries the
+release line once the adapter is released, e.g. `2.1.0-8.9`; until then it is
+`2.0.0-SNAPSHOT` of the current GA line, see [Release lines](#release-lines).
 
 ### Spring Boot
 
@@ -342,11 +509,12 @@ notification handler is OPTIONAL. `completeUserTask` sends `CompleteUserTask` by
 the user-task key after the commit (phase one re-checks existence pre-commit via
 an empty `UpdateUserTask` carrying only an audit `action` - also the awareness
 probe; note: modeller-defined `updating` listeners would fire on probes).
-**`cancelUserTask` is NOT supported on Camunda 8.8:** the engine offers no
-command to cancel a Camunda-managed user task by BPMN error (ThrowError is
-job-based) and V1's marker-variable workaround is broken by V1's own admission -
-a guiding error explains it; expected to arrive with the Camunda 8.10 listener
-support (see the prepared follow-up prompt).
+**`cancelUserTask` is NOT supported by any cluster up to 8.9:** the engine
+offers no command to cancel a Camunda-managed user task by BPMN error (ThrowError
+is job-based) and V1's marker-variable workaround is broken by V1's own admission
+- a guiding error naming the release line explains it; the listeners it needs
+arrive with Camunda 8.10, so it can only ever come on a line built against 8.10
+or later (see the prepared follow-up prompt).
 
 **Message correlation (story 23):** `correlateMessage` publishes AFTER the commit
 (outbox) with `correlationKey = correlationId ?? aggregate ID` and NO variables
@@ -549,7 +717,7 @@ committing last puts back what it read, so an iteration should write a row of it
   configuration validation (missing-property messages, self-managed/SaaS), and the
   process-service phase behavior.
 - **Spring Boot** `Camunda8DeploymentAndStartIT` (real Camunda 8 via Testcontainers,
-  image `camunda/zeebe:8.8.31`, standalone broker without Elasticsearch): boots the
+  the cluster image of `ClusterUnderTest`, standalone broker without Elasticsearch): boots the
   application (deploying the BPMN to the cluster on startup) and drives the full two-phase
   start through `ProcessService#startWorkflow` inside a JPA transaction with the gruelbox
   outbox. It asserts that the process instance appears only **after** the transaction
@@ -629,17 +797,20 @@ is open or was just dispatched - was weighed and dropped; the reasoning is in
 
 ### Cancel user task
 
-Camunda 8.8 offers no command to cancel a Camunda-managed user task by BPMN error: *throw
-error* is job-based, and a user task is not a job. Version 1's marker-variable workaround is
-broken by Version 1's own admission, so `cancelUserTask` throws a guiding error rather than
-pretending to work. Expected to arrive with the Camunda 8.10 task-listener capabilities.
+No Camunda 8 cluster up to 8.9 offers a command to cancel a Camunda-managed user task by
+BPMN error: *throw error* is job-based, and a user task is not a job. Version 1's
+marker-variable workaround is broken by Version 1's own admission, so `cancelUserTask`
+throws a guiding error naming the [release line](#release-lines) rather than pretending to
+work. The task listeners it needs arrive with Camunda 8.10, so support for it can only ever
+come on a line built against 8.10 or later.
 
 ### Task cancellation is not reported
 
 `@TaskEvent CANCELED` cannot be delivered for service tasks, because Zeebe does not notify
 workers about canceled jobs, so a handler subscribing to lifecycle events never learns that
-an open asynchronous task's activity was canceled. Camunda 8.10 announces the event type
-`canceling`, which the prepared follow-up will verify before anything is reported.
+an open asynchronous task's activity was canceled. The event type `canceling` landed in
+8.10.0-alpha2, so this belongs to a line built against 8.10 or later; the prepared follow-up
+verifies it against a cluster before anything is reported.
 
 ### The end of a workflow
 
@@ -674,7 +845,8 @@ arrive several times over a workflow's lifetime.
 
 ## Camunda 8 client
 
-The adapter uses the plain Java client `io.camunda:camunda-client-java` (8.8.x), **not**
+The adapter uses the plain Java client `io.camunda:camunda-client-java`, pinned per
+[release line](#release-lines), **not**
 Camunda's Spring SDK / Spring Zeebe: VanillaBP does platform wiring and configuration
 itself, so a client that carries its own platform integration would conflict with it.
 (The deprecated `io.camunda:zeebe-client-java` is deliberately avoided.)
@@ -693,6 +865,10 @@ order): `spi-for-java`, then `adapter-platform-integration`. Then:
 ```bash
 mvn install verify
 ```
+
+That is the current GA line as `2.0.0-SNAPSHOT`, no property to remember. Another line is
+a profile, another version a `-Drevision`, and `bin/api-identity.sh` compares the public
+API of the lines; see [Release lines](#release-lines).
 
 ## Test coverage
 

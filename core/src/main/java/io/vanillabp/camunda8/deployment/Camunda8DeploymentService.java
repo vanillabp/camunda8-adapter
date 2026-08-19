@@ -13,6 +13,7 @@ import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.Process;
 import io.vanillabp.camunda8.Camunda8ProcessingContext;
+import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.wiring.Camunda8JobHandler;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
@@ -181,6 +182,16 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
     AdapterPlatformVersion.requireCompatiblePlatform(ADAPTER_TYPE, Camunda8DeploymentService.class);
+
+    // which release line this application runs, once per adapter id: the client named
+    // here is the LOWEST cluster version these artifacts accept, and a reader comparing
+    // it to their cluster sees at a glance whether they are on the right line (story 53)
+    log.info(
+        "Camunda8[{}]: release line {} of the adapter, built against Camunda client {}, "
+            + "which is the lowest cluster version it accepts",
+        adapterId,
+        Camunda8ReleaseLine.id(),
+        Camunda8ReleaseLine.clientVersion());
 
     this.adapterId = adapterId;
     this.clientFactory = clientFactory;

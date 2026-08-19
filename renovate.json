@@ -1,0 +1,104 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "github>vanillabp/renovate-config",
+    "github>vanillabp/camunda8-adapter//renovate/camunda8-lines.json"
+  ],
+  "timezone": "Europe/Vienna",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The pin of the previous-GA line.",
+      "managerFilePatterns": ["/^pom\\.xml$/"],
+      "matchStrings": [
+        "<camunda8\\.version\\.line-8\\.8>(?<currentValue>[^<]+)</camunda8\\.version\\.line-8\\.8>"
+      ],
+      "depNameTemplate": "camunda-client-java (line 8.8)",
+      "packageNameTemplate": "io.camunda:camunda-client-java",
+      "datasourceTemplate": "maven",
+      "versioningTemplate": "maven"
+    },
+    {
+      "customType": "regex",
+      "description": "The pin of the current-GA line, which is also the default of a plain build.",
+      "managerFilePatterns": ["/^pom\\.xml$/"],
+      "matchStrings": [
+        "<camunda8\\.version\\.line-8\\.9>(?<currentValue>[^<]+)</camunda8\\.version\\.line-8\\.9>"
+      ],
+      "depNameTemplate": "camunda-client-java (line 8.9)",
+      "packageNameTemplate": "io.camunda:camunda-client-java",
+      "datasourceTemplate": "maven",
+      "versioningTemplate": "maven"
+    },
+    {
+      "customType": "regex",
+      "description": "The pin of the preview line, which follows the alphas of the next minor.",
+      "managerFilePatterns": ["/^pom\\.xml$/"],
+      "matchStrings": [
+        "<camunda8\\.version\\.line-8\\.10>(?<currentValue>[^<]+)</camunda8\\.version\\.line-8\\.10>"
+      ],
+      "depNameTemplate": "camunda-client-java (line 8.10 preview)",
+      "packageNameTemplate": "io.camunda:camunda-client-java",
+      "datasourceTemplate": "maven",
+      "versioningTemplate": "maven"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "VanillaBP and the adapters follow the framework, not Renovate: their versions are bumped when a release is cut, and while they are snapshots there is nothing to look up.",
+      "matchPackageNames": ["/^io\\.vanillabp/", "/^org\\.camunda\\.community\\.vanillabp/"],
+      "enabled": false
+    },
+    {
+      "description": "The client pins are maintained by the custom managers above, one per line. Renovate's own maven manager sees the same dependency a second time through the dependencyManagement entry and would open a second pull request for a property one of those managers already owns.",
+      "matchManagers": ["maven"],
+      "matchPackageNames": ["io.camunda:camunda-client-java"],
+      "enabled": false
+    },
+    {
+      "description": "Every line keeps its own pin, so a client update is proposed per line rather than as one shared PR: the lines are released separately and a failure on the preview must not hold up a bugfix on a GA line. A patch and a minor are separated here rather than repository-wide, because for these pins the two mean different things: upkeep inside the line, and a new line.",
+      "matchDepNames": [
+        "camunda-client-java (line 8.8)",
+        "camunda-client-java (line 8.9)",
+        "camunda-client-java (line 8.10 preview)"
+      ],
+      "groupName": null,
+      "addLabels": ["camunda8-line-pin"],
+      "separateMinorPatch": true
+    },
+    {
+      "description": "A patch of the client stays inside the line: the minimum cluster version does not move, so this is ordinary upkeep.",
+      "matchDepNames": [
+        "camunda-client-java (line 8.8)",
+        "camunda-client-java (line 8.9)",
+        "camunda-client-java (line 8.10 preview)"
+      ],
+      "matchUpdateTypes": ["patch"],
+      "automerge": false
+    },
+    {
+      "description": "A minor of the client is a new line, not an update. The client a build was compiled against is the lowest cluster version that build accepts, so this bump raises the cluster requirement of everybody who consumes the line. It gets a branch of its own, waits for approval on the dependency dashboard and never merges itself. Rotating the lines is more than this pin: it also means a profile, the pin properties, the line table of the README and a release of the new line.",
+      "matchDepNames": [
+        "camunda-client-java (line 8.8)",
+        "camunda-client-java (line 8.9)",
+        "camunda-client-java (line 8.10 preview)"
+      ],
+      "matchUpdateTypes": ["minor", "major"],
+      "groupName": null,
+      "additionalBranchPrefix": "camunda8-line-boundary-",
+      "addLabels": ["camunda8-line-boundary"],
+      "dependencyDashboardApproval": true,
+      "automerge": false,
+      "schedule": ["* * 8-14 4,10 *"],
+      "prBodyNotes": [
+        "This crosses a release-line boundary. A Camunda 8 cluster and the applications running on it move together, and a cluster upgrade costs more organizationally than technically, which is why the lines exist at all. Merging this raises the lowest cluster version the built artifacts accept.",
+        "Before merging: is the new minor GA, does the line table of the README still describe reality, and does the previous GA line end with it?"
+      ]
+    },
+    {
+      "description": "The preview line follows Camunda's alphas but not their release candidates: an -rc is a step on the way to an alpha, not something to build a published line on.",
+      "matchDepNames": ["camunda-client-java (line 8.10 preview)"],
+      "allowedVersions": "!/-rc\\d+$/"
+    }
+  ]
+}

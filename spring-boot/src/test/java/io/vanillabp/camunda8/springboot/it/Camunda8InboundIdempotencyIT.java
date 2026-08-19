@@ -3,7 +3,6 @@ package io.vanillabp.camunda8.springboot.it;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Duration;
 import java.util.List;
 
 import javax.sql.DataSource;
@@ -21,7 +20,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -56,16 +54,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 public class Camunda8InboundIdempotencyIT {
 
   @Container
-  static final GenericContainer<?> CAMUNDA = new GenericContainer<>(
-      DockerImageName.parse("camunda/zeebe:8.8.31"))
-      .withExposedPorts(8080, 26500, 9600)
-      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
-      .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
-      .waitingFor(org.testcontainers.containers.wait.strategy.Wait
-          .forHttp("/actuator/health/readiness")
-          .forPort(9600)
-          .forStatusCode(200)
-          .withStartupTimeout(Duration.ofMinutes(3)));
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
 
   @DynamicPropertySource
   static void camunda8Properties(
