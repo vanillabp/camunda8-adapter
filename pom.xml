@@ -4,7 +4,7 @@
 
   <groupId>org.camunda.community.vanillabp</groupId>
   <artifactId>camunda8-adapter-parent</artifactId>
-  <version>2.0.0-SNAPSHOT</version>
+  <version>${revision}</version>
   <packaging>pom</packaging>
   <name>VanillaBP Camunda 8 adapter</name>
   <description>VanillaBP adapter for Camunda 8 (Version 2)</description>
@@ -51,7 +51,24 @@
     <adapter-platform.version>2.0.0-SNAPSHOT</adapter-platform.version>
     <springboot.version>4.1.0</springboot.version>
     <quarkus.version>3.37.1</quarkus.version>
-    <camunda8.version>8.8.31</camunda8.version>
+    <!-- The version of every artifact, resolved into the published POMs by the
+         flatten plugin. A plain 'mvn install' builds 2.0.0-SNAPSHOT of the current GA
+         line, which is what a developer of this repository wants and needs to remember
+         no property for. A release of a line adds the line to it, e.g.
+         '-Pline-8.8 -Drevision=2.1.0-8.8'. See the README, section "Release lines". -->
+    <revision>2.0.0-SNAPSHOT</revision>
+    <!-- The release line this build produces: the Camunda client it is compiled against
+         and, because a client is only promised against clusters of its own version and
+         newer, the lowest cluster version the artifacts accept. Every line is built from
+         THIS source tree, so a fix exists on every line the moment it is committed.
+         The properties below are what Renovate maintains, one per line, and what the
+         line-* profiles select. Their values are the pins the CI matrix runs. -->
+    <camunda8.line>8.9</camunda8.line>
+    <camunda8.version>${camunda8.version.line-8.9}</camunda8.version>
+    <camunda8.version.line-8.8>8.8.35</camunda8.version.line-8.8>
+    <camunda8.version.line-8.9>8.9.16</camunda8.version.line-8.9>
+    <camunda8.version.line-8.10>8.10.0-alpha4</camunda8.version.line-8.10>
+    <protobuf.version>4.35.1</protobuf.version>
     <!-- the cluster the integration tests run against follows the pinned client: the
          client a build was compiled against IS the minimum cluster version of that
          build, so testing anything newer would prove nothing about it -->
@@ -61,6 +78,18 @@
 
   <dependencyManagement>
     <dependencies>
+      <!-- Protobuf refuses a runtime older than the generated code linked against it, and
+           the Camunda client brings generated code: the 8.10 client needs 4.35.1, while
+           the Spring Boot BOM manages 4.34.2 and would win, because an imported BOM beats
+           a transitive version. This entry stands BEFORE that import, so it is what every
+           line gets, and it has to be at least the highest gencode version of the pinned
+           clients. Raising it is safe, holding it back is not: the failure is an
+           ExceptionInInitializerError on the first command that uses the protocol. -->
+      <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java</artifactId>
+        <version>${protobuf.version}</version>
+      </dependency>
       <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-dependencies</artifactId>
@@ -176,6 +205,68 @@
       </plugins>
     </pluginManagement>
     <plugins>
+      <!-- resolves '${revision}' in the POMs that get installed and deployed; without it
+           a consumer would read a version they cannot resolve -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>flatten-maven-plugin</artifactId>
+        <version>1.8.0</version>
+        <configuration>
+          <updatePomFile>true</updatePomFile>
+          <flattenMode>resolveCiFriendliesOnly</flattenMode>
+        </configuration>
+        <executions>
+          <execution>
+            <id>flatten</id>
+            <goals>
+              <goal>flatten</goal>
+            </goals>
+            <phase>process-resources</phase>
+          </execution>
+          <execution>
+            <id>flatten-clean</id>
+            <goals>
+              <goal>clean</goal>
+            </goals>
+            <phase>clean</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- The per-line delta: code which cannot compile against every supported client,
+           or which uses something only a newer cluster has. Everything else stays
+           shared, which is the whole point of building the lines from one source tree.
+           The directories are usually absent, and that is the intended state. -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>3.6.1</version>
+        <executions>
+          <execution>
+            <id>per-line-sources</id>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <phase>generate-sources</phase>
+            <configuration>
+              <sources>
+                <source>src/main/java-line-${camunda8.line}</source>
+              </sources>
+            </configuration>
+          </execution>
+          <execution>
+            <id>per-line-test-sources</id>
+            <goals>
+              <goal>add-test-source</goal>
+            </goals>
+            <phase>generate-test-sources</phase>
+            <configuration>
+              <sources>
+                <source>src/test/java-line-${camunda8.line}</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
@@ -236,6 +327,12 @@
             <excludes>
               <exclude>**/target/**/</exclude>
               <exclude>**/node_modules/**/</exclude>
+              <!--
+                Workflow files are excluded on purpose, the same way the blueprints
+                repository does it: the formatter drops comments, and it unquotes version
+                numbers, which turns the release line '8.10' into 8.1 without a word.
+              -->
+              <exclude>.github/workflows/**</exclude>
             </excludes>
             <jackson>
               <yamlFeatures>
@@ -246,6 +343,13 @@
             </jackson>
           </yaml>
           <java>
+            <!-- the per-line delta is code like any other, so the formatter sees it too -->
+            <includes>
+              <include>src/main/java/**/*.java</include>
+              <include>src/test/java/**/*.java</include>
+              <include>src/main/java-line-*/**/*.java</include>
+              <include>src/test/java-line-*/**/*.java</include>
+            </includes>
             <eclipse>
               <file>${maven.multiModuleProjectDirectory}/formatting_conventions.xml</file>
               <version>4.35</version>
@@ -267,4 +371,40 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- One profile per release line. It selects the client pin, and with it the cluster
+         the integration tests run against, and it names the line for the runtime message
+         and for the delta source directory. The properties above are the current GA line,
+         so a build without any profile is that line: nothing to remember, and no
+         'activeByDefault' which any other profile on the command line would switch off.
+         Rotating the lines means editing these profiles, the pin properties, the Renovate
+         boundary rule and the line table of the README. -->
+    <profile>
+      <!-- previous GA: bugfixes only, ends when the next minor goes GA -->
+      <id>line-8.8</id>
+      <properties>
+        <camunda8.line>8.8</camunda8.line>
+        <camunda8.version>${camunda8.version.line-8.8}</camunda8.version>
+      </properties>
+    </profile>
+    <profile>
+      <!-- current GA: everything lands here, and it is what a plain build produces -->
+      <id>line-8.9</id>
+      <properties>
+        <camunda8.line>8.9</camunda8.line>
+        <camunda8.version>${camunda8.version.line-8.9}</camunda8.version>
+      </properties>
+    </profile>
+    <profile>
+      <!-- preview: built against the alpha of the next minor and published as a
+           pre-release, so a feature only the new cluster can do is deliverable before
+           that cluster is GA -->
+      <id>line-8.10</id>
+      <properties>
+        <camunda8.line>8.10</camunda8.line>
+        <camunda8.version>${camunda8.version.line-8.10}</camunda8.version>
+      </properties>
+    </profile>
+  </profiles>
 </project>

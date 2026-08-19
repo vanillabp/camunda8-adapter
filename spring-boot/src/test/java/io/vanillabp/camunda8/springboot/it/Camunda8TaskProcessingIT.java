@@ -21,6 +21,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -478,9 +479,12 @@ public class Camunda8TaskProcessingIT {
           final var aggregate = repository.findById(aggregateId).orElseThrow();
           workflowService.cancelUserTask(aggregate, taskId, "SOME_ERROR");
         }));
+    // the message names the release line the application runs, not a fixed version:
+    // that is what a reader has to change to get the operation (story 53)
     assertTrue(
-        exception.getMessage().contains("8.8"),
-        "expected the guiding 8.8 explanation but got: "
+        exception.getMessage().contains("release line "
+            + Camunda8ReleaseLine.id()) && exception.getMessage().contains("8.10"),
+        "expected the guiding explanation naming the release line and where the operation arrives, but got: "
             + exception.getMessage());
 
   }

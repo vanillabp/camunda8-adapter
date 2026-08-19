@@ -1,0 +1,78 @@
+name: Release lines
+"on":
+  schedule:
+    # Early enough to be green or red before anybody starts working.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+  # so the release workflow of story 31 can run the matrix before it publishes
+  workflow_call:
+permissions:
+  contents: read
+env:
+  # The VanillaBP artifacts are 2.0.0-SNAPSHOT and live in GitHub Packages until the
+  # release. Reading them needs a token, see github-packages-settings.xml.
+  USER_NAME: "${{ secrets.VANILLABP_USER_NAME }}"
+  USER_TOKEN: "${{ secrets.VANILLABP_USER_TOKEN }}"
+jobs:
+  # The live lines are not maintained here: they are the line-* profiles of the parent
+  # POM, which also carry the pins. So the matrix cannot fall behind the build.
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      lines: "${{ steps.list.outputs.lines }}"
+    steps:
+      - uses: actions/checkout@v5
+      - id: list
+        name: Collect the release lines
+        run: |
+          list=$(sed -n 's|.*<id>line-\([0-9][^<]*\)</id>.*|\1|p' pom.xml \
+            | jq -R -s -c 'split("\n")[:-1]')
+          echo "lines=${list}" >> "$GITHUB_OUTPUT"
+          echo "Building lines: ${list}"
+
+  # One build per line, against the cluster that line pins, with its own version string.
+  # This is the primary test of the release lines, and the only thing that may appear as
+  # a supported cluster version in the README: a cluster the CI does not run is not
+  # tested.
+  #
+  # A pull request runs the current GA line alone, through the publish workflow. The
+  # Camunda 8 integration tests are the slowest thing in the workspace, and every story
+  # touching the adapter would otherwise pay for every line.
+  line:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        line: "${{ fromJSON(needs.discover.outputs.lines) }}"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          java-version: 21
+          distribution: temurin
+          cache: maven
+      - name: "Build and test line ${{ matrix.line }}"
+        # 'clean', because classes compiled against another client are binary compatible
+        # with nothing, and the revision is the version string this line would publish,
+        # so the build proves the coordinates as well as the code.
+        run: mvn -s "$GITHUB_WORKSPACE/.github/workflows/github-packages-settings.xml"
+          --batch-mode --no-transfer-progress --update-snapshots
+          -Pline-${{ matrix.line }} -Drevision=2.0.0-${{ matrix.line }}-SNAPSHOT
+          clean install verify
+      - name: The cluster and the client this line was tested against
+        run: |
+          cat spring-boot/target/test-classes/camunda8-cluster.properties
+          cat core/target/classes/META-INF/vanillabp/adapter-camunda8.properties
+
+  # One name that never changes, so branch protection and story 31 have something to
+  # require while the matrix grows and shrinks with the lines.
+  lines-verified:
+    if: always()
+    needs: line
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every line built
+        run: |
+          echo "lines: ${{ needs.line.result }}"
+          [ "${{ needs.line.result }}" = "success" ]

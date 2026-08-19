@@ -1,0 +1,54 @@
+name: Checks
+"on":
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  # The VanillaBP artifacts are 2.0.0-SNAPSHOT and live in GitHub Packages until the
+  # release. Reading them needs a token, see github-packages-settings.xml.
+  USER_NAME: "${{ secrets.VANILLABP_USER_NAME }}"
+  USER_TOKEN: "${{ secrets.VANILLABP_USER_TOKEN }}"
+jobs:
+  # The ground rule of the release lines: a user must never read the version suffix of an
+  # artifact to find out which methods exist. This job keeps that true, and it needs no
+  # cluster, so it runs on every pull request while the integration tests of the other
+  # lines wait for the nightly matrix.
+  api-identity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          java-version: 21
+          distribution: temurin
+          cache: maven
+      - name: The public API is the same on every line
+        env:
+          MAVEN_ARGS: -s ${{ github.workspace }}/.github/workflows/github-packages-settings.xml
+            --update-snapshots
+        run: bin/api-identity.sh
+
+  # The Renovate configuration is not read, it is run: the validator on the repository
+  # configuration and on the shareable preset, and the gating check which proves that a
+  # consumer of one line is never offered another one.
+  renovate-configuration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install Renovate
+        run: npm install --no-save --no-audit --no-fund renovate
+      - name: Validate renovate.json
+        run: npx --no-install renovate-config-validator --strict
+      - name: Validate the shareable preset
+        # the validator decides by file name what it is looking at, so the preset is
+        # checked as what a downstream repository will read it as
+        run: |
+          mkdir -p target/preset
+          cp renovate/camunda8-lines.json target/preset/renovate.json
+          (cd target/preset && npx --no-install renovate-config-validator --strict)
+      - name: A consumer of one line is never offered another
+        run: node renovate/verify-line-gating.js

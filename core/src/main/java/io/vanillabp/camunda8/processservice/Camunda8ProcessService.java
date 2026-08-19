@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.processservice;
 
 import io.camunda.client.api.response.ProcessInstanceEvent;
+import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
@@ -502,18 +503,21 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final String taskId,
       final String bpmnProcessId) {
 
-    // Camunda 8.8 offers NO command to cancel a Camunda-managed user task by BPMN
-    // error: ThrowError is job-based (a zeebe:userTask has no job), and the V1
-    // workaround (completing the task with a marker variable evaluated by a
-    // listener) is marked "currently not working" in the V1 adapter itself.
-    // Task/execution listeners of Camunda 8.10 are expected to enable this - see
-    // the prepared follow-up prompt.
+    // No Camunda 8 cluster up to 8.9 offers a command to cancel a Camunda-managed user
+    // task by BPMN error: ThrowError is job-based (a zeebe:userTask has no job), and the
+    // V1 workaround (completing the task with a marker variable evaluated by a listener)
+    // is marked "currently not working" in the V1 adapter itself. The task/execution
+    // listeners of 8.10 are what this needs, so it can only ever arrive on a line built
+    // against 8.10 - see the prepared follow-up prompt. The message names the line
+    // because that is what the reader has to change to get it.
     return new UnsupportedOperationException(
-        ("Canceling user task '%s' of BPMN process '%s' by BPMN error is not supported on "
-            + "Camunda 8.8! The engine offers no command for it (ThrowError is job-based; a "
-            + "Camunda-managed user task has no job). Model the error path explicitly (e.g. a "
-            + "boundary message/signal) or wait for the Camunda 8.10 listener support.")
-            .formatted(taskId, bpmnProcessId));
+        ("Canceling user task '%s' of BPMN process '%s' by BPMN error is not supported by "
+            + "the Camunda 8 cluster of release line %s! The engine offers no command for it "
+            + "(ThrowError is job-based; a Camunda-managed user task has no job). Model the "
+            + "error path explicitly, e.g. a boundary message or signal. The task listeners "
+            + "this needs arrive with Camunda 8.10, so support for it can only ever come on a "
+            + "line built against 8.10 or later.")
+            .formatted(taskId, bpmnProcessId, Camunda8ReleaseLine.id()));
 
   }
 
