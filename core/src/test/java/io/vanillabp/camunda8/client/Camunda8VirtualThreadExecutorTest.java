@@ -2,6 +2,7 @@ package io.vanillabp.camunda8.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
@@ -124,6 +125,59 @@ public class Camunda8VirtualThreadExecutorTest {
           "a scheduled poll runs although every execution slot is blocked");
       assertFalse(pollThreadIsVirtual.get(), "the timing runs on a platform thread");
       release.countDown();
+    } finally {
+      executor.shutdownNow();
+    }
+
+  }
+
+
+  @Test
+  @DisplayName("every way of submitting work runs it on a virtual thread, and every schedule on a platform one")
+  public void everyDelegationKeepsItsHalfOfTheSplit() throws Exception {
+
+    final var executor = new Camunda8VirtualThreadExecutor("c8", 4);
+    try {
+      final java.util.concurrent.Callable<Boolean> virtual = () -> Thread.currentThread().isVirtual();
+
+      assertTrue(executor.submit(virtual).get(5, TimeUnit.SECONDS), "submit(Callable)");
+      assertTrue(executor.submit(() -> {
+      }, Boolean.TRUE).get(5, TimeUnit.SECONDS), "submit(Runnable, result)");
+      assertNull(executor.submit(() -> {
+      }).get(5, TimeUnit.SECONDS), "submit(Runnable)");
+      assertTrue(
+          executor
+              .invokeAll(java.util.List.of(virtual, virtual))
+              .stream()
+              .allMatch(future -> {
+                try {
+                  return future.get();
+                } catch (final Exception e) {
+                  return false;
+                }
+              }),
+          "invokeAll");
+      assertTrue(
+          executor.invokeAll(java.util.List.of(virtual), 5, TimeUnit.SECONDS).getFirst().get(),
+          "invokeAll with a timeout");
+      assertTrue(executor.invokeAny(java.util.List.of(virtual)), "invokeAny");
+      assertTrue(executor.invokeAny(java.util.List.of(virtual), 5, TimeUnit.SECONDS), "invokeAny with a timeout");
+
+      // the timing half: a scheduled task never runs on a virtual thread, whichever
+      // way the client asks for it
+      assertFalse(
+          executor
+              .schedule(virtual, 1, TimeUnit.MILLISECONDS)
+              .get(5, TimeUnit.SECONDS),
+          "schedule(Callable)");
+      final var periodic = new CountDownLatch(2);
+      final var fixedRate = executor.scheduleAtFixedRate(periodic::countDown, 0, 5, TimeUnit.MILLISECONDS);
+      assertTrue(periodic.await(5, TimeUnit.SECONDS), "scheduleAtFixedRate");
+      fixedRate.cancel(true);
+      final var delayed = new CountDownLatch(2);
+      final var fixedDelay = executor.scheduleWithFixedDelay(delayed::countDown, 0, 5, TimeUnit.MILLISECONDS);
+      assertTrue(delayed.await(5, TimeUnit.SECONDS), "scheduleWithFixedDelay");
+      fixedDelay.cancel(true);
     } finally {
       executor.shutdownNow();
     }
