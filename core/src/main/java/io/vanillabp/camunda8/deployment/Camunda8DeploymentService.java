@@ -739,6 +739,84 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   }
 
+  /**
+   * The options every worker of this adapter shares. Everything a worker inherits from the
+   * client (<code>max-jobs-active</code>, <code>poll-interval</code>,
+   * <code>request-timeout</code>, <code>stream-enabled</code>) is set on the CLIENT while it
+   * is built, so an environment variable can still overrule it and be reported for it; only
+   * <code>stream-timeout</code> has no client-wide equivalent and is set here.
+   *
+   * @param builder The worker builder
+   * @return The same builder
+   */
+  io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 applyWorkerOptions(
+      final io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder) {
+
+    final var streamTimeout = clientFactory.getConfiguration().getStreamTimeout();
+    return streamTimeout == null
+        ? builder
+        : builder.streamTimeout(streamTimeout);
+
+  }
+
+  /**
+   * The lock of a worker which serves no task: the user-task lifecycle listeners, the start
+   * events the cluster fires itself and the processes whose end is reported. All three run
+   * application code inside a transaction exactly like a task does, so they are resolved the
+   * way a task's <code>job-timeout</code> is - at adapter, workflow-module and workflow
+   * level, there being no task to key them by - and they default to the same five minutes.
+   * <p>
+   * A worker subscribes by job type, and one user-task listener job type may belong to
+   * several BPMN processes of the module. Where those resolve to different locks the
+   * deployment fails guiding, the same way conflicting job timeouts of one task definition
+   * do.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessIds The BPMN processes this worker serves (scoped ids)
+   * @param kind What kind of worker it is, for the message
+   * @param jobType The job type the worker subscribes to
+   * @return The resolved lock
+   */
+  Duration listenerLockOf(
+      final String workflowModuleId,
+      final List<String> bpmnProcessIds,
+      final String kind,
+      final String jobType) {
+
+    Duration resolved = null;
+    String resolvedFor = null;
+    for (final var bpmnProcessId : bpmnProcessIds) {
+      final var plainBpmnProcessId = plainProcessId(workflowModuleId, bpmnProcessId);
+      final var timeout = jobTimeoutResolver.jobTimeoutFor(workflowModuleId, plainBpmnProcessId, null);
+      if (resolved == null) {
+        resolved = timeout;
+        resolvedFor = plainBpmnProcessId;
+      } else if (!resolved.equals(timeout)) {
+        throw new IllegalStateException(
+            """
+                The %s worker '%s' of workflow module '%s' serves the BPMN processes '%s' and '%s', \
+                whose resolved job timeouts CONFLICT (%s vs. %s)! One worker serves a job type, so \
+                its lock has to be the same for every process using it - align \
+                'vanillabp.workflow-modules.%s.workflows.<workflow>.adapters.%s.job-timeout' for \
+                those processes."""
+                .formatted(
+                    kind,
+                    jobType,
+                    workflowModuleId,
+                    resolvedFor,
+                    plainBpmnProcessId,
+                    resolved,
+                    timeout,
+                    workflowModuleId,
+                    adapterId));
+      }
+    }
+    return resolved == null
+        ? Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT
+        : resolved;
+
+  }
+
   @Override
   public void startWorkflowProcessing(
       final String workflowModuleId,
@@ -793,13 +871,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     userTasksByListenerJobType.forEach((
         listenerJobType,
         bpmnProcessIds) -> {
-      var listenerWorkerBuilder = client
+      var listenerWorkerBuilder = applyWorkerOptions(client
           .newWorker()
           .jobType(listenerJobType)
           .handler(new io.vanillabp.camunda8.wiring.Camunda8UserTaskListenerHandler(
               adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry))
-          .timeout(java.time.Duration.ofMinutes(1))
-          .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType));
+          .timeout(
+              listenerLockOf(workflowModuleId, bpmnProcessIds, "user-task listener", listenerJobType))
+          .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType)));
       final var listenerTenantId = tenantIdOf(workflowModuleId);
       if (listenerTenantId != null) {
         // story 35 / 'by-adapter': jobs of a tenant are only delivered to workers
@@ -821,14 +900,16 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .getBpmsInitiatedStartsToWire()
         .forEach(startEvent -> {
           final var plainProcessId = plainProcessId(workflowModuleId, startEvent.bpmnProcessId());
-          var startWorkerBuilder = client
+          var startWorkerBuilder = applyWorkerOptions(client
               .newWorker()
               .jobType(startEvent.listenerJobType())
               .handler(new io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler(
                   adapterId, workflowModuleId, plainProcessId, startEvent.startEventId(), startEvent.kind(), startEvent
                       .signalName(), bpmsInitiatedStartInvoker))
-              .timeout(java.time.Duration.ofMinutes(1))
-              .name("vanillabp-%s-%s".formatted(adapterId, startEvent.listenerJobType()));
+              .timeout(
+                  listenerLockOf(workflowModuleId, List.of(startEvent.bpmnProcessId()), "start-event", startEvent
+                      .listenerJobType()))
+              .name("vanillabp-%s-%s".formatted(adapterId, startEvent.listenerJobType())));
           final var startTenantId = tenantIdOf(workflowModuleId);
           if (startTenantId != null) {
             startWorkerBuilder = startWorkerBuilder.tenantId(startTenantId);
@@ -846,14 +927,16 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .getWorkflowEndedProcessesToWire()
         .forEach(scopedProcessId -> {
           final var plainProcessId = plainProcessId(workflowModuleId, scopedProcessId);
-          var endWorkerBuilder = client
+          var endWorkerBuilder = applyWorkerOptions(client
               .newWorker()
               .jobType(Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId))
               .handler(new io.vanillabp.camunda8.wiring.Camunda8WorkflowEndedHandler(
                   adapterId, workflowModuleId, plainProcessId, workflowTaskInvoker
                       .resolveWorkflowAggregateIdName(workflowModuleId, plainProcessId), workflowEndedInvoker))
-              .timeout(java.time.Duration.ofMinutes(1))
-              .name("vanillabp-%s-%s".formatted(adapterId, scopedProcessId));
+              .timeout(
+                  listenerLockOf(workflowModuleId, List.of(scopedProcessId), "workflow-end", Camunda8TaskWiring
+                      .workflowEndedJobTypeOf(scopedProcessId)))
+              .name("vanillabp-%s-%s".formatted(adapterId, scopedProcessId)));
           final var endTenantId = tenantIdOf(workflowModuleId);
           if (endTenantId != null) {
             endWorkerBuilder = endWorkerBuilder.tenantId(endTenantId);
@@ -869,13 +952,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     timeoutsByDefinition.forEach((
         taskDefinition,
         timeout) -> {
-      var workerBuilder = client
+      var workerBuilder = applyWorkerOptions(client
           .newWorker()
           .jobType(taskDefinition)
           .handler(new Camunda8JobHandler(
               adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskTimeout, scoping, multiInstanceRegistry))
           .timeout(timeout)
-          .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition));
+          .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)));
       final var workerTenantId = tenantIdOf(workflowModuleId);
       if (workerTenantId != null) {
         workerBuilder = workerBuilder.tenantId(workerTenantId);

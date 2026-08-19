@@ -88,6 +88,21 @@ public class Camunda8ClientProducer {
     keys.region().ifPresent(configuration::setRegion);
     keys.clientId().ifPresent(configuration::setClientId);
     keys.clientSecret().ifPresent(configuration::setClientSecret);
+    keys.jobTimeout().ifPresent(configuration::setJobTimeout);
+    keys.asyncTaskTimeout().ifPresent(configuration::setAsyncTaskTimeout);
+    keys.workflowVisibilityTimeout().ifPresent(configuration::setWorkflowVisibilityTimeout);
+    keys.workerThreads().ifPresent(configuration::setWorkerThreads);
+    keys.workerThreadsBound().ifPresent(configuration::setWorkerThreadsBound);
+    keys.maxJobsActive().ifPresent(configuration::setMaxJobsActive);
+    keys.pollInterval().ifPresent(configuration::setPollInterval);
+    keys.requestTimeout().ifPresent(configuration::setRequestTimeout);
+    keys.streamEnabled().ifPresent(configuration::setStreamEnabled);
+    keys.streamTimeout().ifPresent(configuration::setStreamTimeout);
+    keys.messageTimeToLive().ifPresent(configuration::setMessageTimeToLive);
+    keys.maxMessageSize().ifPresent(configuration::setMaxMessageSize);
+    keys.keepAlive().ifPresent(configuration::setKeepAlive);
+    keys.maxHttpConnections().ifPresent(configuration::setMaxHttpConnections);
+    keys.overrideAuthority().ifPresent(configuration::setOverrideAuthority);
     return configuration;
 
   }

@@ -116,6 +116,90 @@ public class Camunda8AdapterConfiguration {
   private java.time.Duration asyncTaskTimeout;
 
   /**
+   * How this adapter instance runs what it delivers: a positive number of platform
+   * threads, or the literal <code>virtual</code>. Default: four platform threads.
+   * <p>
+   * The number is adapter-wide on purpose: the Camunda client owns one executor and
+   * this adapter owns one client per adapter id, so every worker of the adapter shares
+   * it, across every workflow module that adapter serves. See
+   * {@link Camunda8ExecutionModel} for what the number should be sized against.
+   */
+  private String workerThreads;
+
+  /**
+   * How many handlers may run at the same time while
+   * {@link #workerThreads} is <code>virtual</code> - virtual threads have no limit of
+   * their own, and the client's limit is per worker. Default: the number the
+   * platform-thread mode would use, so switching the mode changes how threads are made
+   * and not how much runs at once. Configuring it without the virtual mode fails the
+   * boot, because it would be ignored.
+   */
+  private Integer workerThreadsBound;
+
+  /**
+   * How many jobs one worker may hold at the same time (the client's
+   * <code>maxJobsActive</code>). Default: eight per execution slot, capped at the
+   * client's own 32 - so the last job of a batch waits for at most seven handler
+   * runtimes at the default of four threads instead of the thirty-one it would wait
+   * with one thread. Camunda's rule is
+   * <code>maxJobsActive &lt; threads &times; (jobTimeout / avgHandlerDuration)</code>.
+   */
+  private Integer maxJobsActive;
+
+  /**
+   * How long a worker waits between two activation requests. Default: the client's 100
+   * milliseconds.
+   */
+  private java.time.Duration pollInterval;
+
+  /**
+   * How long a request to the cluster may take, which for an activation request is also
+   * the long-polling window. Default: the client's 10 seconds.
+   */
+  private java.time.Duration requestTimeout;
+
+  /**
+   * Whether the cluster PUSHES jobs to the workers instead of only answering their
+   * polls. Default: the client's <code>false</code>. It lowers the delivery latency and
+   * adds no concurrency, and it makes the client wrap the execution slots in a second
+   * semaphore of {@link #maxJobsActive} permits whose acquire waits for the job timeout.
+   */
+  private Boolean streamEnabled;
+
+  /**
+   * How long a job stream stays open before the client re-opens it. Default: the
+   * client's. Only relevant with {@link #streamEnabled}.
+   */
+  private java.time.Duration streamTimeout;
+
+  /**
+   * How long the cluster buffers a published message waiting for a subscription, which
+   * is also the window a message id deduplicates in. Default: the client's one hour.
+   */
+  private java.time.Duration messageTimeToLive;
+
+  /**
+   * The client's maximum inbound message size in bytes. Default: the client's.
+   */
+  private Integer maxMessageSize;
+
+  /**
+   * The keep-alive interval of the client's connections. Default: the client's.
+   */
+  private java.time.Duration keepAlive;
+
+  /**
+   * How many HTTP connections the REST transport may open. Default: the client's.
+   */
+  private Integer maxHttpConnections;
+
+  /**
+   * The authority the TLS certificate is verified against, for a gateway reached under
+   * another name than the certificate carries. Default: none.
+   */
+  private String overrideAuthority;
+
+  /**
    * How long a workflow this cluster holds may stay invisible to the query API the
    * awareness probe searches: the exporter feeding that read model runs behind the
    * engine, so a workflow started moments ago is not findable yet.
@@ -209,6 +293,88 @@ public class Camunda8AdapterConfiguration {
                           .map(key -> "'%s'".formatted(propertyKey(adapterId, key)))
                           .collect(java.util.stream.Collectors.joining(", ")))));
     }
+
+  }
+
+  /**
+   * The client's own default for <code>max-jobs-active</code>, which is also the cap of
+   * this adapter's default.
+   */
+  public static final int CLIENT_MAX_JOBS_ACTIVE = 32;
+
+  /**
+   * How many jobs one worker holds per execution slot where nothing is configured.
+   */
+  public static final int JOBS_PER_SLOT = 8;
+
+  /**
+   * The resolved execution model of this adapter instance.
+   *
+   * @param adapterId The adapter id (used to build property keys in messages)
+   * @return The model
+   * @throws IllegalStateException If <code>worker-threads</code> or
+   *           <code>worker-threads-bound</code> is not usable
+   */
+  public Camunda8ExecutionModel executionModel(
+      final String adapterId) {
+
+    return Camunda8ExecutionModel.resolve(adapterId, workerThreads, workerThreadsBound);
+
+  }
+
+  /**
+   * The resolved <code>max-jobs-active</code> of this adapter instance: the configured
+   * value, or {@value #JOBS_PER_SLOT} per execution slot capped at the client's
+   * {@value #CLIENT_MAX_JOBS_ACTIVE}.
+   *
+   * @param adapterId The adapter id (used to build property keys in messages)
+   * @return How many jobs one worker of this adapter may hold at the same time
+   * @throws IllegalStateException If the configured value would leave execution slots
+   *           idle by construction
+   */
+  public int resolvedMaxJobsActive(
+      final String adapterId) {
+
+    final var model = executionModel(adapterId);
+    if (maxJobsActive == null) {
+      return Math.min(model.slots() * JOBS_PER_SLOT, CLIENT_MAX_JOBS_ACTIVE);
+    }
+    if (maxJobsActive < model.slots()) {
+      throw new IllegalStateException(
+          """
+              Camunda 8 adapter '%s' has '%s: %d' while '%s' allows %d handlers at the same time. \
+              A worker never holds more jobs than it was allowed to activate, so %d of the %d \
+              execution slots would stay idle by construction. Raise the one or lower the other \
+              (the default is %d per slot, capped at the client's %d)."""
+              .formatted(
+                  adapterId,
+                  propertyKey(adapterId, "max-jobs-active"),
+                  maxJobsActive,
+                  propertyKey(adapterId, "worker-threads"),
+                  model.slots(),
+                  model.slots() - maxJobsActive,
+                  model.slots(),
+                  JOBS_PER_SLOT,
+                  CLIENT_MAX_JOBS_ACTIVE));
+    }
+    return maxJobsActive;
+
+  }
+
+  /**
+   * Validates everything about the way this adapter instance runs its workers - the
+   * execution model, its bound and <code>max-jobs-active</code>. Called AT STARTUP for
+   * every configured adapter id, independently of whether the connection configuration
+   * is complete: a number which cannot work is a typo, and a typo is worth the boot.
+   *
+   * @param adapterId The adapter id
+   * @throws IllegalStateException If a value is not usable, naming the property and the
+   *           way out
+   */
+  public void validateWorkerConfiguration(
+      final String adapterId) {
+
+    resolvedMaxJobsActive(adapterId);
 
   }
 

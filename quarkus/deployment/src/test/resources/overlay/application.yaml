@@ -5,6 +5,18 @@ vanillabp:
       rest-address: http://localhost:65535
       job-timeout: PT30S
       async-task-timeout: PT2M
+      worker-threads: virtual
+      worker-threads-bound: 6
+      max-jobs-active: 24
+      poll-interval: PT0.25S
+      request-timeout: PT20S
+      stream-enabled: true
+      stream-timeout: PT30M
+      message-time-to-live: PT6H
+      max-message-size: 8388608
+      keep-alive: PT30S
+      max-http-connections: 64
+      override-authority: gateway.internal
   prioritized-adapters:
     - c8
   workflow-modules:

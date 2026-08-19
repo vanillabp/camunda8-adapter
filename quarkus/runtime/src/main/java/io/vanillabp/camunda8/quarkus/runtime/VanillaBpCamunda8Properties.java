@@ -188,6 +188,99 @@ public interface VanillaBpCamunda8Properties {
      */
     Optional<java.time.Duration> workflowVisibilityTimeout();
 
+    /**
+     * How this adapter instance runs what it delivers: a positive number of platform
+     * threads, or the literal <code>virtual</code>. Default: four platform threads.
+     *
+     * @return The execution model
+     */
+    Optional<String> workerThreads();
+
+    /**
+     * How many handlers may run at the same time while <code>worker-threads</code> is
+     * <code>virtual</code>. Default: the number the platform-thread mode would use.
+     *
+     * @return The bound of the virtual-thread executor
+     */
+    Optional<Integer> workerThreadsBound();
+
+    /**
+     * How many jobs one worker may hold at the same time. Default: eight per execution
+     * slot, capped at the client's 32.
+     *
+     * @return The worker's job capacity
+     */
+    Optional<Integer> maxJobsActive();
+
+    /**
+     * How long a worker waits between two activation requests. Default: the client's
+     * 100 milliseconds.
+     *
+     * @return The poll interval
+     */
+    Optional<java.time.Duration> pollInterval();
+
+    /**
+     * How long a request to the cluster may take, which for an activation request is
+     * also the long-polling window. Default: the client's 10 seconds.
+     *
+     * @return The request timeout
+     */
+    Optional<java.time.Duration> requestTimeout();
+
+    /**
+     * Whether the cluster pushes jobs to the workers instead of only answering their
+     * polls. Default: the client's <code>false</code>.
+     *
+     * @return Whether job streaming is switched on
+     */
+    Optional<Boolean> streamEnabled();
+
+    /**
+     * How long a job stream stays open before the client re-opens it. Default: the
+     * client's.
+     *
+     * @return The stream timeout
+     */
+    Optional<java.time.Duration> streamTimeout();
+
+    /**
+     * How long the cluster buffers a published message waiting for a subscription,
+     * which is also the window a message id deduplicates in. Default: the client's one
+     * hour.
+     *
+     * @return The message time-to-live
+     */
+    Optional<java.time.Duration> messageTimeToLive();
+
+    /**
+     * The client's maximum inbound message size in bytes. Default: the client's.
+     *
+     * @return The maximum message size
+     */
+    Optional<Integer> maxMessageSize();
+
+    /**
+     * The keep-alive interval of the client's connections. Default: the client's.
+     *
+     * @return The keep-alive interval
+     */
+    Optional<java.time.Duration> keepAlive();
+
+    /**
+     * How many HTTP connections the REST transport may open. Default: the client's.
+     *
+     * @return The connection limit
+     */
+    Optional<Integer> maxHttpConnections();
+
+    /**
+     * The authority the TLS certificate is verified against. Default: none.
+     *
+     * @return The overridden authority
+     */
+    Optional<String> overrideAuthority();
+
   }
 
 

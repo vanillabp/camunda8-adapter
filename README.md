@@ -139,9 +139,19 @@ which would mean cherry-picking every one of those changes into every line.
 Code that cannot be shared goes into a per-line source directory added by
 `build-helper-maven-plugin`, `src/main/java-line-<id>` and `src/test/java-line-<id>`. Only
 two kinds of code belong there: code that cannot compile against every supported client,
-and code that uses something only a newer cluster has. Today the main directories do not
-exist at all, because the same source compiles against 8.8, 8.9 and the 8.10 alpha. The
-test directories hold one test per line, which proves the pin reached the runtime.
+and code that uses something only a newer cluster has. The test directories hold one test
+per line, which proves the pin reached the runtime.
+
+The main directories hold exactly one class today, `Camunda8JobExecutors`, and it is the
+textbook case for the scheme. The virtual-thread execution model hands the client an
+executor of the adapter's own, and which builder method takes it changed with 8.9: the 8.8
+client knows one executor for both the polling and the handler invocations, while 8.9 asks
+for `jobWorkerSchedulingExecutor` and `jobHandlingExecutor` separately and its
+`jobWorkerExecutor` sets only the first of the two. A client configured through the shared
+method alone would therefore run its handlers on the client's own pool from 8.9 on, which
+is one thread unless something says otherwise - and that is the very defect the model
+exists to fix. The class is package-private and has no public members, so the API identity
+check sees the same declaration on every line.
 
 What a line did need so far is a dependency pin rather than code. The 8.10 client brings
 generated protobuf code linked against 4.35.1, and protobuf refuses a runtime older than
@@ -419,6 +429,85 @@ not see the instance yet (query-API lag), and without secondary storage the prob
 cannot run at all (it then answers honestly "unknown" and the idempotent start
 proceeds — deliberately NOT the optimistic ACTIVE of the election probe, which would
 skip and thereby LOSE workflows). Do not build on exactly-once semantics.
+
+### How the adapter runs what it delivers (story 74)
+
+The Camunda client owns one executor per client and this adapter owns one client per adapter
+id, so a single number decides how much of everything an adapter delivers may be in flight
+at once. Until this story the number was the client's own default of one, nothing passed it
+through, and on the 8.8 client that one thread runs the handler invocations AND the poll
+scheduling of every worker. Measured against a real cluster: an unrelated job of another
+worker waited 8013 ms behind a blocking handler and 13 ms with four threads, and a poll
+scheduled with a delay of 100 ms started 4837 ms late while the broker's counter of
+completed activation requests stood still. The second half is why this was worth a story of
+its own: the backlog was invisible to every client-side signal.
+
+`vanillabp.adapters.<id>.worker-threads` takes a positive number or the literal `virtual`,
+and it sits at adapter level because the executor is per client. A workflow-module level
+would be a lie.
+
+**Four platform threads by default.** More than one, because one is the defect above. Small,
+because every concurrent handler holds a database connection inside VanillaBP's transaction
+and the usual pools are ten (Hikari) to twenty (Agroal) connections wide, so four leaves room
+for the rest of the application. Four was also what turned 8013 ms into 13 ms in the probe.
+The number to size against is the connection pool, not the CPU, and the wiki says so where a
+user looks for it.
+
+**The virtual mode was measured before it was offered.** On Java 21 a `synchronized` block
+around a blocking call pins the carrier thread, which inside a transaction would be a silent
+regression, so the question was settled with a probe rather than an opinion:
+`-Djdk.tracePinnedThreads=full` plus the `jdk.VirtualThreadPinned` JFR event over 64 virtual
+threads x 50 transactions, against Spring's `DataSourceTransactionManager` with HikariCP and
+against Narayana with Agroal, each on embedded H2, on H2 over a TCP socket and on a real
+PostgreSQL 16. Zero pinning events in all six combinations; a positive control (a
+`Thread.sleep` inside `synchronized`) produced four, so the detection was working. The
+drivers moved off `synchronized` for exactly this reason (pgjdbc since 42.5.1, H2 2.x), and
+JDK 24 removes the question altogether. So `virtual` is a supported mode rather than a
+caveat, and the default stays at four platform threads: at the same bound it buys nothing on
+the 8.9 client, which splits scheduling from handling by itself, and a platform pool is what
+every line does natively.
+
+`Camunda8VirtualThreadExecutor` is that split for the 8.8 line: two platform threads for the
+timing, a virtual thread per submitted task for the work, bounded by a semaphore whose
+permits `worker-threads-bound` sizes. Two details are deliberate. The permit is taken INSIDE
+the virtual thread, not in `execute`, because the thread calling `execute` is the client's and
+blocking it would stall the delivery of every other worker - the defect the mode exists to
+avoid. And the bound defaults to the number the platform mode would use, so switching the
+mode changes how threads are made and not how much runs at once. With `stream-enabled` the
+client wraps whatever executor it was given in its own semaphore of `max-jobs-active` permits
+whose acquire waits for the job timeout, so the effective limit is then the smaller of the
+two.
+
+**The worker settings are set on the CLIENT, not on every worker.** A worker builder inherits
+the client's defaults, and setting them per worker would defeat the environment variables the
+next paragraph is about. Only `stream-timeout` has no client-wide equivalent and is therefore
+set per worker. `max-jobs-active` defaults to eight per execution slot capped at the client's
+32, which is the familiar 32 at four slots and scales down to 8 at one, so the last job of a
+batch waits for seven handler runtimes instead of thirty-one. A value below the slot count
+fails the boot: some slots could never be busy.
+
+**The three hard coded one-minute locks are gone.** The user-task lifecycle listener, the
+BPMS-initiated start and the workflow-ended worker run application code in a transaction
+exactly like a task does, so their lock resolves through `Camunda8JobTimeoutResolver` at
+adapter, workflow-module and workflow level (no task level, there being no task to key them
+by) and defaults to the same five minutes as `job-timeout`. There is no reason for two rules.
+One user-task listener job type may belong to several BPMN processes of a module; where those
+resolve to different locks the deployment fails guiding, the same way conflicting job timeouts
+of one task definition do.
+
+**Environment variables keep their power and lose their silence.** The client applies
+`CAMUNDA_*` variables (with legacy `ZEEBE_*` fallbacks) over everything the builder set, and
+the probe proved that nothing is logged about it, not even at TRACE: the addresses, the
+transport preference, the CA certificate, the TLS authority, the default tenant and the
+streaming default could all be replaced without a word in VanillaBP's own log, right after
+VanillaBP had validated and reported them. Switching the override off was rejected, because
+it is today the only way to reach a client option this adapter does not model.
+`Camunda8EnvironmentOverrides` compares what the adapter configured against what the built
+client reports and logs a WARN naming every value a variable changed, with the variable, the
+property key and both values. Credentials are not among the compared values, so no message
+can carry a secret. Note for the authentication story: once a credentials provider is
+installed, the client stops applying the environment's credentials, because it only installs
+those when the application set none.
 
 ### Task processing (story 21c)
 
@@ -731,6 +820,14 @@ committing last puts back what it read, so an iteration should write a row of it
   the service task), and **never** after a rollback (the outbox entry is gone and no job
   is ever activated). Skipped automatically when Docker is unavailable
   (`@Testcontainers(disabledWithoutDocker = true)`).
+- **Spring Boot** `Camunda8WorkerThreadsIT` and `Camunda8VirtualThreadsIT` (real cluster): the
+  acceptance test of story 74. A handler blocks its execution slot for four seconds while a
+  workflow of ANOTHER worker of the same adapter is started, and its job has to be served
+  meanwhile - which one execution thread could not do. The virtual variant asserts the same
+  property plus that the handler really ran on a virtual thread and that the client runs its
+  workers on the adapter's own bounded executor. The bound itself is a unit test
+  (`Camunda8VirtualThreadExecutorTest`), where more concurrent jobs than the bound can be
+  thrown at it without a cluster.
 - **Spring Boot / Quarkus discovery tests:** the adapter is discovered and the deployment
   service (one per configured adapter id), process service and client-factory registry
   beans are created (no cluster needed).

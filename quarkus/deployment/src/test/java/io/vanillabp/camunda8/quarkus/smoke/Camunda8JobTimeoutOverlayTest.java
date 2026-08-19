@@ -88,4 +88,49 @@ public class Camunda8JobTimeoutOverlayTest {
 
   }
 
+
+  @Test
+  public void everyWorkerAndClientKeyIsBoundAndReachesTheClient() {
+
+    final var keys = overlay().adapters().get("c8");
+
+    Assertions.assertEquals("virtual", keys.workerThreads().orElseThrow());
+    Assertions.assertEquals(6, keys.workerThreadsBound().orElseThrow());
+    Assertions.assertEquals(24, keys.maxJobsActive().orElseThrow());
+    Assertions.assertEquals(Duration.ofMillis(250), keys.pollInterval().orElseThrow());
+    Assertions.assertEquals(Duration.ofSeconds(20), keys.requestTimeout().orElseThrow());
+    Assertions.assertTrue(keys.streamEnabled().orElseThrow());
+    Assertions.assertEquals(Duration.ofMinutes(30), keys.streamTimeout().orElseThrow());
+    Assertions.assertEquals(Duration.ofHours(6), keys.messageTimeToLive().orElseThrow());
+    Assertions.assertEquals(8388608, keys.maxMessageSize().orElseThrow());
+    Assertions.assertEquals(Duration.ofSeconds(30), keys.keepAlive().orElseThrow());
+    Assertions.assertEquals(64, keys.maxHttpConnections().orElseThrow());
+    Assertions.assertEquals("gateway.internal", keys.overrideAuthority().orElseThrow());
+
+    // and the values really arrive at the client this adapter id built
+    final var clientConfiguration = io.quarkus.arc.Arc
+        .container()
+        .instance(io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry.class)
+        .get()
+        .getFactory("c8")
+        .getClient()
+        .getConfiguration();
+    Assertions.assertEquals(24, clientConfiguration.getDefaultJobWorkerMaxJobsActive());
+    Assertions.assertEquals(Duration.ofMillis(250), clientConfiguration.getDefaultJobPollInterval());
+    Assertions.assertEquals(Duration.ofSeconds(20), clientConfiguration.getDefaultRequestTimeout());
+    Assertions.assertTrue(clientConfiguration.getDefaultJobWorkerStreamEnabled());
+    Assertions.assertEquals(Duration.ofHours(6), clientConfiguration.getDefaultMessageTimeToLive());
+    Assertions.assertEquals(8388608, clientConfiguration.getMaxMessageSize());
+    Assertions.assertEquals(Duration.ofSeconds(30), clientConfiguration.getKeepAlive());
+    Assertions.assertEquals(64, clientConfiguration.getMaxHttpConnections());
+    Assertions.assertEquals("gateway.internal", clientConfiguration.getOverrideAuthority());
+    Assertions.assertEquals(6,
+        clientConfiguration
+            .jobWorkerExecutor() instanceof io.vanillabp.camunda8.client.Camunda8VirtualThreadExecutor executor
+                ? executor.getBound()
+                : -1,
+        "the virtual mode hands the client the adapter's bounded executor");
+
+  }
+
 }

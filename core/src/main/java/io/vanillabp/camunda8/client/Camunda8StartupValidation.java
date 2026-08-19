@@ -47,6 +47,11 @@ public final class Camunda8StartupValidation {
       final boolean deploymentFailureWarn,
       final Consumer<String> warnLogger) {
 
+    // how the adapter runs its workers is independent of whether it can reach a cluster,
+    // and a number which cannot work is a typo rather than a migration scenario - so this
+    // fails the boot for every adapter id, degraded or not
+    configuration.validateWorkerConfiguration(adapterId);
+
     if (configuration.isAbsent()) {
       warnLogger.accept(
           """
