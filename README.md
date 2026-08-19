@@ -177,6 +177,23 @@ asks the transaction runner of that aggregate - which since story 70 may be a un
 application brought. A runner which cannot offer a pre-commit hook runs the check immediately,
 the behaviour this adapter had before.
 
+### The delivery identity is a job key, so it belongs to one cluster
+
+`Camunda8JobHandler` reports the job key as the delivery id, which is what the core remembers a processed delivery
+by (story 51). A key is stable across every redelivery of that job and is never handed out twice - within one
+cluster. The delivery key of the core starts with the adapter id
+(`TaskDeliveryKey`: `<adapterId>|<workflowModuleId>|<bpmnProcessId>|<event>|<deliveryId>`), so two adapter ids have
+separate identities and a migration between two clusters works even though both count their keys from the same
+range.
+
+Replacing the cluster BEHIND one adapter id is the case to know about: a rebuilt cluster starts its keys over, so a
+record written for the old one can answer a delivery of the new one, and that task is skipped without a word. The
+delivery table of that adapter id has to be emptied then. Recognising it automatically was considered and left out
+(2026-08-19): the client offers no cluster identity - `Topology` knows brokers, size and version, nothing unique -
+and every heuristic (comparing process definition keys, watching for keys which suddenly become smaller) either
+misses cases or risks the opposite mistake, processing a task twice after a harmless redeployment. So it is
+documented here and in the wiki instead.
+
 ### Which phase-two failures are repeated (story 73)
 
 The phase-two outbox repeats a failed operation until the entry is blocked. That is right for
