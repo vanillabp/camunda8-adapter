@@ -147,4 +147,40 @@ public class Camunda8EnvironmentOverridesTest {
 
   }
 
+  @Test
+  @DisplayName("credentials in the environment no longer choose the method once the adapter names one")
+  public void credentialsInTheEnvironmentAreReported() {
+
+    final var configuration = configured();
+    configuration.getAuth().setUsername("demo");
+    configuration.getAuth().setPassword("demo");
+    final var environment = Map.of("CAMUNDA_CLIENT_ID", "an-oidc-client", "CAMUNDA_CLIENT_SECRET", "a-secret");
+
+    final var message = Camunda8EnvironmentOverrides.describeCredentialSelection(
+        "c8",
+        Camunda8Authentication.of("c8", configuration, environment::get),
+        environment::get);
+
+    assertTrue(message.contains("CAMUNDA_CLIENT_ID"), message);
+    assertTrue(message.contains("CAMUNDA_CLIENT_SECRET"), message);
+    assertTrue(message.contains("vanillabp.adapters.c8.auth"), message);
+    assertFalse(message.contains("a-secret"), "no message ever carries a credential");
+
+  }
+
+  @Test
+  @DisplayName("an adapter authenticating with none takes nothing away, so nothing is said")
+  public void nothingIsSaidWhileTheEnvironmentStillDecides() {
+
+    final var environment = Map.of("CAMUNDA_BASIC_AUTH_USERNAME", "demo", "CAMUNDA_BASIC_AUTH_PASSWORD", "demo");
+
+    assertEquals(
+        null,
+        Camunda8EnvironmentOverrides.describeCredentialSelection(
+            "c8",
+            Camunda8Authentication.of("c8", configured(), environment::get),
+            environment::get));
+
+  }
+
 }

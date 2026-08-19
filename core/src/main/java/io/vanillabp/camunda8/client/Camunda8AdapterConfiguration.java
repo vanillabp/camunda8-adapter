@@ -24,6 +24,8 @@ import lombok.Setter;
  *   <li>{@code .tenant-id} (optional, both modes) - Camunda 8 multi-tenancy tenant</li>
  *   <li>{@code .prefer-rest-over-grpc} (optional, default {@code true}) - whether the
  *       client uses the REST API (recommended) or gRPC for its commands</li>
+ *   <li>{@code .auth.*} - how the adapter authenticates, see
+ *       {@link Camunda8AuthConfiguration}</li>
  * </ul>
  * All fields are optional at binding time so applications which configure a Camunda 8
  * adapter but never actually use it still boot; {@link #validate(String)} enforces the
@@ -90,6 +92,14 @@ public class Camunda8AdapterConfiguration {
   private String clientId;
 
   private String clientSecret;
+
+  /**
+   * How this adapter instance proves who it is - the block
+   * <code>vanillabp.adapters.&lt;id&gt;.auth.*</code>. Never <code>null</code>: an
+   * adapter without the block authenticates with <code>none</code>, which is what every
+   * configuration written before story 88 did.
+   */
+  private Camunda8AuthConfiguration auth = new Camunda8AuthConfiguration();
 
   /**
    * The worker's job timeout (lock duration) - adapter-level base of the
@@ -221,9 +231,10 @@ public class Camunda8AdapterConfiguration {
    */
   public boolean isAbsent() {
 
-    return !defaultedPropertySet && isBlank(restAddress) && isBlank(grpcAddress) && isBlank(tenantId) && isBlank(
-        clusterId) && isBlank(
-            region) && isBlank(clientId) && isBlank(clientSecret);
+    return !defaultedPropertySet && auth.isAbsent() && isBlank(restAddress) && isBlank(grpcAddress) && isBlank(
+        tenantId) && isBlank(
+            clusterId) && isBlank(
+                region) && isBlank(clientId) && isBlank(clientSecret);
 
   }
 
@@ -375,6 +386,22 @@ public class Camunda8AdapterConfiguration {
       final String adapterId) {
 
     resolvedMaxJobsActive(adapterId);
+
+  }
+
+  /**
+   * Validates how this adapter instance authenticates - AT STARTUP, for every configured
+   * adapter id, and independently of whether the connection configuration is complete.
+   * Credentials which cannot be built are a defect of their own.
+   *
+   * @param adapterId The adapter id
+   * @throws IllegalStateException If the authentication block cannot be used, naming the
+   *           method, the missing keys and the YAML which completes them
+   */
+  public void validateAuthentication(
+      final String adapterId) {
+
+    auth.validate(adapterId, mode);
 
   }
 

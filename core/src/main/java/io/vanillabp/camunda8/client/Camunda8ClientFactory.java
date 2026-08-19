@@ -53,11 +53,20 @@ public class Camunda8ClientFactory implements AutoCloseable {
     // how this adapter runs what it delivers - resolved before anything is built, so an
     // unusable number fails the boot with a guiding message instead of being inherited
     this.executionModel = configuration.executionModel(adapterId);
+    // and how it proves who it is - checked here for the same reason: credentials which
+    // cannot be built are a boot failure, not a surprise on the first command
+    configuration.validateAuthentication(adapterId);
     // eager: configuration defects surface at startup, not first at runtime; an
     // incompletely configured adapter (absent / degraded) builds no client and
     // fails on first use instead (backstop)
     if (configuration.missingConnectionProperties().isEmpty()) {
+      this.authentication = Camunda8Authentication.of(adapterId, configuration, System::getenv);
       this.client = build();
+    } else {
+      // there is no cluster to authenticate against yet, and a SaaS adapter without its
+      // client id cannot even build a provider - the missing connection keys are the
+      // message that boot has to give
+      this.authentication = null;
     }
 
   }
@@ -107,8 +116,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
     final CamundaClientBuilder builder;
     if (configuration.getMode() == Camunda8AdapterConfiguration.Mode.SAAS) {
-      log.info("Building Camunda 8 SaaS client for adapter '{}' (cluster '{}', region '{}')",
-          adapterId, configuration.getClusterId(), configuration.getRegion());
+      log.info("Building Camunda 8 SaaS client for adapter '{}' (cluster '{}', region '{}', authentication {})",
+          adapterId, configuration.getClusterId(), configuration.getRegion(), authentication.describe());
       builder = CamundaClient
           .newCloudClientBuilder()
           .withClusterId(configuration.getClusterId())
@@ -120,9 +129,9 @@ public class Camunda8ClientFactory implements AutoCloseable {
       }
     } else {
       log.info("Building Camunda 8 self-managed client for adapter '{}' (rest-address '{}', grpc-address '{}', "
-          + "prefer-rest-over-grpc {})",
+          + "prefer-rest-over-grpc {}, authentication {})",
           adapterId, configuration.getRestAddress(), configuration.getGrpcAddress(),
-          configuration.isPreferRestOverGrpc());
+          configuration.isPreferRestOverGrpc(), authentication.describe());
       builder = CamundaClient
           .newClientBuilder()
           .preferRestOverGrpc(configuration.isPreferRestOverGrpc());
@@ -140,6 +149,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
     applyExecutionModel(builder);
     applyWorkerDefaults(builder);
     applyTransportOptions(builder);
+    applyAuthentication(builder);
 
     final var built = builder.build();
     reportSizing();
@@ -154,6 +164,15 @@ public class Camunda8ClientFactory implements AutoCloseable {
    */
   @Getter
   private final Camunda8ExecutionModel executionModel;
+
+  /**
+   * How this adapter instance authenticates: the resolved method, the provider handed to
+   * the client, and the message said once when the cluster refuses a request.
+   * <code>null</code> while the connection configuration is incomplete, where no client
+   * was built either.
+   */
+  @Getter
+  private final Camunda8Authentication authentication;
 
   /**
    * The executor handed to the client where the execution model is virtual, kept for the
@@ -215,6 +234,25 @@ public class Camunda8ClientFactory implements AutoCloseable {
     if (hasText(configuration.getOverrideAuthority())) {
       builder.overrideAuthority(configuration.getOverrideAuthority());
     }
+    if (hasText(configuration.getAuth().getCaCertificatePath())) {
+      builder.caCertificatePath(configuration.getAuth().getCaCertificatePath());
+    }
+
+  }
+
+  /**
+   * Hands the client the credentials provider of this adapter instance - or, where the
+   * method is <code>none</code> and the environment carries credentials, hands it none,
+   * so the client keeps building the provider it always built from those variables (see
+   * {@link Camunda8Authentication}).
+   */
+  private void applyAuthentication(
+      final CamundaClientBuilder builder) {
+
+    final var provider = authentication.providerFor(message -> log.warn("{}", message));
+    if (provider != null) {
+      builder.credentialsProvider(provider);
+    }
 
   }
 
@@ -243,6 +281,11 @@ public class Camunda8ClientFactory implements AutoCloseable {
   private void reportEnvironmentOverrides(
       final CamundaClient client) {
 
+    final var credentialSelection = Camunda8EnvironmentOverrides
+        .describeCredentialSelection(adapterId, authentication, System::getenv);
+    if (credentialSelection != null) {
+      log.warn("{}", credentialSelection);
+    }
     final var overrides = Camunda8EnvironmentOverrides.detect(
         adapterId, configuration, client.getConfiguration(), System::getenv);
     if (overrides.isEmpty()) {

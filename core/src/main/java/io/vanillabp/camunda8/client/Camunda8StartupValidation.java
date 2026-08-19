@@ -51,6 +51,9 @@ public final class Camunda8StartupValidation {
     // and a number which cannot work is a typo rather than a migration scenario - so this
     // fails the boot for every adapter id, degraded or not
     configuration.validateWorkerConfiguration(adapterId);
+    // and neither is how it proves who it is: a method whose credentials are incomplete
+    // cannot be built at all, so it fails the boot naming the method and the keys
+    configuration.validateAuthentication(adapterId);
 
     if (configuration.isAbsent()) {
       warnLogger.accept(
@@ -60,7 +63,9 @@ public final class Camunda8StartupValidation {
               connection properties for this adapter instance:
                 %s (self-managed | saas; default self-managed)
                 %s (self-managed)
-                %s, %s, %s, %s (saas)"""
+                %s, %s, %s, %s (saas)
+              A self-managed cluster usually wants credentials as well, which is what '%s' is for; \
+              without it the adapter sends none."""
               .formatted(
                   adapterId,
                   Camunda8AdapterConfiguration.propertyKey(adapterId, "mode"),
@@ -68,7 +73,8 @@ public final class Camunda8StartupValidation {
                   Camunda8AdapterConfiguration.propertyKey(adapterId, "cluster-id"),
                   Camunda8AdapterConfiguration.propertyKey(adapterId, "region"),
                   Camunda8AdapterConfiguration.propertyKey(adapterId, "client-id"),
-                  Camunda8AdapterConfiguration.propertyKey(adapterId, "client-secret")));
+                  Camunda8AdapterConfiguration.propertyKey(adapterId, "client-secret"),
+                  Camunda8AdapterConfiguration.propertyKey(adapterId, "auth.method")));
       return;
     }
 

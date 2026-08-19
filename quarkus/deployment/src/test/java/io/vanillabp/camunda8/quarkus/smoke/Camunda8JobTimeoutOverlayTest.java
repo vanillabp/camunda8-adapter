@@ -19,8 +19,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * Proves the job timeout resolves through all FOUR configuration levels of the
  * Quarkus overlay mapping (story 21c) - task, workflow, workflow-module and
  * adapter level, most specific wins - and that the async-task-timeout is read at
- * adapter level. No BPMN resources are deployed (the workflow module's
- * resources-location is empty), so the boot succeeds without a cluster.
+ * adapter level. It is also where the Quarkus overlay is checked key by key: every
+ * client, worker and authentication key has to bind AND arrive at the client the adapter
+ * id built. No BPMN resources are deployed (the workflow module's resources-location is
+ * empty), so the boot succeeds without a cluster.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8JobTimeoutOverlayTest {
@@ -106,6 +108,11 @@ public class Camunda8JobTimeoutOverlayTest {
     Assertions.assertEquals(Duration.ofSeconds(30), keys.keepAlive().orElseThrow());
     Assertions.assertEquals(64, keys.maxHttpConnections().orElseThrow());
     Assertions.assertEquals("gateway.internal", keys.overrideAuthority().orElseThrow());
+    Assertions
+        .assertEquals(
+            io.vanillabp.camunda8.client.Camunda8AuthConfiguration.Method.BASIC,
+            keys.auth().method().orElseThrow());
+    Assertions.assertEquals("demo", keys.auth().username().orElseThrow());
 
     // and the values really arrive at the client this adapter id built
     final var clientConfiguration = io.quarkus.arc.Arc
@@ -124,6 +131,12 @@ public class Camunda8JobTimeoutOverlayTest {
     Assertions.assertEquals(Duration.ofSeconds(30), clientConfiguration.getKeepAlive());
     Assertions.assertEquals(64, clientConfiguration.getMaxHttpConnections());
     Assertions.assertEquals("gateway.internal", clientConfiguration.getOverrideAuthority());
+    Assertions
+        .assertInstanceOf(
+            io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider.class,
+            io.vanillabp.camunda8.client.Camunda8Authentication
+                .unwrap(clientConfiguration.getCredentialsProvider()),
+            "the auth block of the overlay reaches the client this adapter id built");
     Assertions.assertEquals(6,
         clientConfiguration
             .jobWorkerExecutor() instanceof io.vanillabp.camunda8.client.Camunda8VirtualThreadExecutor executor

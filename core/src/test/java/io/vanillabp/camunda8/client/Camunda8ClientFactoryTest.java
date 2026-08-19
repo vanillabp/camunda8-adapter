@@ -2,6 +2,8 @@ package io.vanillabp.camunda8.client;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -160,6 +162,84 @@ public class Camunda8ClientFactoryTest {
       assertTrue(logged.contains("max-jobs-active 32"), logged);
       assertTrue(logged.contains("PT2M"), logged);
     }
+
+  }
+
+  @Test
+  @DisplayName("the credentials the adapter configured reach the client")
+  public void credentialsReachTheClient() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress("http://localhost:8080");
+    configuration.getAuth().setUsername("demo");
+    configuration.getAuth().setPassword("demo");
+    try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
+
+      final var provider = factory.getClient().getConfiguration().getCredentialsProvider();
+      assertInstanceOf(Camunda8Authentication.Observing.class, provider,
+          "the adapter wraps the provider to report a refused request");
+      assertInstanceOf(
+          io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider.class,
+          Camunda8Authentication.unwrap(provider));
+    }
+
+  }
+
+  @Test
+  @DisplayName("the CA certificate of the cluster connection reaches the client")
+  public void caCertificateReachesTheClient(
+      @org.junit.jupiter.api.io.TempDir final java.nio.file.Path directory) throws Exception {
+
+    final var certificate = java.nio.file.Files
+        .writeString(directory.resolve("ca.pem"), "-----BEGIN CERTIFICATE-----");
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress("http://localhost:8080");
+    configuration.getAuth().setCaCertificatePath(certificate.toString());
+    try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
+
+      assertEquals(
+          certificate.toString(),
+          factory.getClient().getConfiguration().getCaCertificatePath());
+      assertEquals(
+          Camunda8AuthConfiguration.Method.NONE,
+          factory.getAuthentication().getMethod(),
+          "a certificate is a question of the transport, not of a credential");
+    }
+
+  }
+
+  @Test
+  @DisplayName("the startup line names how the adapter authenticates and whether that was detected")
+  public void startupLineNamesTheAuthentication(
+      final CapturedOutput output) {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress("http://localhost:8080");
+    configuration.getAuth().setUsername("demo");
+    configuration.getAuth().setPassword("demo");
+    try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
+
+      assertNotNull(factory.getClient());
+      final var logged = output.getOut() + output.getErr();
+      assertTrue(logged.contains("authentication basic (detected) as 'demo'"), logged);
+      assertFalse(logged.contains("demo:"), "a password never reaches a log line");
+    }
+
+  }
+
+  @Test
+  @DisplayName("an incomplete authentication block fails while the factory is built")
+  public void incompleteAuthenticationFailsAtStartup() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress("http://localhost:8080");
+    configuration.getAuth().setUsername("demo");
+
+    final var exception = assertThrows(
+        IllegalStateException.class,
+        () -> new Camunda8ClientFactory("c8", configuration));
+
+    assertTrue(exception.getMessage().contains("vanillabp.adapters.c8.auth.password"), exception.getMessage());
 
   }
 

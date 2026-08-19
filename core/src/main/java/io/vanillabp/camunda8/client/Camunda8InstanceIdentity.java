@@ -78,10 +78,15 @@ public final class Camunda8InstanceIdentity {
           configuration.getClientId(),
           configuration.getTenantId());
     }
-    return "self-managed cluster (rest-address '%s', grpc-address '%s'), tenant '%s'".formatted(
-        configuration.getRestAddress(),
-        configuration.getGrpcAddress(),
-        configuration.getTenantId());
+    // who the adapter authenticates as is part of the identity since story 88: one
+    // self-managed cluster serving two applications with separate accounts is the same
+    // legitimate setup the SaaS client id already stood for
+    return "self-managed cluster (rest-address '%s', grpc-address '%s'), tenant '%s', authenticated as '%s'"
+        .formatted(
+            configuration.getRestAddress(),
+            configuration.getGrpcAddress(),
+            configuration.getTenantId(),
+            configuration.getAuth().principal(configuration));
 
   }
 
@@ -144,7 +149,8 @@ public final class Camunda8InstanceIdentity {
               systems - the BPMS election would otherwise ask the same cluster twice. Make them \
               distinguishable:
                 - self-managed: give each id its own 'vanillabp.adapters.<id>.rest-address' \
-              (respectively 'grpc-address'),
+              (respectively 'grpc-address'), or - to address one cluster with separated \
+              permissions - its own credentials below 'vanillabp.adapters.<id>.auth',
                 - SaaS: give each id its own 'vanillabp.adapters.<id>.cluster-id' or - to \
               address one cluster with separated permissions - its own 'client-id',
                 - or, when MIGRATING from tenants to prefixed identifiers on ONE cluster: give \
