@@ -68,6 +68,26 @@
   </dependencies>
 
   <build>
+    <testResources>
+      <!-- 'camunda8-cluster.properties' carries the cluster image of the active release
+           line into the integration tests, see ClusterUnderTest. Only that file is
+           filtered; a BPMN or a YAML holding a placeholder must reach the tests as
+           written -->
+      <testResource>
+        <filtering>false</filtering>
+        <directory>src/test/resources</directory>
+        <excludes>
+          <exclude>camunda8-cluster.properties</exclude>
+        </excludes>
+      </testResource>
+      <testResource>
+        <filtering>true</filtering>
+        <directory>src/test/resources</directory>
+        <includes>
+          <include>camunda8-cluster.properties</include>
+        </includes>
+      </testResource>
+    </testResources>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

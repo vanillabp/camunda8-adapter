@@ -549,7 +549,7 @@ committing last puts back what it read, so an iteration should write a row of it
   configuration validation (missing-property messages, self-managed/SaaS), and the
   process-service phase behavior.
 - **Spring Boot** `Camunda8DeploymentAndStartIT` (real Camunda 8 via Testcontainers,
-  image `camunda/zeebe:8.8.31`, standalone broker without Elasticsearch): boots the
+  the cluster image of `ClusterUnderTest`, standalone broker without Elasticsearch): boots the
   application (deploying the BPMN to the cluster on startup) and drives the full two-phase
   start through `ProcessService#startWorkflow` inside a JPA transaction with the gruelbox
   outbox. It asserts that the process instance appears only **after** the transaction

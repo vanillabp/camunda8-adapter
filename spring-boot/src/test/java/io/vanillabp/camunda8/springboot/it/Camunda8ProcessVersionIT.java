@@ -77,19 +77,7 @@ public class Camunda8ProcessVersionIT {
           .withStartupTimeout(Duration.ofMinutes(3)));
 
   @Container
-  static final GenericContainer<?> CAMUNDA = new GenericContainer<>(
-      DockerImageName.parse("camunda/zeebe:8.8.31"))
-      .withNetwork(NETWORK)
-      .dependsOn(ELASTICSEARCH)
-      .withExposedPorts(8080, 26500, 9600)
-      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "elasticsearch")
-      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_ELASTICSEARCH_URL", "http://elasticsearch:9200")
-      .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
-      .waitingFor(Wait
-          .forHttp("/actuator/health/readiness")
-          .forPort(9600)
-          .forStatusCode(200)
-          .withStartupTimeout(Duration.ofMinutes(3)));
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.withSecondaryStorage(NETWORK, ELASTICSEARCH);
 
   @DynamicPropertySource
   static void camunda8Properties(

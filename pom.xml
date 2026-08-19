@@ -52,6 +52,10 @@
     <springboot.version>4.1.0</springboot.version>
     <quarkus.version>3.37.1</quarkus.version>
     <camunda8.version>8.8.31</camunda8.version>
+    <!-- the cluster the integration tests run against follows the pinned client: the
+         client a build was compiled against IS the minimum cluster version of that
+         build, so testing anything newer would prove nothing about it -->
+    <camunda8.cluster.image>camunda/camunda:${camunda8.version}</camunda8.cluster.image>
     <testcontainers.version>2.0.5</testcontainers.version>
   </properties>
 
