@@ -46,7 +46,7 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                 final var processService = new Camunda8ProcessService<>(
                     adapterId, supplierContext
                         .bean(Camunda8ClientFactoryRegistry.class)
-                        .getFactory(adapterId), asyncTaskTimeoutOf(
+                        .getFactory(adapterId), asyncTaskLockRenewalOf(
                             supplierContext.bean(VanillaBpCamunda8Properties.class),
                             adapterId), supplierContext
                                 .bean(io.vanillabp.integration.adapter.spi.PreCommitRegistrar.class), supplierContext
@@ -63,7 +63,7 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
               Camunda8DeploymentService.class,
               spec -> spec.supplier(supplierContext -> {
                 final var overlay = supplierContext.bean(VanillaBpCamunda8Properties.class);
-                final var asyncTaskTimeout = asyncTaskTimeoutOf(overlay, adapterId);
+                final var asyncTaskLockRenewal = asyncTaskLockRenewalOf(overlay, adapterId);
                 final var deploymentService = new Camunda8DeploymentService(
                     adapterId, supplierContext
                         .bean(Camunda8ClientFactoryRegistry.class)
@@ -73,7 +73,7 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                 bpmnProcessId,
                                 taskDefinition) -> overlay.jobTimeoutFor(
                                     workflowModuleId, bpmnProcessId, taskDefinition,
-                                    adapterId), asyncTaskTimeout, id -> supplierContext
+                                    adapterId), asyncTaskLockRenewal, id -> supplierContext
                                         .bean(Camunda8ClientFactoryRegistry.class)
                                         .getFactory(id)
                                         .getConfiguration(), supplierContext
@@ -97,10 +97,6 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
   }
 
   /**
-   * The adapter-level async-task timeout (default 14 days) - the dormancy horizon
-   * granted to open async tasks and refreshed by awareness probes.
-   */
-  /**
    * The adapter-level window the core waits for a workflow of this cluster to
    * become findable by the awareness probe (default 10 seconds).
    */
@@ -115,14 +111,18 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
 
   }
 
-  private static java.time.Duration asyncTaskTimeoutOf(
+  /**
+   * The adapter-level window an open asynchronous task's job lock is renewed in
+   * (default one hour) - the window the awareness probe grants as well.
+   */
+  private static java.time.Duration asyncTaskLockRenewalOf(
       final VanillaBpCamunda8Properties overlay,
       final String adapterId) {
 
     final var adapterKeys = overlay.getAdapters().get(adapterId);
-    return (adapterKeys != null) && (adapterKeys.getAsyncTaskTimeout() != null)
-        ? adapterKeys.getAsyncTaskTimeout()
-        : java.time.Duration.ofDays(14);
+    return adapterKeys != null
+        ? adapterKeys.resolvedAsyncTaskLockRenewal()
+        : io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
 
   }
 

@@ -103,16 +103,37 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
+   * What this adapter instance does with a task the core reports as older than
+   * <code>vanillabp.delivery.max-task-age</code>. Read from the adapter's own
+   * configuration rather than passed through the wiring, because it belongs to the
+   * connection like every other adapter-level key; a setup without the resolver (tests)
+   * reports only.
+   *
+   * @return The action, never <code>null</code>
+   */
+  private io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction() {
+
+    if (configurations == null) {
+      return io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.REPORT;
+    }
+    final var configuration = configurations.apply(adapterId);
+    return (configuration == null) || (configuration.getAsyncTaskMaxAgeAction() == null)
+        ? io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.REPORT
+        : configuration.getAsyncTaskMaxAgeAction();
+
+  }
+
+  /**
    * Resolves the per-task job timeout from the adapter's configuration overlay
    * (task &gt; workflow &gt; workflow-module &gt; adapter, most specific wins).
    */
   private final Camunda8JobTimeoutResolver jobTimeoutResolver;
 
   /**
-   * How long a {@code @TaskId} job stays dormant awaiting its asynchronous
-   * completion (see {@link Camunda8JobHandler}).
+   * The window the lock of a job left open by a {@code @TaskId} handler is renewed in
+   * (see {@link Camunda8JobHandler}).
    */
-  private final Duration asyncTaskTimeout;
+  private final Duration asyncTaskLockRenewal;
 
   /**
    * Resolves an adapter id's connection configuration - platform-supplied, used by
@@ -151,9 +172,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final Camunda8ClientFactory clientFactory,
       final WorkflowTaskInvoker workflowTaskInvoker,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
-      final Duration asyncTaskTimeout) {
+      final Duration asyncTaskLockRenewal) {
 
-    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskTimeout, null, null);
+    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, null, null);
 
   }
 
@@ -165,10 +186,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final Camunda8ClientFactory clientFactory,
       final WorkflowTaskInvoker workflowTaskInvoker,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
-      final Duration asyncTaskTimeout,
+      final Duration asyncTaskLockRenewal,
       final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations) {
 
-    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskTimeout, configurations, null);
+    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, configurations, null);
 
   }
 
@@ -177,7 +198,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final Camunda8ClientFactory clientFactory,
       final WorkflowTaskInvoker workflowTaskInvoker,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
-      final Duration asyncTaskTimeout,
+      final Duration asyncTaskLockRenewal,
       final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
@@ -197,7 +218,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     this.clientFactory = clientFactory;
     this.workflowTaskInvoker = workflowTaskInvoker;
     this.jobTimeoutResolver = jobTimeoutResolver;
-    this.asyncTaskTimeout = asyncTaskTimeout;
+    this.asyncTaskLockRenewal = asyncTaskLockRenewal;
     this.configurations = configurations;
     this.scoping = scoping;
     // story 48: what the cluster's process definitions are versioned as - the version
@@ -956,7 +977,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           .newWorker()
           .jobType(taskDefinition)
           .handler(new Camunda8JobHandler(
-              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskTimeout, scoping, multiInstanceRegistry))
+              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction()))
           .timeout(timeout)
           .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)));
       final var workerTenantId = tenantIdOf(workflowModuleId);

@@ -53,7 +53,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * checks (the same duration the job worker grants a dormant async task - see
    * story 21c's dormancy design).
    */
-  private final java.time.Duration asyncTaskTimeout;
+  private final java.time.Duration asyncTaskLockRenewal;
 
   /**
    * Runs phase-one existence checks right before the commit of the workflow aggregate's
@@ -262,9 +262,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final Object workflowAggregateId,
       final String taskId) {
 
-    // the probe is UpdateJobTimeout - a NON-ADVANCING command which doubles as the
-    // dormancy lock refresh (the job's lock is set to the async-task timeout, the
-    // same value the worker granted when the task went dormant). Camunda 8 cannot
+    // the probe is UpdateJobTimeout - a NON-ADVANCING command which doubles as a lock
+    // renewal (the job's lock is set to the renewal window, the same value the worker
+    // granted when the task was left open). Camunda 8 cannot
     // answer COMPLETED for jobs (a completed job is indistinguishable from a
     // never-existing one without the eventually-consistent search API), so a
     // successful "not found" maps to UNKNOWN_TO_BPMS.
@@ -291,7 +291,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     clientFactory
         .getClient()
         .newUpdateTimeoutCommand(Long.parseLong(taskId))
-        .timeout(asyncTaskTimeout)
+        .timeout(asyncTaskLockRenewal)
         .send()
         .join();
 

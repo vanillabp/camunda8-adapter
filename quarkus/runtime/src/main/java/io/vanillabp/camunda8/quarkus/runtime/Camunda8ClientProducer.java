@@ -63,6 +63,9 @@ public class Camunda8ClientProducer {
               properties.isFirstPriorityAnywhere(adapterId),
               properties.getDeploymentFailureFor(
                   adapterId) == io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy.WARN,
+              properties.getOutbox() == null
+                  ? null
+                  : properties.getOutbox().getRetention(),
               log::warn);
           configurations.put(adapterId, configuration);
         });
@@ -89,7 +92,11 @@ public class Camunda8ClientProducer {
     keys.clientId().ifPresent(configuration::setClientId);
     keys.clientSecret().ifPresent(configuration::setClientSecret);
     keys.jobTimeout().ifPresent(configuration::setJobTimeout);
+    keys.asyncTaskLockRenewal().ifPresent(configuration::setAsyncTaskLockRenewal);
+    // bound only so the removed key can be REJECTED with a guiding message instead of
+    // SmallRye's "does not map to any root"
     keys.asyncTaskTimeout().ifPresent(configuration::setAsyncTaskTimeout);
+    keys.asyncTaskMaxAgeAction().ifPresent(configuration::setAsyncTaskMaxAgeAction);
     keys.workflowVisibilityTimeout().ifPresent(configuration::setWorkflowVisibilityTimeout);
     keys.workerThreads().ifPresent(configuration::setWorkerThreads);
     keys.workerThreadsBound().ifPresent(configuration::setWorkerThreadsBound);

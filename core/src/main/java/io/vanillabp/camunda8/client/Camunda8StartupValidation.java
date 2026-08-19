@@ -35,6 +35,9 @@ public final class Camunda8StartupValidation {
    *          (see {@code MigrationAdapterProperties#isFirstPriorityAnywhere})
    * @param deploymentFailureWarn Whether the adapter's deployment-failure policy is
    *          <code>warn</code>
+   * @param outboxRetention How long a delivery record is kept
+   *          (<code>vanillabp.outbox.retention</code>) - the bound the renewal window of
+   *          open asynchronous tasks has to stay below
    * @param warnLogger Sink for guiding warnings (the application keeps booting)
    * @throws IllegalStateException If the configuration is inconsistent and the
    *           adapter must not degrade (first priority somewhere or policy
@@ -45,6 +48,7 @@ public final class Camunda8StartupValidation {
       final Camunda8AdapterConfiguration configuration,
       final boolean firstPriorityAnywhere,
       final boolean deploymentFailureWarn,
+      final java.time.Duration outboxRetention,
       final Consumer<String> warnLogger) {
 
     // how the adapter runs its workers is independent of whether it can reach a cluster,
@@ -54,6 +58,9 @@ public final class Camunda8StartupValidation {
     // and neither is how it proves who it is: a method whose credentials are incomplete
     // cannot be built at all, so it fails the boot naming the method and the keys
     configuration.validateAuthentication(adapterId);
+    // and neither is how an open asynchronous task is kept alive: a window which cannot
+    // work outlives the record answering its redelivery, which is silent at runtime
+    configuration.validateAsyncTaskLockRenewal(adapterId, outboxRetention);
 
     if (configuration.isAbsent()) {
       warnLogger.accept(

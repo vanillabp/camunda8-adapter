@@ -30,11 +30,17 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * Forcing a redelivery of a task whose result the cluster already learned is impossible -
  * the cluster would have to lose a completion. What can be forced is the case of an
  * asynchronous task: a <code>&#64;TaskId</code> method leaves the job open, the adapter
- * extends its lock to <code>async-task-timeout</code>, and once that passes the cluster
- * hands the very same job out again. This test therefore runs with an
- * <code>async-task-timeout</code> of two seconds and waits several of those windows out:
- * the handler must have run exactly once, every further delivery being answered from the
- * record VanillaBP wrote in the handler's own transaction.
+ * renews its lock for <code>async-task-lock-renewal</code>, and once that window passes
+ * the cluster hands the very same job out again. This test therefore runs with a renewal
+ * window of two seconds and waits several of those windows out: the handler must have run
+ * exactly once, every further delivery being answered from the record VanillaBP wrote in
+ * the handler's own transaction.
+ * <p>
+ * Story 89 added the second half of the arrangement: the retention of the delivery
+ * records is set to ten seconds here, well below the runtime of this test and five renewal
+ * windows wide. That is the relation the whole story is about - the window has to sit
+ * clearly below the retention, because the record is what answers the redelivery which
+ * renews the lock. A configuration violating it does not even boot.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -43,8 +49,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
     classes = DockerTestApplication.class,
     properties = {
         "spring.config.name=camunda8-it",
-        // the dormant job's lock expires after two seconds, so the cluster redelivers it
-        "vanillabp.adapters.c8.async-task-timeout=PT2S"
+        // the open job's lock expires after two seconds, so the cluster redelivers it
+        "vanillabp.adapters.c8.async-task-lock-renewal=PT2S",
+        // five renewal windows: the record has to answer every one of them
+        "vanillabp.outbox.retention=PT10S"
     })
 // closed when the class is done: every IT here has a context of its own (its own
 // container), Spring would keep them all until the JVM exits, and a context outliving

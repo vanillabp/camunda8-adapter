@@ -608,12 +608,28 @@ Execution model per delivered job (at-least-once ordering):
    - any other exception → the local transaction is rolled back and the job is
      failed with decremented retries (Camunda 8 redelivers).
 
-**Asynchronous tasks (`@TaskId`) and dormancy:** a handler receiving the task ID
-completes the task later via `ProcessService#completeTask`. Such a
-job must not be redelivered while it waits, so after the commit the adapter extends
-the job's lock ONCE via `UpdateJobTimeout` to the `async-task-timeout` (default 14
-days). The worker's own job timeout stays SHORT - it is the crash-recovery horizon
-for synchronous handlers.
+**Asynchronous tasks (`@TaskId`) and the renewal of their lock:** a handler
+receiving the task ID completes the task later via `ProcessService#completeTask`.
+Such a job must not be redelivered while it waits, so after the commit the adapter
+extends the job's lock via `UpdateJobTimeout` by `async-task-lock-renewal` (default
+`PT1H`). When the window passes, the cluster hands the same job out again, the core
+answers that delivery from its delivery record with `COMPLETION_PENDING`, and this
+branch extends the lock once more: the renewal is driven by the cluster's own
+redelivery and needs no timer of the adapter's. The worker's own job timeout stays
+SHORT - it is the crash-recovery horizon for synchronous handlers.
+
+The window has to sit clearly below `vanillabp.outbox.retention` (seven days), since
+the delivery record is what answers the redelivery which renews the lock; a value
+which is not below it ends the boot naming both properties and both values. The key
+was called `async-task-timeout` before story 89 and meant a horizon of fourteen days
+which outlived that record, so an asynchronous task open longer than it ran the
+handler a second time; the old key now ends the boot naming its successor.
+
+The core measures how long such a task has been open (`vanillabp.delivery.max-task-age`,
+`P30D`, report only) and reports it once. Where `async-task-max-age-action` is
+`incident` this adapter stops renewing the lock of an overdue task and fails its job
+with no retries left, so the cluster raises an incident naming the workflow aggregate
+and the age.
 
 Task-scoped configuration (see the four-level pattern of the VanillaBP
 configuration model - the most specific configured value wins):
@@ -623,8 +639,9 @@ vanillabp:
   adapters:
     myengine:
       type: camunda8
-      job-timeout: PT5M           # adapter level (default PT5M)
-      async-task-timeout: P14D    # adapter level only (default P14D)
+      job-timeout: PT5M                  # adapter level (default PT5M)
+      async-task-lock-renewal: PT1H      # adapter level only (default PT1H)
+      async-task-max-age-action: report  # adapter level only (default report)
   workflow-modules:
     loan-approval:
       adapters:
@@ -650,8 +667,8 @@ definitions distinct names or align the timeouts).
 **Completing/canceling async tasks (`ProcessService#completeTask`/`#cancelTask`,
 story 22):** the adapter locates the job by its key (the `@TaskId` value). The
 awareness probe and the phase-one check are the same NON-ADVANCING command -
-`UpdateJobTimeout` to the `async-task-timeout` (which conveniently refreshes the
-dormant job's lock): success means the job exists, `NOT_FOUND` maps to
+`UpdateJobTimeout` by `async-task-lock-renewal` (which conveniently renews the open
+job's lock): success means the job exists, `NOT_FOUND` maps to
 "unknown", a connection failure to "BPMS unavailable" (never falls back to
 another adapter). The phase-one check runs as a PRE-COMMIT transaction
 synchronization - as late as possible, minimizing the window between check and
