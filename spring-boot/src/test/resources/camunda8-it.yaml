@@ -43,6 +43,21 @@ vanillabp:
               adapters:
                 c8:
                   job-timeout: PT2S
+        SyncProcess:
+          tasks:
+            syncApproved:
+              adapters:
+                c8:
+                  fetch-variables: all
+        FetchProcess:
+          adapters:
+            c8:
+              retry-backoff: PT5S
+          tasks:
+            fetchAllTask:
+              adapters:
+                c8:
+                  fetch-variables: all
   outbox:
     poll-interval: PT0.5S
     attempt-frequency: PT0.5S

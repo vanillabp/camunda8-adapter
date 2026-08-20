@@ -66,6 +66,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final io.vanillabp.camunda8.wiring.Camunda8MultiInstance.Registry multiInstanceRegistry = new io.vanillabp.camunda8.wiring.Camunda8MultiInstance.Registry();
 
   /**
+   * Which variable names each deployed BPMN process DECLARES (story 93), keyed by the
+   * process id the CLUSTER knows. Collected while wiring a model, read while the workers
+   * are opened: a {@code @TaskParam} reading a value the model computed reads a name only
+   * the model carries.
+   */
+  private final Map<String, java.util.Set<String>> declaredVariablesByProcess = new java.util.concurrent.ConcurrentHashMap<>();
+
+  /**
    * The core's entry point for workflows the cluster starts on its own (story 41):
    * the start events of a process are reported here while wiring, and the start
    * execution-listener workers dispatch through it. May be <code>null</code> (tests).
@@ -99,6 +107,26 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker) {
 
     this.bpmsInitiatedStartInvoker = bpmsInitiatedStartInvoker;
+
+  }
+
+  /**
+   * Whether a worker asks the cluster for the variables this adapter derived or for all
+   * of them (story 93). Handed in by the platform module after construction rather than
+   * through the constructor, whose parameter list is long enough; <code>null</code>
+   * (tests) means the default, which is the derived list.
+   */
+  private io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver fetchVariablesResolver;
+
+  /**
+   * Hands over how <code>fetch-variables</code> resolves for this adapter instance.
+   *
+   * @param fetchVariablesResolver The resolver, or <code>null</code> for the default
+   */
+  public void setFetchVariablesResolver(
+      final io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver fetchVariablesResolver) {
+
+    this.fetchVariablesResolver = fetchVariablesResolver;
 
   }
 
@@ -708,6 +736,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         model,
         scopedBpmnProcessId,
         () -> workflowTaskInvoker.resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId));
+    // story 93: what this process declares as a variable, remembered BEFORE the
+    // multi-instance mappings below are injected - those belong to the elements they
+    // enclose and are added per element rather than per process
+    declaredVariablesByProcess
+        .put(
+            scopedBpmnProcessId,
+            io.vanillabp.camunda8.wiring.Camunda8FetchVariables
+                .declaredVariablesOf(model, scopedBpmnProcessId));
     // multi-instance (story 62): the input mappings which make the element, the index
     // and the total of every iteration readable from a job are ADDED TO THE MODEL
     // here, and which iterations enclose which element is remembered for dispatch
@@ -985,6 +1021,133 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   }
 
+  /**
+   * The variable a BPMN process carries the workflow aggregate's ID in - the one variable
+   * every worker of this adapter reads. A process no workflow service serves cannot
+   * happen after the wiring validation; if it does, the derivation gives up on the whole
+   * worker rather than building a list which is missing exactly the name the handler
+   * needs.
+   *
+   * @param workflowModuleId The workflow module
+   * @param plainBpmnProcessId The BPMN process id as the core knows it
+   * @return The variable's name, or <code>null</code> if the core cannot tell
+   */
+  private String aggregateIdNameOf(
+      final String workflowModuleId,
+      final String plainBpmnProcessId) {
+
+    try {
+      return workflowTaskInvoker.resolveWorkflowAggregateIdName(workflowModuleId, plainBpmnProcessId);
+    } catch (final RuntimeException e) {
+      log.debug(
+          "Camunda8[{}]: the BPMN process '{}' of workflow module '{}' has no known workflow "
+              + "aggregate - its workers ask for all variables",
+          adapterId,
+          plainBpmnProcessId,
+          workflowModuleId,
+          e);
+      return null;
+    }
+
+  }
+
+  /**
+   * What one worker asks the cluster for (story 93): the union of the aggregate-ID
+   * variables and multi-instance contexts of everything it serves, unless a level of the
+   * configuration says <code>all</code>.
+   *
+   * @param workflowModuleId The workflow module
+   * @param served The elements this worker serves, as (scoped BPMN process id, BPMN
+   *          element id, plain task definition or <code>null</code>)
+   * @return The selection, never <code>null</code>
+   */
+  io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection fetchVariablesOf(
+      final String workflowModuleId,
+      final List<ServedElement> served) {
+
+    final var variables = new java.util.TreeSet<String>();
+    for (final var element : served) {
+      final var plainBpmnProcessId = plainProcessId(workflowModuleId, element.scopedBpmnProcessId());
+      final var mode = io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver
+          .resolve(fetchVariablesResolver, workflowModuleId, plainBpmnProcessId, element.taskDefinition());
+      if (mode == io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.ALL) {
+        // one worker serves a job type, so the two values cannot both apply - and
+        // fetching more than derived is never wrong, only more expensive
+        return io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection.everything();
+      }
+      final var aggregateIdName = aggregateIdNameOf(workflowModuleId, plainBpmnProcessId);
+      if (aggregateIdName == null) {
+        return io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection.everything();
+      }
+      if (element.elementId() == null) {
+        // the workflow-end listener: it reports a process rather than an element, and a
+        // @WorkflowEnded method cannot declare a @TaskParam at all (the core rejects one),
+        // so the aggregate's id is the complete answer here
+        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.collect(variables, aggregateIdName, List.of());
+        continue;
+      }
+      io.vanillabp.camunda8.wiring.Camunda8FetchVariables.collect(
+          variables,
+          aggregateIdName,
+          multiInstanceRegistry.chainOf(element.scopedBpmnProcessId(), element.elementId()));
+      // what the model itself declares: the handler of this element may read it with
+      // @TaskParam, and the model is where the adapter can see the name
+      variables
+          .addAll(
+              declaredVariablesByProcess.getOrDefault(element.scopedBpmnProcessId(), java.util.Set.of()));
+    }
+    return io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection.of(variables);
+
+  }
+
+  /**
+   * One BPMN element a worker serves - what the fetch list is derived from.
+   *
+   * @param scopedBpmnProcessId The BPMN process id as the CLUSTER knows it (the
+   *          multi-instance registry is keyed by it)
+   * @param elementId The BPMN element id, or <code>null</code> where the worker serves a
+   *          whole process rather than an element (the workflow-end listener), which is
+   *          also the case where no <code>&#64;TaskParam</code> can occur
+   * @param taskDefinition The task definition as the CORE knows it, or <code>null</code>
+   *          where there is no task level to configure
+   */
+  record ServedElement(String scopedBpmnProcessId,
+                       String elementId,
+                       String taskDefinition) {
+  }
+
+  /**
+   * Tells the worker what to ask for and says so once per worker, at DEBUG: when
+   * somebody reports a variable their handler does not see any more, this line is the
+   * first question answered.
+   *
+   * @param builder The worker builder
+   * @param workflowModuleId The workflow module
+   * @param kind What kind of worker it is, for the message
+   * @param jobType The job type the worker subscribes to
+   * @param selection What the worker asks for
+   * @return The same builder
+   */
+  io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 applyFetchVariables(
+      final io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder,
+      final String workflowModuleId,
+      final String kind,
+      final String jobType,
+      final io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection selection) {
+
+    log.debug(
+        "Camunda8[{}]: the {} worker '{}' of workflow module '{}' fetches {}",
+        adapterId,
+        kind,
+        jobType,
+        workflowModuleId,
+        selection.describe());
+    return selection.all()
+        ? builder
+        : builder.fetchVariables(selection.names());
+
+  }
+
   @Override
   public void startWorkflowProcessing(
       final String workflowModuleId,
@@ -996,6 +1159,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // The job timeout is resolved most-specific-wins - a task definition used by
     // several tasks with CONFLICTING configured timeouts fails guiding.
     final var timeoutsByDefinition = new LinkedHashMap<String, Duration>();
+    // what each worker serves, which is what its fetch list is the union over (story 93)
+    final var servedByJobType = new LinkedHashMap<String, List<ServedElement>>();
     final var client = clientFactory.getClient();
     // what this module has in flight, and later whether it is going down: every handler
     // registers its delivery here, and stopWorkflowProcessing waits for them (story 90)
@@ -1009,10 +1174,17 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           // the records carry what the CLUSTER knows (the worker subscribes to it),
           // but the configuration is keyed by the PLAIN names (story 35)
           final var plainBpmnProcessId = plainProcessId(workflowModuleId, task.bpmnProcessId());
+          final var plainTaskDefinition = plainTaskDefinition(
+              workflowModuleId,
+              plainBpmnProcessId,
+              task.taskDefinition());
+          servedByJobType
+              .computeIfAbsent(task.taskDefinition(), key -> new java.util.LinkedList<>())
+              .add(new ServedElement(task.bpmnProcessId(), task.activityId(), plainTaskDefinition));
           final var timeout = jobTimeoutResolver.jobTimeoutFor(
               workflowModuleId,
               plainBpmnProcessId,
-              plainTaskDefinition(workflowModuleId, plainBpmnProcessId, task.taskDefinition()));
+              plainTaskDefinition);
           final var previous = timeoutsByDefinition.putIfAbsent(task.taskDefinition(), timeout);
           if ((previous != null) && !previous.equals(timeout)) {
             throw new IllegalStateException(
@@ -1036,20 +1208,34 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     final var userTasksByListenerJobType = new LinkedHashMap<String, java.util.List<String>>();
     bpmsProcessingContext
         .getUserTasksToWire()
-        .forEach(userTask -> userTasksByListenerJobType
-            .computeIfAbsent(userTask.listenerJobType(), key -> new java.util.LinkedList<>())
-            .add(userTask.bpmnProcessId()));
+        .forEach(userTask -> {
+          userTasksByListenerJobType
+              .computeIfAbsent(userTask.listenerJobType(), key -> new java.util.LinkedList<>())
+              .add(userTask.bpmnProcessId());
+          final var plainBpmnProcessId = plainProcessId(workflowModuleId, userTask.bpmnProcessId());
+          servedByJobType
+              .computeIfAbsent(userTask.listenerJobType(), key -> new java.util.LinkedList<>())
+              .add(new ServedElement(userTask.bpmnProcessId(), userTask.activityId(), plainTaskDefinition(
+                  workflowModuleId,
+                  plainBpmnProcessId,
+                  userTask.externalFormReference())));
+        });
     userTasksByListenerJobType.forEach((
         listenerJobType,
         bpmnProcessIds) -> {
-      var listenerWorkerBuilder = applyWorkerOptions(client
+      final var listenerFetch = fetchVariablesOf(workflowModuleId, servedByJobType.get(listenerJobType));
+      var listenerWorkerBuilder = applyFetchVariables(applyWorkerOptions(client
           .newWorker()
           .jobType(listenerJobType)
           .handler(new io.vanillabp.camunda8.wiring.Camunda8UserTaskListenerHandler(
-              adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry, drain))
+              adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry, drain, listenerFetch))
           .timeout(
               listenerLockOf(workflowModuleId, bpmnProcessIds, "user-task listener", listenerJobType))
-          .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType)), listenerJobType);
+          .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType)), listenerJobType),
+          workflowModuleId,
+          "user-task listener",
+          listenerJobType,
+          listenerFetch);
       final var listenerTenantId = tenantIdOf(workflowModuleId);
       if (listenerTenantId != null) {
         // story 35 / 'by-adapter': jobs of a tenant are only delivered to workers
@@ -1071,7 +1257,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .getBpmsInitiatedStartsToWire()
         .forEach(startEvent -> {
           final var plainProcessId = plainProcessId(workflowModuleId, startEvent.bpmnProcessId());
-          var startWorkerBuilder = applyWorkerOptions(client
+          var startWorkerBuilder = applyFetchVariables(applyWorkerOptions(client
               .newWorker()
               .jobType(startEvent.listenerJobType())
               .handler(new io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler(
@@ -1082,7 +1268,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                       .listenerJobType()))
               .name("vanillabp-%s-%s".formatted(adapterId, startEvent.listenerJobType())),
               startEvent
-                  .listenerJobType());
+                  .listenerJobType()),
+              workflowModuleId,
+              "start-event",
+              startEvent.listenerJobType(),
+              // nothing to derive here: VanillaBP copies every variable such a start
+              // carries into the workflow aggregate it builds, so a list would decide
+              // which of the application's own values survive
+              io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection.everything());
           final var startTenantId = tenantIdOf(workflowModuleId);
           if (startTenantId != null) {
             startWorkerBuilder = startWorkerBuilder.tenantId(startTenantId);
@@ -1100,7 +1293,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .getWorkflowEndedProcessesToWire()
         .forEach(scopedProcessId -> {
           final var plainProcessId = plainProcessId(workflowModuleId, scopedProcessId);
-          var endWorkerBuilder = applyWorkerOptions(client
+          final var endFetch = fetchVariablesOf(
+              workflowModuleId,
+              List.of(new ServedElement(scopedProcessId, null, null)));
+          var endWorkerBuilder = applyFetchVariables(applyWorkerOptions(client
               .newWorker()
               .jobType(Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId))
               .handler(new io.vanillabp.camunda8.wiring.Camunda8WorkflowEndedHandler(
@@ -1112,7 +1308,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                       .workflowEndedJobTypeOf(scopedProcessId)))
               .name("vanillabp-%s-%s".formatted(adapterId, scopedProcessId)),
               Camunda8TaskWiring
-                  .workflowEndedJobTypeOf(scopedProcessId));
+                  .workflowEndedJobTypeOf(scopedProcessId)),
+              workflowModuleId,
+              "workflow-end",
+              Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId),
+              endFetch);
           final var endTenantId = tenantIdOf(workflowModuleId);
           if (endTenantId != null) {
             endWorkerBuilder = endWorkerBuilder.tenantId(endTenantId);
@@ -1128,13 +1328,18 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     timeoutsByDefinition.forEach((
         taskDefinition,
         timeout) -> {
-      var workerBuilder = applyWorkerOptions(client
+      final var taskFetch = fetchVariablesOf(workflowModuleId, servedByJobType.get(taskDefinition));
+      var workerBuilder = applyFetchVariables(applyWorkerOptions(client
           .newWorker()
           .jobType(taskDefinition)
           .handler(new Camunda8JobHandler(
-              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction(), drain, retryBackoffResolver))
+              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction(), drain, retryBackoffResolver, taskFetch))
           .timeout(timeout)
-          .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)), taskDefinition);
+          .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)), taskDefinition),
+          workflowModuleId,
+          "task",
+          taskDefinition,
+          taskFetch);
       final var workerTenantId = tenantIdOf(workflowModuleId);
       if (workerTenantId != null) {
         workerBuilder = workerBuilder.tenantId(workerTenantId);

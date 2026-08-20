@@ -194,6 +194,54 @@ public class Camunda8TaskProcessingIT {
   }
 
   @Test
+  @DisplayName("A worker fetches what VanillaBP reads, and 'all' at task level brings the rest")
+  public void aWorkerFetchesOnlyWhatVanillaBpReads(
+      final io.vanillabp.integration.test.utils.CapturedOutput output) throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    // a variable no handler of VanillaBP ever reads, and big enough for the cluster to
+    // carry it with every single job of this workflow
+    final var bigPayload = "x".repeat(32768);
+    lastStartedInstanceKey = workflowServiceClient()
+        .newCreateInstanceCommand()
+        .bpmnProcessId("test-app__FetchProcess")
+        .latestVersion()
+        .variables(java.util.Map.of("id", String.valueOf(aggregateId), "bigPayload", bigPayload))
+        .send()
+        .join()
+        .getProcessInstanceKey();
+
+    // the FIRST task is configured 'fetch-variables: all', so its job carries the
+    // payload and the @TaskParam is answered
+    awaitUntil(
+        () -> invocations("fetchAllTask", aggregateId) >= 1,
+        60000,
+        "the task fetching everything to be delivered");
+    assertEquals(
+        bigPayload.length(),
+        TaskDockerWorkflowService.OBSERVED_VARIABLES.get("bigPayloadLength"),
+        "the escape hatch is what makes a process variable readable at all");
+
+    // the SECOND task fetches the derived list, which is the aggregate-ID variable
+    // alone - so the payload is NOT in its job, and the delivery says so instead of
+    // running the method on a null
+    awaitUntil(
+        () -> (output.getOut() + output.getErr()).contains("vanillabp.adapters.c8.fetch-variables"),
+        60000,
+        "the guiding message about the variable which was not fetched");
+    final var logged = output.getOut() + output.getErr();
+    assertTrue(logged.contains("bigPayload"), "the message names the variable the method asked for");
+    assertEquals(
+        0,
+        invocations("fetchDerivedTask", aggregateId),
+        "a method reading a variable its worker did not fetch must not run at all");
+    assertEquals("fetch-all", results(aggregateId), "only the first task committed");
+
+  }
+
+  @Test
   @DisplayName("A failed job is not handed out again at once - the fail command carries the backoff")
   public void aFailedJobIsHandedOutAgainOnlyAfterTheBackoff() throws Exception {
 

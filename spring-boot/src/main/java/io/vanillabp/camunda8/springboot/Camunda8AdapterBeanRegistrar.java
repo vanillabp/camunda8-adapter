@@ -83,6 +83,13 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                                     bpmnProcessId,
                                                     taskDefinition) -> overlay.retryBackoffFor(
                                                         workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
+                // story 93: what each worker asks the cluster for, resolvable down to
+                // task level
+                deploymentService.setFetchVariablesResolver((
+                    workflowModuleId,
+                    bpmnProcessId,
+                    taskDefinition) -> overlay.fetchVariablesFor(
+                        workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
                 deploymentService.setWorkflowEndedInvoker(
                     supplierContext
                         .beanProvider(

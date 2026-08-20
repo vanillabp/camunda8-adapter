@@ -83,6 +83,13 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
    */
   static final String KIND = "user-task listener";
 
+  /**
+   * What this worker asked the cluster for (story 93) - a listener job carries these
+   * variables and no others. Never <code>null</code>; a handler built without one
+   * (tests) sees every variable.
+   */
+  private final Camunda8FetchVariables.Selection fetchVariables;
+
   public Camunda8UserTaskListenerHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -121,6 +128,22 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
       final Camunda8MultiInstance.Registry multiInstanceRegistry,
       final io.vanillabp.camunda8.client.Camunda8Drain drain) {
 
+    this(adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry, drain, null);
+
+  }
+
+  public Camunda8UserTaskListenerHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry,
+      final io.vanillabp.camunda8.client.Camunda8Drain drain,
+      final Camunda8FetchVariables.Selection fetchVariables) {
+
+    this.fetchVariables = fetchVariables == null
+        ? Camunda8FetchVariables.Selection.everything()
+        : fetchVariables;
     this.drain = drain == null
         ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
         : drain;
@@ -165,17 +188,21 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
         final var aggregateId = job.getVariablesAsMap().get(aggregateIdName);
         if (aggregateId == null) {
           throw new IllegalStateException(
-              ("The user-task listener job '%s' (type '%s') of BPMN process '%s' carries no "
-                  + "variable '%s' holding the workflow aggregate's ID! Workflows processed by "
-                  + "VanillaBP have to be started through VanillaBP.")
-                  .formatted(job.getKey(), job.getType(), bpmnProcessId, aggregateIdName));
+              Camunda8FetchVariables.missingAggregateId(
+                  "The user-task listener job",
+                  job.getKey(),
+                  job.getType(),
+                  bpmnProcessId,
+                  aggregateIdName,
+                  adapterId,
+                  fetchVariables));
         }
         final var outcome = workflowTaskInvoker.invokeWorkflowTask(
             workflowModuleId,
             bpmnProcessId,
             new Camunda8UserTaskInvocationContext(
                 adapterId, taskDefinition, String
-                    .valueOf(aggregateId), userTaskKey, event, job, multiInstanceRegistry));
+                    .valueOf(aggregateId), userTaskKey, event, job, multiInstanceRegistry, fetchVariables));
         if (outcome.kind() == WorkflowTaskOutcome.Kind.BPMN_ERROR) {
           throw new IllegalStateException(
               ("The @WorkflowTask method notified about the %s event of user task '%s' (BPMN "
@@ -262,6 +289,8 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
 
     private final Camunda8MultiInstance.Registry multiInstanceRegistry;
 
+    private final Camunda8FetchVariables.Selection fetchVariables;
+
     Camunda8UserTaskInvocationContext(
         final String adapterId,
         final String taskDefinition,
@@ -283,6 +312,23 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
         final ActivatedJob job,
         final Camunda8MultiInstance.Registry multiInstanceRegistry) {
 
+      this(adapterId, taskDefinition, workflowAggregateId, userTaskKey, event, job, multiInstanceRegistry, null);
+
+    }
+
+    Camunda8UserTaskInvocationContext(
+        final String adapterId,
+        final String taskDefinition,
+        final String workflowAggregateId,
+        final String userTaskKey,
+        final TaskEvent.Event event,
+        final ActivatedJob job,
+        final Camunda8MultiInstance.Registry multiInstanceRegistry,
+        final Camunda8FetchVariables.Selection fetchVariables) {
+
+      this.fetchVariables = fetchVariables == null
+          ? Camunda8FetchVariables.Selection.everything()
+          : fetchVariables;
       this.adapterId = adapterId;
       this.taskDefinition = taskDefinition;
       this.workflowAggregateId = workflowAggregateId;
@@ -367,6 +413,10 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     public Object getTaskParameter(
         final String name) {
 
+      if (!fetchVariables.covers(name)) {
+        throw new IllegalStateException(
+            Camunda8FetchVariables.unfetchedTaskParameter(name, taskDefinition, adapterId, fetchVariables));
+      }
       return job.getVariablesAsMap().get(name);
 
     }

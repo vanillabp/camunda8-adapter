@@ -42,7 +42,8 @@ public class VanillaBpCamunda8Properties {
    * The workflow-module sections of the shared tree - the overlay mirrors the
    * levels of the most-specific-wins resolution of scope-specific adapter keys
    * (task &gt; workflow &gt; workflow-module &gt; adapter), currently:
-   * <code>job-timeout</code> and <code>retry-backoff</code>.
+   * <code>job-timeout</code>, <code>retry-backoff</code> and
+   * <code>fetch-variables</code>.
    */
   private Map<String, ModuleOverlay> workflowModules = Map.of();
 
@@ -96,6 +97,37 @@ public class VanillaBpCamunda8Properties {
   }
 
   /**
+   * Resolves whether a worker fetches the DERIVED variables or all of them with the same
+   * most-specific-wins semantics; falls back to the adapter-level value and finally the
+   * default {@code derived}.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @param taskDefinition The task definition (job type)
+   * @param adapterId The adapter ID
+   * @return The most specific configured mode or the default
+   */
+  public io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode fetchVariablesFor(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String taskDefinition,
+      final String adapterId) {
+
+    final var scoped = scopedKeysMostSpecificFirst(workflowModuleId, bpmnProcessId, taskDefinition, adapterId)
+        .map(Camunda8ScopedKeys::getFetchVariables)
+        .filter(java.util.Objects::nonNull)
+        .findFirst();
+    if (scoped.isPresent()) {
+      return scoped.get();
+    }
+    final var adapter = adapters.get(adapterId);
+    return adapter != null
+        ? adapter.resolvedFetchVariables()
+        : io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
+
+  }
+
+  /**
    * The <code>adapters.&lt;id&gt;</code> sections of the three levels below the adapter,
    * most specific first - what every scope-specific key is resolved through.
    */
@@ -143,6 +175,8 @@ public class VanillaBpCamunda8Properties {
     private java.time.Duration jobTimeout;
 
     private java.time.Duration retryBackoff;
+
+    private io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode fetchVariables;
 
   }
 

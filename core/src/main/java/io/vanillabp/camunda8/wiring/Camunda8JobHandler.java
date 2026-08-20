@@ -126,6 +126,15 @@ public class Camunda8JobHandler implements JobHandler {
    */
   private final Camunda8RetryBackoffResolver retryBackoffResolver;
 
+  /**
+   * What this worker asked the cluster for (story 93) - a job carries these variables and
+   * no others. Read twice: a missing aggregate-ID variable now has a second possible
+   * cause, and a <code>&#64;TaskParam</code> outside the list is a question this delivery
+   * cannot answer. Never <code>null</code>; a handler built without one (tests) sees
+   * every variable, which is what a worker naming no list gets.
+   */
+  private final Camunda8FetchVariables.Selection fetchVariables;
+
   public Camunda8JobHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -206,6 +215,27 @@ public class Camunda8JobHandler implements JobHandler {
       final io.vanillabp.camunda8.client.Camunda8Drain drain,
       final Camunda8RetryBackoffResolver retryBackoffResolver) {
 
+    this(
+        adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction, drain, retryBackoffResolver, null);
+
+  }
+
+  public Camunda8JobHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final CamundaClient camundaClient,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Duration asyncTaskLockRenewal,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry,
+      final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
+      final io.vanillabp.camunda8.client.Camunda8Drain drain,
+      final Camunda8RetryBackoffResolver retryBackoffResolver,
+      final Camunda8FetchVariables.Selection fetchVariables) {
+
+    this.fetchVariables = fetchVariables == null
+        ? Camunda8FetchVariables.Selection.everything()
+        : fetchVariables;
     this.retryBackoffResolver = retryBackoffResolver;
     this.drain = drain == null
         ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
@@ -272,17 +302,20 @@ public class Camunda8JobHandler implements JobHandler {
       aggregateId = job.getVariablesAsMap().get(aggregateIdName);
       if (aggregateId == null) {
         throw new IllegalStateException(
-            """
-                Job '%s' (type '%s') of BPMN process '%s' carries no variable '%s' holding the \
-                workflow aggregate's ID! Workflows processed by VanillaBP have to be started \
-                through VanillaBP (the variable is written on start)."""
-                .formatted(job.getKey(), taskDefinition, bpmnProcessId, aggregateIdName));
+            Camunda8FetchVariables.missingAggregateId(
+                "Job",
+                job.getKey(),
+                taskDefinition,
+                bpmnProcessId,
+                aggregateIdName,
+                adapterId,
+                fetchVariables));
       }
       outcome = workflowTaskInvoker.invokeWorkflowTask(
           workflowModuleId,
           bpmnProcessId,
           new Camunda8TaskInvocationContext(adapterId, taskDefinition, String
-              .valueOf(aggregateId), job, multiInstanceRegistry));
+              .valueOf(aggregateId), job, multiInstanceRegistry, fetchVariables));
     } catch (final Exception e) {
       // story 90: while the module is going down, the failure is the shutdown and not the
       // application - the job keeps its lock and its retries
@@ -549,6 +582,8 @@ public class Camunda8JobHandler implements JobHandler {
 
     private final Camunda8MultiInstance.Registry multiInstanceRegistry;
 
+    private final Camunda8FetchVariables.Selection fetchVariables;
+
     Camunda8TaskInvocationContext(
         final String adapterId,
         final String taskDefinition,
@@ -566,11 +601,26 @@ public class Camunda8JobHandler implements JobHandler {
         final ActivatedJob job,
         final Camunda8MultiInstance.Registry multiInstanceRegistry) {
 
+      this(adapterId, taskDefinition, workflowAggregateId, job, multiInstanceRegistry, null);
+
+    }
+
+    Camunda8TaskInvocationContext(
+        final String adapterId,
+        final String taskDefinition,
+        final String workflowAggregateId,
+        final ActivatedJob job,
+        final Camunda8MultiInstance.Registry multiInstanceRegistry,
+        final Camunda8FetchVariables.Selection fetchVariables) {
+
       this.adapterId = adapterId;
       this.taskDefinition = taskDefinition;
       this.workflowAggregateId = workflowAggregateId;
       this.job = job;
       this.multiInstanceRegistry = multiInstanceRegistry;
+      this.fetchVariables = fetchVariables == null
+          ? Camunda8FetchVariables.Selection.everything()
+          : fetchVariables;
 
     }
 
@@ -644,6 +694,10 @@ public class Camunda8JobHandler implements JobHandler {
     public Object getTaskParameter(
         final String name) {
 
+      if (!fetchVariables.covers(name)) {
+        throw new IllegalStateException(
+            Camunda8FetchVariables.unfetchedTaskParameter(name, taskDefinition, adapterId, fetchVariables));
+      }
       return job.getVariablesAsMap().get(name);
 
     }

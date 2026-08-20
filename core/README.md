@@ -43,6 +43,37 @@ handlers:
 - `Camunda8Drain` decides whether a failure belongs to the shutdown (story 90), in which
   case no command is sent at all and the job is left to its lock.
 
+## What a worker asks the cluster for (story 93)
+
+`Camunda8FetchVariables` holds both halves of it: the list a worker names, and the two
+messages a delivery writes when it is asked for a variable outside that list.
+
+The derivation runs in `Camunda8DeploymentService#fetchVariablesOf`, once per worker while
+`startWorkflowProcessing` opens them. Its input is a `ServedElement` per BPMN element the
+worker serves, which is why the four worker kinds share one method: a task worker serves
+the tasks of a job type across the module's processes, a user-task listener worker the
+user tasks of its listener job type, and the workflow-end worker one process. Three
+sources feed it: the core (`resolveWorkflowAggregateIdName`, per BPMN process), the
+multi-instance registry filled during `wireBpmn` and keyed by the process id the CLUSTER
+knows plus the element id, and `declaredVariablesOf`, which reads the four constructs a
+Camunda 8 model declares a variable with. That last one runs BEFORE the multi-instance
+mappings are injected, so those stay per element instead of leaking into the whole
+process.
+
+Three answers are deliberate. The list is a sorted `TreeSet`, because job streaming
+compares it. Where any level of the configuration says `all`, the whole worker asks for
+everything, without the guiding failure two conflicting job timeouts would produce -
+fetching more than derived is never wrong. And where the core cannot name the aggregate-id
+variable of a process, the worker asks for everything too, rather than for a list which
+may be missing exactly what its handler reads.
+
+The handlers carry the `Selection` because they need it in a message, not to decide
+anything: `Camunda8JobHandler` and `Camunda8UserTaskListenerHandler` name it when the
+aggregate-id variable is absent, and their invocation contexts throw when
+`getTaskParameter` is asked for a name outside it. That throw is the one behaviour change
+an application can notice, and it is the alternative to handing a `@WorkflowTask` method a
+`null` nobody would trace back to here.
+
 ## What an operator gets to see (story 92)
 
 The core measures every delivery on every BPMS. This adapter adds what only makes sense
