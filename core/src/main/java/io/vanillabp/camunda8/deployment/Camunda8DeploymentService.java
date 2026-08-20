@@ -66,14 +66,6 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final io.vanillabp.camunda8.wiring.Camunda8MultiInstance.Registry multiInstanceRegistry = new io.vanillabp.camunda8.wiring.Camunda8MultiInstance.Registry();
 
   /**
-   * Which variable names each deployed BPMN process DECLARES (story 93), keyed by the
-   * process id the CLUSTER knows. Collected while wiring a model, read while the workers
-   * are opened: a {@code @TaskParam} reading a value the model computed reads a name only
-   * the model carries.
-   */
-  private final Map<String, java.util.Set<String>> declaredVariablesByProcess = new java.util.concurrent.ConcurrentHashMap<>();
-
-  /**
    * The core's entry point for workflows the cluster starts on its own (story 41):
    * the start events of a process are reported here while wiring, and the start
    * execution-listener workers dispatch through it. May be <code>null</code> (tests).
@@ -736,14 +728,6 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         model,
         scopedBpmnProcessId,
         () -> workflowTaskInvoker.resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId));
-    // story 93: what this process declares as a variable, remembered BEFORE the
-    // multi-instance mappings below are injected - those belong to the elements they
-    // enclose and are added per element rather than per process
-    declaredVariablesByProcess
-        .put(
-            scopedBpmnProcessId,
-            io.vanillabp.camunda8.wiring.Camunda8FetchVariables
-                .declaredVariablesOf(model, scopedBpmnProcessId));
     // multi-instance (story 62): the input mappings which make the element, the index
     // and the total of every iteration readable from a job are ADDED TO THE MODEL
     // here, and which iterations enclose which element is remembered for dispatch
@@ -1053,8 +1037,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * What one worker asks the cluster for (story 93): the union of the aggregate-ID
-   * variables and multi-instance contexts of everything it serves, unless a level of the
-   * configuration says <code>all</code>.
+   * variables, multi-instance contexts and declared <code>&#64;TaskParam</code> names of
+   * everything it serves, unless a level of the configuration says <code>all</code>.
    *
    * @param workflowModuleId The workflow module
    * @param served The elements this worker serves, as (scoped BPMN process id, BPMN
@@ -1090,11 +1074,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           variables,
           aggregateIdName,
           multiInstanceRegistry.chainOf(element.scopedBpmnProcessId(), element.elementId()));
-      // what the model itself declares: the handler of this element may read it with
-      // @TaskParam, and the model is where the adapter can see the name
+      // and what the handlers of this element read with @TaskParam (story 99): the core
+      // scanned those names off the methods while wiring, so the list is what the
+      // application asks for rather than what the model happens to mention
       variables
           .addAll(
-              declaredVariablesByProcess.getOrDefault(element.scopedBpmnProcessId(), java.util.Set.of()));
+              workflowTaskInvoker
+                  .taskParameterNames(workflowModuleId, plainBpmnProcessId, element.taskDefinition()));
     }
     return io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection.of(variables);
 

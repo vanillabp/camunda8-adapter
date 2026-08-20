@@ -43,7 +43,7 @@ handlers:
 - `Camunda8Drain` decides whether a failure belongs to the shutdown (story 90), in which
   case no command is sent at all and the job is left to its lock.
 
-## What a worker asks the cluster for (story 93)
+## What a worker asks the cluster for (stories 93 and 99)
 
 `Camunda8FetchVariables` holds both halves of it: the list a worker names, and the two
 messages a delivery writes when it is asked for a variable outside that list.
@@ -53,12 +53,19 @@ The derivation runs in `Camunda8DeploymentService#fetchVariablesOf`, once per wo
 worker serves, which is why the four worker kinds share one method: a task worker serves
 the tasks of a job type across the module's processes, a user-task listener worker the
 user tasks of its listener job type, and the workflow-end worker one process. Three
-sources feed it: the core (`resolveWorkflowAggregateIdName`, per BPMN process), the
-multi-instance registry filled during `wireBpmn` and keyed by the process id the CLUSTER
-knows plus the element id, and `declaredVariablesOf`, which reads the four constructs a
-Camunda 8 model declares a variable with. That last one runs BEFORE the multi-instance
-mappings are injected, so those stay per element instead of leaking into the whole
-process.
+sources feed it, and all three are the core or this adapter's own bookkeeping:
+`resolveWorkflowAggregateIdName` per BPMN process, the multi-instance registry filled during
+`wireBpmn` and keyed by the process id the CLUSTER knows plus the element id, and
+`taskParameterNames` per served task definition (story 99).
+
+That last one replaced a scan of the model. Story 93 collected the four constructs a Camunda
+8 model declares a variable with - the targets of `zeebe:ioMapping`, the result variable of
+an inline script, the result variable of a called decision, the output collection of a
+multi-instance element - because a `@TaskParam` might read one of them and the model was the
+only place this adapter could see such a name. The core had the names all along: it reads
+them off the annotations while it builds the parameter binders. Keeping both would have left
+two sources for one answer, and the model was the weaker of them in both directions, so
+`declaredVariablesOf` is gone.
 
 Three answers are deliberate. The list is a sorted `TreeSet`, because job streaming
 compares it. Where any level of the configuration says `all`, the whole worker asks for
@@ -70,9 +77,10 @@ may be missing exactly what its handler reads.
 The handlers carry the `Selection` because they need it in a message, not to decide
 anything: `Camunda8JobHandler` and `Camunda8UserTaskListenerHandler` name it when the
 aggregate-id variable is absent, and their invocation contexts throw when
-`getTaskParameter` is asked for a name outside it. That throw is the one behaviour change
-an application can notice, and it is the alternative to handing a `@WorkflowTask` method a
-`null` nobody would trace back to here.
+`getTaskParameter` is asked for a name outside it. Since story 99 that throw is practically
+unreachable - a statically named `@TaskParam` is in the list by construction - and it stays
+for the name a handler computes at runtime, which the scanner cannot see. Its message says
+so, because the first thing a reader checks is the annotation.
 
 ## What an operator gets to see (story 92)
 

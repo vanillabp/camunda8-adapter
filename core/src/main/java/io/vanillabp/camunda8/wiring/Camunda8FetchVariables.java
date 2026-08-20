@@ -5,15 +5,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
-import org.camunda.bpm.model.xml.instance.ModelElementInstance;
-
-import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
-import io.camunda.zeebe.model.bpmn.instance.Process;
-import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledDecision;
-import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeIoMapping;
-import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeLoopCharacteristics;
-import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeScript;
-
 /**
  * Which process variables a worker of this adapter asks the cluster for.
  *
@@ -41,13 +32,13 @@ import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeScript;
  * in the variables {@link Camunda8MultiInstance} injects while the model is deployed.
  * Which ones those are depends on the element, which is why this list is not a
  * constant;</li>
- * <li>every variable name the BPMN process itself DECLARES, see
- * {@link #declaredVariablesOf}: the targets of its input and output mappings, the result
- * variables of its scripts and called decisions, the output collections of its
- * multi-instance elements. The adapter does not read them, but a {@code @TaskParam} may,
- * and the model is the one place where the adapter can see such a name. The workflow-end
- * listener is left out of this one: a {@code @WorkflowEnded} method cannot declare a
- * {@code @TaskParam} at all, so the aggregate's ID is its complete list.</li>
+ * <li>every variable a {@code @TaskParam} of the served tasks reads
+ * ({@code WorkflowTaskInvoker#taskParameterNames}, story 99). Those names live on the
+ * handler methods, and the core reads them off the annotations while the application
+ * wires itself - so this part of the list says what the application asks for instead of
+ * guessing it from the model. The workflow-end listener is left out of it: a
+ * {@code @WorkflowEnded} method cannot declare a {@code @TaskParam} at all, so the
+ * aggregate's ID is its complete list.</li>
  * </ul>
  *
  * <p>
@@ -67,15 +58,16 @@ import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeScript;
  * </p>
  *
  * <p>
- * <strong>Two exceptions where the derivation cannot win.</strong> A worker serving the
- * start events the cluster fires itself asks for everything, because VanillaBP copies
- * every variable such a start carries into the workflow aggregate
- * ({@code BpmsInitiatedStartContext#getVariables}) - there is no list to derive. And a
- * {@code @TaskParam} may name a variable which is neither VanillaBP's nor the model's: an
- * attribute of the aggregate, or something written past both of them. That case is the
- * reason for the escape hatch {@code vanillabp.adapters.<id>.fetch-variables: all}, and it
- * fails the delivery with a message naming the property rather than quietly handing the
- * method a <code>null</code>.
+ * <strong>Where the derivation cannot win.</strong> A worker serving the start events the
+ * cluster fires itself asks for everything, because VanillaBP copies every variable such a
+ * start carries into the workflow aggregate
+ * ({@code BpmsInitiatedStartContext#getVariables}) - there is no list to derive. Apart
+ * from that one worker kind, a statically named {@code @TaskParam} is now covered by
+ * construction. What remains is a name no annotation carries, read through a path the
+ * scanner cannot see, and the escape hatch
+ * {@code vanillabp.adapters.<id>.fetch-variables: all} is there for it: the delivery fails
+ * with a message naming the property rather than quietly handing the method a
+ * <code>null</code>.
  * </p>
  */
 public final class Camunda8FetchVariables {
@@ -214,6 +206,12 @@ public final class Camunda8FetchVariables {
    * genuinely absent, and handing the method a <code>null</code> would be a silent loss
    * of what the model computed - so the delivery fails, which on this BPMS means retries
    * and then an incident naming the way out.
+   * <p>
+   * Since story 99 the worker asks for every name a <code>&#64;TaskParam</code> of the
+   * tasks it serves DECLARES, so getting here means the name was not declared on the
+   * method: it was assembled at runtime, or read past the annotation. The message says
+   * so, because the first thing a reader will check is the annotation, and it is right
+   * there.
    *
    * @param name The variable the method asked for
    * @param taskDefinition The task definition, as the core knows it
@@ -228,102 +226,14 @@ public final class Camunda8FetchVariables {
       final Selection selection) {
 
     return """
-        The @WorkflowTask method serving '%s' reads the process variable '%s' with @TaskParam, \
-        but its worker does not fetch that variable: it fetches %s. VanillaBP derives the fetch \
-        list from the deployed models and cannot see what your method reads. Either read the \
-        value from the workflow aggregate, which is what VanillaBP is about, or set '%s' to \
-        'all' - at task level for this one task, or at workflow, workflow-module or adapter \
-        level."""
-        .formatted(taskDefinition, name, selection.describe(), propertyKey(adapterId));
-
-  }
-
-  /**
-   * Every variable name the given BPMN process DECLARES, which is the second half of what
-   * a worker fetches.
-   *
-   * <p>
-   * A model hands values to its tasks and computes values of its own, and a
-   * {@code @TaskParam} reading one of them reads something the adapter cannot see in any
-   * registry - but it CAN see it in the model, which is why these names are part of the
-   * derivation rather than of the escape hatch. What VanillaBP leaves out is therefore
-   * exactly what only the aggregate sync put into the instance: a copy of data the handler
-   * already holds, and the payload the recommendation to fetch less is about.
-   * </p>
-   *
-   * <p>
-   * Four constructs declare a variable in Camunda 8, and all four exist on every release
-   * line: the input and output mappings of {@code zeebe:ioMapping}, the result variable of
-   * an inline script, the result variable of a called decision, and the output collection
-   * of a multi-instance element.
-   * </p>
-   *
-   * <p>
-   * Call it BEFORE {@link Camunda8MultiInstance#wire}, so the mappings VanillaBP injects
-   * itself do not end up in the list of processes whose elements they do not enclose.
-   * </p>
-   *
-   * @param model The BPMN model, as it will be deployed
-   * @param bpmnProcessId The process to scan, as the cluster will know it
-   * @return The declared variable names
-   */
-  public static Set<String> declaredVariablesOf(
-      final BpmnModelInstance model,
-      final String bpmnProcessId) {
-
-    final var names = new TreeSet<String>();
-    for (final var ioMapping : model.getModelElementsByType(ZeebeIoMapping.class)) {
-      if (!belongsTo(ioMapping, bpmnProcessId)) {
-        continue;
-      }
-      ioMapping.getInputs().forEach(input -> add(names, input.getTarget()));
-      ioMapping.getOutputs().forEach(output -> add(names, output.getTarget()));
-    }
-    for (final var script : model.getModelElementsByType(ZeebeScript.class)) {
-      if (belongsTo(script, bpmnProcessId)) {
-        add(names, script.getResultVariable());
-      }
-    }
-    for (final var decision : model.getModelElementsByType(ZeebeCalledDecision.class)) {
-      if (belongsTo(decision, bpmnProcessId)) {
-        add(names, decision.getResultVariable());
-      }
-    }
-    for (final var loop : model.getModelElementsByType(ZeebeLoopCharacteristics.class)) {
-      if (belongsTo(loop, bpmnProcessId)) {
-        add(names, loop.getOutputCollection());
-      }
-    }
-    return names;
-
-  }
-
-  private static void add(
-      final Set<String> names,
-      final String name) {
-
-    if ((name != null) && !name.isBlank()) {
-      names.add(name.trim());
-    }
-
-  }
-
-  /**
-   * Whether a model element sits inside the given process - one BPMN file may hold
-   * several.
-   */
-  private static boolean belongsTo(
-      final ModelElementInstance element,
-      final String bpmnProcessId) {
-
-    var current = element.getParentElement();
-    while (current != null) {
-      if (current instanceof Process process) {
-        return bpmnProcessId.equals(process.getId());
-      }
-      current = current.getParentElement();
-    }
-    return false;
+        The @WorkflowTask method serving '%s' reads the process variable '%s', but its worker \
+        does not fetch that variable: it fetches %s. A worker asks for every name a @TaskParam \
+        of its tasks declares, so this name reached the delivery some other way - through a \
+        value computed at runtime rather than through @TaskParam("%s"). Either declare it that \
+        way, or read the value from the workflow aggregate, which is what VanillaBP is about, \
+        or set '%s' to 'all' - at task level for this one task, or at workflow, workflow-module \
+        or adapter level."""
+        .formatted(taskDefinition, name, selection.describe(), name, propertyKey(adapterId));
 
   }
 

@@ -778,7 +778,7 @@ idempotency key as `messageId` and ONLY the aggregate-ID variable.
 secondary storage the adapter answers OPTIMISTICALLY (one-time guiding WARN) -
 fine for single-BPMS setups, configure secondary storage for migration scenarios.
 
-### What a worker fetches (story 93)
+### What a worker fetches (stories 93 and 99)
 
 A Camunda 8 worker which names no variables receives the complete variable scope of the
 process instance with every job, which Camunda warns can be "tens or more variables, of
@@ -793,16 +793,21 @@ deployed models:
 - the multi-instance variables of the iterations enclosing the element the job belongs to,
   which this adapter injected into the model while deploying (story 62). They depend on
   the element, which is why the list is not a constant;
-- every variable name the BPMN process itself declares: the targets of its input and
-  output mappings, the result variables of its scripts and called decisions, the output
-  collections of its multi-instance elements. The adapter does not read those, but a
-  `@TaskParam` may, and the model is the one place where the adapter can see such a name.
-  The workflow-end listener is the exception: a `@WorkflowEnded` method cannot declare a
-  `@TaskParam`, so that worker stays at the aggregate's id.
+- every variable a `@TaskParam` of the served tasks reads, reported by the core
+  (`WorkflowTaskInvoker#taskParameterNames`, story 99). Story 93 read those names off the
+  MODEL instead - the mapping targets, script and decision result variables and
+  multi-instance output collections a Camunda 8 process declares - because that was the
+  only place the adapter could see one. It was a guess in both directions: a model declares
+  names nobody reads, and a handler may read a name no model declares. The core scanned the
+  annotations while wiring anyway, so it answers exactly, and the model scan is gone rather
+  than kept as a second source. The workflow-end listener is the exception: a
+  `@WorkflowEnded` method cannot declare a `@TaskParam`, so that worker stays at the
+  aggregate's id.
 
-What stays out is what only the aggregate sync wrote into the instance. On an aggregate
-with a few large attributes that is the whole of what Camunda's warning is about, and it
-is a copy of data the handler is holding anyway.
+What stays out is everything nobody reads: what only the aggregate sync wrote into the
+instance, and what the model declares for its own purposes. On an aggregate with a few
+large attributes that is the whole of what Camunda's warning is about, and it is a copy of
+data the handler is holding anyway.
 
 The list belongs to the WORKER and not to the delivery. One worker serves a job type
 across the BPMN processes of a workflow module, so its list is the union over everything
@@ -818,14 +823,12 @@ process, the aggregate's id variable cannot be named at all; such a worker asks 
 everything rather than for a list which may be missing exactly what its handler needs.
 
 `vanillabp.adapters.<id>.fetch-variables: all` is the escape hatch, resolvable per
-workflow module, workflow and task. The task level is the point of it: what needs it is
-one task reading with `@TaskParam` a name which is neither VanillaBP's nor the model's,
-typically an attribute of the aggregate or a variable something outside the application
-wrote. Such a parameter is not answered with a null. It fails the delivery with a message
-naming the variable, the list and the property, so the cluster raises an incident instead
-of the handler computing on a value which was quietly dropped. Where the name is an
-aggregate attribute, the better answer is usually to read it from the aggregate the method
-already receives, which is what VanillaBP is about.
+workflow module, workflow and task. Since story 99 a statically named `@TaskParam` does not
+need it any more, which leaves the case the scanner cannot see: a name assembled while the
+delivery runs. Such a read is not answered with a null. It fails the delivery with a message
+naming the variable, the list and the property, and saying that the name is not on the
+method - so the cluster raises an incident instead of the handler computing on a value which
+was quietly dropped.
 
 Every worker logs at DEBUG what it fetches when it opens. When somebody reports a variable
 their handler no longer sees, that line answers the first question.

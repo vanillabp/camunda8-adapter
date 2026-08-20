@@ -298,10 +298,11 @@ public class TaskDockerWorkflowService {
   }
 
   /**
-   * Story 93, the escape hatch at TASK level: this task is configured with
+   * The escape hatch at TASK level (story 93): this task is configured with
    * {@code fetch-variables: all}, so its worker asks the cluster for the complete
-   * variable scope and the {@code @TaskParam} below is answered although the adapter
-   * could never have derived that name.
+   * variable scope. Since story 99 the derived list would answer this {@code @TaskParam}
+   * as well - what the task proves is that the property still reaches the worker and that
+   * a worker asking for everything keeps working.
    */
   @WorkflowTask
   public void fetchAllTask(
@@ -317,10 +318,11 @@ public class TaskDockerWorkflowService {
   }
 
   /**
-   * Story 93, the default: this task's worker fetches the derived list, which is the
-   * aggregate-ID variable alone. The {@code @TaskParam} therefore names a variable the
-   * job does not carry, and the delivery fails with a guiding message instead of running
-   * this method on a <code>null</code>.
+   * Story 99, the default: nothing is configured for this task and {@code bigPayload}
+   * appears in no BPMN model - it was handed to the workflow when it was started. Its
+   * worker still asks the cluster for that variable, because the core reports the
+   * {@code @TaskParam} names of the methods serving a task while the application wires
+   * itself.
    */
   @WorkflowTask
   public void fetchDerivedTask(
@@ -328,6 +330,9 @@ public class TaskDockerWorkflowService {
       @io.vanillabp.spi.service.TaskParam("bigPayload") final String bigPayload) {
 
     countInvocation("fetchDerivedTask", aggregate);
+    OBSERVED_VARIABLES.put("derivedPayloadLength", bigPayload == null
+        ? -1
+        : bigPayload.length());
     aggregate.appendResult("fetch-derived");
 
   }

@@ -116,11 +116,26 @@ public class Camunda8FetchVariablesTest {
 
   /**
    * A deployment service whose core answers the given aggregate-ID variable per BPMN
-   * process, with the given <code>fetch-variables</code> resolution.
+   * process, with the given <code>fetch-variables</code> resolution and no
+   * <code>&#64;TaskParam</code> anywhere.
    */
   private Camunda8DeploymentService deploymentService(
       final java.util.function.Function<String, String> aggregateIdNames,
       final Camunda8FetchVariablesResolver fetchVariables) {
+
+    return deploymentService(aggregateIdNames, fetchVariables, taskDefinition -> List.of());
+
+  }
+
+  /**
+   * A deployment service whose core answers the given aggregate-ID variable per BPMN
+   * process and the given <code>&#64;TaskParam</code> names per task definition - the two
+   * questions the derivation asks it.
+   */
+  private Camunda8DeploymentService deploymentService(
+      final java.util.function.Function<String, String> aggregateIdNames,
+      final Camunda8FetchVariablesResolver fetchVariables,
+      final java.util.function.Function<String, List<String>> taskParameters) {
 
     final var invoker = new Camunda8DeploymentServiceTest.NoOpInvoker() {
 
@@ -134,6 +149,16 @@ public class Camunda8FetchVariablesTest {
           throw new IllegalStateException("no workflow service serves '%s'".formatted(bpmnProcessId));
         }
         return name;
+
+      }
+
+      @Override
+      public java.util.Collection<String> taskParameterNames(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String taskDefinitionOrActivityId) {
+
+        return taskParameters.apply(taskDefinitionOrActivityId);
 
       }
 
@@ -308,10 +333,15 @@ public class Camunda8FetchVariablesTest {
   }
 
   @Test
-  @DisplayName("what the model declares is fetched too - a @TaskParam reading it is no escape-hatch case")
-  public void whatTheModelDeclaresIsFetched() {
+  @DisplayName("the @TaskParam names of the served task are fetched, whatever the model declares")
+  public void theDeclaredTaskParametersAreFetched() {
 
-    final var deploymentService = deploymentService(bpmnProcessId -> "id", null);
+    final var deploymentService = deploymentService(
+        bpmnProcessId -> "id",
+        null,
+        taskDefinition -> "rate".equals(taskDefinition)
+            ? List.of("ratingProvider")
+            : List.of());
     wire(deploymentService, DECLARING_MODEL);
 
     final var selection = deploymentService.fetchVariablesOf(
@@ -319,11 +349,59 @@ public class Camunda8FetchVariablesTest {
         List.of(new Camunda8DeploymentService.ServedElement("Declaring", "Rate", "rate")));
 
     assertEquals(
-        List.of("computed", "id", "rating", "ratingProvider", "risk"),
+        List.of("id", "ratingProvider"),
         selection.names(),
-        "an input mapping is how a Camunda 8 model hands a value to a task, and a script or a "
-            + "decision writes one - the adapter cannot see what a handler reads, but it can see "
-            + "these");
+        "the handler reads one of the values this model computes, and the other three are the "
+            + "model's own business - reading them off the model would fetch all four");
+
+  }
+
+  @Test
+  @DisplayName("a worker serving two tasks fetches the union of their parameters")
+  public void theUnionCoversTheParametersOfEveryTaskTheWorkerServes() {
+
+    final var deploymentService = deploymentService(
+        bpmnProcessId -> "id",
+        null,
+        taskDefinition -> "approve".equals(taskDefinition)
+            ? List.of("region", "amount")
+            : List.of());
+    wire(deploymentService, TWO_PROCESSES);
+
+    assertEquals(
+        List.of("amount", "id", "region"),
+        deploymentService
+            .fetchVariablesOf(
+                MODULE,
+                List
+                    .of(
+                        new Camunda8DeploymentService.ServedElement("Loans", "ApproveLoan", "approve"),
+                        new Camunda8DeploymentService.ServedElement("Cards", "ApproveCard", "approve")))
+            .names(),
+        "one worker serves one job type across processes, so its list has to satisfy every "
+            + "method behind it");
+
+  }
+
+  @Test
+  @DisplayName("a @TaskParam naming a variable no model mentions is fetched all the same")
+  public void aParameterOutsideTheModelIsFetched() {
+
+    final var deploymentService = deploymentService(
+        bpmnProcessId -> "id",
+        null,
+        taskDefinition -> List.of("bigPayload"));
+    wire(deploymentService, TWO_PROCESSES);
+
+    assertEquals(
+        List.of("bigPayload", "id"),
+        deploymentService
+            .fetchVariablesOf(
+                MODULE,
+                List.of(new Camunda8DeploymentService.ServedElement("Loans", "ApproveLoan", "approve")))
+            .names(),
+        "the name comes from the method, so a value written past the model reaches the handler "
+            + "without the escape hatch");
 
   }
 
@@ -360,6 +438,11 @@ public class Camunda8FetchVariablesTest {
     final var unfetched = Camunda8FetchVariables.unfetchedTaskParameter("bigPayload", "approve", "c8", selection);
     assertTrue(unfetched.contains("vanillabp.adapters.c8.fetch-variables"), unfetched);
     assertTrue(unfetched.contains("bigPayload"), unfetched);
+    assertTrue(
+        unfetched.contains("@TaskParam(\"bigPayload\")"),
+        "since the worker asks for every declared name, reaching this message means the name is "
+            + "not on the method - and the message says where to put it, but was: "
+            + unfetched);
 
   }
 
