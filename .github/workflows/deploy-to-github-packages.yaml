@@ -16,6 +16,11 @@ permissions:
   contents: read
   pages: write
   id-token: write
+concurrency:
+  # two pushes to main must not publish at the same time, and the later one has to
+  # finish rather than be cancelled: it carries the newer artifacts
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   publish:
     runs-on: ubuntu-latest
