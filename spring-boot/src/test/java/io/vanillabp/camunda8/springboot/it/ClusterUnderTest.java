@@ -106,6 +106,55 @@ public final class ClusterUnderTest {
 
   }
 
+  /**
+   * The user the authenticated cluster is initialized with, and its password. Both are
+   * test values and deliberately visible: what the story is about is that they REACH the
+   * cluster, not that they are secret.
+   */
+  public static final String USERNAME = "demo";
+
+  /**
+   * @see #USERNAME
+   */
+  public static final String PASSWORD = "demo";
+
+  /**
+   * A cluster with its authentication SWITCHED ON - what a self-managed installation
+   * normally looks like, and what every other cluster here deliberately is not (story
+   * 88). Secondary storage comes with it: the orchestration cluster refuses basic
+   * authentication without it ("Basic Authentication is not supported when secondary
+   * storage is disabled"), so an authenticated cluster is an Elasticsearch cluster.
+   *
+   * @param network      The network shared with the Elasticsearch container.
+   * @param elasticsearch The Elasticsearch container, started first.
+   * @return A container to be used as a Testcontainers {@code @Container} field.
+   */
+  public static GenericContainer<?> withAuthentication(
+      final Network network,
+      final Startable elasticsearch) {
+
+    return new GenericContainer<>(image())
+        .withNetwork(network)
+        .dependsOn(elasticsearch)
+        .withExposedPorts(8080, 26500, 9600)
+        .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "elasticsearch")
+        .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_ELASTICSEARCH_URL", "http://elasticsearch:9200")
+        // no UNPROTECTEDAPI here: every request has to carry credentials
+        .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_METHOD", "BASIC")
+        .withEnv("CAMUNDA_SECURITY_AUTHORIZATIONS_ENABLED", "true")
+        .withEnv("CAMUNDA_SECURITY_INITIALIZATION_USERS_0_USERNAME", USERNAME)
+        .withEnv("CAMUNDA_SECURITY_INITIALIZATION_USERS_0_PASSWORD", PASSWORD)
+        .withEnv("CAMUNDA_SECURITY_INITIALIZATION_USERS_0_NAME", "Demo")
+        .withEnv("CAMUNDA_SECURITY_INITIALIZATION_USERS_0_EMAIL", "demo@example.org")
+        .withEnv("CAMUNDA_SECURITY_INITIALIZATION_DEFAULTROLES_ADMIN_USERS_0", USERNAME)
+        .waitingFor(Wait
+            .forHttp("/actuator/health/readiness")
+            .forPort(9600)
+            .forStatusCode(200)
+            .withStartupTimeout(STARTUP_TIMEOUT));
+
+  }
+
   private static String readImage() {
 
     final var properties = new Properties();

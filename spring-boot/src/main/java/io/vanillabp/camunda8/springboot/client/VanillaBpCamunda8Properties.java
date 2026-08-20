@@ -15,7 +15,9 @@ import lombok.Setter;
  * {@link Camunda8AdapterConfiguration}: <code>mode</code>, <code>rest-address</code>,
  * <code>grpc-address</code>, <code>prefer-rest-over-grpc</code>, <code>tenant-id</code>,
  * <code>cluster-id</code>, <code>region</code>, <code>client-id</code>,
- * <code>client-secret</code>). A second {@code @ConfigurationProperties} class over the
+ * <code>client-secret</code>, and the <code>auth.*</code> block of
+ * {@link io.vanillabp.camunda8.client.Camunda8AuthConfiguration}). A second
+ * {@code @ConfigurationProperties} class over the
  * same prefix coexists with the platform's binding of the core model; keys unknown to
  * either view are ignored by the JavaBean binding.
  * <p>

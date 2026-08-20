@@ -17,6 +17,10 @@ vanillabp:
       keep-alive: PT30S
       max-http-connections: 64
       override-authority: gateway.internal
+      auth:
+        method: basic
+        username: demo
+        password: demo
   prioritized-adapters:
     - c8
   workflow-modules:

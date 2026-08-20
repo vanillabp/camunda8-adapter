@@ -286,17 +286,18 @@ EAGERLY at startup for every completely configured adapter instance. The adapter
 set always comes from the platform's core properties (ids of type `camunda8`); the
 overlay maps are per-known-id lookups only.
 
-|                    Property                     |  Applies to  |                  Required                  |                  Description                   |
-|-------------------------------------------------|--------------|--------------------------------------------|------------------------------------------------|
-| `vanillabp.adapters.<id>.mode`                  | both         | no (default `self-managed`)                | `self-managed` or `saas`                       |
-| `vanillabp.adapters.<id>.rest-address`          | self-managed | yes (unless `prefer-rest-over-grpc=false`) | REST API address, e.g. `http://localhost:8080` |
-| `vanillabp.adapters.<id>.grpc-address`          | self-managed | only if `prefer-rest-over-grpc=false`      | gRPC address, e.g. `http://localhost:26500`    |
-| `vanillabp.adapters.<id>.prefer-rest-over-grpc` | self-managed | no (default `true`)                        | use the REST API (recommended) or gRPC         |
-| `vanillabp.adapters.<id>.cluster-id`            | saas         | yes                                        | SaaS cluster ID                                |
-| `vanillabp.adapters.<id>.region`                | saas         | yes                                        | SaaS region                                    |
-| `vanillabp.adapters.<id>.client-id`             | saas         | yes                                        | OAuth client ID                                |
-| `vanillabp.adapters.<id>.client-secret`         | saas         | yes                                        | OAuth client secret                            |
-| `vanillabp.adapters.<id>.tenant-id`             | both         | no                                         | Camunda 8 multi-tenancy tenant                 |
+|                    Property                     |  Applies to  |                  Required                  |                                      Description                                       |
+|-------------------------------------------------|--------------|--------------------------------------------|----------------------------------------------------------------------------------------|
+| `vanillabp.adapters.<id>.mode`                  | both         | no (default `self-managed`)                | `self-managed` or `saas`                                                               |
+| `vanillabp.adapters.<id>.rest-address`          | self-managed | yes (unless `prefer-rest-over-grpc=false`) | REST API address, e.g. `http://localhost:8080`                                         |
+| `vanillabp.adapters.<id>.grpc-address`          | self-managed | only if `prefer-rest-over-grpc=false`      | gRPC address, e.g. `http://localhost:26500`                                            |
+| `vanillabp.adapters.<id>.prefer-rest-over-grpc` | self-managed | no (default `true`)                        | use the REST API (recommended) or gRPC                                                 |
+| `vanillabp.adapters.<id>.cluster-id`            | saas         | yes                                        | SaaS cluster ID                                                                        |
+| `vanillabp.adapters.<id>.region`                | saas         | yes                                        | SaaS region                                                                            |
+| `vanillabp.adapters.<id>.client-id`             | saas         | yes                                        | OAuth client ID                                                                        |
+| `vanillabp.adapters.<id>.client-secret`         | saas         | yes                                        | OAuth client secret                                                                    |
+| `vanillabp.adapters.<id>.tenant-id`             | both         | no                                         | Camunda 8 multi-tenancy tenant                                                         |
+| `vanillabp.adapters.<id>.auth.*`                | both         | no (default: no credentials)               | how the adapter authenticates, see [below](#authenticating-against-a-cluster-story-88) |
 
 Example (self-managed):
 
@@ -324,6 +325,78 @@ connection configuration is validated AT STARTUP:
 Messages name property KEYS only - values, especially credentials like
 `client-secret`, are never echoed. Using an unconfigured adapter at runtime keeps a
 guiding failure message as backstop.
+
+### Authenticating against a cluster (story 88)
+
+Until this story the adapter could authenticate against Camunda SaaS and against nothing else.
+`client-id` and `client-secret` hung on the cloud builder, the self-managed branch set
+addresses, the transport preference and the tenant, and never a credentials provider. A
+self-managed cluster with its authentication switched on, which is what a self-managed
+installation normally looks like, was therefore unreachable, and no message said why, because
+the adapter had no property to offer. Our own integration tests hid it: every cluster here ran
+with `CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI=true`, so an adapter sending no
+credentials passed all of them. `Camunda8AuthenticationIT` is the test that would have caught
+it, and it runs against a cluster where nothing is unprotected.
+
+`vanillabp.adapters.<id>.auth.*` carries the credentials of one adapter instance, at adapter
+level only: a credential is a property of the connection, and a per-workflow level would be a
+promise the connection cannot keep.
+
+**Three methods, because the client has three.** `none`, `basic` and `oidc` are what
+`CredentialsProvider` can build, and both builders are used as they are rather than
+reimplemented, so the OIDC token is cached in a file and refreshed by the code Camunda
+maintains. A fourth value `mtls` was considered and dropped: the Camunda Java client offers no
+keystore for its own gRPC or REST connection on any of the three release lines, not through
+`CamundaClientBuilder`, not through `ClientProperties`, not through an environment variable.
+Its keystore and truststore belong to the token request against the identity provider, and the
+`auth` block says so. A property which quietly configures the token request while the user
+believes it configures the cluster connection is worse than no property, so this is a
+documented deviation instead.
+
+**An absent `method` is detected and the detection is logged.** A user name detects `basic`, a
+client id detects `oidc`, a SaaS adapter is `oidc` through its connection keys, and nothing at
+all is `none`. The startup line which names the address names the method next to it, with
+`(detected)` where nobody wrote it down. A `none` nobody noticed is how the gap survived in the
+first place, so it does not get to be quiet a second time. Credentials which cannot belong to
+the resolved method fail the boot rather than being ignored, and so do two methods configured
+at once: a key nobody sends is a key somebody wrote for nothing.
+
+**A self-managed OIDC adapter has to name its authorization server.** The Camunda client falls
+back to `https://login.cloud.camunda.io/oauth/token/` when an OIDC client names none, which no
+on-premises installation ever means, so `authorization-server-url` and `audience` are required
+outside SaaS. `issuer-url` and `well-known-configuration-url`, which the 8.9 client added, are
+deliberately not modelled: the VanillaBP-facing API is identical on every release line, and the
+8.8 client has neither.
+
+**SaaS shares the code path.** Its connection keys become the OIDC client with two presets,
+Camunda's login endpoint and the audience `zeebe.camunda.io`, which is byte for byte what the
+cloud builder would have built. Existing SaaS configurations therefore keep working, and they
+gain the rest of the `auth` block: the credentials cache and the timeouts of the token request
+were previously unreachable.
+
+**The runtime message rides on `shouldRetryRequest`.** Whether a cluster accepts a credential
+is only learnable by asking it, so `method: none` cannot be validated at startup. The client
+asks the credentials provider `shouldRetryRequest` on every request a cluster refused, on both
+transports and for commands as well as for job activation, which makes that one method the
+place where an adapter learns it is unwelcome. The provider handed to the client is wrapped in
+`Camunda8Authentication.Observing`, which reports once per adapter id: for `none` with the YAML
+which names a method, otherwise with the fact that the configured credentials reached the
+cluster and were refused. Building on the classification in `Camunda8Errors` was the
+alternative and was dropped, because it would have needed a call at every one of the two dozen
+places a command is sent and would still have missed the workers, whose activation failures the
+adapter never sees.
+
+**`none` plus credentials in the environment sets no provider at all.** The client builds one
+from `CAMUNDA_CLIENT_ID`/`CAMUNDA_CLIENT_SECRET` or `CAMUNDA_BASIC_AUTH_USERNAME`/
+`CAMUNDA_BASIC_AUTH_PASSWORD`, but only while the application set none, so setting a Noop
+provider would have switched off a deployment which relied on those variables. That case
+therefore hands the client nothing, at the price of the runtime message, and says so in the
+startup line. Every other case sets a provider, and where the environment carries credentials
+alongside, a WARN names the variables and what they no longer decide.
+
+**Who the adapter authenticates as is part of its instance identity.** Two adapter ids on one
+self-managed address were previously the same instance and failed the boot; with separate
+accounts they are two, which is the same reasoning that already made the SaaS client id count.
 
 ### Behavior
 
@@ -505,9 +578,9 @@ it is today the only way to reach a client option this adapter does not model.
 `Camunda8EnvironmentOverrides` compares what the adapter configured against what the built
 client reports and logs a WARN naming every value a variable changed, with the variable, the
 property key and both values. Credentials are not among the compared values, so no message
-can carry a secret. Note for the authentication story: once a credentials provider is
-installed, the client stops applying the environment's credentials, because it only installs
-those when the application set none.
+can carry a secret. What that means for credentials is settled by story
+88 below: the client installs a provider from the environment only while the application set
+none.
 
 ### Task processing (story 21c)
 
@@ -936,6 +1009,17 @@ cardinality, so a model saying "run this five times" has to hand over a collecti
 elements. The count of the instances is not reported by the engine either; the adapter
 derives it from the collection while deploying, see [Multi-instance](#multi-instance).
 Nothing announced.
+
+### Client certificates for the cluster connection
+
+The Camunda Java client cannot send one. On 8.8.35, 8.9.16 and 8.10.0-alpha4 alike,
+`CamundaClientBuilder` has `caCertificatePath` and `overrideAuthority` and nothing else about
+TLS material, `ClientProperties` lists no keystore, and the environment variables the client
+reads carry none either. The keystore and truststore of `CredentialsProvider`'s OAuth builder
+apply to the token request against the identity provider, not to gRPC or REST against the
+gateway, and the `auth` block documents them that way. A cluster which demands a client
+certificate is therefore out of reach until the client grows the option, and the adapter says
+so rather than offering a property which would silently do something else.
 
 ### Message deduplication lasts for the message TTL
 

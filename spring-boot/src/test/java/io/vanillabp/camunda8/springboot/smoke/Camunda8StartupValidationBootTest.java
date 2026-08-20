@@ -19,7 +19,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  *   <li>inconsistent config of a nowhere-first adapter with policy 'warn' → the
  *       application boots DEGRADED with a warning;</li>
  *   <li>fully configured → no warning, and the configured secret NEVER appears in
- *       the log (messages name keys, not values).</li>
+ *       the log (messages name keys, not values);</li>
+ *   <li>story 88: an <code>auth</code> block binds through the Spring overlay and
+ *       reaches the client, an incomplete one fails the boot with the YAML which
+ *       completes it, and no password reaches a log line.</li>
  * </ul>
  */
 @ExtendWith(SuppressOutputExtension.class)
@@ -145,6 +148,55 @@ public class Camunda8StartupValidationBootTest {
     Assertions.assertFalse(
         log.contains(secret),
         "the configured client-secret must never appear in the log");
+
+  }
+
+  @Test
+  public void authenticationBlockBindsAndIsReportedWithoutItsPassword(
+      final CapturedOutput output) {
+
+    final var password = "super-secret-password-4711";
+    final var before = output.getAll().length();
+
+    try (var context = run(
+        "vanillabp.adapters.c8.rest-address=http://localhost:8080",
+        "vanillabp.adapters.c8.auth.username=demo",
+        "vanillabp.adapters.c8.auth.password="
+            + password)) {
+
+      Assertions.assertTrue(context.isActive());
+      final var provider = context
+          .getBean(io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry.class)
+          .getFactory("c8")
+          .getClient()
+          .getConfiguration()
+          .getCredentialsProvider();
+      Assertions
+          .assertInstanceOf(
+              io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider.class,
+              io.vanillabp.camunda8.client.Camunda8Authentication.unwrap(provider),
+              "the auth block of the Spring overlay reaches the client");
+    }
+
+    final var log = output.getAll().substring(before);
+    Assertions.assertTrue(log.contains("authentication basic (detected) as 'demo'"), log);
+    Assertions.assertFalse(log.contains(password), "a password never appears in the log");
+
+  }
+
+  @Test
+  public void incompleteAuthenticationFailsTheBootWithTheYamlWhichCompletesIt() {
+
+    final var exception = Assertions.assertThrows(
+        Exception.class,
+        () -> run(
+            "vanillabp.adapters.c8.rest-address=http://localhost:8080",
+            "vanillabp.adapters.c8.auth.username=demo").close());
+
+    final var failure = rootMessage(exception);
+    Assertions.assertTrue(failure.contains("authenticates with 'basic'"), failure);
+    Assertions.assertTrue(failure.contains("vanillabp.adapters.c8.auth.password"), failure);
+    Assertions.assertTrue(failure.contains("method: basic"), failure);
 
   }
 

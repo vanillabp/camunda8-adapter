@@ -95,13 +95,55 @@ public final class Camunda8EnvironmentOverrides {
         Camunda8AdapterConfiguration.propertyKey(adapterId, "max-http-connections"),
         asString(configuration.getMaxHttpConnections()),
         String.valueOf(clientConfiguration.getMaxHttpConnections()));
-    // the adapter has no property for the CA certificate at all (it arrives with the
-    // authentication story), so anything the client reports here came from the environment
     compare(
         overrides, environment, "CAMUNDA_CA_CERTIFICATE_PATH", "ZEEBE_CA_CERTIFICATE_PATH",
-        "(no VanillaBP property yet)", null, clientConfiguration.getCaCertificatePath());
+        Camunda8AdapterConfiguration.propertyKey(adapterId, "auth.ca-certificate-path"),
+        configuration.getAuth().getCaCertificatePath(), clientConfiguration.getCaCertificatePath());
 
     return overrides;
+
+  }
+
+  /**
+   * The variables from which the client would pick an authentication method of its own -
+   * but only while the application set none. Once the adapter sets a provider, and since
+   * story 88 it always does unless it authenticates with <code>none</code>, these stop
+   * choosing the method. The values still apply where they belong to the method the
+   * adapter chose, because the client's credential builders read their own environment.
+   *
+   * @param adapterId The adapter id
+   * @param authentication The resolved authentication of the adapter instance
+   * @param environment Reads an environment variable (usually {@code System::getenv})
+   * @return The message, or <code>null</code> where there is nothing to say
+   */
+  public static String describeCredentialSelection(
+      final String adapterId,
+      final Camunda8Authentication authentication,
+      final Function<String, String> environment) {
+
+    if (authentication.getMethod() == Camunda8AuthConfiguration.Method.NONE) {
+      // nothing was taken away: either the client still builds its provider from the
+      // environment, or there is nothing in the environment to build one from
+      return null;
+    }
+    final var set = java.util.Arrays
+        .stream(Camunda8Authentication.ENVIRONMENT_CREDENTIAL_VARIABLES)
+        .filter(variable -> isSet(environment, variable))
+        .collect(java.util.stream.Collectors.joining(", "));
+    if (set.isEmpty()) {
+      return null;
+    }
+    return """
+        Camunda 8 adapter '%s' authenticates with '%s' from its configuration, and the environment also \
+        carries credentials (%s). The client picks a method from those variables only while the \
+        application names none, so they no longer decide how this adapter authenticates - a deployment \
+        which relied on them has to move them into '%s'. Where a variable belongs to the chosen method \
+        it still overrules the configured value, which is the escape hatch it always was."""
+        .formatted(
+            adapterId,
+            authentication.getMethod().name().toLowerCase(),
+            set,
+            Camunda8AdapterConfiguration.propertyKey(adapterId, "auth"));
 
   }
 

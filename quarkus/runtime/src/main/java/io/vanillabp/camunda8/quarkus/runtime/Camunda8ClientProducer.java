@@ -103,7 +103,35 @@ public class Camunda8ClientProducer {
     keys.keepAlive().ifPresent(configuration::setKeepAlive);
     keys.maxHttpConnections().ifPresent(configuration::setMaxHttpConnections);
     keys.overrideAuthority().ifPresent(configuration::setOverrideAuthority);
+    toAuthConfiguration(keys.auth(), configuration.getAuth());
     return configuration;
+
+  }
+
+  private static void toAuthConfiguration(
+      final VanillaBpCamunda8Properties.AuthKeys keys,
+      final io.vanillabp.camunda8.client.Camunda8AuthConfiguration auth) {
+
+    if (keys == null) {
+      return;
+    }
+    keys.method().ifPresent(auth::setMethod);
+    keys.username().ifPresent(auth::setUsername);
+    keys.password().ifPresent(auth::setPassword);
+    keys.clientId().ifPresent(auth::setClientId);
+    keys.clientSecret().ifPresent(auth::setClientSecret);
+    keys.authorizationServerUrl().ifPresent(auth::setAuthorizationServerUrl);
+    keys.audience().ifPresent(auth::setAudience);
+    keys.scope().ifPresent(auth::setScope);
+    keys.credentialsCachePath().ifPresent(auth::setCredentialsCachePath);
+    keys.connectTimeout().ifPresent(auth::setConnectTimeout);
+    keys.readTimeout().ifPresent(auth::setReadTimeout);
+    keys.keystorePath().ifPresent(auth::setKeystorePath);
+    keys.keystorePassword().ifPresent(auth::setKeystorePassword);
+    keys.keystoreKeyPassword().ifPresent(auth::setKeystoreKeyPassword);
+    keys.truststorePath().ifPresent(auth::setTruststorePath);
+    keys.truststorePassword().ifPresent(auth::setTruststorePassword);
+    keys.caCertificatePath().ifPresent(auth::setCaCertificatePath);
 
   }
 

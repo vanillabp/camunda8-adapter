@@ -281,6 +281,144 @@ public interface VanillaBpCamunda8Properties {
      */
     Optional<String> overrideAuthority();
 
+    /**
+     * How this adapter instance authenticates against its cluster (story 88).
+     *
+     * @return The authentication block
+     */
+    AuthKeys auth();
+
+  }
+
+  /**
+   * The <code>vanillabp.adapters.&lt;id&gt;.auth.*</code> keys (see
+   * {@link io.vanillabp.camunda8.client.Camunda8AuthConfiguration} for the semantics and
+   * the defaults the Camunda client brings).
+   */
+  interface AuthKeys {
+
+    /**
+     * <code>none</code>, <code>basic</code> or <code>oidc</code>. Absent means the
+     * method is detected from the keys which are set, and the detection is logged.
+     *
+     * @return The method
+     */
+    Optional<io.vanillabp.camunda8.client.Camunda8AuthConfiguration.Method> method();
+
+    /**
+     * The user name of the method <code>basic</code>.
+     *
+     * @return The user name
+     */
+    Optional<String> username();
+
+    /**
+     * The password of the method <code>basic</code>.
+     *
+     * @return The password
+     */
+    Optional<String> password();
+
+    /**
+     * The OIDC client requesting the token.
+     *
+     * @return The client id
+     */
+    Optional<String> clientId();
+
+    /**
+     * The secret of the OIDC client.
+     *
+     * @return The client secret
+     */
+    Optional<String> clientSecret();
+
+    /**
+     * The token endpoint of the identity provider.
+     *
+     * @return The authorization server URL
+     */
+    Optional<String> authorizationServerUrl();
+
+    /**
+     * The audience the cluster expects in the token.
+     *
+     * @return The audience
+     */
+    Optional<String> audience();
+
+    /**
+     * The scopes requested with the token.
+     *
+     * @return The scope
+     */
+    Optional<String> scope();
+
+    /**
+     * Where the client caches the tokens it fetched. Default: the client's
+     * <code>${user.home}/.camunda/credentials</code>.
+     *
+     * @return The cache file
+     */
+    Optional<String> credentialsCachePath();
+
+    /**
+     * How long connecting to the authorization server may take. Default: the client's 5
+     * seconds.
+     *
+     * @return The connect timeout
+     */
+    Optional<java.time.Duration> connectTimeout();
+
+    /**
+     * How long reading the token response may take. Default: the client's 5 seconds.
+     *
+     * @return The read timeout
+     */
+    Optional<java.time.Duration> readTimeout();
+
+    /**
+     * The keystore holding the client certificate the AUTHORIZATION SERVER asks for.
+     *
+     * @return The keystore file
+     */
+    Optional<String> keystorePath();
+
+    /**
+     * The password of that keystore.
+     *
+     * @return The keystore password
+     */
+    Optional<String> keystorePassword();
+
+    /**
+     * The password of the key inside that keystore.
+     *
+     * @return The key password
+     */
+    Optional<String> keystoreKeyPassword();
+
+    /**
+     * The truststore the AUTHORIZATION SERVER's certificate is verified against.
+     *
+     * @return The truststore file
+     */
+    Optional<String> truststorePath();
+
+    /**
+     * The password of that truststore.
+     *
+     * @return The truststore password
+     */
+    Optional<String> truststorePassword();
+
+    /**
+     * The certificate authority the CLUSTER's TLS certificate is verified against.
+     *
+     * @return The certificate file
+     */
+    Optional<String> caCertificatePath();
+
   }
 
 
