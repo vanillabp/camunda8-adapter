@@ -56,16 +56,18 @@ public class Camunda8DeploymentServiceProducer {
         .sorted()
         .map(adapterId -> {
           final var adapterKeys = overlay.adapters().get(adapterId);
-          final var asyncTaskTimeout = adapterKeys != null
-              ? adapterKeys.asyncTaskTimeout().orElse(java.time.Duration.ofDays(14))
-              : java.time.Duration.ofDays(14);
+          final var asyncTaskLockRenewal = adapterKeys != null
+              ? adapterKeys
+                  .asyncTaskLockRenewal()
+                  .orElse(io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL)
+              : io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
           final var deploymentService = new Camunda8DeploymentService(
               adapterId, clientFactoryRegistry.getFactory(adapterId), workflowTaskRegistry, (
                   workflowModuleId,
                   bpmnProcessId,
                   taskDefinition) -> overlay.jobTimeoutFor(
                       workflowModuleId, bpmnProcessId, taskDefinition,
-                      adapterId), asyncTaskTimeout, id -> clientFactoryRegistry
+                      adapterId), asyncTaskLockRenewal, id -> clientFactoryRegistry
                           .getFactory(id)
                           .getConfiguration(), scoping);
           deploymentService.setBpmsInitiatedStartInvoker(workflowTaskRegistry);

@@ -49,9 +49,11 @@ public class Camunda8ProcessServiceProducer {
         .sorted()
         .<MigratableProcessService<Object>>map(adapterId -> {
           final var adapterKeys = overlay.adapters().get(adapterId);
-          final var asyncTaskTimeout = adapterKeys != null
-              ? adapterKeys.asyncTaskTimeout().orElse(java.time.Duration.ofDays(14))
-              : java.time.Duration.ofDays(14);
+          final var asyncTaskLockRenewal = adapterKeys != null
+              ? adapterKeys
+                  .asyncTaskLockRenewal()
+                  .orElse(io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL)
+              : io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
           final var workflowVisibilityTimeout = adapterKeys != null
               ? adapterKeys
                   .workflowVisibilityTimeout()
@@ -60,7 +62,7 @@ public class Camunda8ProcessServiceProducer {
           final var processService = new Camunda8ProcessService<>(
               adapterId, clientFactoryRegistry
                   .getFactory(
-                      adapterId), asyncTaskTimeout, preCommitRegistrar, aggregateSync, workflowVisibilityTimeout);
+                      adapterId), asyncTaskLockRenewal, preCommitRegistrar, aggregateSync, workflowVisibilityTimeout);
           processService.setScoping(scoping);
           return processService;
         })

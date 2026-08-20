@@ -10,7 +10,7 @@ vanillabp:
       type: camunda8
       name-clash-avoidance: use-prefix
       job-timeout: PT30S
-      async-task-timeout: PT2M
+      async-task-lock-renewal: PT2M
   prioritized-adapters:
     - c8
   workflow-modules:

@@ -172,12 +172,28 @@ public interface VanillaBpCamunda8Properties {
     Optional<java.time.Duration> jobTimeout();
 
     /**
-     * How long a <code>&#64;TaskId</code> job stays dormant awaiting its
-     * asynchronous completion.
+     * The window the lock of a job left open by a <code>&#64;TaskId</code> handler is
+     * renewed in.
      *
-     * @return The dormancy duration
+     * @return The renewal window
+     */
+    Optional<java.time.Duration> asyncTaskLockRenewal();
+
+    /**
+     * The key which used to carry a dormancy horizon of days. Bound only so the boot can
+     * REJECT it with a message naming its successor.
+     *
+     * @return The removed key's value, if somebody still configures it
      */
     Optional<java.time.Duration> asyncTaskTimeout();
+
+    /**
+     * What this adapter does with a task the core reports as older than
+     * <code>vanillabp.delivery.max-task-age</code>.
+     *
+     * @return The action
+     */
+    Optional<io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction> asyncTaskMaxAgeAction();
 
     /**
      * How long a workflow this cluster holds may stay invisible to the query API

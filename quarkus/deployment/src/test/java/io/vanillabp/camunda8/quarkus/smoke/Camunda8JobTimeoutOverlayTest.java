@@ -18,7 +18,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 /**
  * Proves the job timeout resolves through all FOUR configuration levels of the
  * Quarkus overlay mapping (story 21c) - task, workflow, workflow-module and
- * adapter level, most specific wins - and that the async-task-timeout is read at
+ * adapter level, most specific wins - and that the async-task-lock-renewal is read at
  * adapter level. It is also where the Quarkus overlay is checked key by key: every
  * client, worker and authentication key has to bind AND arrive at the client the adapter
  * id built. No BPMN resources are deployed (the workflow module's resources-location is
@@ -79,13 +79,13 @@ public class Camunda8JobTimeoutOverlayTest {
     Assertions.assertEquals(
         io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
         overlay.jobTimeoutFor("test-app", "TaskProcess", "happyTask", "unknown-adapter"));
-    // the async-task-timeout is an adapter-level key
+    // the async-task-lock-renewal is an adapter-level key
     Assertions.assertEquals(
         Duration.ofMinutes(2),
         overlay
             .adapters()
             .get("c8")
-            .asyncTaskTimeout()
+            .asyncTaskLockRenewal()
             .orElseThrow());
 
   }

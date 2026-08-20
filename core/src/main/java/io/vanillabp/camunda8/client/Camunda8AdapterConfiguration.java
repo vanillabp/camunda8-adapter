@@ -26,6 +26,12 @@ import lombok.Setter;
  *       client uses the REST API (recommended) or gRPC for its commands</li>
  *   <li>{@code .auth.*} - how the adapter authenticates, see
  *       {@link Camunda8AuthConfiguration}</li>
+ *   <li>{@code .async-task-lock-renewal} (optional, default one hour) - the window the
+ *       lock of a job left open by a {@code @TaskId} handler is renewed in, see
+ *       {@link #asyncTaskLockRenewal}</li>
+ *   <li>{@code .async-task-max-age-action} (optional, default {@code report}) - what
+ *       this adapter does with a task the core reports as older than
+ *       {@code vanillabp.delivery.max-task-age}, see {@link #asyncTaskMaxAgeAction}</li>
  * </ul>
  * All fields are optional at binding time so applications which configure a Camunda 8
  * adapter but never actually use it still boot; {@link #validate(String)} enforces the
@@ -119,11 +125,86 @@ public class Camunda8AdapterConfiguration {
   private boolean acceptUnscopedIdentifiers = false;
 
   /**
-   * How long a <code>&#64;TaskId</code> job stays dormant awaiting its
-   * asynchronous completion (the job's lock is extended once to this duration
-   * when the handler returns without completing). Default: 14 days.
+   * How long the lock of a job left open by a <code>&#64;TaskId</code> handler is
+   * extended for, and with it how often that lock is renewed: the cluster hands the
+   * job out again when the window passed, VanillaBP answers the redelivery from the
+   * record it wrote when the handler ran, and the adapter extends the lock by another
+   * window. The renewal is therefore driven by the cluster's own redelivery, and the
+   * application never notices it. Default: {@value #DEFAULT_ASYNC_TASK_LOCK_RENEWAL_ISO}.
+   * <p>
+   * <b>Why an hour.</b> The window has to sit clearly below
+   * <code>vanillabp.outbox.retention</code> (seven days by default), because the record
+   * is what answers the redelivery: once it is cleaned up, the redelivery reaches the
+   * application's method a second time. An hour is a factor of 168 below the default
+   * retention, which survives a retention somebody lowered without thinking. The cost is
+   * one activation, one read of the delivery record and one lock command per open task
+   * per window - with 1.000 open asynchronous tasks that is 0,28 per second, with 10.000
+   * it is 2,8 per second - and those renewals run on the same execution slots as real
+   * work ({@link #workerThreads}), which is the reason not to make the window minutes.
+   * The granularity of the age check follows the window, and hourly is fine for
+   * something measured in days.
+   * <p>
+   * <b>No callback into the application.</b> There is deliberately no keep-alive hook and
+   * no aware interface asking whether an open task is still wanted. An application which
+   * knows its task is obsolete has <code>ProcessService#cancelTask</code>, which is
+   * BPMS-neutral and exists; an application which lost track of the task could not answer
+   * a liveness question truthfully anyway. What VanillaBP does instead is measure how long
+   * the task has been open (<code>vanillabp.delivery.max-task-age</code>) and let this
+   * adapter react to it, see {@link #asyncTaskMaxAgeAction}.
+   */
+  private java.time.Duration asyncTaskLockRenewal;
+
+  /**
+   * The default of {@link #asyncTaskLockRenewal} in ISO-8601 notation, for javadoc and
+   * messages.
+   */
+  public static final String DEFAULT_ASYNC_TASK_LOCK_RENEWAL_ISO = "PT1H";
+
+  /**
+   * The default of {@link #asyncTaskLockRenewal}: one hour.
+   */
+  public static final java.time.Duration DEFAULT_ASYNC_TASK_LOCK_RENEWAL = java.time.Duration
+      .parse(DEFAULT_ASYNC_TASK_LOCK_RENEWAL_ISO);
+
+  /**
+   * The key this adapter used before the renewal window was named after what it is. It
+   * exists only to be REJECTED at startup: it carried a horizon of fourteen days, which
+   * outlived the retention of the delivery records and made every asynchronous task open
+   * longer than that run the application's method a second time. VanillaBP 2 is not
+   * released, so a loud rename is better than a silent one.
    */
   private java.time.Duration asyncTaskTimeout;
+
+  /**
+   * What this adapter does with a task the core reports as older than
+   * <code>vanillabp.delivery.max-task-age</code>.
+   */
+  public enum AsyncTaskMaxAgeAction {
+    /**
+     * Nothing beyond the report the core writes anyway - the default, and what every
+     * BPMS without a lock to renew is limited to.
+     */
+    REPORT,
+    /**
+     * Stop renewing the job's lock and fail the job, so the cluster raises an incident
+     * naming the workflow aggregate and the age. Operators watch incidents, which is
+     * more than can be said for a log line.
+     */
+    INCIDENT
+  }
+
+  /**
+   * What this adapter does about a task which stayed open longer than
+   * <code>vanillabp.delivery.max-task-age</code> allows (thirty days by default). Default:
+   * {@link AsyncTaskMaxAgeAction#REPORT}, which leaves it at the core's message.
+   * <p>
+   * <code>incident</code> is what a cluster can do beyond a log line: the adapter stops
+   * renewing the lock and fails the job with a message naming the aggregate and the age,
+   * so the incident shows up where operators already look. It is deliberately not the
+   * default - a task waiting for a person or for a partner may legitimately run for
+   * weeks, and an incident on such a task would be worse than the leak the age looks for.
+   */
+  private AsyncTaskMaxAgeAction asyncTaskMaxAgeAction = AsyncTaskMaxAgeAction.REPORT;
 
   /**
    * How this adapter instance runs what it delivers: a positive number of platform
@@ -369,6 +450,84 @@ public class Camunda8AdapterConfiguration {
                   CLIENT_MAX_JOBS_ACTIVE));
     }
     return maxJobsActive;
+
+  }
+
+  /**
+   * The renewal window of this adapter instance's open asynchronous tasks: the
+   * configured value or {@link #DEFAULT_ASYNC_TASK_LOCK_RENEWAL}.
+   *
+   * @return The window a dormant job's lock is extended by
+   */
+  public java.time.Duration resolvedAsyncTaskLockRenewal() {
+
+    return asyncTaskLockRenewal != null
+        ? asyncTaskLockRenewal
+        : DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
+
+  }
+
+  /**
+   * Validates how this adapter instance keeps an open asynchronous task alive - AT
+   * STARTUP, for every configured adapter id. Two things can be wrong here, and both are
+   * silent at runtime:
+   * <ul>
+   * <li>the removed key <code>async-task-timeout</code> is still configured. It used to
+   * be a horizon of days; it is a renewal window now, and a value meant as the one would
+   * be a defect as the other;</li>
+   * <li>the window is not shorter than <code>vanillabp.outbox.retention</code>. The
+   * record of the delivery is what answers the redelivery which renews the lock, so a
+   * window outliving the retention means the application's method runs a second time -
+   * exactly the defect this window exists to fix.</li>
+   * </ul>
+   *
+   * @param adapterId The adapter id
+   * @param outboxRetention How long a delivery record is kept
+   *          (<code>vanillabp.outbox.retention</code>)
+   * @throws IllegalStateException If the removed key is configured or the window does not
+   *           fit below the retention, naming both properties and both values
+   */
+  public void validateAsyncTaskLockRenewal(
+      final String adapterId,
+      final java.time.Duration outboxRetention) {
+
+    if (asyncTaskTimeout != null) {
+      throw new IllegalStateException(
+          """
+              Camunda 8 adapter '%s' configures '%s', which does not exist any more. The property was a \
+              HORIZON of 14 days a dormant job's lock was extended to once, and it outlived the records \
+              which keep a redelivery from running the @WorkflowTask method again - every asynchronous \
+              task open longer than the horizon was processed twice. What the adapter does now is RENEW \
+              the lock in a window, driven by the cluster's own redelivery. Rename the property to '%s' \
+              and give it a window rather than a horizon; the default is %s."""
+              .formatted(
+                  adapterId,
+                  propertyKey(adapterId, "async-task-timeout"),
+                  propertyKey(adapterId, "async-task-lock-renewal"),
+                  DEFAULT_ASYNC_TASK_LOCK_RENEWAL_ISO));
+    }
+
+    if (outboxRetention == null) {
+      return;
+    }
+    final var renewal = resolvedAsyncTaskLockRenewal();
+    if (renewal.compareTo(outboxRetention) < 0) {
+      return;
+    }
+    throw new IllegalStateException(
+        """
+            Camunda 8 adapter '%s' has '%s: %s', which is not shorter than 'vanillabp.outbox.retention: %s'. \
+            The lock of a task left open by a @TaskId handler is renewed whenever the cluster hands the job \
+            out again, and the redelivery is answered from the record VanillaBP wrote when the handler ran. \
+            A record deleted before the next renewal therefore lets the @WorkflowTask method run a second \
+            time. Choose a window well below the retention - at most a tenth of it, %s or less here - or \
+            raise 'vanillabp.outbox.retention'."""
+            .formatted(
+                adapterId,
+                propertyKey(adapterId, "async-task-lock-renewal"),
+                renewal,
+                outboxRetention,
+                outboxRetention.dividedBy(10)));
 
   }
 

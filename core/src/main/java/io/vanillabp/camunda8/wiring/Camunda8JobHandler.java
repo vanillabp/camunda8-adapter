@@ -39,12 +39,20 @@ import lombok.extern.slf4j.Slf4j;
  * the completion, the job is then completed with the ID variable only. The same
  * holds for the BPMN_ERROR path: the error boundary's outgoing flow may branch on
  * the aggregate, too;</li>
- * <li>a {@code @TaskId} method returning without completing puts the job into
- * DORMANCY: the job's lock is extended once to the adapter's
- * <code>async-task-timeout</code> (days), so the handler is NOT re-invoked while
- * the workflow waits for the asynchronous completion
- * (<code>ProcessService#completeTask</code>). The worker's regular
- * job timeout stays short - crash recovery of non-async tasks is not delayed.</li>
+ * <li>a {@code @TaskId} method returning without completing leaves the job OPEN:
+ * its lock is extended by the adapter's <code>async-task-lock-renewal</code> (one
+ * hour by default), so the handler is not re-invoked while the workflow waits for
+ * the asynchronous completion (<code>ProcessService#completeTask</code>). When the
+ * window passes, the cluster hands the job out again, the core answers that
+ * redelivery from its delivery record with COMPLETION_PENDING, and the lock is
+ * extended by another window - the renewal is driven by the cluster's own
+ * redelivery and the application never notices it. The worker's regular job timeout
+ * stays short: crash recovery of non-async tasks is not delayed.</li>
+ * <li>the core measures how long such a task has been open and says when it passed
+ * <code>vanillabp.delivery.max-task-age</code>. Where
+ * <code>async-task-max-age-action</code> is <code>incident</code>, the renewal stops
+ * there and the job is failed with a guiding message, so the cluster raises an
+ * incident naming the workflow aggregate and the age.</li>
  * </ul>
  */
 @Slf4j
@@ -62,7 +70,13 @@ public class Camunda8JobHandler implements JobHandler {
 
   private final WorkflowTaskInvoker workflowTaskInvoker;
 
-  private final Duration asyncTaskTimeout;
+  private final Duration asyncTaskLockRenewal;
+
+  /**
+   * What this adapter does with a task the core reports as older than the configured
+   * maximum age. Never <code>null</code>.
+   */
+  private final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction;
 
   /**
    * Translates the identifiers the cluster reports back into the plain ones the core
@@ -83,9 +97,9 @@ public class Camunda8JobHandler implements JobHandler {
       final String workflowModuleId,
       final CamundaClient camundaClient,
       final WorkflowTaskInvoker workflowTaskInvoker,
-      final Duration asyncTaskTimeout) {
+      final Duration asyncTaskLockRenewal) {
 
-    this(adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskTimeout, null);
+    this(adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, null);
 
   }
 
@@ -94,10 +108,10 @@ public class Camunda8JobHandler implements JobHandler {
       final String workflowModuleId,
       final CamundaClient camundaClient,
       final WorkflowTaskInvoker workflowTaskInvoker,
-      final Duration asyncTaskTimeout,
+      final Duration asyncTaskLockRenewal,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
-    this(adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskTimeout, scoping, null);
+    this(adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, null);
 
   }
 
@@ -106,17 +120,35 @@ public class Camunda8JobHandler implements JobHandler {
       final String workflowModuleId,
       final CamundaClient camundaClient,
       final WorkflowTaskInvoker workflowTaskInvoker,
-      final Duration asyncTaskTimeout,
+      final Duration asyncTaskLockRenewal,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
       final Camunda8MultiInstance.Registry multiInstanceRegistry) {
+
+    this(
+        adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, null);
+
+  }
+
+  public Camunda8JobHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final CamundaClient camundaClient,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Duration asyncTaskLockRenewal,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry,
+      final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction) {
 
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
     this.camundaClient = camundaClient;
     this.workflowTaskInvoker = workflowTaskInvoker;
-    this.asyncTaskTimeout = asyncTaskTimeout;
+    this.asyncTaskLockRenewal = asyncTaskLockRenewal;
     this.scoping = scoping;
     this.multiInstanceRegistry = multiInstanceRegistry;
+    this.asyncTaskMaxAgeAction = asyncTaskMaxAgeAction == null
+        ? io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.REPORT
+        : asyncTaskMaxAgeAction;
 
   }
 
@@ -194,23 +226,78 @@ public class Camunda8JobHandler implements JobHandler {
           .send()
           .join();
       case COMPLETION_PENDING -> {
-        // dormancy: extend THIS job's lock once to the async-task timeout - the
-        // job is not re-delivered (and the handler not re-invoked) while the
-        // workflow waits for ProcessService#completeTask
+        if (outcome
+            .maxAgeExceeded() && (asyncTaskMaxAgeAction == io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.INCIDENT)) {
+          // the renewal stops here: a task nobody will ever complete belongs where
+          // operators look, and on Camunda 8 that is an incident rather than a log line
+          failAsOverdue(client, job, taskDefinition, bpmnProcessId, String.valueOf(aggregateId), outcome.openFor());
+          return;
+        }
+        // the task stays open: extend THIS job's lock by the renewal window, so the
+        // handler is not re-invoked while the workflow waits for
+        // ProcessService#completeTask. When the window passes the cluster hands the job
+        // out again, the core answers from its delivery record and this branch renews
+        // the lock once more
         camundaClient
             .newUpdateTimeoutCommand(job.getKey())
-            .timeout(asyncTaskTimeout)
+            .timeout(asyncTaskLockRenewal)
             .send()
             .join();
         log.debug(
             "Camunda8[{}]: job '{}' (type '{}') stays open for asynchronous completion - lock "
-                + "extended by {}",
+                + "renewed for {}",
             adapterId,
             job.getKey(),
             taskDefinition,
-            asyncTaskTimeout);
+            asyncTaskLockRenewal);
       }
     }
+
+  }
+
+  /**
+   * Fails the job of a task which stayed open longer than
+   * <code>vanillabp.delivery.max-task-age</code> allows, with no retries left, so the
+   * cluster raises an incident right away. The message is what an operator sees in the
+   * incident, so it names the workflow aggregate, the age and both ways out.
+   *
+   * @param client The job client of this delivery
+   * @param job The activated job of the open task
+   * @param taskDefinition The task definition, as the core knows it
+   * @param bpmnProcessId The BPMN process id, as the core knows it
+   * @param aggregateId The workflow aggregate's id
+   * @param openFor How long the task has been open
+   */
+  private void failAsOverdue(
+      final JobClient client,
+      final ActivatedJob job,
+      final String taskDefinition,
+      final String bpmnProcessId,
+      final String aggregateId,
+      final Duration openFor) {
+
+    final var message = """
+        Task '%s' of workflow aggregate '%s' (BPMN process '%s' of workflow module '%s') has been \
+        waiting for its asynchronous completion for %s, which is longer than \
+        'vanillabp.delivery.max-task-age' allows. The application owes this task a \
+        ProcessService#completeTask respectively #cancelTask. Complete or cancel it and retry this \
+        job, raise the maximum age where such a wait is legitimate, or set \
+        '%s' back to 'report'."""
+        .formatted(
+            taskDefinition,
+            aggregateId,
+            bpmnProcessId,
+            workflowModuleId,
+            openFor,
+            io.vanillabp.camunda8.client.Camunda8AdapterConfiguration
+                .propertyKey(adapterId, "async-task-max-age-action"));
+    log.warn("Camunda8[{}]: {}", adapterId, message);
+    client
+        .newFailCommand(job.getKey())
+        .retries(0)
+        .errorMessage(message)
+        .send()
+        .join();
 
   }
 

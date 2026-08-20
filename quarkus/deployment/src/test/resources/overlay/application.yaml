@@ -4,7 +4,7 @@ vanillabp:
       type: camunda8
       rest-address: http://localhost:65535
       job-timeout: PT30S
-      async-task-timeout: PT2M
+      async-task-lock-renewal: PT2M
       worker-threads: virtual
       worker-threads-bound: 6
       max-jobs-active: 24

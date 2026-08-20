@@ -36,9 +36,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * throwing handler's aggregate changes committed;</li>
  * <li>technical exception - job failed with decremented retries, local
  * transaction rolled back;</li>
- * <li>{@code @TaskId} dormancy - the returned-but-uncompleted job's lock is
- * extended once (async-task-timeout), the handler is NOT re-invoked within the
- * test horizon although the task's job timeout is 2s;</li>
+ * <li>{@code @TaskId} - the returned-but-uncompleted job's lock is renewed
+ * (async-task-lock-renewal), so the handler is NOT re-invoked within the test
+ * horizon although the task's job timeout is 2s;</li>
  * <li>the job timeout resolves through all four configuration levels from the
  * real application configuration.</li>
  * </ul>
