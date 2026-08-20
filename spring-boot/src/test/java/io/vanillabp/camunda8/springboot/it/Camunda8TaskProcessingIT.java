@@ -194,15 +194,15 @@ public class Camunda8TaskProcessingIT {
   }
 
   @Test
-  @DisplayName("A worker fetches what VanillaBP reads, and 'all' at task level brings the rest")
-  public void aWorkerFetchesOnlyWhatVanillaBpReads(
-      final io.vanillabp.integration.test.utils.CapturedOutput output) throws Exception {
+  @DisplayName("A @TaskParam is delivered although its variable appears in no model and nothing is configured")
+  public void aDeclaredTaskParameterIsFetched() throws Exception {
 
     final var aggregateId = transactionTemplate.execute(status -> repository
         .save(new TaskDockerAggregate())
         .getId());
-    // a variable no handler of VanillaBP ever reads, and big enough for the cluster to
-    // carry it with every single job of this workflow
+    // a variable the BPMN model does not mention anywhere: no input mapping declares it,
+    // no script writes it - the workflow was started with it, which is all the cluster
+    // knows about it
     final var bigPayload = "x".repeat(32768);
     lastStartedInstanceKey = workflowServiceClient()
         .newCreateInstanceCommand()
@@ -213,8 +213,8 @@ public class Camunda8TaskProcessingIT {
         .join()
         .getProcessInstanceKey();
 
-    // the FIRST task is configured 'fetch-variables: all', so its job carries the
-    // payload and the @TaskParam is answered
+    // the FIRST task is configured 'fetch-variables: all' - the escape hatch still
+    // reaches its worker and a worker asking for everything keeps working
     awaitUntil(
         () -> invocations("fetchAllTask", aggregateId) >= 1,
         60000,
@@ -222,22 +222,25 @@ public class Camunda8TaskProcessingIT {
     assertEquals(
         bigPayload.length(),
         TaskDockerWorkflowService.OBSERVED_VARIABLES.get("bigPayloadLength"),
-        "the escape hatch is what makes a process variable readable at all");
+        "a worker fetching the complete scope answers the @TaskParam as it always did");
 
-    // the SECOND task fetches the derived list, which is the aggregate-ID variable
-    // alone - so the payload is NOT in its job, and the delivery says so instead of
-    // running the method on a null
+    // the SECOND task configures nothing, and its worker still asks the cluster for
+    // 'bigPayload': the core scanned the name off the method while wiring (story 99),
+    // so the derivation covers what the application reads instead of what the model
+    // happens to declare. How SHORT that list is has its own tests in the core module -
+    // here the point is that the value arrives
     awaitUntil(
-        () -> (output.getOut() + output.getErr()).contains("vanillabp.adapters.c8.fetch-variables"),
+        () -> invocations("fetchDerivedTask", aggregateId) >= 1,
         60000,
-        "the guiding message about the variable which was not fetched");
-    final var logged = output.getOut() + output.getErr();
-    assertTrue(logged.contains("bigPayload"), "the message names the variable the method asked for");
+        "the task fetching the derived list to be delivered");
     assertEquals(
-        0,
-        invocations("fetchDerivedTask", aggregateId),
-        "a method reading a variable its worker did not fetch must not run at all");
-    assertEquals("fetch-all", results(aggregateId), "only the first task committed");
+        bigPayload.length(),
+        TaskDockerWorkflowService.OBSERVED_VARIABLES.get("derivedPayloadLength"),
+        "the variable stands in no model and no property was set - the annotation alone brought it");
+    awaitUntil(
+        () -> "fetch-all|fetch-derived".equals(results(aggregateId)),
+        60000,
+        "both tasks to have committed");
 
   }
 
