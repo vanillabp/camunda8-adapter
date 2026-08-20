@@ -3,6 +3,7 @@ package io.vanillabp.camunda8.client;
 import java.net.URI;
 
 import io.camunda.client.CamundaClient;
+import io.camunda.client.CamundaClientBuilder;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -49,6 +50,9 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
     this.adapterId = adapterId;
     this.configuration = configuration;
+    // how this adapter runs what it delivers - resolved before anything is built, so an
+    // unusable number fails the boot with a guiding message instead of being inherited
+    this.executionModel = configuration.executionModel(adapterId);
     // eager: configuration defects surface at startup, not first at runtime; an
     // incompletely configured adapter (absent / degraded) builds no client and
     // fails on first use instead (backstop)
@@ -101,10 +105,11 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
   private CamundaClient build() {
 
+    final CamundaClientBuilder builder;
     if (configuration.getMode() == Camunda8AdapterConfiguration.Mode.SAAS) {
       log.info("Building Camunda 8 SaaS client for adapter '{}' (cluster '{}', region '{}')",
           adapterId, configuration.getClusterId(), configuration.getRegion());
-      final var builder = CamundaClient
+      builder = CamundaClient
           .newCloudClientBuilder()
           .withClusterId(configuration.getClusterId())
           .withClientId(configuration.getClientId())
@@ -113,26 +118,137 @@ public class Camunda8ClientFactory implements AutoCloseable {
       if (hasText(configuration.getTenantId())) {
         builder.defaultTenantId(configuration.getTenantId());
       }
-      return builder.build();
+    } else {
+      log.info("Building Camunda 8 self-managed client for adapter '{}' (rest-address '{}', grpc-address '{}', "
+          + "prefer-rest-over-grpc {})",
+          adapterId, configuration.getRestAddress(), configuration.getGrpcAddress(),
+          configuration.isPreferRestOverGrpc());
+      builder = CamundaClient
+          .newClientBuilder()
+          .preferRestOverGrpc(configuration.isPreferRestOverGrpc());
+      if (hasText(configuration.getRestAddress())) {
+        builder.restAddress(URI.create(configuration.getRestAddress()));
+      }
+      if (hasText(configuration.getGrpcAddress())) {
+        builder.grpcAddress(URI.create(configuration.getGrpcAddress()));
+      }
+      if (hasText(configuration.getTenantId())) {
+        builder.defaultTenantId(configuration.getTenantId());
+      }
     }
 
-    log.info("Building Camunda 8 self-managed client for adapter '{}' (rest-address '{}', grpc-address '{}', "
-        + "prefer-rest-over-grpc {})",
-        adapterId, configuration.getRestAddress(), configuration.getGrpcAddress(),
-        configuration.isPreferRestOverGrpc());
-    final var builder = CamundaClient
-        .newClientBuilder()
-        .preferRestOverGrpc(configuration.isPreferRestOverGrpc());
-    if (hasText(configuration.getRestAddress())) {
-      builder.restAddress(URI.create(configuration.getRestAddress()));
+    applyExecutionModel(builder);
+    applyWorkerDefaults(builder);
+    applyTransportOptions(builder);
+
+    final var built = builder.build();
+    reportSizing();
+    reportEnvironmentOverrides(built);
+    return built;
+
+  }
+
+  /**
+   * The resolved execution model of this adapter instance - what the startup line names
+   * and what {@link #virtualThreadExecutor} builds where the mode is virtual.
+   */
+  @Getter
+  private final Camunda8ExecutionModel executionModel;
+
+  /**
+   * The executor handed to the client where the execution model is virtual, kept for the
+   * tests which assert the bound; <code>null</code> in the platform-thread mode, where
+   * the client builds its own pool.
+   */
+  @Getter
+  private Camunda8VirtualThreadExecutor virtualThreadExecutor;
+
+  private void applyExecutionModel(
+      final CamundaClientBuilder builder) {
+
+    if (!executionModel.virtual()) {
+      // the client builds its own scheduled pool of this size, which on the 8.8 line
+      // runs the handlers AND the polls of every worker - see Camunda8ExecutionModel
+      builder.numJobWorkerExecutionThreads(executionModel.slots());
+      return;
     }
-    if (hasText(configuration.getGrpcAddress())) {
-      builder.grpcAddress(URI.create(configuration.getGrpcAddress()));
+    virtualThreadExecutor = new Camunda8VirtualThreadExecutor(adapterId, executionModel.slots());
+    // which builder methods take it differs per release line, see Camunda8JobExecutors
+    Camunda8JobExecutors.install(builder, virtualThreadExecutor);
+
+  }
+
+  private void applyWorkerDefaults(
+      final CamundaClientBuilder builder) {
+
+    // set on the CLIENT rather than on every worker: the worker builder inherits the
+    // client's defaults, and an environment variable can then still overrule what was
+    // configured - which is the escape hatch reportEnvironmentOverrides makes visible
+    builder.defaultJobWorkerMaxJobsActive(configuration.resolvedMaxJobsActive(adapterId));
+    if (configuration.getPollInterval() != null) {
+      builder.defaultJobPollInterval(configuration.getPollInterval());
     }
-    if (hasText(configuration.getTenantId())) {
-      builder.defaultTenantId(configuration.getTenantId());
+    if (configuration.getRequestTimeout() != null) {
+      builder.defaultRequestTimeout(configuration.getRequestTimeout());
     }
-    return builder.build();
+    if (configuration.getStreamEnabled() != null) {
+      builder.defaultJobWorkerStreamEnabled(configuration.getStreamEnabled());
+    }
+    if (configuration.getMessageTimeToLive() != null) {
+      builder.defaultMessageTimeToLive(configuration.getMessageTimeToLive());
+    }
+
+  }
+
+  private void applyTransportOptions(
+      final CamundaClientBuilder builder) {
+
+    if (configuration.getMaxMessageSize() != null) {
+      builder.maxMessageSize(configuration.getMaxMessageSize());
+    }
+    if (configuration.getKeepAlive() != null) {
+      builder.keepAlive(configuration.getKeepAlive());
+    }
+    if (configuration.getMaxHttpConnections() != null) {
+      builder.maxHttpConnections(configuration.getMaxHttpConnections());
+    }
+    if (hasText(configuration.getOverrideAuthority())) {
+      builder.overrideAuthority(configuration.getOverrideAuthority());
+    }
+
+  }
+
+  /**
+   * The four numbers which together are the sizing decision of an adapter instance, in
+   * one line, because none of them appeared anywhere before: how the handlers run, how
+   * many may run at once, how many jobs one worker holds while they do, and how long a
+   * delivered job stays locked meanwhile.
+   */
+  private void reportSizing() {
+
+    log.info(
+        "Camunda8[{}]: {} run every worker of this adapter id, max-jobs-active {} per worker, "
+            + "job-timeout {} by default. All workflow modules of this adapter share those {} execution "
+            + "slots, and a handler holds one for its whole runtime",
+        adapterId,
+        executionModel.describe(),
+        configuration.resolvedMaxJobsActive(adapterId),
+        configuration.getJobTimeout() == null
+            ? io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT
+            : configuration.getJobTimeout(),
+        executionModel.slots());
+
+  }
+
+  private void reportEnvironmentOverrides(
+      final CamundaClient client) {
+
+    final var overrides = Camunda8EnvironmentOverrides.detect(
+        adapterId, configuration, client.getConfiguration(), System::getenv);
+    if (overrides.isEmpty()) {
+      return;
+    }
+    log.warn("{}", Camunda8EnvironmentOverrides.describe(adapterId, overrides));
 
   }
 

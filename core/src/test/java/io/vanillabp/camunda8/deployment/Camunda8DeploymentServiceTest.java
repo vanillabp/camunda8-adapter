@@ -163,6 +163,107 @@ public class Camunda8DeploymentServiceTest {
    * Wiring validation is exercised by the integration tests - unit tests use a
    * permissive no-op invoker.
    */
+
+  @Test
+  @DisplayName("a listener worker's lock is resolved like a task's, defaulting to the same five minutes")
+  public void listenerLockDefaultsToTheJobTimeout() {
+
+    final var deploymentService = newDeploymentService();
+
+    assertEquals(
+        io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        deploymentService.listenerLockOf("m", java.util.List.of("Process"), "workflow-end", "jobType"),
+        "the user-task listener, the BPMS-initiated start and the workflow end run application code "
+            + "in a transaction just like a task, so there is no second rule");
+
+  }
+
+  @Test
+  @DisplayName("a listener worker's lock follows the configured job-timeout of its workflow")
+  public void listenerLockFollowsTheConfiguredJobTimeout() {
+
+    final var deploymentService = new Camunda8DeploymentService(
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), (
+            workflowModuleId,
+            bpmnProcessId,
+            taskDefinition) -> "Process".equals(bpmnProcessId)
+                ? java.time.Duration.ofMinutes(2)
+                : io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                    .ofDays(14));
+
+    assertEquals(
+        java.time.Duration.ofMinutes(2),
+        deploymentService.listenerLockOf("m", java.util.List.of("Process"), "start-event", "jobType"),
+        "there is no task to key a listener by, so it resolves at adapter, module and workflow level");
+
+  }
+
+  @Test
+  @DisplayName("one listener job type with conflicting locks fails naming both processes")
+  public void conflictingListenerLocksFailGuiding() {
+
+    final var deploymentService = new Camunda8DeploymentService(
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), (
+            workflowModuleId,
+            bpmnProcessId,
+            taskDefinition) -> "Fast".equals(bpmnProcessId)
+                ? java.time.Duration.ofSeconds(30)
+                : java.time.Duration.ofMinutes(10), java.time.Duration.ofDays(14));
+
+    final var exception = assertThrows(
+        IllegalStateException.class,
+        () -> deploymentService.listenerLockOf(
+            "m", java.util.List.of("Fast", "Slow"), "user-task listener", "io.vanillabp.userTask:form"));
+
+    assertTrue(exception.getMessage().contains("Fast"), exception.getMessage());
+    assertTrue(exception.getMessage().contains("Slow"), exception.getMessage());
+    assertTrue(exception.getMessage().contains("job-timeout"),
+        "the message names the property to align, but was: "
+            + exception.getMessage());
+
+  }
+
+
+  @Test
+  @DisplayName("stream-timeout is the one worker option with no client-wide equivalent, so it is set per worker")
+  public void streamTimeoutReachesTheWorkerBuilder() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setStreamTimeout(java.time.Duration.ofMinutes(30));
+    final var deploymentService = new Camunda8DeploymentService(
+        "c8", new Camunda8ClientFactory("c8", configuration), new NoOpInvoker(), (
+            m,
+            p,
+            t) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                .ofDays(14));
+    final var builder = org.mockito.Mockito
+        .mock(io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
+    org.mockito.Mockito
+        .when(builder.streamTimeout(org.mockito.ArgumentMatchers.any()))
+        .thenReturn(builder);
+
+    deploymentService.applyWorkerOptions(builder);
+
+    org.mockito.Mockito
+        .verify(builder)
+        .streamTimeout(java.time.Duration.ofMinutes(30));
+
+  }
+
+  @Test
+  @DisplayName("without a configured stream-timeout the worker keeps the client's")
+  public void withoutStreamTimeoutTheWorkerIsLeftAlone() {
+
+    final var deploymentService = newDeploymentService();
+    final var builder = org.mockito.Mockito
+        .mock(io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
+
+    assertNotNull(deploymentService.applyWorkerOptions(builder));
+
+    org.mockito.Mockito.verifyNoInteractions(builder);
+
+  }
+
   static class NoOpInvoker implements io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker {
 
     @Override

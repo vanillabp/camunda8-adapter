@@ -1,7 +1,9 @@
 package io.vanillabp.camunda8.client;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -10,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -66,6 +69,114 @@ public class Camunda8ClientFactoryTest {
     assertSame(client, factory.getClient());
 
     factory.close();
+
+  }
+
+
+  @Test
+  @DisplayName("the execution model reaches the client: four threads by default")
+  public void executionModelReachesTheClient() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress("http://localhost:8080");
+    try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
+
+      assertEquals(4, factory.getClient().getConfiguration().getNumJobWorkerExecutionThreads(),
+          "the client's own default of one is what this story fixes");
+      assertNull(factory.getVirtualThreadExecutor(), "the platform mode lets the client build its pool");
+      assertEquals(32, factory.getClient().getConfiguration().getDefaultJobWorkerMaxJobsActive(),
+          "eight per slot, capped at the client's 32");
+    }
+
+  }
+
+  @Test
+  @DisplayName("'virtual' hands the client the bounded virtual-thread executor")
+  public void virtualModeHandsTheClientItsExecutor() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress("http://localhost:8080");
+    configuration.setWorkerThreads("virtual");
+    configuration.setWorkerThreadsBound(6);
+    try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
+
+      final var executor = factory.getVirtualThreadExecutor();
+      assertNotNull(executor, "the adapter supplies the executor itself");
+      assertEquals(6, executor.getBound());
+      assertSame(executor, factory.getClient().getConfiguration().jobWorkerExecutor(),
+          "the client runs the workers on it");
+      assertTrue(factory.getClient().getConfiguration().ownsJobWorkerExecutor(),
+          "closing the client shuts the executor down");
+    }
+
+  }
+
+  @Test
+  @DisplayName("every worker and client property reaches the built client")
+  public void everyPropertyReachesTheClient() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress("http://localhost:8080");
+    configuration.setWorkerThreads("3");
+    configuration.setMaxJobsActive(9);
+    configuration.setPollInterval(java.time.Duration.ofMillis(250));
+    configuration.setRequestTimeout(java.time.Duration.ofSeconds(20));
+    configuration.setStreamEnabled(true);
+    configuration.setMessageTimeToLive(java.time.Duration.ofHours(6));
+    configuration.setMaxMessageSize(8 * 1024 * 1024);
+    configuration.setKeepAlive(java.time.Duration.ofSeconds(30));
+    configuration.setMaxHttpConnections(64);
+    configuration.setOverrideAuthority("gateway.internal");
+    try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
+
+      final var clientConfiguration = factory.getClient().getConfiguration();
+      assertEquals(3, clientConfiguration.getNumJobWorkerExecutionThreads());
+      assertEquals(9, clientConfiguration.getDefaultJobWorkerMaxJobsActive());
+      assertEquals(java.time.Duration.ofMillis(250), clientConfiguration.getDefaultJobPollInterval());
+      assertEquals(java.time.Duration.ofSeconds(20), clientConfiguration.getDefaultRequestTimeout());
+      assertTrue(clientConfiguration.getDefaultJobWorkerStreamEnabled());
+      assertEquals(java.time.Duration.ofHours(6), clientConfiguration.getDefaultMessageTimeToLive());
+      assertEquals(8 * 1024 * 1024, clientConfiguration.getMaxMessageSize());
+      assertEquals(java.time.Duration.ofSeconds(30), clientConfiguration.getKeepAlive());
+      assertEquals(64, clientConfiguration.getMaxHttpConnections());
+      assertEquals("gateway.internal", clientConfiguration.getOverrideAuthority());
+    }
+
+  }
+
+  @Test
+  @DisplayName("the startup line names the four numbers which are the sizing decision")
+  public void startupLineNamesTheSizingDecision(
+      final CapturedOutput output) {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress("http://localhost:8080");
+    configuration.setJobTimeout(java.time.Duration.ofMinutes(2));
+    try (final var factory = new Camunda8ClientFactory("sizing", configuration)) {
+
+      assertNotNull(factory.getClient());
+      final var logged = output.getOut() + output.getErr();
+      assertTrue(logged.contains("4 platform threads"), logged);
+      assertTrue(logged.contains("max-jobs-active 32"), logged);
+      assertTrue(logged.contains("PT2M"), logged);
+    }
+
+  }
+
+  @Test
+  @DisplayName("an unusable worker-threads value fails while the factory is built")
+  public void unusableWorkerThreadsFailsAtStartup() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress("http://localhost:8080");
+    configuration.setWorkerThreads("none");
+
+    final var exception = assertThrows(
+        IllegalStateException.class,
+        () -> new Camunda8ClientFactory("c8", configuration));
+
+    assertTrue(exception.getMessage().contains("vanillabp.adapters.c8.worker-threads"),
+        exception.getMessage());
 
   }
 
