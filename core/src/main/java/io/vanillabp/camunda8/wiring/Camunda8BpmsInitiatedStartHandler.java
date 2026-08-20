@@ -20,9 +20,13 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * The job is completed with the aggregate's ID (named after the aggregate's ID
  * attribute - how this adapter addresses workflows) plus the values shared per
- * {@code @SyncWithBPMS}. A failing build fails the job, so the cluster retries and
- * finally raises an incident: a workflow without an aggregate could never be
- * processed.
+ * {@code @SyncWithBPMS}. A failing build fails the job with one retry less, the way the
+ * handler of a service task does, so the cluster retries and finally raises an incident: a
+ * workflow without an aggregate could never be processed.
+ * <p>
+ * While the workflow module is shutting down (story 90) the job is left to its lock
+ * instead: a listener cut off by a restart is not a defect of the application, and the
+ * cluster hands the job out again with its retries intact.
  */
 @Slf4j
 public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
@@ -44,6 +48,18 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
 
   private final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker;
 
+  /**
+   * What the workflow module has in flight, and whether it is going down (story 90).
+   * Never <code>null</code> - a handler built without one (tests) gets a drain of its own,
+   * which never shuts down.
+   */
+  private final io.vanillabp.camunda8.client.Camunda8Drain drain;
+
+  /**
+   * What kind of worker this is, in the messages about a shutdown.
+   */
+  static final String KIND = "start-event listener";
+
   public Camunda8BpmsInitiatedStartHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -53,6 +69,23 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
       final String signalName,
       final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker) {
 
+    this(adapterId, workflowModuleId, bpmnProcessId, startEventId, kind, signalName, bpmsInitiatedStartInvoker, null);
+
+  }
+
+  public Camunda8BpmsInitiatedStartHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String startEventId,
+      final BpmsStartTrigger.Kind kind,
+      final String signalName,
+      final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker,
+      final io.vanillabp.camunda8.client.Camunda8Drain drain) {
+
+    this.drain = drain == null
+        ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
+        : drain;
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
     this.bpmnProcessId = bpmnProcessId;
@@ -68,27 +101,57 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
       final JobClient client,
       final ActivatedJob job) {
 
-    final var result = bpmsInitiatedStartInvoker
-        .startWorkflowByBpms(workflowModuleId, bpmnProcessId, contextOf(job));
+    drain.jobStarted(job.getKey(), KIND, startEventId, bpmnProcessId);
+    try {
 
-    log
-        .debug(
-            "Camunda8[{}]: the cluster started '{}' of workflow module '{}' by start event '{}' - "
-                + "workflow aggregate '{}' {}",
-            adapterId,
-            bpmnProcessId,
-            workflowModuleId,
-            startEventId,
-            result.workflowAggregateId(),
-            result.created()
-                ? "created"
-                : "existed already");
+      final var result = bpmsInitiatedStartInvoker
+          .startWorkflowByBpms(workflowModuleId, bpmnProcessId, contextOf(job));
 
-    client
-        .newCompleteCommand(job.getKey())
-        .variables(result.variables())
-        .send()
-        .join();
+      log
+          .debug(
+              "Camunda8[{}]: the cluster started '{}' of workflow module '{}' by start event '{}' - "
+                  + "workflow aggregate '{}' {}",
+              adapterId,
+              bpmnProcessId,
+              workflowModuleId,
+              startEventId,
+              result.workflowAggregateId(),
+              result.created()
+                  ? "created"
+                  : "existed already");
+
+      client
+          .newCompleteCommand(job.getKey())
+          .variables(result.variables())
+          .send()
+          .join();
+
+    } catch (final Exception e) {
+      // story 90: while the module is going down, the failure is the shutdown and not the
+      // application - the job keeps its lock and its retries
+      if (drain.leaveJobToItsLock(job.getKey(), KIND, startEventId, e)) {
+        return;
+      }
+      // and otherwise the same treatment a service task gets: the cluster counts the
+      // retries down and raises an incident once they are used up
+      log.warn(
+          "Camunda8[{}]: building the workflow aggregate for the start event '{}' of BPMN process '{}' "
+              + "(job '{}') failed - failing the job with {} retries left",
+          adapterId,
+          startEventId,
+          bpmnProcessId,
+          job.getKey(),
+          job.getRetries() - 1,
+          e);
+      client
+          .newFailCommand(job.getKey())
+          .retries(job.getRetries() - 1)
+          .errorMessage(String.valueOf(e.getMessage()))
+          .send()
+          .join();
+    } finally {
+      drain.jobFinished(job.getKey());
+    }
 
   }
 

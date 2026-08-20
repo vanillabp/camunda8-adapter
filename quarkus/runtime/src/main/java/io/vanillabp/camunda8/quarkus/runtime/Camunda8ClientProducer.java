@@ -97,6 +97,7 @@ public class Camunda8ClientProducer {
     // SmallRye's "does not map to any root"
     keys.asyncTaskTimeout().ifPresent(configuration::setAsyncTaskTimeout);
     keys.asyncTaskMaxAgeAction().ifPresent(configuration::setAsyncTaskMaxAgeAction);
+    keys.shutdownGrace().ifPresent(configuration::setShutdownGrace);
     keys.workflowVisibilityTimeout().ifPresent(configuration::setWorkflowVisibilityTimeout);
     keys.workerThreads().ifPresent(configuration::setWorkerThreads);
     keys.workerThreadsBound().ifPresent(configuration::setWorkerThreadsBound);

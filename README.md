@@ -631,6 +631,28 @@ The core measures how long such a task has been open (`vanillabp.delivery.max-ta
 with no retries left, so the cluster raises an incident naming the workflow aggregate
 and the age.
 
+**Shutting down while work is in flight (story 90):** the client does not drain. A
+worker's `close()` returns without waiting for the jobs it already handed to a handler,
+and `CamundaClient.close()` interrupts every running handler milliseconds later. So
+`stopWorkflowProcessing` closes the module's workers and then waits `shutdown-grace`
+(default `PT20S`) for the handlers which are still inside the application; every handler
+registers its delivery in a per-module `Camunda8Drain`, which is what the wait watches.
+`JobWorker#isClosed()` is deliberately NOT what is waited for: it also reports the
+activation request in flight, and closing a worker does not cancel that request, so an
+idle worker keeps reporting open for up to `request-timeout` and every shutdown would pay
+it. The workers' state is logged next to the drain instead.
+
+What is still running when the grace passes is named per job (job key and task) and then
+cut off. Such a delivery is not reported as a job failure: while the module is shutting
+down, all four handlers leave the job to its lock rather than sending `newFailCommand`,
+so the cluster redelivers it with its retries intact and the delivery record answers the
+redelivery. The rule is the adapter's STATE and never the exception type - a handler
+interrupted by the closing client throws like any other. The default sits below the
+shutdown budgets of Spring Boot (`spring.lifecycle.timeout-per-shutdown-phase`) and
+Kubernetes (`terminationGracePeriodSeconds`), both 30 seconds, so VanillaBP is never the
+reason a container is killed; a larger value warns at startup that those have to be
+raised with it.
+
 Task-scoped configuration (see the four-level pattern of the VanillaBP
 configuration model - the most specific configured value wins):
 
@@ -642,6 +664,7 @@ vanillabp:
       job-timeout: PT5M                  # adapter level (default PT5M)
       async-task-lock-renewal: PT1H      # adapter level only (default PT1H)
       async-task-max-age-action: report  # adapter level only (default report)
+      shutdown-grace: PT20S              # adapter level only (default PT20S)
   workflow-modules:
     loan-approval:
       adapters:

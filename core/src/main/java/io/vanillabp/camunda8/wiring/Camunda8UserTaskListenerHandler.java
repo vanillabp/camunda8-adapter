@@ -24,7 +24,10 @@ import lombok.extern.slf4j.Slf4j;
  * Listener jobs GATE the task lifecycle and are therefore ALWAYS completed -
  * including deliveries without a handler. A failing notification fails the
  * listener job; with the V1-compatible <code>retries="0"</code> this raises an
- * incident for the operator (notification defects must not be silently lost).
+ * incident for the operator (notification defects must not be silently lost) - unless the
+ * workflow module is SHUTTING DOWN (story 90), where the job is left to its lock instead:
+ * a notification cut off by a restart is not a notification defect, and an incident would
+ * be raised for something nobody did wrong.
  * <p>
  * <b>The listener completion carries NO variables (decided in story 28b).</b>
  * Unlike a service-task job - whose completion is the moment the process advances
@@ -65,6 +68,18 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
    */
   private final Camunda8MultiInstance.Registry multiInstanceRegistry;
 
+  /**
+   * What the workflow module has in flight, and whether it is going down (story 90).
+   * Never <code>null</code> - a handler built without one (tests) gets a drain of its
+   * own, which never shuts down.
+   */
+  private final io.vanillabp.camunda8.client.Camunda8Drain drain;
+
+  /**
+   * What kind of worker this is, in the messages about a shutdown.
+   */
+  static final String KIND = "user-task listener";
+
   public Camunda8UserTaskListenerHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -91,6 +106,21 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
       final Camunda8MultiInstance.Registry multiInstanceRegistry) {
 
+    this(adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry, null);
+
+  }
+
+  public Camunda8UserTaskListenerHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry,
+      final io.vanillabp.camunda8.client.Camunda8Drain drain) {
+
+    this.drain = drain == null
+        ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
+        : drain;
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
     this.workflowTaskInvoker = workflowTaskInvoker;
@@ -124,6 +154,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
         ? scopedTaskDefinition
         : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
 
+    drain.jobStarted(job.getKey(), KIND, taskDefinition, bpmnProcessId);
     try {
       if (workflowTaskInvoker.workflowTaskHandlerExists(workflowModuleId, bpmnProcessId, taskDefinition)) {
         final var aggregateIdName = workflowTaskInvoker.resolveWorkflowAggregateIdName(
@@ -168,6 +199,12 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
           .send()
           .join();
     } catch (final Exception e) {
+      // story 90: a notification cut off by a shutdown is not a notification defect. This
+      // worker fails with retries(0), so reporting it would raise an incident for work
+      // nobody ever asked the application to abandon - the job is left to its lock instead
+      if (drain.leaveJobToItsLock(job.getKey(), KIND, taskDefinition, e)) {
+        return;
+      }
       log.warn(
           "Camunda8[{}]: processing user-task listener job '{}' (type '{}', event {}) failed - "
               + "failing the job (retries are 0: an incident is raised for the operator)",
@@ -182,6 +219,8 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
           .errorMessage(String.valueOf(e.getMessage()))
           .send()
           .join();
+    } finally {
+      drain.jobFinished(job.getKey());
     }
 
   }

@@ -32,6 +32,9 @@ import lombok.Setter;
  *   <li>{@code .async-task-max-age-action} (optional, default {@code report}) - what
  *       this adapter does with a task the core reports as older than
  *       {@code vanillabp.delivery.max-task-age}, see {@link #asyncTaskMaxAgeAction}</li>
+ *   <li>{@code .shutdown-grace} (optional, default {@value #DEFAULT_SHUTDOWN_GRACE_ISO}) -
+ *       how long a shutdown waits for the handlers it has in flight, see
+ *       {@link #shutdownGrace}</li>
  * </ul>
  * All fields are optional at binding time so applications which configure a Camunda 8
  * adapter but never actually use it still boot; {@link #validate(String)} enforces the
@@ -205,6 +208,47 @@ public class Camunda8AdapterConfiguration {
    * weeks, and an incident on such a task would be worse than the leak the age looks for.
    */
   private AsyncTaskMaxAgeAction asyncTaskMaxAgeAction = AsyncTaskMaxAgeAction.REPORT;
+
+  /**
+   * How long the shutdown of a workflow module waits for the handlers this adapter has in
+   * flight before the client is closed under them. Default:
+   * {@value #DEFAULT_SHUTDOWN_GRACE_ISO}.
+   * <p>
+   * <b>Why twenty seconds.</b> The Camunda client does not drain: closing a worker returns
+   * without waiting for the jobs it already activated, and closing the client interrupts
+   * the running handlers within milliseconds. An interrupted handler throws, and a handler
+   * which throws used to have its job failed with one retry less - so every restart cost a
+   * retry per job in flight. The number therefore has to be longer than an ordinary handler
+   * (a remote call plus a commit) and shorter than the shutdown budget of whatever runs the
+   * application, so VanillaBP is never the reason a container is killed: Spring Boot's
+   * <code>spring.lifecycle.timeout-per-shutdown-phase</code> and Kubernetes'
+   * <code>terminationGracePeriodSeconds</code> both default to thirty seconds, and twenty
+   * leaves both of them a margin. Raising this value means raising those two as well, which
+   * is what the startup warning says.
+   * <p>
+   * <code>PT0S</code> switches the drain off: the workers are closed and the client goes
+   * down right behind them. Nothing is lost by that either - a handler cut off this way has
+   * its job left to its lock rather than failed - but the work it did up to the interrupt is
+   * repeated on the redelivery.
+   */
+  private java.time.Duration shutdownGrace;
+
+  /**
+   * The default of {@link #shutdownGrace} in ISO-8601 notation, for javadoc and messages.
+   */
+  public static final String DEFAULT_SHUTDOWN_GRACE_ISO = "PT20S";
+
+  /**
+   * The default of {@link #shutdownGrace}: twenty seconds.
+   */
+  public static final java.time.Duration DEFAULT_SHUTDOWN_GRACE = java.time.Duration
+      .parse(DEFAULT_SHUTDOWN_GRACE_ISO);
+
+  /**
+   * The shutdown budget both Spring Boot and Kubernetes default to, which
+   * {@link #shutdownGrace} has to stay below.
+   */
+  public static final java.time.Duration PLATFORM_SHUTDOWN_BUDGET = java.time.Duration.ofSeconds(30);
 
   /**
    * How this adapter instance runs what it delivers: a positive number of platform
@@ -464,6 +508,70 @@ public class Camunda8AdapterConfiguration {
     return asyncTaskLockRenewal != null
         ? asyncTaskLockRenewal
         : DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
+
+  }
+
+  /**
+   * How long this adapter instance's shutdown waits for the handlers it has in flight: the
+   * configured value or {@link #DEFAULT_SHUTDOWN_GRACE}.
+   *
+   * @return The grace period, never <code>null</code>
+   */
+  public java.time.Duration resolvedShutdownGrace() {
+
+    return shutdownGrace != null
+        ? shutdownGrace
+        : DEFAULT_SHUTDOWN_GRACE;
+
+  }
+
+  /**
+   * Validates the shutdown grace of this adapter instance - AT STARTUP, because what it
+   * decides happens when nobody is watching. A negative value is a typo and fails the boot;
+   * a value which does not fit into the shutdown budget of the runtime is legitimate but
+   * only works if that budget is raised too, so it is a guiding warning rather than a
+   * failure.
+   *
+   * @param adapterId The adapter id
+   * @param warnLogger Sink for the guiding warning
+   * @throws IllegalStateException If the grace is negative
+   */
+  public void validateShutdownGrace(
+      final String adapterId,
+      final java.util.function.Consumer<String> warnLogger) {
+
+    if (shutdownGrace == null) {
+      return;
+    }
+    if (shutdownGrace.isNegative()) {
+      throw new IllegalStateException(
+          """
+              Camunda 8 adapter '%s' has '%s: %s'. The grace is how long a shutdown waits for the \
+              handlers it has in flight, so it cannot be negative. Give it a duration (the default is \
+              %s), or 'PT0S' to close the workers and the client without waiting at all."""
+              .formatted(
+                  adapterId,
+                  propertyKey(adapterId, "shutdown-grace"),
+                  shutdownGrace,
+                  DEFAULT_SHUTDOWN_GRACE_ISO));
+    }
+    if (shutdownGrace.compareTo(PLATFORM_SHUTDOWN_BUDGET) < 0) {
+      return;
+    }
+    warnLogger.accept(
+        """
+            Camunda 8 adapter '%s' has '%s: %s', which reaches into the shutdown budget of the runtime \
+            around it: 'spring.lifecycle.timeout-per-shutdown-phase' and Kubernetes' \
+            'terminationGracePeriodSeconds' both default to %s. With this grace the application can be \
+            killed while VanillaBP is still waiting for its handlers, which is the opposite of what the \
+            grace is for. Raise both budgets above the grace, or lower the grace below them (the default \
+            is %s)."""
+            .formatted(
+                adapterId,
+                propertyKey(adapterId, "shutdown-grace"),
+                shutdownGrace,
+                PLATFORM_SHUTDOWN_BUDGET,
+                DEFAULT_SHUTDOWN_GRACE_ISO));
 
   }
 

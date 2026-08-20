@@ -5,6 +5,7 @@ vanillabp:
       rest-address: http://localhost:65535
       job-timeout: PT30S
       async-task-lock-renewal: PT2M
+      shutdown-grace: PT5S
       worker-threads: virtual
       worker-threads-bound: 6
       max-jobs-active: 24

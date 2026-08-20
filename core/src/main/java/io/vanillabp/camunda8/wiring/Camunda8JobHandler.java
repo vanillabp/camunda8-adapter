@@ -48,6 +48,13 @@ import lombok.extern.slf4j.Slf4j;
  * extended by another window - the renewal is driven by the cluster's own
  * redelivery and the application never notices it. The worker's regular job timeout
  * stays short: crash recovery of non-async tasks is not delayed.</li>
+ * <li>a delivery which fails while the workflow module is SHUTTING DOWN is not reported
+ * as a job failure (story 90): the adapter's state decides, not the exception, because a
+ * handler interrupted by the closing client throws like any other. The job keeps its lock
+ * and its retries, the cluster hands it out again once the lock expires, and VanillaBP's
+ * delivery record decides whether the work has to run again. Before that, the shutdown
+ * WAITS for the handlers in flight - see
+ * {@link io.vanillabp.camunda8.client.Camunda8Drain};</li>
  * <li>the core measures how long such a task has been open and says when it passed
  * <code>vanillabp.delivery.max-task-age</code>. Where
  * <code>async-task-max-age-action</code> is <code>incident</code>, the renewal stops
@@ -77,6 +84,19 @@ public class Camunda8JobHandler implements JobHandler {
    * maximum age. Never <code>null</code>.
    */
   private final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction;
+
+  /**
+   * What the workflow module has in flight, and whether it is going down (story 90):
+   * this handler registers its delivery there, and a failure while the module is going
+   * down is the shutdown rather than the application. Never <code>null</code> - a handler
+   * built without one (tests) gets a drain of its own, which never shuts down.
+   */
+  private final io.vanillabp.camunda8.client.Camunda8Drain drain;
+
+  /**
+   * What kind of worker this is, in the messages about a shutdown.
+   */
+  static final String KIND = "task";
 
   /**
    * Translates the identifiers the cluster reports back into the plain ones the core
@@ -139,6 +159,25 @@ public class Camunda8JobHandler implements JobHandler {
       final Camunda8MultiInstance.Registry multiInstanceRegistry,
       final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction) {
 
+    this(
+        adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction, null);
+
+  }
+
+  public Camunda8JobHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final CamundaClient camundaClient,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Duration asyncTaskLockRenewal,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry,
+      final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
+      final io.vanillabp.camunda8.client.Camunda8Drain drain) {
+
+    this.drain = drain == null
+        ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
+        : drain;
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
     this.camundaClient = camundaClient;
@@ -166,6 +205,31 @@ public class Camunda8JobHandler implements JobHandler {
         ? job.getType()
         : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, job.getType(), adapterId);
 
+    // story 90: from here until the finally, the shutdown of this workflow module waits
+    // for this handler instead of pulling the client away from under it
+    drain.jobStarted(job.getKey(), KIND, taskDefinition, bpmnProcessId);
+    try {
+      handleJob(client, job, bpmnProcessId, taskDefinition);
+    } catch (final RuntimeException e) {
+      // what reaches this point is the way BACK to the cluster (a completion, a BPMN
+      // error, a lock renewal); the invocation itself is answered below. Letting it
+      // escape during a shutdown would make the client fail the job with one retry less
+      if (drain.leaveJobToItsLock(job.getKey(), KIND, taskDefinition, e)) {
+        return;
+      }
+      throw e;
+    } finally {
+      drain.jobFinished(job.getKey());
+    }
+
+  }
+
+  private void handleJob(
+      final JobClient client,
+      final ActivatedJob job,
+      final String bpmnProcessId,
+      final String taskDefinition) {
+
     final WorkflowTaskOutcome outcome;
     final String aggregateIdName;
     final Object aggregateId;
@@ -188,6 +252,11 @@ public class Camunda8JobHandler implements JobHandler {
           new Camunda8TaskInvocationContext(adapterId, taskDefinition, String
               .valueOf(aggregateId), job, multiInstanceRegistry));
     } catch (final Exception e) {
+      // story 90: while the module is going down, the failure is the shutdown and not the
+      // application - the job keeps its lock and its retries
+      if (drain.leaveJobToItsLock(job.getKey(), KIND, taskDefinition, e)) {
+        return;
+      }
       // the core rolled the local transaction back - fail the job so Camunda 8
       // applies its retry semantics (retries reach 0 -> incident)
       log.warn(

@@ -61,6 +61,10 @@ public final class Camunda8StartupValidation {
     // and neither is how an open asynchronous task is kept alive: a window which cannot
     // work outlives the record answering its redelivery, which is silent at runtime
     configuration.validateAsyncTaskLockRenewal(adapterId, outboxRetention);
+    // and neither is how long a restart waits for the handlers in flight: a grace which
+    // outlives the shutdown budget around it is never granted, and one nobody notices is
+    // the reason a restart burns a retry per job
+    configuration.validateShutdownGrace(adapterId, warnLogger);
 
     if (configuration.isAbsent()) {
       warnLogger.accept(
