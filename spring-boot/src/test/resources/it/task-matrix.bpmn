@@ -250,4 +250,30 @@
       <bpmn:incoming>SP_f4</bpmn:incoming>
     </bpmn:endEvent>
   </bpmn:process>
+  <bpmn:process id="FetchProcess" isExecutable="true">
+    <bpmn:startEvent id="FE_start">
+      <bpmn:outgoing>FE_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="FE_f1" sourceRef="FE_start" targetRef="FE_all" />
+    <bpmn:serviceTask id="FE_all">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="fetchAllTask" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>FE_f1</bpmn:incoming>
+      <bpmn:outgoing>FE_f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="FE_f2" sourceRef="FE_all" targetRef="FE_derived" />
+    <bpmn:serviceTask id="FE_derived">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="fetchDerivedTask" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>FE_f2</bpmn:incoming>
+      <bpmn:outgoing>FE_f3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="FE_f3" sourceRef="FE_derived" targetRef="FE_end" />
+    <bpmn:endEvent id="FE_end">
+      <bpmn:incoming>FE_f3</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
 </bpmn:definitions>
+

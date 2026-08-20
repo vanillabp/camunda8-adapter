@@ -96,6 +96,42 @@ public class Camunda8JobTimeoutOverlayTest {
   }
 
   @Test
+  public void fetchVariablesResolvesThroughAllFourLevels() {
+
+    final var overlay = overlay();
+
+    // story 93: the escape hatch is resolved from the same four levels, and the task
+    // level is its point - the case which needs everything is one task
+    Assertions.assertEquals(
+        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.ALL,
+        overlay.fetchVariablesFor("test-app", "TaskProcess", "happyTask", "c8"));
+    Assertions.assertEquals(
+        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.DERIVED,
+        overlay.fetchVariablesFor("test-app", "TaskProcess", "otherTask", "c8"));
+    Assertions.assertEquals(
+        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.ALL,
+        overlay.fetchVariablesFor("test-app", "OtherProcess", "someTask", "c8"));
+    Assertions.assertEquals(
+        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.DERIVED,
+        overlay.fetchVariablesFor("unknown-module", "SomeProcess", "someTask", "c8"));
+    Assertions.assertEquals(
+        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.DERIVED,
+        overlay.fetchVariablesFor("test-app", "TaskProcess", "happyTask", "unknown-adapter"),
+        "an adapter id which configures nothing derives, which is the default");
+    Assertions.assertEquals(
+        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.DERIVED,
+        io.quarkus.arc.Arc
+            .container()
+            .instance(io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry.class)
+            .get()
+            .getFactory("c8")
+            .getConfiguration()
+            .resolvedFetchVariables(),
+        "the adapter-level value reaches the configuration as well");
+
+  }
+
+  @Test
   public void defaultsApplyWithoutAnyConfiguredTimeout() {
 
     final var overlay = overlay();

@@ -37,7 +37,8 @@ public interface VanillaBpCamunda8Properties {
    * The workflow-module sections of the shared tree - the overlay mirrors the
    * levels of the most-specific-wins resolution of scope-specific adapter keys
    * (task &gt; workflow &gt; workflow-module &gt; adapter), currently:
-   * <code>job-timeout</code> and <code>retry-backoff</code>.
+   * <code>job-timeout</code>, <code>retry-backoff</code> and
+   * <code>fetch-variables</code>.
    *
    * @return The workflow-module sections, keyed by workflow module ID
    */
@@ -105,6 +106,39 @@ public interface VanillaBpCamunda8Properties {
             .retryBackoff()
             .orElse(io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF)
         : io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF;
+
+  }
+
+  /**
+   * Resolves whether a worker fetches the DERIVED variables or all of them with the same
+   * most-specific-wins semantics; falls back to the adapter-level value and finally the
+   * default {@code derived}.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @param taskDefinition The task definition (job type)
+   * @param adapterId The adapter ID
+   * @return The most specific configured mode or the default
+   */
+  default io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode fetchVariablesFor(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String taskDefinition,
+      final String adapterId) {
+
+    final var scoped = scopedKeysMostSpecificFirst(workflowModuleId, bpmnProcessId, taskDefinition, adapterId)
+        .map(Camunda8ScopedKeys::fetchVariables)
+        .flatMap(Optional::stream)
+        .findFirst();
+    if (scoped.isPresent()) {
+      return scoped.get();
+    }
+    final var adapter = adapters().get(adapterId);
+    return adapter != null
+        ? adapter
+            .fetchVariables()
+            .orElse(io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES)
+        : io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
 
   }
 
@@ -230,6 +264,15 @@ public interface VanillaBpCamunda8Properties {
      * @return The backoff of a failed job
      */
     Optional<java.time.Duration> retryBackoff();
+
+    /**
+     * Whether the workers of this adapter instance ask the cluster for the variables the
+     * adapter derived or for all of them - adapter-level base of the most-specific-wins
+     * resolution. Default: <code>derived</code>.
+     *
+     * @return The mode
+     */
+    Optional<io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode> fetchVariables();
 
     /**
      * The window the lock of a job left open by a <code>&#64;TaskId</code> handler is
@@ -533,6 +576,13 @@ public interface VanillaBpCamunda8Properties {
      * @return The backoff of a failed job
      */
     Optional<java.time.Duration> retryBackoff();
+
+    /**
+     * Whether a worker fetches the derived variables or all of them, at this level.
+     *
+     * @return The mode
+     */
+    Optional<io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode> fetchVariables();
 
   }
 

@@ -716,8 +716,9 @@ vanillabp:
             assessRisk:
               adapters:
                 myengine:
-                  job-timeout: PT10S    # per task (task definition)
-                  retry-backoff: PT30S  # per task, for a slow dependency
+                  job-timeout: PT10S     # per task (task definition)
+                  retry-backoff: PT30S   # per task, for a slow dependency
+                  fetch-variables: all   # per task, for a @TaskParam nobody can derive
 ```
 
 Limitation: Camunda 8 workers subscribe by job type only. If the SAME task
@@ -776,6 +777,58 @@ idempotency key as `messageId` and ONLY the aggregate-ID variable.
 `awarenessOfWorkflow` uses the process-instance search (query API): without
 secondary storage the adapter answers OPTIMISTICALLY (one-time guiding WARN) -
 fine for single-BPMS setups, configure secondary storage for migration scenarios.
+
+### What a worker fetches (story 93)
+
+A Camunda 8 worker which names no variables receives the complete variable scope of the
+process instance with every job, which Camunda warns can be "tens or more variables, of
+arbitrary size" and advises against: fetch only what the handler needs. VanillaBP can be
+stricter than a plain client user, because the workflow aggregate is the source of truth.
+The handler is served from the application's own database, so the job has to carry only
+what the ADAPTER reads out of it, and that is a short list the adapter derives from the
+deployed models:
+
+- the variable holding the workflow aggregate's id, named after the aggregate's id
+  attribute. Every worker kind begins by reading it;
+- the multi-instance variables of the iterations enclosing the element the job belongs to,
+  which this adapter injected into the model while deploying (story 62). They depend on
+  the element, which is why the list is not a constant;
+- every variable name the BPMN process itself declares: the targets of its input and
+  output mappings, the result variables of its scripts and called decisions, the output
+  collections of its multi-instance elements. The adapter does not read those, but a
+  `@TaskParam` may, and the model is the one place where the adapter can see such a name.
+  The workflow-end listener is the exception: a `@WorkflowEnded` method cannot declare a
+  `@TaskParam`, so that worker stays at the aggregate's id.
+
+What stays out is what only the aggregate sync wrote into the instance. On an aggregate
+with a few large attributes that is the whole of what Camunda's warning is about, and it
+is a copy of data the handler is holding anyway.
+
+The list belongs to the WORKER and not to the delivery. One worker serves a job type
+across the BPMN processes of a workflow module, so its list is the union over everything
+it serves; two processes disagreeing about the name of the aggregate id are no conflict,
+`fetchVariables` being a list. The list is sorted, because the gateway treats two job
+streams as equivalent only when job type, worker name, timeout and fetch variables match
+(story 74), and that comparison has to survive a restart of the same application version.
+
+Two cases fetch everything instead. A worker serving a start event the cluster fires
+itself hands the variables of that start to the core, which copies them into the aggregate
+it builds, so there is nothing to leave out. And where no workflow service serves the BPMN
+process, the aggregate's id variable cannot be named at all; such a worker asks for
+everything rather than for a list which may be missing exactly what its handler needs.
+
+`vanillabp.adapters.<id>.fetch-variables: all` is the escape hatch, resolvable per
+workflow module, workflow and task. The task level is the point of it: what needs it is
+one task reading with `@TaskParam` a name which is neither VanillaBP's nor the model's,
+typically an attribute of the aggregate or a variable something outside the application
+wrote. Such a parameter is not answered with a null. It fails the delivery with a message
+naming the variable, the list and the property, so the cluster raises an incident instead
+of the handler computing on a value which was quietly dropped. Where the name is an
+aggregate attribute, the better answer is usually to read it from the aggregate the method
+already receives, which is what VanillaBP is about.
+
+Every worker logs at DEBUG what it fetches when it opens. When somebody reports a variable
+their handler no longer sees, that line answers the first question.
 
 ### Viewing workflows (story 26)
 

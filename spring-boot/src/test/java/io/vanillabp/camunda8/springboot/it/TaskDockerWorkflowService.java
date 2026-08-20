@@ -28,7 +28,8 @@ import io.vanillabp.spi.service.WorkflowTask;
             bpmnProcessId = "RetryProcess"), @BpmnProcess(bpmnProcessId = "AsyncCancelProcess"), @BpmnProcess(
                 bpmnProcessId = "UserTaskProcess"), @BpmnProcess(bpmnProcessId = "SilentUserTaskProcess"), @BpmnProcess(
                     bpmnProcessId = "MessageProcess"), @BpmnProcess(
-                        bpmnProcessId = "MessageStartProcess"), @BpmnProcess(bpmnProcessId = "SyncProcess")
+                        bpmnProcessId = "MessageStartProcess"), @BpmnProcess(
+                            bpmnProcessId = "SyncProcess"), @BpmnProcess(bpmnProcessId = "FetchProcess")
     })
 public class TaskDockerWorkflowService {
 
@@ -293,6 +294,41 @@ public class TaskDockerWorkflowService {
     countInvocation("syncRejected", aggregate);
     // reached only if the gateway evaluated STALE data (the defect story 28b fixes)
     aggregate.appendResult("sync-rejected");
+
+  }
+
+  /**
+   * Story 93, the escape hatch at TASK level: this task is configured with
+   * {@code fetch-variables: all}, so its worker asks the cluster for the complete
+   * variable scope and the {@code @TaskParam} below is answered although the adapter
+   * could never have derived that name.
+   */
+  @WorkflowTask
+  public void fetchAllTask(
+      final TaskDockerAggregate aggregate,
+      @io.vanillabp.spi.service.TaskParam("bigPayload") final String bigPayload) {
+
+    countInvocation("fetchAllTask", aggregate);
+    OBSERVED_VARIABLES.put("bigPayloadLength", bigPayload == null
+        ? -1
+        : bigPayload.length());
+    aggregate.appendResult("fetch-all");
+
+  }
+
+  /**
+   * Story 93, the default: this task's worker fetches the derived list, which is the
+   * aggregate-ID variable alone. The {@code @TaskParam} therefore names a variable the
+   * job does not carry, and the delivery fails with a guiding message instead of running
+   * this method on a <code>null</code>.
+   */
+  @WorkflowTask
+  public void fetchDerivedTask(
+      final TaskDockerAggregate aggregate,
+      @io.vanillabp.spi.service.TaskParam("bigPayload") final String bigPayload) {
+
+    countInvocation("fetchDerivedTask", aggregate);
+    aggregate.appendResult("fetch-derived");
 
   }
 

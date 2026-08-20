@@ -75,6 +75,13 @@ public class Camunda8DeploymentServiceProducer {
                               bpmnProcessId,
                               taskDefinition) -> overlay.retryBackoffFor(
                                   workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
+          // story 93: what each worker asks the cluster for, resolvable down to task
+          // level
+          deploymentService.setFetchVariablesResolver((
+              workflowModuleId,
+              bpmnProcessId,
+              taskDefinition) -> overlay.fetchVariablesFor(
+                  workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
           deploymentService.setBpmsInitiatedStartInvoker(workflowTaskRegistry);
           deploymentService.setWorkflowEndedInvoker(workflowTaskRegistry);
           // story 92: the client's job counters and this adapter's execution slots,

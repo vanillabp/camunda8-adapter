@@ -5,6 +5,7 @@ vanillabp:
       rest-address: http://localhost:65535
       job-timeout: PT30S
       retry-backoff: PT30S
+      fetch-variables: derived
       async-task-lock-renewal: PT2M
       shutdown-grace: PT5S
       worker-threads: virtual
@@ -32,15 +33,18 @@ vanillabp:
           resources-location: classpath:test-app/processes
           job-timeout: PT20S
           retry-backoff: PT20S
+          fetch-variables: all
       workflows:
         TaskProcess:
           adapters:
             c8:
               job-timeout: PT10S
               retry-backoff: PT10S
+              fetch-variables: derived
           tasks:
             happyTask:
               adapters:
                 c8:
                   job-timeout: PT2S
                   retry-backoff: PT2S
+                  fetch-variables: all

@@ -37,6 +37,10 @@ import lombok.Setter;
  *       resolvable per workflow module, workflow and task like {@code job-timeout}) - how
  *       long the cluster waits before it hands a FAILED job out again, see
  *       {@link #retryBackoff}</li>
+ *   <li>{@code .fetch-variables} (optional, default {@code derived}, resolvable per
+ *       workflow module, workflow and task) - whether a worker asks the cluster for the
+ *       variables VanillaBP reads or for the complete variable scope, see
+ *       {@link io.vanillabp.camunda8.wiring.Camunda8FetchVariables}</li>
  *   <li>{@code .health-timeout} (optional, default {@value #DEFAULT_HEALTH_TIMEOUT_ISO}) -
  *       how long the health check waits for the cluster's topology, see
  *       {@link #healthTimeout}</li>
@@ -173,6 +177,16 @@ public class Camunda8AdapterConfiguration {
    * behind the default of ten seconds.
    */
   private java.time.Duration retryBackoff;
+
+  /**
+   * Whether the workers of this adapter instance ask the cluster for the variables the
+   * adapter derived from the deployed models or for all of them - adapter-level base of
+   * the most-specific-wins resolution (task &gt; workflow &gt; workflow-module &gt;
+   * adapter). Default {@code derived}, see
+   * {@link io.vanillabp.camunda8.wiring.Camunda8FetchVariables} for what is derived and
+   * why.
+   */
+  private io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode fetchVariables;
 
   /**
    * The default of {@link #asyncTaskLockRenewal} in ISO-8601 notation, for javadoc and
@@ -568,6 +582,20 @@ public class Camunda8AdapterConfiguration {
     return retryBackoff != null
         ? retryBackoff
         : io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF;
+
+  }
+
+  /**
+   * The adapter-level answer to what a worker fetches: the configured value or
+   * {@link io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver#DEFAULT_FETCH_VARIABLES}.
+   *
+   * @return The mode, never <code>null</code>
+   */
+  public io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode resolvedFetchVariables() {
+
+    return fetchVariables != null
+        ? fetchVariables
+        : io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
 
   }
 
