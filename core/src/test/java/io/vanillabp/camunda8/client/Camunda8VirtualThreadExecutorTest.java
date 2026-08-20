@@ -86,10 +86,39 @@ public class Camunda8VirtualThreadExecutorTest {
       release.countDown();
       assertTrue(finished.await(10, TimeUnit.SECONDS), "every job ran");
       assertEquals(bound, peak.get(), "never more handlers at once than the bound allows");
-      assertEquals(bound, executor.getFreeSlots(), "the slots are given back");
+      // the slot is given back AFTER the runnable returned, so the last job's countDown
+      // may arrive before its permit is back - the CI runner is slow enough to see it
+      assertTrue(
+          slotsBackWithin(executor, bound, 5000),
+          "the slots are given back");
     } finally {
       executor.shutdownNow();
     }
+
+  }
+
+  /**
+   * Waits for every permit of the bound to be back, since the executor releases a slot
+   * after the runnable it wrapped returned.
+   *
+   * @param executor The executor under test
+   * @param bound The number of slots it was built with
+   * @param millis How long to wait at most
+   * @return Whether every slot came back in time
+   */
+  private static boolean slotsBackWithin(
+      final Camunda8VirtualThreadExecutor executor,
+      final int bound,
+      final long millis) throws InterruptedException {
+
+    final var deadline = System.nanoTime() + (millis * 1_000_000L);
+    while (System.nanoTime() < deadline) {
+      if (executor.getFreeSlots() == bound) {
+        return true;
+      }
+      Thread.sleep(10);
+    }
+    return executor.getFreeSlots() == bound;
 
   }
 
