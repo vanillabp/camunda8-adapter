@@ -181,6 +181,62 @@ public class Camunda8HealthTest {
 
   }
 
+  @Test
+  @DisplayName("A SaaS adapter is named by its cluster and region, not by a URL")
+  public void aSaasAdapterIsNamedByClusterAndRegion() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setMode(Camunda8AdapterConfiguration.Mode.SAAS);
+    configuration.setClusterId("0123abcd-4567-89ef-0123-456789abcdef");
+    configuration.setRegion("bru-2");
+
+    // an operator of a SaaS cluster has no address to ping; what they act on is the
+    // cluster and the region, and every answer has to carry it
+    final var health = Camunda8Health.check("cloud", factoryWith(configuration, null));
+
+    assertEquals(
+        "cluster '0123abcd-4567-89ef-0123-456789abcdef' in region 'bru-2'",
+        health.details().get("address"));
+
+  }
+
+  @Test
+  @DisplayName("A health check interrupted while waiting is DOWN, and the interrupt survives")
+  public void anInterruptedCheckIsDown() throws Exception {
+
+    // the endpoint's thread may be interrupted while the request is in flight; swallowing
+    // that leaves a thread which cannot be stopped, and answering UP would be a lie
+    try {
+      final var health = Camunda8Health
+          .check("c8", factoryWith(configured(), clientAnswering(null, new InterruptedException())));
+
+      assertEquals(AdapterHealth.Status.DOWN, health.status());
+      assertTrue(health.description().contains("interrupted"), health.description());
+      assertEquals(ADDRESS, health.details().get("address"));
+      assertTrue(Thread.currentThread().isInterrupted(), "the interrupt was swallowed");
+    } finally {
+      Thread.interrupted();
+    }
+
+  }
+
+  @Test
+  @DisplayName("A failure without a message is named by its type")
+  public void aFailureWithoutAMessageIsNamedByItsType() throws Exception {
+
+    final var health = Camunda8Health
+        .check(
+            "c8",
+            factoryWith(
+                configured(),
+                clientAnswering(null, new java.util.concurrent.ExecutionException(new IllegalStateException()))));
+
+    assertEquals(AdapterHealth.Status.DOWN, health.status());
+    // an exception without a message would leave the endpoint with an empty reason
+    assertTrue(health.description().contains("IllegalStateException"), health.description());
+
+  }
+
   /**
    * A client whose topology request answers with the given topology, or throws the given
    * exception while it is waited for.

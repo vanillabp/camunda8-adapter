@@ -197,6 +197,60 @@ public class Camunda8AuthenticationTest {
   }
 
   @Test
+  @DisplayName("the status in the message says which transport answered")
+  public void theStatusNamesTheTransport() {
+
+    // gRPC counts its own codes from zero and HTTP starts at 100, so the number itself
+    // tells an operator where to look - a wrong label sends them to the wrong log
+    assertTrue(
+        Camunda8Authentication.message("c8", Camunda8AuthConfiguration.Method.NONE, 16)
+            .contains("gRPC UNAUTHENTICATED"));
+    assertTrue(
+        Camunda8Authentication.message("c8", Camunda8AuthConfiguration.Method.NONE, 4)
+            .contains("gRPC code 4"));
+    assertTrue(
+        Camunda8Authentication.message("c8", Camunda8AuthConfiguration.Method.NONE, 503)
+            .contains("HTTP 503"));
+
+  }
+
+  @Test
+  @DisplayName("every optional OIDC setting reaches the provider the client is handed")
+  public void theOptionalOidcSettingsAreApplied(
+      @org.junit.jupiter.api.io.TempDir final java.nio.file.Path directory) throws Exception {
+
+    // each of these is a documented property; one silently ignored is a token request
+    // which fails at the cluster, hours after a boot which looked fine
+    final var keystore = java.nio.file.Files.createFile(directory.resolve("keystore.p12"));
+    final var truststore = java.nio.file.Files.createFile(directory.resolve("truststore.p12"));
+
+    final var configuration = selfManaged();
+    final var auth = configuration.getAuth();
+    auth.setMethod(Camunda8AuthConfiguration.Method.OIDC);
+    auth.setClientId("vanillabp");
+    auth.setClientSecret("h0rse-battery-staple");
+    auth.setAudience("zeebe-api");
+    auth.setAuthorizationServerUrl("http://localhost:18080/auth/realms/camunda/protocol/openid-connect/token");
+    auth.setScope("camunda-identity");
+    auth.setCredentialsCachePath(directory.resolve("credentials").toString());
+    auth.setConnectTimeout(java.time.Duration.ofSeconds(3));
+    auth.setReadTimeout(java.time.Duration.ofSeconds(7));
+    auth.setKeystorePath(keystore.toString());
+    auth.setKeystorePassword("keystore");
+    auth.setKeystoreKeyPassword("key");
+    auth.setTruststorePath(truststore.toString());
+    auth.setTruststorePassword("truststore");
+
+    final var provider = Camunda8Authentication
+        .of("c8", configuration, variable -> null)
+        .providerFor(message -> {
+        });
+
+    assertNotNull(Camunda8Authentication.unwrap(provider));
+
+  }
+
+  @Test
   @DisplayName("only a refusal is a refusal: a missing resource or a broken cluster is not")
   public void onlyRefusalsAreReported() {
 
