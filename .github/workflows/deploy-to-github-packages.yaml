@@ -1,10 +1,17 @@
 name: Publish to GitHub Packages
+# A pull request builds and tests, a push to main publishes. Both run as the job
+# 'publish', which is the check main requires, so a pull request Renovate opens gets a
+# result like every other one - it did not while this workflow only listened to pushes
+# and ignored renovate/**, and a required check nobody produces waits forever.
+#
+# Publishing from main alone is the second half of it: every branch used to overwrite
+# the shared 2.0.0-SNAPSHOT in the registry, so whoever pushed last decided what the
+# other repositories compiled against.
 "on":
+  pull_request:
   push:
-    branches-ignore:
-      - renovate/**
-      - release/**
-      - feature/wip-**
+    branches:
+      - main
 permissions:
   contents: read
   pages: write
@@ -22,7 +29,17 @@ jobs:
           java-version: 21
           distribution: temurin
           cache: maven
+      - name: Build and test
+        if: "${{ github.event_name == 'pull_request' }}"
+        run: mvn -s $GITHUB_WORKSPACE/.github/workflows/github-packages-settings.xml
+          --batch-mode --no-transfer-progress --update-snapshots install verify
+        env:
+          USER_NAME: "${{ secrets.VANILLABP_USER_NAME }}"
+          USER_TOKEN: "${{ secrets.VANILLABP_USER_TOKEN }}"
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          CI: false
       - name: Publish package
+        if: "${{ github.event_name == 'push' }}"
         run: mvn -s $GITHUB_WORKSPACE/.github/workflows/github-packages-settings.xml
           --batch-mode --no-transfer-progress --update-snapshots deploy
         env:
@@ -31,16 +48,18 @@ jobs:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           CI: false
       - name: Collect coverage reports
+        if: "${{ github.event_name == 'push' }}"
         run: |
           mkdir -p coverage
           cp -r test-coverage-report/spring-boot/report coverage/spring-boot-report
           cp -r test-coverage-report/quarkus/report coverage/quarkus-report
       - name: Upload coverage report files as artifact
+        if: "${{ github.event_name == 'push' }}"
         uses: actions/upload-pages-artifact@v4
         with:
           path: coverage
   deploy-coverage-report:
-    if: "${{ github.ref_name == github.event.repository.default_branch }}"
+    if: "${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}"
     environment:
       name: github-pages
       url: "${{ steps.deployment.outputs.page_url }}"
