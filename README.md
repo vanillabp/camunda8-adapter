@@ -470,6 +470,12 @@ classification at all - a gone job is the accepted at-least-once residual and co
 entry. `401` is usually an expired token, which the client refreshes. `409`, `429` and every
 `5xx` are what the outbox exists for.
 
+Story 91 reuses the same classification for the commands a job handler sends back to the
+cluster (`Camunda8Errors.repeatableJobCommandFailure`), adding the one case which is
+permanent there and not here: a job which is gone. One classification serving both
+directions is the point - a second opinion about what a repetition can change would drift
+away from this one.
+
 ### Why correlating a message has no cluster preflight
 
 Since 8.8 the client can search message subscriptions, so a preflight would be possible - and
@@ -606,7 +612,8 @@ Execution model per delivered job (at-least-once ordering):
    - `TaskException` → `ThrowError` with the error code (BPMN error; the
      aggregate changes stay COMMITTED - the V1 contract);
    - any other exception → the local transaction is rolled back and the job is
-     failed with decremented retries (Camunda 8 redelivers).
+     failed with decremented retries and a `retryBackoff` (Camunda 8 redelivers
+     after it, see below).
 
 **Asynchronous tasks (`@TaskId`) and the renewal of their lock:** a handler
 receiving the task ID completes the task later via `ProcessService#completeTask`.
@@ -630,6 +637,35 @@ The core measures how long such a task has been open (`vanillabp.delivery.max-ta
 `incident` this adapter stops renewing the lock of an overdue task and fails its job
 with no retries left, so the cluster raises an incident naming the workflow aggregate
 and the age.
+
+**The command which reports the outcome is repeated (story 91):** a cluster which
+cannot keep up rejects commands, as `RESOURCE_EXHAUSTED` on gRPC and as HTTP 503 on
+REST, and the client repeats neither of them (its gRPC retry policy is off by default
+and would not cover REST anyway; probe P5b measured 19.433 of 20.000 gRPC commands
+rejected at the caller against one node). The outbox covers the phase-two commands, so
+what was left unprotected was the command the handler itself sends back: a rejected
+completion of committed work escaped into the client's fail path and cost the job a
+retry. `Camunda8CommandRetry` now wraps the completion, the BPMN error, the fail command
+and the lock renewal of all four worker kinds. It repeats only what
+`Camunda8Errors.repeatableJobCommandFailure` calls repeatable, which is the outbox
+classification of story 73 plus the gone job (repeating a command against a job which no
+longer exists would turn the tolerated at-least-once residual into a storm). It stops at
+the job's remaining lock, read from `ActivatedJob#getDeadline()` rather than from the
+configured timeout, at five attempts, and at once when the module is shutting down (story
+90 keeps the job then, and a retry loop must not hold the drain). The waits are the
+client's own activation backoff numbers: 50 ms initially, factor 1.6, a tenth of jitter
+and a 5s ceiling the five attempts never reach, which keeps the whole sequence below half
+a second because a waiting handler occupies an execution slot. When the bound is reached
+the original failure is rethrown, so the behaviour after the retry is exactly what it was
+before.
+
+`retry-backoff` (default `PT10S`, resolvable per module, workflow and task like
+`job-timeout`, resolved per COMMAND rather than per worker, so nothing has to be aligned
+between the processes one worker serves) travels with every fail command which leaves the
+job retries. A job failed with `retries(0)` carries none, there being no next attempt. The
+error message of a fail command carries the exception's TYPE next to its message, because
+that text is what an operator reads in Operate and `NullPointerException` used to write
+`null` there.
 
 **Shutting down while work is in flight (story 90):** the client does not drain. A
 worker's `close()` returns without waiting for the jobs it already handed to a handler,
@@ -663,6 +699,7 @@ vanillabp:
       type: camunda8
       job-timeout: PT5M                  # adapter level (default PT5M)
       async-task-lock-renewal: PT1H      # adapter level only (default PT1H)
+      retry-backoff: PT10S               # adapter level (default PT10S)
       async-task-max-age-action: report  # adapter level only (default report)
       shutdown-grace: PT20S              # adapter level only (default PT20S)
   workflow-modules:
@@ -679,7 +716,8 @@ vanillabp:
             assessRisk:
               adapters:
                 myengine:
-                  job-timeout: PT10S  # per task (task definition)
+                  job-timeout: PT10S    # per task (task definition)
+                  retry-backoff: PT30S  # per task, for a slow dependency
 ```
 
 Limitation: Camunda 8 workers subscribe by job type only. If the SAME task

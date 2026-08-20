@@ -37,7 +37,7 @@ public interface VanillaBpCamunda8Properties {
    * The workflow-module sections of the shared tree - the overlay mirrors the
    * levels of the most-specific-wins resolution of scope-specific adapter keys
    * (task &gt; workflow &gt; workflow-module &gt; adapter), currently:
-   * <code>job-timeout</code>.
+   * <code>job-timeout</code> and <code>retry-backoff</code>.
    *
    * @return The workflow-module sections, keyed by workflow module ID
    */
@@ -55,6 +55,70 @@ public interface VanillaBpCamunda8Properties {
    * @return The most specific configured job timeout or the default
    */
   default java.time.Duration jobTimeoutFor(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String taskDefinition,
+      final String adapterId) {
+
+    final var scoped = scopedKeysMostSpecificFirst(workflowModuleId, bpmnProcessId, taskDefinition, adapterId)
+        .map(Camunda8ScopedKeys::jobTimeout)
+        .flatMap(Optional::stream)
+        .findFirst();
+    if (scoped.isPresent()) {
+      return scoped.get();
+    }
+    final var adapter = adapters().get(adapterId);
+    return adapter != null
+        ? adapter
+            .jobTimeout()
+            .orElse(io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT)
+        : io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT;
+
+  }
+
+  /**
+   * Resolves the backoff of a FAILED job with the same most-specific-wins semantics;
+   * falls back to the adapter-level value and finally the default of ten seconds.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @param taskDefinition The task definition (job type)
+   * @param adapterId The adapter ID
+   * @return The most specific configured backoff or the default
+   */
+  default java.time.Duration retryBackoffFor(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String taskDefinition,
+      final String adapterId) {
+
+    final var scoped = scopedKeysMostSpecificFirst(workflowModuleId, bpmnProcessId, taskDefinition, adapterId)
+        .map(Camunda8ScopedKeys::retryBackoff)
+        .flatMap(Optional::stream)
+        .findFirst();
+    if (scoped.isPresent()) {
+      return scoped.get();
+    }
+    final var adapter = adapters().get(adapterId);
+    return adapter != null
+        ? adapter
+            .retryBackoff()
+            .orElse(io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF)
+        : io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF;
+
+  }
+
+  /**
+   * The <code>adapters.&lt;id&gt;</code> sections of the three levels below the adapter,
+   * most specific first - what every scope-specific key is resolved through.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @param taskDefinition The task definition (job type)
+   * @param adapterId The adapter ID
+   * @return The sections which exist, most specific first
+   */
+  private java.util.stream.Stream<Camunda8ScopedKeys> scopedKeysMostSpecificFirst(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -80,22 +144,10 @@ public interface VanillaBpCamunda8Properties {
     if (module != null) {
       levelsMostSpecificFirst.add(module.adapters());
     }
-    final var scoped = levelsMostSpecificFirst
+    return levelsMostSpecificFirst
         .stream()
         .map(level -> level.get(adapterId))
-        .filter(java.util.Objects::nonNull)
-        .map(Camunda8ScopedKeys::jobTimeout)
-        .flatMap(Optional::stream)
-        .findFirst();
-    if (scoped.isPresent()) {
-      return scoped.get();
-    }
-    final var adapter = adapters().get(adapterId);
-    return adapter != null
-        ? adapter
-            .jobTimeout()
-            .orElse(io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT)
-        : io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT;
+        .filter(java.util.Objects::nonNull);
 
   }
 
@@ -170,6 +222,14 @@ public interface VanillaBpCamunda8Properties {
      * @return The job timeout
      */
     Optional<java.time.Duration> jobTimeout();
+
+    /**
+     * How long the cluster waits before it hands a FAILED job out again - adapter-level
+     * base of the most-specific-wins resolution. Default: ten seconds.
+     *
+     * @return The backoff of a failed job
+     */
+    Optional<java.time.Duration> retryBackoff();
 
     /**
      * The window the lock of a job left open by a <code>&#64;TaskId</code> handler is
@@ -458,6 +518,13 @@ public interface VanillaBpCamunda8Properties {
      * @return The job timeout
      */
     Optional<java.time.Duration> jobTimeout();
+
+    /**
+     * How long the cluster waits before it hands a FAILED job out again, at this level.
+     *
+     * @return The backoff of a failed job
+     */
+    Optional<java.time.Duration> retryBackoff();
 
   }
 

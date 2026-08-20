@@ -69,7 +69,11 @@ public class Camunda8DeploymentServiceProducer {
                       workflowModuleId, bpmnProcessId, taskDefinition,
                       adapterId), asyncTaskLockRenewal, id -> clientFactoryRegistry
                           .getFactory(id)
-                          .getConfiguration(), scoping);
+                          .getConfiguration(), scoping, (
+                              workflowModuleId,
+                              bpmnProcessId,
+                              taskDefinition) -> overlay.retryBackoffFor(
+                                  workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
           deploymentService.setBpmsInitiatedStartInvoker(workflowTaskRegistry);
           deploymentService.setWorkflowEndedInvoker(workflowTaskRegistry);
           return deploymentService;

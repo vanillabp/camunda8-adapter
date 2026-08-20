@@ -26,7 +26,9 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * While the workflow module is shutting down (story 90) the job is left to its lock
  * instead: a listener cut off by a restart is not a defect of the application, and the
- * cluster hands the job out again with its retries intact.
+ * cluster hands the job out again with its retries intact. Both commands this handler sends
+ * back are repeated where the cluster rejected them for backpressure, and a job which is
+ * failed after all gets a <code>retry-backoff</code> (story 91).
  */
 @Slf4j
 public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
@@ -60,6 +62,13 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
    */
   static final String KIND = "start-event listener";
 
+  /**
+   * How long the cluster waits before it hands a failed job out again (story 91). May be
+   * <code>null</code> (tests) - then
+   * {@link Camunda8RetryBackoffResolver#DEFAULT_RETRY_BACKOFF} applies.
+   */
+  private final Camunda8RetryBackoffResolver retryBackoffResolver;
+
   public Camunda8BpmsInitiatedStartHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -83,6 +92,23 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
       final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker,
       final io.vanillabp.camunda8.client.Camunda8Drain drain) {
 
+    this(
+        adapterId, workflowModuleId, bpmnProcessId, startEventId, kind, signalName, bpmsInitiatedStartInvoker, drain, null);
+
+  }
+
+  public Camunda8BpmsInitiatedStartHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String startEventId,
+      final BpmsStartTrigger.Kind kind,
+      final String signalName,
+      final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker,
+      final io.vanillabp.camunda8.client.Camunda8Drain drain,
+      final Camunda8RetryBackoffResolver retryBackoffResolver) {
+
+    this.retryBackoffResolver = retryBackoffResolver;
     this.drain = drain == null
         ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
         : drain;
@@ -120,11 +146,19 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
                   ? "created"
                   : "existed already");
 
-      client
-          .newCompleteCommand(job.getKey())
-          .variables(result.variables())
-          .send()
-          .join();
+      final var variables = result.variables();
+      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+          adapterId,
+          "completion",
+          job.getKey(),
+          startEventId,
+          job.getDeadline(),
+          drain::isShuttingDown,
+          () -> client
+              .newCompleteCommand(job.getKey())
+              .variables(variables)
+              .send()
+              .join());
 
     } catch (final Exception e) {
       // story 90: while the module is going down, the failure is the shutdown and not the
@@ -134,21 +168,32 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
       }
       // and otherwise the same treatment a service task gets: the cluster counts the
       // retries down and raises an incident once they are used up
+      final var retryBackoff = Camunda8RetryBackoffResolver
+          .resolve(retryBackoffResolver, workflowModuleId, bpmnProcessId, null);
       log.warn(
           "Camunda8[{}]: building the workflow aggregate for the start event '{}' of BPMN process '{}' "
-              + "(job '{}') failed - failing the job with {} retries left",
+              + "(job '{}') failed - failing the job with {} retries left, to be handed out again in {}",
           adapterId,
           startEventId,
           bpmnProcessId,
           job.getKey(),
           job.getRetries() - 1,
+          retryBackoff,
           e);
-      client
-          .newFailCommand(job.getKey())
-          .retries(job.getRetries() - 1)
-          .errorMessage(String.valueOf(e.getMessage()))
-          .send()
-          .join();
+      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+          adapterId,
+          "failure",
+          job.getKey(),
+          startEventId,
+          job.getDeadline(),
+          drain::isShuttingDown,
+          () -> client
+              .newFailCommand(job.getKey())
+              .retries(job.getRetries() - 1)
+              .retryBackoff(retryBackoff)
+              .errorMessage(io.vanillabp.camunda8.client.Camunda8Errors.incidentMessage(e))
+              .send()
+              .join());
     } finally {
       drain.jobFinished(job.getKey());
     }

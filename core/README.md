@@ -23,6 +23,26 @@ configuration, create beans, run the bean lifecycle).
 - `Camunda8ClientFactoryRegistry` - map adapter ID &rarr; factory, registered as a managed
   bean so all clients are closed on shutdown.
 
+## What a worker sends back to the cluster
+
+Four classes share the way back, so the rules live in one place rather than in four
+handlers:
+
+- `Camunda8Errors` classifies a failure. `permanentFailure` answers the outbox (story 73),
+  `repeatableJobCommandFailure` answers a job command and adds the one case which is
+  permanent only there, a job which is gone. `incidentMessage` builds the text an operator
+  reads in Operate, with the exception's type in front of its message.
+- `Camunda8CommandRetry` repeats a rejected command (story 91). It is bounded by the job's
+  remaining lock (`ActivatedJob#getDeadline()`), by five attempts and by the shutdown, and
+  its waits are the client's own activation backoff numbers. Nothing about the outcome
+  changes once the bound is reached: the original failure is rethrown and the caller does
+  what it did before.
+- `Camunda8RetryBackoffResolver` resolves `retry-backoff` over the four configuration
+  levels, per command rather than per worker. It travels with every fail command which
+  leaves the job retries.
+- `Camunda8Drain` decides whether a failure belongs to the shutdown (story 90), in which
+  case no command is sent at all and the job is left to its lock.
+
 ## Adapter SPI implementations
 
 - `Camunda8DeploymentService implements AdapterDeploymentService<BpmnModelInstance,

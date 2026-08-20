@@ -78,7 +78,11 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                         .getFactory(id)
                                         .getConfiguration(), supplierContext
                                             .bean(
-                                                io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class));
+                                                io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class), (
+                                                    workflowModuleId,
+                                                    bpmnProcessId,
+                                                    taskDefinition) -> overlay.retryBackoffFor(
+                                                        workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
                 deploymentService.setWorkflowEndedInvoker(
                     supplierContext
                         .beanProvider(

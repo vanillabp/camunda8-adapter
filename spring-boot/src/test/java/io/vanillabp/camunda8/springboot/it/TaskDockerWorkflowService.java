@@ -38,6 +38,12 @@ public class TaskDockerWorkflowService {
    */
   public static final Map<String, AtomicInteger> INVOCATIONS = new ConcurrentHashMap<>();
 
+  /**
+   * When each invocation happened, per (task definition + aggregate ID) - what the
+   * retry-backoff test of story 91 measures the distance between two deliveries with.
+   */
+  public static final Map<String, java.util.List<Long>> INVOCATION_TIMES = new ConcurrentHashMap<>();
+
   private final ProcessService<TaskDockerAggregate> processService;
 
   public TaskDockerWorkflowService(
@@ -58,12 +64,14 @@ public class TaskDockerWorkflowService {
       final String taskDefinition,
       final TaskDockerAggregate aggregate) {
 
+    final var key = taskDefinition
+        + ":"
+        + aggregate.getId();
+    INVOCATION_TIMES
+        .computeIfAbsent(key, k -> java.util.Collections.synchronizedList(new java.util.ArrayList<>()))
+        .add(System.currentTimeMillis());
     return INVOCATIONS
-        .computeIfAbsent(
-            taskDefinition
-                + ":"
-                + aggregate.getId(),
-            key -> new AtomicInteger())
+        .computeIfAbsent(key, k -> new AtomicInteger())
         .incrementAndGet();
 
   }

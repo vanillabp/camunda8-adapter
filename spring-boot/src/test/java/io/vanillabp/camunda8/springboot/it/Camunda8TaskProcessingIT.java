@@ -167,6 +167,73 @@ public class Camunda8TaskProcessingIT {
   }
 
   @Test
+  @DisplayName("The retry backoff resolves through all four configuration levels from real config")
+  public void retryBackoffResolvesThroughAllFourLevels() {
+
+    // task level (most specific)
+    assertEquals(
+        Duration.ofSeconds(2),
+        overlay.retryBackoffFor("test-app", "TaskProcess", "happyTask", "c8"));
+    // workflow level
+    assertEquals(
+        Duration.ofSeconds(10),
+        overlay.retryBackoffFor("test-app", "TaskProcess", "errorTask", "c8"));
+    // workflow level of the process the backoff is measured on below
+    assertEquals(
+        Duration.ofSeconds(5),
+        overlay.retryBackoffFor("test-app", "FailProcess", "alwaysFails", "c8"));
+    // workflow-module level
+    assertEquals(
+        Duration.ofSeconds(20),
+        overlay.retryBackoffFor("test-app", "OtherProcess", "someTask", "c8"));
+    // adapter level (base)
+    assertEquals(
+        Duration.ofSeconds(30),
+        overlay.retryBackoffFor("unknown-module", "SomeProcess", "someTask", "c8"));
+
+  }
+
+  @Test
+  @DisplayName("A failed job is not handed out again at once - the fail command carries the backoff")
+  public void aFailedJobIsHandedOutAgainOnlyAfterTheBackoff() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("FailProcess", aggregateId);
+
+    awaitUntil(
+        () -> invocations("alwaysFails", aggregateId) >= 1,
+        60000,
+        "the failing job to be delivered");
+
+    // FailProcess is configured with 'retry-backoff: PT5S': without it the cluster hands
+    // the job out again within milliseconds, which is what used to burn all three retries
+    // before the cause of the failure had any chance to pass
+    Thread.sleep(3000);
+    assertEquals(
+        1,
+        invocations("alwaysFails", aggregateId),
+        "the job must not be redelivered while the backoff is still running");
+
+    awaitUntil(
+        () -> invocations("alwaysFails", aggregateId) >= 2,
+        60000,
+        "the failing job to be redelivered after its backoff");
+
+    final var times = TaskDockerWorkflowService.INVOCATION_TIMES
+        .get("alwaysFails:"
+            + aggregateId);
+    final var gap = times.get(1) - times.get(0);
+    assertTrue(
+        gap >= 4000,
+        "expected at least the configured five seconds between two deliveries but saw "
+            + gap
+            + " ms");
+
+  }
+
+  @Test
   @DisplayName("Happy path with TaskException error-boundary routing")
   public void happyPathAndBpmnErrorRoutesBoundary() throws Exception {
 

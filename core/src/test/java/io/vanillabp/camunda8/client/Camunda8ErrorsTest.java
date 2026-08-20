@@ -1,5 +1,6 @@
 package io.vanillabp.camunda8.client;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -106,6 +107,46 @@ public class Camunda8ErrorsTest {
 
     };
     assertFalse(Camunda8Errors.permanentFailure(selfReferencing));
+
+  }
+
+  @Test
+  @DisplayName("A job command has one more permanent case: the job itself is gone")
+  public void aGoneJobIsPermanentForJobCommands() {
+
+    // repeatable for an outbox entry (404 is the signature of eventual consistency) and
+    // permanent for a command against THIS job - repeating it would turn the tolerated
+    // at-least-once residual into a retry storm (story 91)
+    assertFalse(Camunda8Errors.permanentFailure(problem(404)));
+    assertFalse(Camunda8Errors.repeatableJobCommandFailure(problem(404)));
+
+  }
+
+  @Test
+  @DisplayName("Backpressure is repeatable on both transports")
+  public void backpressureIsRepeatable() {
+
+    // REST answers with 503 and the title the engine sends...
+    assertTrue(Camunda8Errors.repeatableJobCommandFailure(problem(503)));
+    // ...gRPC with the status of the same name, and neither of them is permanent
+    assertTrue(
+        Camunda8Errors.repeatableJobCommandFailure(
+            new ClientStatusException(io.grpc.Status.RESOURCE_EXHAUSTED, null)));
+    assertFalse(Camunda8Errors.repeatableJobCommandFailure(problem(400)));
+
+  }
+
+  @Test
+  @DisplayName("An incident names the exception's type where its message says nothing")
+  public void anIncidentNamesTheType() {
+
+    assertEquals(
+        "java.lang.NullPointerException",
+        Camunda8Errors.incidentMessage(new NullPointerException()));
+    assertEquals(
+        "java.lang.IllegalStateException: the connection pool is exhausted",
+        Camunda8Errors.incidentMessage(new IllegalStateException("the connection pool is exhausted")));
+    assertEquals("no exception given", Camunda8Errors.incidentMessage(null));
 
   }
 
