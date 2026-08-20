@@ -92,6 +92,7 @@ public class Camunda8ClientProducer {
     keys.clientId().ifPresent(configuration::setClientId);
     keys.clientSecret().ifPresent(configuration::setClientSecret);
     keys.jobTimeout().ifPresent(configuration::setJobTimeout);
+    keys.retryBackoff().ifPresent(configuration::setRetryBackoff);
     keys.asyncTaskLockRenewal().ifPresent(configuration::setAsyncTaskLockRenewal);
     // bound only so the removed key can be REJECTED with a guiding message instead of
     // SmallRye's "does not map to any root"

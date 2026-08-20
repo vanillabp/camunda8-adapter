@@ -71,6 +71,31 @@ public class Camunda8JobTimeoutOverlayTest {
   }
 
   @Test
+  public void retryBackoffResolvesThroughAllFourLevels() {
+
+    final var overlay = overlay();
+
+    // story 91: the backoff of a FAILED job is resolved from the same four levels
+    Assertions.assertEquals(
+        Duration.ofSeconds(2),
+        overlay.retryBackoffFor("test-app", "TaskProcess", "happyTask", "c8"));
+    Assertions.assertEquals(
+        Duration.ofSeconds(10),
+        overlay.retryBackoffFor("test-app", "TaskProcess", "otherTask", "c8"));
+    Assertions.assertEquals(
+        Duration.ofSeconds(20),
+        overlay.retryBackoffFor("test-app", "OtherProcess", "someTask", "c8"));
+    Assertions.assertEquals(
+        Duration.ofSeconds(30),
+        overlay.retryBackoffFor("unknown-module", "SomeProcess", "someTask", "c8"));
+    // and an adapter id which configures none gets the default of ten seconds
+    Assertions.assertEquals(
+        io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
+        overlay.retryBackoffFor("test-app", "TaskProcess", "happyTask", "unknown-adapter"));
+
+  }
+
+  @Test
   public void defaultsApplyWithoutAnyConfiguredTimeout() {
 
     final var overlay = overlay();

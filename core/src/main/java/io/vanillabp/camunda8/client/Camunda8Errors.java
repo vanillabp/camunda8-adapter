@@ -108,4 +108,49 @@ public final class Camunda8Errors {
 
   }
 
+  /**
+   * Whether repeating a command a JOB HANDLER sends back to the cluster - a completion, a
+   * BPMN error, a failure, a lock renewal - can change its answer (story 91). It is
+   * {@link #permanentFailure} plus the one case which is permanent for a job command and
+   * not for an outbox entry: a job which is gone stays gone, and repeating a command
+   * against it would turn the benign at-least-once residual into a retry storm.
+   * <p>
+   * There is deliberately no separate opinion about what backpressure looks like. The
+   * cluster answers it with <code>RESOURCE_EXHAUSTED</code> on gRPC and HTTP 503 on REST,
+   * neither of which is permanent, so the classification the outbox already uses covers it
+   * - and one classification cannot drift apart from itself.
+   *
+   * @param throwable What the command threw
+   * @return Whether another attempt is worth making
+   */
+  public static boolean repeatableJobCommandFailure(
+      final Throwable throwable) {
+
+    return !jobAlreadyGone(throwable) && !permanentFailure(throwable);
+
+  }
+
+  /**
+   * What a failed job reports as its error message - the text an operator reads in the
+   * incident, so it carries the exception's TYPE next to its message. Camunda's own advice
+   * is that this message is what a human sees, and the plain message alone says
+   * <code>null</code> for every failure which carries none, a
+   * {@link NullPointerException} above all.
+   *
+   * @param throwable What the handler threw
+   * @return The incident text, never <code>null</code>
+   */
+  public static String incidentMessage(
+      final Throwable throwable) {
+
+    if (throwable == null) {
+      return "no exception given";
+    }
+    final var message = throwable.getMessage();
+    return (message == null) || message.isBlank()
+        ? throwable.getClass().getName()
+        : "%s: %s".formatted(throwable.getClass().getName(), message);
+
+  }
+
 }

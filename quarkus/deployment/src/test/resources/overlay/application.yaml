@@ -4,6 +4,7 @@ vanillabp:
       type: camunda8
       rest-address: http://localhost:65535
       job-timeout: PT30S
+      retry-backoff: PT30S
       async-task-lock-renewal: PT2M
       shutdown-grace: PT5S
       worker-threads: virtual
@@ -30,13 +31,16 @@ vanillabp:
         c8:
           resources-location: classpath:test-app/processes
           job-timeout: PT20S
+          retry-backoff: PT20S
       workflows:
         TaskProcess:
           adapters:
             c8:
               job-timeout: PT10S
+              retry-backoff: PT10S
           tasks:
             happyTask:
               adapters:
                 c8:
                   job-timeout: PT2S
+                  retry-backoff: PT2S

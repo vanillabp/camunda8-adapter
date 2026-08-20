@@ -189,6 +189,15 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final Camunda8JobTimeoutResolver jobTimeoutResolver;
 
   /**
+   * Resolves how long the cluster waits before it hands a FAILED job out again (story 91),
+   * from the same four levels the job timeout comes from. Unlike the timeout this is not a
+   * property of the worker but of each fail command, so nothing has to be aligned between
+   * the processes one worker serves. May be <code>null</code> (tests): the default of ten
+   * seconds applies then.
+   */
+  private final io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver retryBackoffResolver;
+
+  /**
    * The window the lock of a job left open by a {@code @TaskId} handler is renewed in
    * (see {@link Camunda8JobHandler}).
    */
@@ -260,6 +269,22 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final Duration asyncTaskLockRenewal,
       final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+
+    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, configurations, scoping, null);
+
+  }
+
+  public Camunda8DeploymentService(
+      final String adapterId,
+      final Camunda8ClientFactory clientFactory,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Camunda8JobTimeoutResolver jobTimeoutResolver,
+      final Duration asyncTaskLockRenewal,
+      final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver retryBackoffResolver) {
+
+    this.retryBackoffResolver = retryBackoffResolver;
 
     AdapterPlatformVersion.requireCompatiblePlatform(ADAPTER_TYPE, Camunda8DeploymentService.class);
 
@@ -988,7 +1013,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .jobType(startEvent.listenerJobType())
               .handler(new io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler(
                   adapterId, workflowModuleId, plainProcessId, startEvent.startEventId(), startEvent.kind(), startEvent
-                      .signalName(), bpmsInitiatedStartInvoker, drain))
+                      .signalName(), bpmsInitiatedStartInvoker, drain, retryBackoffResolver))
               .timeout(
                   listenerLockOf(workflowModuleId, List.of(startEvent.bpmnProcessId()), "start-event", startEvent
                       .listenerJobType()))
@@ -1015,7 +1040,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .jobType(Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId))
               .handler(new io.vanillabp.camunda8.wiring.Camunda8WorkflowEndedHandler(
                   adapterId, workflowModuleId, plainProcessId, workflowTaskInvoker
-                      .resolveWorkflowAggregateIdName(workflowModuleId, plainProcessId), workflowEndedInvoker, drain))
+                      .resolveWorkflowAggregateIdName(workflowModuleId,
+                          plainProcessId), workflowEndedInvoker, drain, retryBackoffResolver))
               .timeout(
                   listenerLockOf(workflowModuleId, List.of(scopedProcessId), "workflow-end", Camunda8TaskWiring
                       .workflowEndedJobTypeOf(scopedProcessId)))
@@ -1039,7 +1065,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           .newWorker()
           .jobType(taskDefinition)
           .handler(new Camunda8JobHandler(
-              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction(), drain))
+              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction(), drain, retryBackoffResolver))
           .timeout(timeout)
           .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)));
       final var workerTenantId = tenantIdOf(workflowModuleId);

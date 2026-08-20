@@ -48,6 +48,13 @@ import lombok.extern.slf4j.Slf4j;
  * extended by another window - the renewal is driven by the cluster's own
  * redelivery and the application never notices it. The worker's regular job timeout
  * stays short: crash recovery of non-async tasks is not delayed.</li>
+ * <li>the command which reports the outcome is REPEATED where the cluster rejected it for
+ * backpressure (story 91): a completion of work which is already committed must not cost
+ * the job a retry just because the cluster was busy. The retry is bounded by the job's
+ * remaining lock and by five attempts, see
+ * {@link io.vanillabp.camunda8.client.Camunda8CommandRetry} - a handler waiting occupies
+ * an execution slot, which is why the bound is small. A job which is failed after all gets
+ * a <code>retry-backoff</code>, so the cluster's next attempt is not immediate;</li>
  * <li>a delivery which fails while the workflow module is SHUTTING DOWN is not reported
  * as a job failure (story 90): the adapter's state decides, not the exception, because a
  * handler interrupted by the closing client throws like any other. The job keeps its lock
@@ -112,6 +119,13 @@ public class Camunda8JobHandler implements JobHandler {
    */
   private final Camunda8MultiInstance.Registry multiInstanceRegistry;
 
+  /**
+   * How long the cluster waits before it hands a failed job out again (story 91), resolved
+   * per task. May be <code>null</code> (tests) - then
+   * {@link Camunda8RetryBackoffResolver#DEFAULT_RETRY_BACKOFF} applies.
+   */
+  private final Camunda8RetryBackoffResolver retryBackoffResolver;
+
   public Camunda8JobHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -175,6 +189,24 @@ public class Camunda8JobHandler implements JobHandler {
       final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
       final io.vanillabp.camunda8.client.Camunda8Drain drain) {
 
+    this(
+        adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction, drain, null);
+
+  }
+
+  public Camunda8JobHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final CamundaClient camundaClient,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Duration asyncTaskLockRenewal,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry,
+      final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
+      final io.vanillabp.camunda8.client.Camunda8Drain drain,
+      final Camunda8RetryBackoffResolver retryBackoffResolver) {
+
+    this.retryBackoffResolver = retryBackoffResolver;
     this.drain = drain == null
         ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
         : drain;
@@ -259,21 +291,36 @@ public class Camunda8JobHandler implements JobHandler {
       }
       // the core rolled the local transaction back - fail the job so Camunda 8
       // applies its retry semantics (retries reach 0 -> incident)
+      final var retryBackoff = retryBackoffOf(bpmnProcessId, taskDefinition);
       log.warn(
           "Camunda8[{}]: processing job '{}' (type '{}') of BPMN process '{}' failed - failing the job "
-              + "with {} retries left",
+              + "with {} retries left, to be handed out again in {}",
           adapterId,
           job.getKey(),
           taskDefinition,
           bpmnProcessId,
           job.getRetries() - 1,
+          retryBackoff,
           e);
-      client
-          .newFailCommand(job.getKey())
-          .retries(job.getRetries() - 1)
-          .errorMessage(String.valueOf(e.getMessage()))
-          .send()
-          .join();
+      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+          adapterId,
+          "failure",
+          job.getKey(),
+          taskDefinition,
+          job.getDeadline(),
+          drain::isShuttingDown,
+          () -> client
+              .newFailCommand(job.getKey())
+              .retries(job.getRetries() - 1)
+              // without it the cluster hands the job out again at once, so a handler
+              // failing on something which needs a moment burns its retries before the
+              // cause has a chance to pass (story 91)
+              .retryBackoff(retryBackoff)
+              // the type belongs into the incident as much as the message does: what a
+              // NullPointerException says on its own is 'null'
+              .errorMessage(io.vanillabp.camunda8.client.Camunda8Errors.incidentMessage(e))
+              .send()
+              .join());
       return;
     }
 
@@ -281,19 +328,32 @@ public class Camunda8JobHandler implements JobHandler {
       case COMPLETED -> completeTolerantly(
           client,
           job,
+          taskDefinition,
           variablesOf(bpmnProcessId, aggregateIdName, aggregateId));
-      case BPMN_ERROR -> client
-          .newThrowErrorCommand(job.getKey())
-          // the model's error codes are prefixed too (story 35), so the code the
-          // business method raised has to be translated on its way to the cluster
-          .errorCode(scoping == null
-              ? outcome.errorCode()
-              : scoping.scopedIdentifier(workflowModuleId, outcome.errorCode(), adapterId))
-          .errorMessage(String.valueOf(outcome.errorName()))
-          // the error boundary's outgoing path may branch on the aggregate, too
-          .variables(variablesOf(bpmnProcessId, aggregateIdName, aggregateId))
-          .send()
-          .join();
+      case BPMN_ERROR -> {
+        // read ONCE and not per attempt: a repeated command carries what the handler
+        // produced, and reading the aggregate again would cost a transaction per retry
+        final var errorVariables = variablesOf(bpmnProcessId, aggregateIdName, aggregateId);
+        io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+            adapterId,
+            "BPMN error",
+            job.getKey(),
+            taskDefinition,
+            job.getDeadline(),
+            drain::isShuttingDown,
+            () -> client
+                .newThrowErrorCommand(job.getKey())
+                // the model's error codes are prefixed too (story 35), so the code the
+                // business method raised has to be translated on its way to the cluster
+                .errorCode(scoping == null
+                    ? outcome.errorCode()
+                    : scoping.scopedIdentifier(workflowModuleId, outcome.errorCode(), adapterId))
+                .errorMessage(String.valueOf(outcome.errorName()))
+                // the error boundary's outgoing path may branch on the aggregate, too
+                .variables(errorVariables)
+                .send()
+                .join());
+      }
       case COMPLETION_PENDING -> {
         if (outcome
             .maxAgeExceeded() && (asyncTaskMaxAgeAction == io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.INCIDENT)) {
@@ -307,11 +367,18 @@ public class Camunda8JobHandler implements JobHandler {
         // ProcessService#completeTask. When the window passes the cluster hands the job
         // out again, the core answers from its delivery record and this branch renews
         // the lock once more
-        camundaClient
-            .newUpdateTimeoutCommand(job.getKey())
-            .timeout(asyncTaskLockRenewal)
-            .send()
-            .join();
+        io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+            adapterId,
+            "lock renewal",
+            job.getKey(),
+            taskDefinition,
+            job.getDeadline(),
+            drain::isShuttingDown,
+            () -> camundaClient
+                .newUpdateTimeoutCommand(job.getKey())
+                .timeout(asyncTaskLockRenewal)
+                .send()
+                .join());
         log.debug(
             "Camunda8[{}]: job '{}' (type '{}') stays open for asynchronous completion - lock "
                 + "renewed for {}",
@@ -361,12 +428,37 @@ public class Camunda8JobHandler implements JobHandler {
             io.vanillabp.camunda8.client.Camunda8AdapterConfiguration
                 .propertyKey(adapterId, "async-task-max-age-action"));
     log.warn("Camunda8[{}]: {}", adapterId, message);
-    client
-        .newFailCommand(job.getKey())
-        .retries(0)
-        .errorMessage(message)
-        .send()
-        .join();
+    // no retry backoff: with no retries left there is no next attempt to delay
+    io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+        adapterId,
+        "overdue failure",
+        job.getKey(),
+        taskDefinition,
+        job.getDeadline(),
+        drain::isShuttingDown,
+        () -> client
+            .newFailCommand(job.getKey())
+            .retries(0)
+            .errorMessage(message)
+            .send()
+            .join());
+
+  }
+
+  /**
+   * How long the cluster waits before it hands a failed job of this task out again - the
+   * most specific configured <code>retry-backoff</code>, or ten seconds.
+   *
+   * @param bpmnProcessId The BPMN process id, as the core knows it
+   * @param taskDefinition The task definition, as the core knows it
+   * @return The backoff, never <code>null</code>
+   */
+  private Duration retryBackoffOf(
+      final String bpmnProcessId,
+      final String taskDefinition) {
+
+    return Camunda8RetryBackoffResolver
+        .resolve(retryBackoffResolver, workflowModuleId, bpmnProcessId, taskDefinition);
 
   }
 
@@ -408,14 +500,24 @@ public class Camunda8JobHandler implements JobHandler {
   private void completeTolerantly(
       final JobClient client,
       final ActivatedJob job,
+      final String taskDefinition,
       final java.util.Map<String, Object> variables) {
 
     try {
-      client
-          .newCompleteCommand(job.getKey())
-          .variables(variables)
-          .send()
-          .join();
+      // the work is committed at this point, so a cluster which is momentarily too busy
+      // must not cost the job a retry (story 91)
+      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+          adapterId,
+          "completion",
+          job.getKey(),
+          taskDefinition,
+          job.getDeadline(),
+          drain::isShuttingDown,
+          () -> client
+              .newCompleteCommand(job.getKey())
+              .variables(variables)
+              .send()
+              .join());
     } catch (final Exception e) {
       if (io.vanillabp.camunda8.client.Camunda8Errors.jobAlreadyGone(e)) {
         log.warn(

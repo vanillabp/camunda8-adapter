@@ -27,7 +27,10 @@ import lombok.extern.slf4j.Slf4j;
  * incident for the operator (notification defects must not be silently lost) - unless the
  * workflow module is SHUTTING DOWN (story 90), where the job is left to its lock instead:
  * a notification cut off by a restart is not a notification defect, and an incident would
- * be raised for something nobody did wrong.
+ * be raised for something nobody did wrong. Both commands this handler sends back are
+ * repeated where the cluster rejected them for backpressure (story 91), which matters here
+ * more than anywhere else: with no retries left, a rejected failure would be an incident
+ * the cluster's load produced.
  * <p>
  * <b>The listener completion carries NO variables (decided in story 28b).</b>
  * Unlike a service-task job - whose completion is the moment the process advances
@@ -194,10 +197,17 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
       // listener jobs gate the task lifecycle - ALWAYS complete them; the
       // user-task result keeps the lifecycle moving (denying is not VanillaBP's
       // business)
-      client
-          .newCompleteCommand(job.getKey())
-          .send()
-          .join();
+      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+          adapterId,
+          "completion",
+          job.getKey(),
+          taskDefinition,
+          job.getDeadline(),
+          drain::isShuttingDown,
+          () -> client
+              .newCompleteCommand(job.getKey())
+              .send()
+              .join());
     } catch (final Exception e) {
       // story 90: a notification cut off by a shutdown is not a notification defect. This
       // worker fails with retries(0), so reporting it would raise an incident for work
@@ -213,12 +223,20 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
           job.getType(),
           event,
           e);
-      client
-          .newFailCommand(job.getKey())
-          .retries(0)
-          .errorMessage(String.valueOf(e.getMessage()))
-          .send()
-          .join();
+      // no retry backoff: with no retries left there is no next attempt to delay
+      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+          adapterId,
+          "failure",
+          job.getKey(),
+          taskDefinition,
+          job.getDeadline(),
+          drain::isShuttingDown,
+          () -> client
+              .newFailCommand(job.getKey())
+              .retries(0)
+              .errorMessage(io.vanillabp.camunda8.client.Camunda8Errors.incidentMessage(e))
+              .send()
+              .join());
     } finally {
       drain.jobFinished(job.getKey());
     }

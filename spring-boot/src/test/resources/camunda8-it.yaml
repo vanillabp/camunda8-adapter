@@ -10,6 +10,7 @@ vanillabp:
       type: camunda8
       name-clash-avoidance: use-prefix
       job-timeout: PT30S
+      retry-backoff: PT30S
       async-task-lock-renewal: PT2M
   prioritized-adapters:
     - c8
@@ -19,16 +20,23 @@ vanillabp:
         c8:
           resources-location: classpath*:it
           job-timeout: PT20S
+          retry-backoff: PT20S
       workflows:
+        FailProcess:
+          adapters:
+            c8:
+              retry-backoff: PT5S
         TaskProcess:
           adapters:
             c8:
               job-timeout: PT10S
+              retry-backoff: PT10S
           tasks:
             happyTask:
               adapters:
                 c8:
                   job-timeout: PT2S
+                  retry-backoff: PT2S
         AsyncProcess:
           tasks:
             asyncTask:

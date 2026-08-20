@@ -32,6 +32,11 @@ import lombok.Setter;
  *   <li>{@code .async-task-max-age-action} (optional, default {@code report}) - what
  *       this adapter does with a task the core reports as older than
  *       {@code vanillabp.delivery.max-task-age}, see {@link #asyncTaskMaxAgeAction}</li>
+ *   <li>{@code .retry-backoff} (optional, default
+ *       {@value io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver#DEFAULT_RETRY_BACKOFF_ISO},
+ *       resolvable per workflow module, workflow and task like {@code job-timeout}) - how
+ *       long the cluster waits before it hands a FAILED job out again, see
+ *       {@link #retryBackoff}</li>
  *   <li>{@code .shutdown-grace} (optional, default {@value #DEFAULT_SHUTDOWN_GRACE_ISO}) -
  *       how long a shutdown waits for the handlers it has in flight, see
  *       {@link #shutdownGrace}</li>
@@ -156,6 +161,15 @@ public class Camunda8AdapterConfiguration {
    * adapter react to it, see {@link #asyncTaskMaxAgeAction}.
    */
   private java.time.Duration asyncTaskLockRenewal;
+
+  /**
+   * How long the cluster waits before it hands a FAILED job out again - adapter-level base
+   * of the most-specific-wins resolution (task &gt; workflow &gt; workflow-module &gt;
+   * adapter), see
+   * {@link io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver} for the reasoning
+   * behind the default of ten seconds.
+   */
+  private java.time.Duration retryBackoff;
 
   /**
    * The default of {@link #asyncTaskLockRenewal} in ISO-8601 notation, for javadoc and
@@ -508,6 +522,47 @@ public class Camunda8AdapterConfiguration {
     return asyncTaskLockRenewal != null
         ? asyncTaskLockRenewal
         : DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
+
+  }
+
+  /**
+   * The adapter-level backoff of a failed job: the configured value or
+   * {@link io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver#DEFAULT_RETRY_BACKOFF}.
+   *
+   * @return The backoff, never <code>null</code>
+   */
+  public java.time.Duration resolvedRetryBackoff() {
+
+    return retryBackoff != null
+        ? retryBackoff
+        : io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF;
+
+  }
+
+  /**
+   * Validates the backoff of a failed job - AT STARTUP, because what it decides happens
+   * long after the boot and only when something already went wrong.
+   *
+   * @param adapterId The adapter id
+   * @throws IllegalStateException If the backoff is negative
+   */
+  public void validateRetryBackoff(
+      final String adapterId) {
+
+    if ((retryBackoff == null) || !retryBackoff.isNegative()) {
+      return;
+    }
+    throw new IllegalStateException(
+        """
+            Camunda 8 adapter '%s' has '%s: %s'. The backoff is how long the cluster waits before it hands \
+            a failed job out again, so it cannot be negative. Give it a duration (the default is %s), or \
+            'PT0S' to have the job handed out again as fast as the cluster can - which is what burns a \
+            job's retries while the cause of the failure has not passed yet."""
+            .formatted(
+                adapterId,
+                propertyKey(adapterId, "retry-backoff"),
+                retryBackoff,
+                io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF_ISO));
 
   }
 
