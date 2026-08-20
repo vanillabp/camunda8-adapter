@@ -46,6 +46,13 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <version.java>21</version.java>
     <jacoco.version>0.8.15</jacoco.version>
+    <!-- the line each platform's aggregated report has to stay above, in PERCENT of
+         covered instructions - enforced by test-coverage-report/coverage-gate. The rule
+         is 90; the Quarkus line is lower because the platform-neutral adapter core is
+         exercised by the Spring Boot integration tests and counts as uncovered on the
+         other platform. It is a floor against regression until that is decided. -->
+    <coverage.threshold.spring-boot>90</coverage.threshold.spring-boot>
+    <coverage.threshold.quarkus>72</coverage.threshold.quarkus>
     <lombok.version>1.18.46</lombok.version>
     <spi-for-java.version>1.2.0-SNAPSHOT</spi-for-java.version>
     <adapter-platform.version>2.0.0-SNAPSHOT</adapter-platform.version>

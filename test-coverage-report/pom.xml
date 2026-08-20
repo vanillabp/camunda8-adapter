@@ -16,6 +16,8 @@
   <modules>
     <module>quarkus</module>
     <module>spring-boot</module>
+    <!-- last: it judges the reports the two modules above produced -->
+    <module>coverage-gate</module>
   </modules>
 
   <build>

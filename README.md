@@ -1213,9 +1213,18 @@ Both are published to GitHub Pages by the *Publish to GitHub Packages* workflow 
 the default branch. Click the [platform's badge](#documentation-and-supported-platforms) to open
 the respective report.
 
-Baseline recorded with the hardening story (2026-07-29): **79.9% line coverage**. The feature
-stories' definition of done requires >90% - gaps are filled by the stories touching the respective
-code.
+The build breaks below the line: `test-coverage-report/coverage-gate` is the last module of the
+reactor, reads both reports and fails whenever a platform is below its threshold in the root POM
+(`coverage.threshold.spring-boot`, `coverage.threshold.quarkus`, in percent of covered instructions -
+the number the badges above show). It also compares every module producing a `jacoco.exec` against
+the two aggregates, so a module added to the build without being added to its report cannot stay
+unnoticed.
+
+The two thresholds differ, and the reason is worth knowing. Coverage is measured per platform, but
+the adapter core is platform-neutral: whatever exercises it counts only on the platform its tests run
+on, and almost everything which exercises this core is the Spring Boot integration-test suite against
+a Zeebe container. The Quarkus threshold is therefore a floor against regression, not the 90 % rule,
+until how to count a platform-neutral adapter core is decided.
 
 ## Noteworthy & Contributors
 
