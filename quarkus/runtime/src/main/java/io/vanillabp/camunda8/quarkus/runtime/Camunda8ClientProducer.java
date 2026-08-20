@@ -99,6 +99,7 @@ public class Camunda8ClientProducer {
     keys.asyncTaskTimeout().ifPresent(configuration::setAsyncTaskTimeout);
     keys.asyncTaskMaxAgeAction().ifPresent(configuration::setAsyncTaskMaxAgeAction);
     keys.shutdownGrace().ifPresent(configuration::setShutdownGrace);
+    keys.healthTimeout().ifPresent(configuration::setHealthTimeout);
     keys.workflowVisibilityTimeout().ifPresent(configuration::setWorkflowVisibilityTimeout);
     keys.workerThreads().ifPresent(configuration::setWorkerThreads);
     keys.workerThreadsBound().ifPresent(configuration::setWorkerThreadsBound);

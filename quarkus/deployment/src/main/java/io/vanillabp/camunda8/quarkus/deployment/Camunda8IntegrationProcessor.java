@@ -89,4 +89,43 @@ class Camunda8IntegrationProcessor {
 
   }
 
+  private static final String MICROMETER_EXTENSION_PROCESSOR = "io.quarkus.micrometer.deployment.MicrometerProcessor";
+
+  /**
+   * Registers the producer of this adapter's own meters - but only for an application
+   * which uses Micrometer. The adapter does not bring it: metrics are the application's
+   * decision, and an application without them has to boot unchanged.
+   * <p>
+   * The signal is the Micrometer extension's build-step class on the DEPLOYMENT
+   * classpath, which is how the VanillaBP platform integration detects it as well. The
+   * presence of Micrometer's own classes would not do - the Camunda client drags them in
+   * as an optional dependency of its own, and nothing produces the {@code MeterRegistry}
+   * the producer needs then.
+   *
+   * @param additionalBeans Producer used to register the metrics' producer
+   */
+  @BuildStep
+  void registerMetricsProducer(
+      final BuildProducer<AdditionalBeanBuildItem> additionalBeans) {
+
+    try {
+      Class.forName(
+          MICROMETER_EXTENSION_PROCESSOR,
+          false,
+          Thread
+              .currentThread()
+              .getContextClassLoader());
+    } catch (final ClassNotFoundException | LinkageError e) {
+      return;
+    }
+
+    additionalBeans
+        .produce(AdditionalBeanBuildItem
+            .builder()
+            .addBeanClass(io.vanillabp.camunda8.quarkus.runtime.Camunda8MetricsProducer.class)
+            .setUnremovable() // applied by Micrometer's own startup, never injected
+            .build());
+
+  }
+
 }

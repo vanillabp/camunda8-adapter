@@ -69,4 +69,31 @@ public class Camunda8ClientAutoConfiguration {
 
   }
 
+  /**
+   * What this adapter measures on top of the core's meters (story 92): the client's own
+   * job counters per worker and the execution slots of every adapter instance.
+   * Micrometer is optional, so the whole configuration is conditional on it - an
+   * application without Micrometer boots unchanged and reports nothing.
+   */
+  @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+  // by NAME, not by class literal: the annotation of a nested configuration class is
+  // read reflectively, so a class literal of an absent optional dependency would fail
+  // before the condition is ever evaluated
+  @org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
+      name = "io.micrometer.core.instrument.MeterRegistry")
+  public static class Camunda8MetricsConfiguration {
+
+    /**
+     * @return The meter binder of this adapter's own numbers
+     */
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
+    public io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics camunda8Metrics() {
+
+      return new io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics();
+
+    }
+
+  }
+
 }

@@ -5,6 +5,27 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## The cluster reports itself to your metrics and your health endpoint (2026-08-20)
+
+Story 92. Additive with one new property, and nothing changes for an application which does
+nothing.
+
+Where your application brings Micrometer, this adapter now bridges the client's own job
+counters per worker into your registry (`vanillabp.camunda8.jobs.activated` and
+`.handled`) and reports its execution slots as gauges
+(`vanillabp.camunda8.execution.slots.configured`, `.in.use`, `vanillabp.camunda8.jobs.waiting`,
+the last two in the virtual-thread mode). Without Micrometer nothing of it is loaded.
+
+Where your platform has a health endpoint, the adapter contributes to the component
+respectively readiness check `vanillabp`: it asks the cluster for its topology and reports
+UP with the gateway version, DOWN with the reason, or UNKNOWN while the connection is not
+configured yet. The new key `vanillabp.adapters.<id>.health-timeout` (default `PT2S`) is how
+long it waits, and `PT0S` switches the check off.
+
+What the platform measures for every BPMS came with the same story and is described in its
+own [upgrade
+notes](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
+
 ## The artifact version names the Camunda 8 minor (2026-08-19)
 
 Story 53. Visible to every consumer, because the coordinates change.

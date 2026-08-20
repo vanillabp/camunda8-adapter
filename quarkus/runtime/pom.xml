@@ -27,6 +27,13 @@
       <groupId>io.vanillabp.adapter</groupId>
       <artifactId>migration-adapter-spi</artifactId>
     </dependency>
+    <!-- optional: this adapter's own meters are published only where the application
+         brings Micrometer (see MicrometerCamunda8Metrics) -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-core</artifactId>
+      <optional>true</optional>
+    </dependency>
     <dependency>
       <groupId>io.vanillabp</groupId>
       <artifactId>vanillabp-quarkus-integration</artifactId>

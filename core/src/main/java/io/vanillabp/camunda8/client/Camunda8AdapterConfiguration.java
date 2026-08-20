@@ -37,6 +37,9 @@ import lombok.Setter;
  *       resolvable per workflow module, workflow and task like {@code job-timeout}) - how
  *       long the cluster waits before it hands a FAILED job out again, see
  *       {@link #retryBackoff}</li>
+ *   <li>{@code .health-timeout} (optional, default {@value #DEFAULT_HEALTH_TIMEOUT_ISO}) -
+ *       how long the health check waits for the cluster's topology, see
+ *       {@link #healthTimeout}</li>
  *   <li>{@code .shutdown-grace} (optional, default {@value #DEFAULT_SHUTDOWN_GRACE_ISO}) -
  *       how long a shutdown waits for the handlers it has in flight, see
  *       {@link #shutdownGrace}</li>
@@ -246,6 +249,35 @@ public class Camunda8AdapterConfiguration {
    * repeated on the redelivery.
    */
   private java.time.Duration shutdownGrace;
+
+  /**
+   * How long the health check of this adapter instance waits for the cluster to answer its
+   * topology request. Default: {@value #DEFAULT_HEALTH_TIMEOUT_ISO}.
+   * <p>
+   * <b>Why two seconds.</b> The check runs on the thread serving the health request, and
+   * whatever polls that endpoint has a timeout of its own - Kubernetes' readiness probe
+   * defaults to one second and gives up after three failures. A check which waits longer
+   * than the probe turns a slow cluster into a failing probe without ever reporting DOWN,
+   * which is the worst of both. Two seconds is far above the round trip to a healthy cluster
+   * and below what a probe is willing to wait. The client's own
+   * <code>request-timeout</code> is deliberately NOT reused: ten seconds is right for a
+   * command carrying work and wrong for a question about liveness.
+   * <p>
+   * <code>PT0S</code> switches the check off: the adapter then reports UNKNOWN with a note
+   * saying so, and the endpoint stops talking to the cluster at all.
+   */
+  private java.time.Duration healthTimeout;
+
+  /**
+   * The default of {@link #healthTimeout} in ISO-8601 notation, for javadoc and messages.
+   */
+  public static final String DEFAULT_HEALTH_TIMEOUT_ISO = "PT2S";
+
+  /**
+   * The default of {@link #healthTimeout}: two seconds.
+   */
+  public static final java.time.Duration DEFAULT_HEALTH_TIMEOUT = java.time.Duration
+      .parse(DEFAULT_HEALTH_TIMEOUT_ISO);
 
   /**
    * The default of {@link #shutdownGrace} in ISO-8601 notation, for javadoc and messages.
@@ -563,6 +595,46 @@ public class Camunda8AdapterConfiguration {
                 propertyKey(adapterId, "retry-backoff"),
                 retryBackoff,
                 io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF_ISO));
+
+  }
+
+  /**
+   * How long the health check of this adapter instance waits for the cluster: the configured
+   * value or {@link #DEFAULT_HEALTH_TIMEOUT}.
+   *
+   * @return The timeout, never <code>null</code>
+   */
+  public java.time.Duration resolvedHealthTimeout() {
+
+    return healthTimeout != null
+        ? healthTimeout
+        : DEFAULT_HEALTH_TIMEOUT;
+
+  }
+
+  /**
+   * Validates the health timeout of this adapter instance - AT STARTUP, because a health
+   * endpoint is read when something is already wrong and must not be the second problem.
+   *
+   * @param adapterId The adapter id
+   * @throws IllegalStateException If the timeout is negative
+   */
+  public void validateHealthTimeout(
+      final String adapterId) {
+
+    if ((healthTimeout == null) || !healthTimeout.isNegative()) {
+      return;
+    }
+    throw new IllegalStateException(
+        """
+            Camunda 8 adapter '%s' has '%s: %s'. The timeout is how long the health check waits for the \
+            cluster to answer, so it cannot be negative. Give it a duration (the default is %s), or \
+            'PT0S' to switch the check off."""
+            .formatted(
+                adapterId,
+                propertyKey(adapterId, "health-timeout"),
+                healthTimeout,
+                DEFAULT_HEALTH_TIMEOUT_ISO));
 
   }
 

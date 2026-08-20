@@ -105,6 +105,18 @@ public class Camunda8VirtualThreadExecutor implements ScheduledExecutorService {
 
   }
 
+  /**
+   * How many submitted handlers are parked waiting for a free slot - the number telling a
+   * full application apart from a busy one.
+   *
+   * @return The waiting handlers
+   */
+  public int getWaiting() {
+
+    return slots.getQueueLength();
+
+  }
+
   private Runnable bounded(
       final Runnable command) {
 
