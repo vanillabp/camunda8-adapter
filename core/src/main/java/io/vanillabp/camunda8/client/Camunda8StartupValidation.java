@@ -65,6 +65,7 @@ public final class Camunda8StartupValidation {
     // outlives the shutdown budget around it is never granted, and one nobody notices is
     // the reason a restart burns a retry per job
     configuration.validateShutdownGrace(adapterId, warnLogger);
+    configuration.validateHealthTimeout(adapterId);
     // and neither is how long the cluster waits before it hands a failed job out again: a
     // negative duration is a typo, and it decides something nobody watches
     configuration.validateRetryBackoff(adapterId);

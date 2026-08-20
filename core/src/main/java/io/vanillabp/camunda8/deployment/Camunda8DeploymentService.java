@@ -103,6 +103,64 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
+   * What this adapter instance measures on top of what the core measures (story 92).
+   * Handed in by the platform module after construction, because it exists once per
+   * application while deployment services exist per adapter id;
+   * {@link io.vanillabp.camunda8.observability.Camunda8Metrics#NONE} for an application
+   * without a metrics backend.
+   */
+  private io.vanillabp.camunda8.observability.Camunda8Metrics metrics = io.vanillabp.camunda8.observability.Camunda8Metrics.NONE;
+
+  /**
+   * Hands over what to measure into, and registers the execution slots of this adapter
+   * instance right away - the client is built before this, so there is nothing to wait
+   * for.
+   *
+   * @param metrics What to measure into, never <code>null</code>
+   */
+  public void setMetrics(
+      final io.vanillabp.camunda8.observability.Camunda8Metrics metrics) {
+
+    this.metrics = metrics == null
+        ? io.vanillabp.camunda8.observability.Camunda8Metrics.NONE
+        : metrics;
+    registerExecutionSlots();
+
+  }
+
+  /**
+   * Publishes how many handlers this adapter instance may run, how many of them run right
+   * now and how many jobs wait for a slot.
+   * <p>
+   * The last two exist only in the virtual-thread mode, where the executor of story 74
+   * holds the bound. In the platform-thread mode the client owns its own pool and does
+   * not report what it does with it, so those two gauges are absent rather than guessed.
+   */
+  private void registerExecutionSlots() {
+
+    final var executionModel = clientFactory.getExecutionModel();
+    final var executor = clientFactory.getVirtualThreadExecutor();
+    metrics
+        .registerExecutionSlots(
+            adapterId,
+            executionModel::slots,
+            executor == null
+                ? null
+                : () -> executor.getBound() - executor.getFreeSlots(),
+            executor == null
+                ? null
+                : executor::getWaiting);
+
+  }
+
+  @Override
+  public io.vanillabp.integration.adapter.spi.health.AdapterHealth checkHealth() {
+
+    return io.vanillabp.camunda8.health.Camunda8Health.check(adapterId, clientFactory);
+
+  }
+
+  /**
    * What this adapter instance does with a task the core reports as older than
    * <code>vanillabp.delivery.max-task-age</code>. Read from the adapter's own
    * configuration rather than passed through the wiring, because it belongs to the
@@ -855,12 +913,17 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * @return The same builder
    */
   io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 applyWorkerOptions(
-      final io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder) {
+      final io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder,
+      final String jobType) {
 
+    // the client's own counters (story 92): it activates and hands over jobs long before
+    // the core sees a delivery, so this is where the queue in front of the execution
+    // slots becomes visible
+    final var withMetrics = builder.metrics(metrics.workerMetrics(adapterId, jobType));
     final var streamTimeout = clientFactory.getConfiguration().getStreamTimeout();
     return streamTimeout == null
-        ? builder
-        : builder.streamTimeout(streamTimeout);
+        ? withMetrics
+        : withMetrics.streamTimeout(streamTimeout);
 
   }
 
@@ -986,7 +1049,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry, drain))
           .timeout(
               listenerLockOf(workflowModuleId, bpmnProcessIds, "user-task listener", listenerJobType))
-          .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType)));
+          .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType)), listenerJobType);
       final var listenerTenantId = tenantIdOf(workflowModuleId);
       if (listenerTenantId != null) {
         // story 35 / 'by-adapter': jobs of a tenant are only delivered to workers
@@ -1017,7 +1080,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .timeout(
                   listenerLockOf(workflowModuleId, List.of(startEvent.bpmnProcessId()), "start-event", startEvent
                       .listenerJobType()))
-              .name("vanillabp-%s-%s".formatted(adapterId, startEvent.listenerJobType())));
+              .name("vanillabp-%s-%s".formatted(adapterId, startEvent.listenerJobType())),
+              startEvent
+                  .listenerJobType());
           final var startTenantId = tenantIdOf(workflowModuleId);
           if (startTenantId != null) {
             startWorkerBuilder = startWorkerBuilder.tenantId(startTenantId);
@@ -1045,7 +1110,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .timeout(
                   listenerLockOf(workflowModuleId, List.of(scopedProcessId), "workflow-end", Camunda8TaskWiring
                       .workflowEndedJobTypeOf(scopedProcessId)))
-              .name("vanillabp-%s-%s".formatted(adapterId, scopedProcessId)));
+              .name("vanillabp-%s-%s".formatted(adapterId, scopedProcessId)),
+              Camunda8TaskWiring
+                  .workflowEndedJobTypeOf(scopedProcessId));
           final var endTenantId = tenantIdOf(workflowModuleId);
           if (endTenantId != null) {
             endWorkerBuilder = endWorkerBuilder.tenantId(endTenantId);
@@ -1067,7 +1134,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           .handler(new Camunda8JobHandler(
               adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction(), drain, retryBackoffResolver))
           .timeout(timeout)
-          .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)));
+          .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)), taskDefinition);
       final var workerTenantId = tenantIdOf(workflowModuleId);
       if (workerTenantId != null) {
         workerBuilder = workerBuilder.tenantId(workerTenantId);

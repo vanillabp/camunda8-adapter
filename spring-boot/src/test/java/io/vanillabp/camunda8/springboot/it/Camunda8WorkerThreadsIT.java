@@ -82,6 +82,12 @@ public class Camunda8WorkerThreadsIT {
   @Autowired
   private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
+  @Autowired
+  private io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics metrics;
+
+  @Autowired
+  private io.vanillabp.integration.health.VanillaBpHealthIndicator healthIndicator;
+
   @BeforeEach
   public void resetObservations() {
 
@@ -141,6 +147,65 @@ public class Camunda8WorkerThreadsIT {
         "the job waited "
             + waited
             + " ms, which is the runtime of the blocking handler rather than the cluster's latency");
+
+  }
+
+  @Test
+  @DisplayName("the cluster reports itself to the metrics and to the health endpoint (story 92)")
+  public void theClusterIsMeasuredAndReported() throws Exception {
+
+    // the meters of this adapter, bound by hand: this application has no Actuator, which
+    // is what applies MeterBinder beans in a real one
+    final var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+    metrics.bindTo(registry);
+
+    // the slot gauges are there as soon as the client exists - four platform threads,
+    // and no gauge for what the client does with its own pool
+    org.junit.jupiter.api.Assertions.assertEquals(
+        4.0,
+        registry
+            .get(io.vanillabp.camunda8.observability.Camunda8Metrics.EXECUTION_SLOTS_CONFIGURED)
+            .tag(io.vanillabp.camunda8.observability.Camunda8Metrics.TAG_ADAPTER, "c8")
+            .gauge()
+            .value());
+
+    // a job which really travelled through the cluster: the client counts it before
+    // VanillaBP sees anything of it
+    final var quick = transactionTemplate
+        .execute(status -> quickWorkflowService.startWorkflow().getId());
+    assertNotNull(quick);
+    assertTrue(
+        WorkerThreadsDockerWorkflowService.QUICK_SERVED
+            .await(30, TimeUnit.SECONDS),
+        "the quick handler was delivered");
+
+    // the tag carries the job type the WORKER subscribes to, which is the scoped one
+    // wherever name-clash avoidance prefixes it (here 'test-app__QuickProcess__quickTask')
+    final var activated = registry
+        .find(io.vanillabp.camunda8.observability.Camunda8Metrics.JOBS_ACTIVATED)
+        .counters()
+        .stream()
+        .filter(counter -> counter
+            .getId()
+            .getTag(io.vanillabp.camunda8.observability.Camunda8Metrics.TAG_JOB_TYPE)
+            .endsWith("quickTask"))
+        .mapToDouble(io.micrometer.core.instrument.Counter::count)
+        .sum();
+    assertTrue(
+        activated >= 1.0,
+        "the client's own activation counter reaches the application's registry");
+
+    // and the cluster which just served that job answers the health question
+    final var health = healthIndicator.health();
+    org.junit.jupiter.api.Assertions.assertEquals(
+        org.springframework.boot.health.contributor.Status.UP,
+        health.getStatus());
+    @SuppressWarnings("unchecked")
+    final var detail = (java.util.Map<String, Object>) health
+        .getDetails()
+        .get("c8");
+    assertNotNull(detail.get("gatewayVersion"), "a cluster which answered says which version it is");
+    assertNotNull(detail.get("address"));
 
   }
 

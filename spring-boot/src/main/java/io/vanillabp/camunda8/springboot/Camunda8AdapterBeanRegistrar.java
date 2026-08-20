@@ -93,6 +93,12 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                         .beanProvider(
                             io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker.class)
                         .getIfAvailable());
+                // story 92: the client's job counters and this adapter's execution slots,
+                // where the application brings Micrometer
+                deploymentService.setMetrics(
+                    supplierContext
+                        .beanProvider(io.vanillabp.camunda8.observability.Camunda8Metrics.class)
+                        .getIfAvailable(() -> io.vanillabp.camunda8.observability.Camunda8Metrics.NONE));
                 return deploymentService;
               }));
 

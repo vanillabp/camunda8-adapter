@@ -40,7 +40,8 @@ public class Camunda8DeploymentServiceProducer {
       final MigrationAdapterProperties properties,
       final Camunda8ClientFactoryRegistry clientFactoryRegistry,
       final io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry workflowTaskRegistry,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final jakarta.enterprise.inject.Instance<io.vanillabp.camunda8.observability.Camunda8Metrics> metrics) {
 
     final var overlay = org.eclipse.microprofile.config.ConfigProvider
         .getConfig()
@@ -76,6 +77,12 @@ public class Camunda8DeploymentServiceProducer {
                                   workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
           deploymentService.setBpmsInitiatedStartInvoker(workflowTaskRegistry);
           deploymentService.setWorkflowEndedInvoker(workflowTaskRegistry);
+          // story 92: the client's job counters and this adapter's execution slots,
+          // where the application uses the Micrometer extension
+          deploymentService.setMetrics(
+              metrics.isResolvable()
+                  ? metrics.get()
+                  : io.vanillabp.camunda8.observability.Camunda8Metrics.NONE);
           return deploymentService;
         })
         .toList();

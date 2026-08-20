@@ -239,10 +239,13 @@ public class Camunda8DeploymentServiceTest {
     final var builder = org.mockito.Mockito
         .mock(io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
     org.mockito.Mockito
+        .when(builder.metrics(org.mockito.ArgumentMatchers.any()))
+        .thenReturn(builder);
+    org.mockito.Mockito
         .when(builder.streamTimeout(org.mockito.ArgumentMatchers.any()))
         .thenReturn(builder);
 
-    deploymentService.applyWorkerOptions(builder);
+    deploymentService.applyWorkerOptions(builder, "approve");
 
     org.mockito.Mockito
         .verify(builder)
@@ -257,10 +260,18 @@ public class Camunda8DeploymentServiceTest {
     final var deploymentService = newDeploymentService();
     final var builder = org.mockito.Mockito
         .mock(io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
+    org.mockito.Mockito
+        .when(builder.metrics(org.mockito.ArgumentMatchers.any()))
+        .thenReturn(builder);
 
-    assertNotNull(deploymentService.applyWorkerOptions(builder));
+    assertNotNull(deploymentService.applyWorkerOptions(builder, "approve"));
 
-    org.mockito.Mockito.verifyNoInteractions(builder);
+    // story 92: the metrics hook is the ONE thing every worker gets, and without a
+    // metrics backend it is the client's own no-op
+    org.mockito.Mockito
+        .verify(builder)
+        .metrics(org.mockito.ArgumentMatchers.any());
+    org.mockito.Mockito.verifyNoMoreInteractions(builder);
 
   }
 

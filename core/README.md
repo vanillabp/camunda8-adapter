@@ -43,6 +43,53 @@ handlers:
 - `Camunda8Drain` decides whether a failure belongs to the shutdown (story 90), in which
   case no command is sent at all and the job is left to its lock.
 
+## What an operator gets to see (story 92)
+
+The core measures every delivery on every BPMS. This adapter adds what only makes sense
+here, and the whole of it hangs on two seams.
+
+`applyWorkerOptions` is the one place all four kinds of worker pass through, so the
+client's own metrics hook is installed there and nowhere else. The hook itself is the
+client's; what is ours are the meter names, which is why `JobWorkerMetrics.micrometer()`
+is deliberately NOT used: it would publish `camunda.job.invocations` and friends next to
+`vanillabp.*`, and a reader should not have to learn two naming schemes for one dashboard.
+
+`Camunda8Metrics` is plain Java with a no-op `NONE`, `MicrometerCamunda8Metrics`
+implements it plus `MeterBinder`, and Micrometer stays optional exactly as in the platform
+integration. The execution slots come from the virtual-thread executor of story 74, which
+is the only place holding the bound; in the platform-thread mode the client owns its pool
+and reports nothing about it, so those gauges are absent instead of guessed.
+
+**Reading a metric must not cost anything.** The platform's rule applies here too: a gauge
+is read on every collection, Prometheus collects every fifteen seconds by default, a
+dashboard collects alongside it, and every instance answers each of them - so a gauge which
+asks a database or a cluster turns watching the system into load on it. None of this
+adapter's gauges do. `execution.slots.configured` reads a record field,
+`execution.slots.in.use` and `jobs.waiting` read the permits and the wait queue of the
+semaphore in `Camunda8VirtualThreadExecutor`, and the two job counters are incremented by
+the client rather than polled. They are therefore exact, and holding them would only make
+them stale.
+
+A gauge added here later which DOES have to ask - the cluster, a query API, anything remote
+- goes through `CachedGaugeValue` of the adapter SPI
+(`io.vanillabp.integration.adapter.spi.observability`), which holds one measurement for the
+platform's `vanillabp.metrics.gauge-cache`. That class lives in the SPI precisely so an
+adapter can keep the same promise; see `migration-adapter/README.md` for why it is built the
+way it is.
+
+`checkHealth()` asks for the topology. Two decisions are worth remembering:
+
+- The timeout is a property of its own (`health-timeout`, two seconds), not the client's
+  `request-timeout`. Ten seconds is right for a command carrying work and wrong for a
+  question a readiness probe asks with a one-second patience.
+- It is set TWICE, on the request and around the waiting. The client's own timeout stops
+  the request, ours stops the waiting; without the first one a cluster which never answers
+  would leave the request running long after the endpoint gave up on it.
+
+An adapter whose connection is not configured yet answers UNKNOWN. That is the health side
+of the same rule the startup validation follows: an application which booted with a guiding
+warning has not failed.
+
 ## Adapter SPI implementations
 
 - `Camunda8DeploymentService implements AdapterDeploymentService<BpmnModelInstance,

@@ -87,4 +87,26 @@ public class Camunda8AdapterDiscoveryTest {
 
   }
 
+  @Test
+  public void anAdapterWithoutAConnectionIsNotUnhealthy() {
+
+    // story 92: this application configures the adapter but no cluster to talk to, which
+    // is a legitimate state of a setup in progress. The readiness check has to say so
+    // instead of reporting an outage on top of the guiding warning the boot already gave
+    final var health = deploymentServices
+        .getFirst()
+        .checkHealth();
+
+    Assertions.assertNotNull(health, "an adapter which can check something has to answer");
+    Assertions.assertEquals(
+        io.vanillabp.integration.adapter.spi.health.AdapterHealth.Status.UNKNOWN,
+        health.status());
+    Assertions.assertEquals("c8", health.adapterId());
+    Assertions.assertTrue(
+        health.description().contains("not configured"),
+        "and it says why: "
+            + health.description());
+
+  }
+
 }

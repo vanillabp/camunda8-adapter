@@ -1107,6 +1107,21 @@ the message TTL only. A redelivery after the TTL could correlate a second time. 
 correlation id there is no deduplication at all, on purpose: the same message may legitimately
 arrive several times over a workflow's lifetime.
 
+## What an operator gets to see
+
+The platform integration measures every task delivery, every outbox dispatch and puts a
+logging context around both; the [Observability wiki
+page](https://github.com/vanillabp/adapter-platform-integration/wiki/Observability)
+describes all of it. What this adapter adds is documented in the
+[Configuration wiki page](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration),
+section "What an operator gets to see": the client's own job counters bridged into the
+same registry, the execution slots of story 74 as gauges, and a health contribution
+asking the cluster for its topology.
+
+The reasoning behind the shape of it - why the client's Micrometer implementation is not
+used, why the health check has a timeout of its own and why the slot gauges are absent in
+the platform-thread mode - is in [`core/README.md`](./core/README.md).
+
 ## Camunda 8 client
 
 The adapter uses the plain Java client `io.camunda:camunda-client-java`, pinned per

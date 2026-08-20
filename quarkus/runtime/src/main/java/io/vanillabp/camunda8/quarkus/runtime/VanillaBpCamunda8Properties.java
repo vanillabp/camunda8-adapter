@@ -256,6 +256,14 @@ public interface VanillaBpCamunda8Properties {
     Optional<java.time.Duration> shutdownGrace();
 
     /**
+     * How long the health check waits for the cluster to answer its topology request
+     * (story 92), <code>PT0S</code> switching the check off.
+     *
+     * @return The timeout
+     */
+    Optional<java.time.Duration> healthTimeout();
+
+    /**
      * What this adapter does with a task the core reports as older than
      * <code>vanillabp.delivery.max-task-age</code>.
      *

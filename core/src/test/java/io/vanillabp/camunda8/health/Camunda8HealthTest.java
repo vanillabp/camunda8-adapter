@@ -1,0 +1,210 @@
+package io.vanillabp.camunda8.health;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.time.Duration;
+import java.util.List;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+
+import io.camunda.client.CamundaClient;
+import io.camunda.client.api.CamundaFuture;
+import io.camunda.client.api.command.TopologyRequestStep1;
+import io.camunda.client.api.response.Topology;
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
+import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.integration.adapter.spi.health.AdapterHealth;
+import io.vanillabp.integration.test.utils.SuppressOutputExtension;
+
+/**
+ * Story 92: what one Camunda 8 adapter instance answers when the health endpoint asks
+ * it. The rules being pinned here are the ones easy to get wrong: an adapter which is
+ * not configured yet must not read as an outage, and every answer has to name the
+ * address, because that is what an operator acts on.
+ */
+@ExtendWith(SuppressOutputExtension.class)
+public class Camunda8HealthTest {
+
+  private static final String ADDRESS = "http://localhost:8080";
+
+  private Camunda8ClientFactory factoryWith(
+      final Camunda8AdapterConfiguration configuration,
+      final CamundaClient client) {
+
+    final var factory = mock(Camunda8ClientFactory.class);
+    when(factory.getConfiguration()).thenReturn(configuration);
+    if (client != null) {
+      when(factory.getClient()).thenReturn(client);
+    }
+    return factory;
+
+  }
+
+  private Camunda8AdapterConfiguration configured() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress(ADDRESS);
+    return configuration;
+
+  }
+
+  @Test
+  @DisplayName("Two seconds unless something else is configured")
+  public void theDefaultTimeoutIsTwoSeconds() {
+
+    assertEquals(
+        Duration.ofSeconds(2),
+        new Camunda8AdapterConfiguration().resolvedHealthTimeout(),
+        "far above the round trip to a healthy cluster and below what a readiness probe waits");
+    assertEquals(
+        Duration.ofSeconds(2),
+        Camunda8AdapterConfiguration.DEFAULT_HEALTH_TIMEOUT,
+        "and the constant says the same as the ISO notation the messages use");
+
+  }
+
+  @Test
+  @DisplayName("A negative timeout fails the boot naming the property")
+  public void aNegativeTimeoutFailsTheBoot() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setHealthTimeout(Duration.ofSeconds(-1));
+
+    final var e = org.junit.jupiter.api.Assertions
+        .assertThrows(
+            IllegalStateException.class,
+            () -> configuration.validateHealthTimeout("c8"));
+
+    assertTrue(e.getMessage().contains("vanillabp.adapters.c8.health-timeout"), e.getMessage());
+    assertTrue(e.getMessage().contains("PT2S"), "names the default: "
+        + e.getMessage());
+
+  }
+
+  @Test
+  @DisplayName("An adapter which is not configured yet is UNKNOWN, never DOWN")
+  public void anUnconfiguredAdapterIsUnknown() {
+
+    final var health = Camunda8Health
+        .check("c8", factoryWith(new Camunda8AdapterConfiguration(), null));
+
+    assertEquals(
+        AdapterHealth.Status.UNKNOWN,
+        health.status(),
+        "the application booted with a guiding warning on purpose - that is not an outage");
+    assertTrue(
+        health.description().contains("rest-address"),
+        "and the missing keys are named: "
+            + health.description());
+
+  }
+
+  @Test
+  @DisplayName("PT0S switches the check off and says so")
+  public void aZeroTimeoutSwitchesTheCheckOff() {
+
+    final var configuration = configured();
+    configuration.setHealthTimeout(Duration.ZERO);
+
+    final var health = Camunda8Health.check("c8", factoryWith(configuration, null));
+
+    assertEquals(AdapterHealth.Status.UNKNOWN, health.status());
+    assertTrue(
+        health.description().contains("vanillabp.adapters.c8.health-timeout"),
+        "the description names the property which switched it off: "
+            + health.description());
+    assertEquals(ADDRESS, health.details().get("address"));
+
+  }
+
+  @Test
+  @DisplayName("A cluster which answers is UP, with what it said about itself")
+  public void aRespondingClusterIsUp() throws Exception {
+
+    final var topology = mock(Topology.class);
+    when(topology.getGatewayVersion()).thenReturn("8.9.16");
+    when(topology.getBrokers()).thenReturn(List.of());
+    when(topology.getPartitionsCount()).thenReturn(3);
+
+    final var health = Camunda8Health.check("c8", factoryWith(configured(), clientAnswering(topology, null)));
+
+    assertEquals(AdapterHealth.Status.UP, health.status());
+    assertEquals(ADDRESS, health.details().get("address"));
+    assertEquals("8.9.16", health.details().get("gatewayVersion"));
+    assertEquals("3", health.details().get("partitions"));
+
+  }
+
+  @Test
+  @DisplayName("A cluster which does not answer is DOWN, naming the address and the timeout")
+  public void anUnreachableClusterIsDown() throws Exception {
+
+    final var health = Camunda8Health
+        .check(
+            "c8",
+            factoryWith(configured(), clientAnswering(null, new java.util.concurrent.TimeoutException())));
+
+    assertEquals(AdapterHealth.Status.DOWN, health.status());
+    assertEquals(ADDRESS, health.details().get("address"));
+    assertEquals("PT2S", health.details().get("timeout"));
+    assertTrue(
+        health.description().contains("did not answer"),
+        "a timeout carries no message of its own, so it is named: "
+            + health.description());
+
+  }
+
+  @Test
+  @DisplayName("A cluster which answers with an error is DOWN, carrying the reason")
+  public void aFailingRequestIsDown() throws Exception {
+
+    final var health = Camunda8Health
+        .check(
+            "c8",
+            factoryWith(
+                configured(),
+                clientAnswering(
+                    null,
+                    new java.util.concurrent.ExecutionException(
+                        new IllegalStateException("Connection refused")))));
+
+    assertEquals(AdapterHealth.Status.DOWN, health.status());
+    assertTrue(
+        health.description().contains("Connection refused"),
+        "the reason travels to the endpoint: "
+            + health.description());
+
+  }
+
+  /**
+   * A client whose topology request answers with the given topology, or throws the given
+   * exception while it is waited for.
+   */
+  @SuppressWarnings("unchecked")
+  private CamundaClient clientAnswering(
+      final Topology topology,
+      final Exception failure) throws Exception {
+
+    final var future = (CamundaFuture<Topology>) mock(CamundaFuture.class);
+    if (failure == null) {
+      when(future.get(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+          .thenReturn(topology);
+    } else {
+      when(future.get(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+          .thenThrow(failure);
+    }
+    final var request = mock(TopologyRequestStep1.class);
+    when(request.requestTimeout(org.mockito.ArgumentMatchers.any())).thenReturn(request);
+    when(request.send()).thenReturn(future);
+    final var client = mock(CamundaClient.class);
+    when(client.newTopologyRequest()).thenReturn(request);
+    return client;
+
+  }
+
+}
