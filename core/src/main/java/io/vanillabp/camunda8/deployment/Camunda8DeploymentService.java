@@ -124,6 +124,65 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
+   * How long this adapter instance's shutdown waits for the handlers it has in flight
+   * (story 90). Read from the adapter's own configuration rather than passed through the
+   * wiring, because it belongs to the connection like every other adapter-level key; a
+   * setup without the resolver (tests) uses the default.
+   *
+   * @return The grace period, never <code>null</code>
+   */
+  private Duration shutdownGrace() {
+
+    if (configurations == null) {
+      return io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_SHUTDOWN_GRACE;
+    }
+    final var configuration = configurations.apply(adapterId);
+    return configuration == null
+        ? io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_SHUTDOWN_GRACE
+        : configuration.resolvedShutdownGrace();
+
+  }
+
+  /**
+   * What each workflow module of this adapter instance has in flight, and whether it is
+   * going down (story 90). One per workflow module: stopping one module must not make the
+   * handlers of another one believe they were cut off.
+   */
+  private final Map<String, io.vanillabp.camunda8.client.Camunda8Drain> drains = new java.util.concurrent.ConcurrentHashMap<>();
+
+  /**
+   * @param workflowModuleId The workflow module
+   * @return The drain of that module, created on first use
+   */
+  io.vanillabp.camunda8.client.Camunda8Drain drainOf(
+      final String workflowModuleId) {
+
+    return drains.computeIfAbsent(
+        workflowModuleId,
+        moduleId -> new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, moduleId));
+
+  }
+
+  /**
+   * Gives a workflow module which starts processing a drain which is NOT shutting down.
+   * A module can be started again after it was stopped - a checkpoint and restore, or a
+   * platform which restarts its lifecycle beans - and the drain of the previous run stays
+   * marked as shutting down forever, which would keep every handler of the new run from
+   * ever reporting a failed job.
+   *
+   * @param workflowModuleId The workflow module
+   * @return The fresh drain the new workers register their deliveries in
+   */
+  private io.vanillabp.camunda8.client.Camunda8Drain freshDrainOf(
+      final String workflowModuleId) {
+
+    final var drain = new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId);
+    drains.put(workflowModuleId, drain);
+    return drain;
+
+  }
+
+  /**
    * Resolves the per-task job timeout from the adapter's configuration overlay
    * (task &gt; workflow &gt; workflow-module &gt; adapter, most specific wins).
    */
@@ -850,6 +909,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // several tasks with CONFLICTING configured timeouts fails guiding.
     final var timeoutsByDefinition = new LinkedHashMap<String, Duration>();
     final var client = clientFactory.getClient();
+    // what this module has in flight, and later whether it is going down: every handler
+    // registers its delivery here, and stopWorkflowProcessing waits for them (story 90)
+    final var drain = freshDrainOf(workflowModuleId);
     bpmsProcessingContext
         .getTasksToWire()
         .forEach(task -> {
@@ -896,7 +958,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           .newWorker()
           .jobType(listenerJobType)
           .handler(new io.vanillabp.camunda8.wiring.Camunda8UserTaskListenerHandler(
-              adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry))
+              adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry, drain))
           .timeout(
               listenerLockOf(workflowModuleId, bpmnProcessIds, "user-task listener", listenerJobType))
           .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType)));
@@ -926,7 +988,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .jobType(startEvent.listenerJobType())
               .handler(new io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler(
                   adapterId, workflowModuleId, plainProcessId, startEvent.startEventId(), startEvent.kind(), startEvent
-                      .signalName(), bpmsInitiatedStartInvoker))
+                      .signalName(), bpmsInitiatedStartInvoker, drain))
               .timeout(
                   listenerLockOf(workflowModuleId, List.of(startEvent.bpmnProcessId()), "start-event", startEvent
                       .listenerJobType()))
@@ -953,7 +1015,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .jobType(Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId))
               .handler(new io.vanillabp.camunda8.wiring.Camunda8WorkflowEndedHandler(
                   adapterId, workflowModuleId, plainProcessId, workflowTaskInvoker
-                      .resolveWorkflowAggregateIdName(workflowModuleId, plainProcessId), workflowEndedInvoker))
+                      .resolveWorkflowAggregateIdName(workflowModuleId, plainProcessId), workflowEndedInvoker, drain))
               .timeout(
                   listenerLockOf(workflowModuleId, List.of(scopedProcessId), "workflow-end", Camunda8TaskWiring
                       .workflowEndedJobTypeOf(scopedProcessId)))
@@ -977,7 +1039,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           .newWorker()
           .jobType(taskDefinition)
           .handler(new Camunda8JobHandler(
-              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction()))
+              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction(), drain))
           .timeout(timeout)
           .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)));
       final var workerTenantId = tenantIdOf(workflowModuleId);
@@ -1002,12 +1064,29 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final Camunda8ProcessingContext bpmsProcessingContext) {
 
+    // story 90: from here on, a delivery which fails is the shutdown and not the
+    // application - the handlers ask the drain before they report anything to the cluster
+    final var drain = drainOf(workflowModuleId);
+    drain.beginShutdown();
+
     // close this module's workers (reverse order); the CamundaClient itself is
     // closed by the Camunda8ClientFactory on application shutdown
     final var workers = bpmsProcessingContext.getOpenWorkers();
     for (var i = workers.size() - 1; i >= 0; --i) {
       workers.get(i).close();
     }
+
+    // and then wait for what the closed workers still have inside the application: closing
+    // a worker does not drain it, and the client interrupts every running handler when it
+    // goes down right afterwards
+    final var grace = shutdownGrace();
+    final var drained = drain.awaitDrained(
+        grace,
+        () -> workers.stream().allMatch(io.camunda.client.api.worker.JobWorker::isClosed));
+    if (!drained) {
+      drain.reportCutOff(grace);
+    }
+
     workers.clear();
     log.info("Workflow processing stopped for workflow module '{}' (adapter '{}')",
         workflowModuleId, adapterId);

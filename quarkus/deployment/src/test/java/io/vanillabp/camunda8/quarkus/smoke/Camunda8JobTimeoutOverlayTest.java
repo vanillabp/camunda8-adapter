@@ -87,6 +87,24 @@ public class Camunda8JobTimeoutOverlayTest {
             .get("c8")
             .asyncTaskLockRenewal()
             .orElseThrow());
+    // and so is the grace a shutdown grants its handlers (story 90)
+    Assertions.assertEquals(
+        Duration.ofSeconds(5),
+        overlay
+            .adapters()
+            .get("c8")
+            .shutdownGrace()
+            .orElseThrow());
+    Assertions.assertEquals(
+        Duration.ofSeconds(5),
+        io.quarkus.arc.Arc
+            .container()
+            .instance(io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry.class)
+            .get()
+            .getFactory("c8")
+            .getConfiguration()
+            .resolvedShutdownGrace(),
+        "the value reaches the configuration the deployment service reads it from");
 
   }
 

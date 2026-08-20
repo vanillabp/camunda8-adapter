@@ -19,6 +19,12 @@ import lombok.extern.slf4j.Slf4j;
  * The cluster reports a COMPLETED end only: a cancelled instance is removed without
  * running end listeners, so this adapter cannot tell the application about
  * cancellations - and says so rather than faking a distinction.
+ * <p>
+ * A failing notification fails the job with one retry less, the way the handler of a
+ * service task does, so the cluster retries and finally raises an incident. While the
+ * workflow module is shutting down (story 90) the job is left to its lock instead: a
+ * notification cut off by a restart is not a defect of the application, and the cluster
+ * hands the job out again with its retries intact.
  */
 @Slf4j
 public class Camunda8WorkflowEndedHandler implements JobHandler {
@@ -39,6 +45,18 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
 
   private final WorkflowEndedInvoker workflowEndedInvoker;
 
+  /**
+   * What the workflow module has in flight, and whether it is going down (story 90).
+   * Never <code>null</code> - a handler built without one (tests) gets a drain of its own,
+   * which never shuts down.
+   */
+  private final io.vanillabp.camunda8.client.Camunda8Drain drain;
+
+  /**
+   * What kind of worker this is, in the messages about a shutdown.
+   */
+  static final String KIND = "workflow-end listener";
+
   public Camunda8WorkflowEndedHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -46,6 +64,21 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
       final String aggregateIdVariable,
       final WorkflowEndedInvoker workflowEndedInvoker) {
 
+    this(adapterId, workflowModuleId, bpmnProcessId, aggregateIdVariable, workflowEndedInvoker, null);
+
+  }
+
+  public Camunda8WorkflowEndedHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String aggregateIdVariable,
+      final WorkflowEndedInvoker workflowEndedInvoker,
+      final io.vanillabp.camunda8.client.Camunda8Drain drain) {
+
+    this.drain = drain == null
+        ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
+        : drain;
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
     this.bpmnProcessId = bpmnProcessId;
@@ -59,29 +92,58 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
       final JobClient client,
       final ActivatedJob job) {
 
-    final var aggregateId = job.getVariablesAsMap().get(aggregateIdVariable);
-    if (aggregateId == null) {
-      // not a VanillaBP workflow, or its aggregate-ID variable was removed: there
-      // is nothing this end could be reported for
-      log
-          .debug(
-              "Camunda8[{}]: the instance '{}' of '{}' carries no '{}' variable - its end is not reported",
-              adapterId,
-              job.getProcessInstanceKey(),
-              bpmnProcessId,
-              aggregateIdVariable);
-    } else {
-      workflowEndedInvoker
-          .workflowEnded(
-              workflowModuleId,
-              bpmnProcessId,
-              contextOf(job, String.valueOf(aggregateId)));
-    }
+    drain.jobStarted(job.getKey(), KIND, job.getType(), bpmnProcessId);
+    try {
 
-    client
-        .newCompleteCommand(job.getKey())
-        .send()
-        .join();
+      final var aggregateId = job.getVariablesAsMap().get(aggregateIdVariable);
+      if (aggregateId == null) {
+        // not a VanillaBP workflow, or its aggregate-ID variable was removed: there
+        // is nothing this end could be reported for
+        log
+            .debug(
+                "Camunda8[{}]: the instance '{}' of '{}' carries no '{}' variable - its end is not reported",
+                adapterId,
+                job.getProcessInstanceKey(),
+                bpmnProcessId,
+                aggregateIdVariable);
+      } else {
+        workflowEndedInvoker
+            .workflowEnded(
+                workflowModuleId,
+                bpmnProcessId,
+                contextOf(job, String.valueOf(aggregateId)));
+      }
+
+      client
+          .newCompleteCommand(job.getKey())
+          .send()
+          .join();
+
+    } catch (final Exception e) {
+      // story 90: while the module is going down, the failure is the shutdown and not the
+      // application - the job keeps its lock and its retries
+      if (drain.leaveJobToItsLock(job.getKey(), KIND, job.getType(), e)) {
+        return;
+      }
+      // and otherwise the same treatment a service task gets
+      log.warn(
+          "Camunda8[{}]: reporting the end of the instance '{}' of BPMN process '{}' (job '{}') failed - "
+              + "failing the job with {} retries left",
+          adapterId,
+          job.getProcessInstanceKey(),
+          bpmnProcessId,
+          job.getKey(),
+          job.getRetries() - 1,
+          e);
+      client
+          .newFailCommand(job.getKey())
+          .retries(job.getRetries() - 1)
+          .errorMessage(String.valueOf(e.getMessage()))
+          .send()
+          .join();
+    } finally {
+      drain.jobFinished(job.getKey());
+    }
 
   }
 

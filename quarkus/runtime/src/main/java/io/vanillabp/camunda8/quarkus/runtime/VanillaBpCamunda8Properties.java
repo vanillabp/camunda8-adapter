@@ -188,6 +188,14 @@ public interface VanillaBpCamunda8Properties {
     Optional<java.time.Duration> asyncTaskTimeout();
 
     /**
+     * How long the shutdown of a workflow module waits for the handlers this adapter has
+     * in flight before the client is closed under them. Default: 20 seconds.
+     *
+     * @return The grace period
+     */
+    Optional<java.time.Duration> shutdownGrace();
+
+    /**
      * What this adapter does with a task the core reports as older than
      * <code>vanillabp.delivery.max-task-age</code>.
      *
