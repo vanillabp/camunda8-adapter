@@ -5,6 +5,38 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## A restart waits a few seconds longer, and the application after it does not (2026-08-21)
+
+Story 102. No new property, and nothing to configure. What changes is how long a shutdown
+takes and how quickly the next start gets its first job.
+
+A worker asks the cluster for work with a long poll which waits at the cluster for up to
+`request-timeout`, ten seconds by default. Closing the worker does not cancel that request,
+and neither does closing the client. Measured against `camunda/camunda:8.9.16` with the
+plain Camunda client: a job created while such a request is still parked is handed to it,
+counts as activated and is answered by nobody, so the worker of the application which is
+running by then sees it only once `job-timeout` expired. With seven seconds between the two
+applications that was the full lock in all twenty runs; with twelve seconds, beyond the
+request window, twenty milliseconds. It is the REST transport, which is the default: the
+same scenario over gRPC, and over REST with `stream-enabled`, delivers in milliseconds.
+
+The shutdown of a workflow module therefore waits for its workers to be released before the
+client is closed, within the `shutdown-grace` it already had. In those runs the wait cost
+8,2 to 8,5 seconds and turned a first job of 20 seconds into one of 30 milliseconds. Two
+things follow for an application:
+
+- an ordinary restart takes those seconds longer. `shutdown-grace` (default `PT20S`) bounds
+  it, and it still sits below the shutdown budgets of Spring Boot and Kubernetes. `PT0S`
+  waives the wait together with the handler drain of story 90,
+- a process which is killed rather than asked to stop cannot pay it, so a workflow started
+  within ten seconds of a `SIGKILL` may still wait for its lock. A shorter `job-timeout`
+  bounds what that costs where restarts are frequent, and `stream-enabled: true` or
+  `prefer-rest-over-grpc: false` avoids the case altogether.
+
+The line the shutdown writes changed with it. It now says how many workers were closed and
+whether the cluster released them, and it warns where one of them still holds its request
+when the grace passes.
+
 ## The cluster reports itself to your metrics and your health endpoint (2026-08-20)
 
 Story 92. Additive with one new property, and nothing changes for an application which does

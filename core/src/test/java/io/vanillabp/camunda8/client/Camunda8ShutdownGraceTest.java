@@ -91,6 +91,25 @@ public class Camunda8ShutdownGraceTest {
   }
 
   @Test
+  @DisplayName("A grace shorter than the request timeout is a guiding warning of its own")
+  public void aGraceBelowTheRequestTimeoutWarns() {
+
+    configuration(Duration.ofSeconds(5)).validateShutdownGrace("c8", warnings::add);
+
+    assertEquals(1, warnings.size(), warnings::toString);
+    final var warning = warnings.getFirst();
+    assertTrue(
+        warning.contains("vanillabp.adapters.c8.request-timeout"),
+        "the window an activation request waits at the cluster is named: "
+            + warning);
+    assertTrue(
+        warning.contains("vanillabp.adapters.c8.job-timeout"),
+        "and what the next application pays for a request left behind: "
+            + warning);
+
+  }
+
+  @Test
   @DisplayName("A grace below the budget, none at all and zero say nothing")
   public void aUsableGraceIsSilent() {
 

@@ -673,10 +673,41 @@ and `CamundaClient.close()` interrupts every running handler milliseconds later.
 `stopWorkflowProcessing` closes the module's workers and then waits `shutdown-grace`
 (default `PT20S`) for the handlers which are still inside the application; every handler
 registers its delivery in a per-module `Camunda8Drain`, which is what the wait watches.
-`JobWorker#isClosed()` is deliberately NOT what is waited for: it also reports the
-activation request in flight, and closing a worker does not cancel that request, so an
-idle worker keeps reporting open for up to `request-timeout` and every shutdown would pay
-it. The workers' state is logged next to the drain instead.
+
+**And for the workers themselves (story 102).** Story 90 deliberately did not wait for
+`JobWorker#isClosed()`, because that answer also covers the activation request in flight
+and closing a worker does not cancel it, so an idle worker keeps reporting open for up to
+`request-timeout`. What that costs was known, what it buys was not. Measured against
+`camunda/camunda:8.9.16` with a plain client and no VanillaBP: an activation request which
+is parked at the cluster when its client is closed **stays parked**, and a job created
+afterwards is activated into it and answered by nobody. `job-timeout` `PT20S`, one
+application closed and the next one starting after the gap below, twenty runs for the two
+rows which say so and three respectively five for the others:
+
+|            gap between the two applications            |    first job of the new one     |
+|--------------------------------------------------------|---------------------------------|
+| 3 s                                                    | 20109 / 20120 / 20202 ms        |
+| 7 s (20 runs)                                          | 20027 to 21559 ms, median 20829 |
+| 12 s (beyond `request-timeout`)                        | 15 / 23 / 25 ms                 |
+| 7 s, workers left open instead of closed               | 20159 / 20194 / 20244 ms        |
+| 7 s, the shutdown waiting for `isClosed()` (20 runs)   | 10 to 29 ms, median 10          |
+| 7 s over gRPC, nothing waited for (5 runs)             | 7 to 22 ms                      |
+| 7 s with `stream-enabled`, nothing waited for (5 runs) | 8 to 26 ms                      |
+
+So the hole is exactly as long as an activation request can outlive its client, closing
+the workers first does not shut it, and waiting for them does. The last two rows say where
+it lives: over gRPC and over the push path the cluster releases what a gone client held,
+and only the REST poll, which `prefer-rest-over-grpc` defaults to, keeps it. The wait is part of
+`shutdown-grace` and cost 8,2 to 8,5 seconds in those runs, which is the remainder of the
+ten-second request window. `PT0S` switches it off together with the handler drain, and the
+shutdown then says at INFO what stays open.
+
+The line the drain writes reports what this adapter knows: how many workers IT closed, and
+whether the cluster released them. A worker still holding its request when the grace passes
+is a WARN naming `job-timeout` as the delay the next application pays. And because the
+promise is only worth what the last shutdown path does, `Camunda8ClientFactory.close()`
+closes the workers of every workflow module which never reached `stopWorkflowProcessing`
+before it closes the client, with a warning that a hook was missing.
 
 What is still running when the grace passes is named per job (job key and task) and then
 cut off. Such a delivery is not reported as a job failure: while the module is shutting

@@ -1151,6 +1151,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // what this module has in flight, and later whether it is going down: every handler
     // registers its delivery here, and stopWorkflowProcessing waits for them (story 90)
     final var drain = freshDrainOf(workflowModuleId);
+    // and the client learns that this module has workers open, so a shutdown path which
+    // never reaches stopWorkflowProcessing does not close the client under them (story 102)
+    clientFactory.workflowModuleStarted(
+        workflowModuleId,
+        () -> stopWorkflowProcessing(workflowModuleId, bpmsProcessingContext));
     bpmsProcessingContext
         .getTasksToWire()
         .forEach(task -> {
@@ -1360,18 +1365,21 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       workers.get(i).close();
     }
 
-    // and then wait for what the closed workers still have inside the application: closing
-    // a worker does not drain it, and the client interrupts every running handler when it
-    // goes down right afterwards
+    // and then wait until the module is quiet: for the handlers, because closing a worker
+    // does not drain it and the client interrupts every running handler when it goes down
+    // right afterwards (story 90), and for the workers themselves, because an activation
+    // request which is parked at the cluster when the client is closed stays parked and
+    // swallows the first job of the next application (story 102)
     final var grace = shutdownGrace();
-    final var drained = drain.awaitDrained(
+    final var closedWorkers = workers.size();
+    final var outcome = drain.awaitQuiet(
         grace,
+        closedWorkers,
         () -> workers.stream().allMatch(io.camunda.client.api.worker.JobWorker::isClosed));
-    if (!drained) {
-      drain.reportCutOff(grace);
-    }
+    drain.report(grace, outcome);
 
     workers.clear();
+    clientFactory.workflowModuleStopped(workflowModuleId);
     log.info("Workflow processing stopped for workflow module '{}' (adapter '{}')",
         workflowModuleId, adapterId);
 

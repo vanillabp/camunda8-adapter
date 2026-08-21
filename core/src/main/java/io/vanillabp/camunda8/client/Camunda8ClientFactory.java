@@ -302,15 +302,121 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
   }
 
+  /**
+   * How the factory stops the workers of one workflow module on a path which did not
+   * reach {@code stopWorkflowProcessing} (story 102). Implemented by the deployment
+   * service, which owns the workers and the drain.
+   */
+  @FunctionalInterface
+  public interface WorkflowModuleShutdown {
+
+    /**
+     * Closes the workers of that workflow module and waits for it the way the ordinary
+     * shutdown does. Has to be idempotent: the module may stop itself a moment later.
+     */
+    void stopWorkflowProcessing();
+
+  }
+
+  /**
+   * The workflow modules of this adapter instance whose workers are open right now,
+   * registered when processing starts and removed when it stops.
+   * <p>
+   * Story 90 promised that the workers of a module are closed before its client, and on
+   * the ordinary path that is the order the platform's lifecycle produces. This map is
+   * what makes the promise hold on EVERY path: whatever is left in it when the client
+   * goes down is stopped here first, and the operator is told that a hook was missing.
+   * Order matters more than it looks (story 102): an activation request which is parked
+   * at the cluster when its client is closed stays parked, and a job created within the
+   * request timeout afterwards waits for its lock instead of reaching the next worker.
+   */
+  private final java.util.Map<String, WorkflowModuleShutdown> openWorkflowModules = new java.util.LinkedHashMap<>();
+
+  /**
+   * Registers a workflow module whose workers are now open.
+   *
+   * @param workflowModuleId The workflow module
+   * @param shutdown How to stop it if the client is closed before it stopped itself
+   */
+  public synchronized void workflowModuleStarted(
+      final String workflowModuleId,
+      final WorkflowModuleShutdown shutdown) {
+
+    openWorkflowModules.put(workflowModuleId, shutdown);
+
+  }
+
+  /**
+   * Deregisters a workflow module which stopped its own workers.
+   *
+   * @param workflowModuleId The workflow module
+   */
+  public synchronized void workflowModuleStopped(
+      final String workflowModuleId) {
+
+    openWorkflowModules.remove(workflowModuleId);
+
+  }
+
+  /**
+   * @return The workflow modules of this adapter instance whose workers are open
+   */
+  public synchronized java.util.Set<String> getOpenWorkflowModules() {
+
+    return java.util.Set.copyOf(openWorkflowModules.keySet());
+
+  }
+
   @Override
   public synchronized void close() {
 
+    closeWorkersOfModulesWhichDidNotStop();
     closed = true;
     if (client != null) {
       log.info("Closing Camunda 8 client of adapter '{}'", adapterId);
       client.close();
       client = null;
     }
+
+  }
+
+  /**
+   * The backstop of story 102: a workflow module which never reached
+   * {@code stopWorkflowProcessing} is stopped here, before the client goes down, and the
+   * missing hook is named. The client is still open at this point, so the module's
+   * handlers can finish and its workers can be released the ordinary way.
+   */
+  private void closeWorkersOfModulesWhichDidNotStop() {
+
+    if (openWorkflowModules.isEmpty()) {
+      return;
+    }
+    final var pending = java.util.List.copyOf(openWorkflowModules.entrySet());
+    log.warn(
+        "Camunda8[{}]: the client is being closed while the workers of the workflow module(s) '{}' are "
+            + "still open, which means the shutdown of this application did not stop workflow processing. "
+            + "Closing them now, before the client, so no activation request of theirs stays parked at the "
+            + "cluster - a job created within '{}' of a client closed under its open workers waits for '{}' "
+            + "before any worker sees it. Report this: on both supported platforms the lifecycle reaches "
+            + "the adapter, so a path which does not is a defect of the wiring rather than of the "
+            + "application",
+        adapterId,
+        String.join("', '", openWorkflowModules.keySet()),
+        Camunda8AdapterConfiguration.propertyKey(adapterId, "request-timeout"),
+        Camunda8AdapterConfiguration.propertyKey(adapterId, "job-timeout"));
+    pending.forEach(entry -> {
+      try {
+        entry.getValue().stopWorkflowProcessing();
+      } catch (final Exception e) {
+        log.warn(
+            "Camunda8[{}]: stopping the workers of workflow module '{}' failed while the client was being "
+                + "closed. The client goes down now anyway",
+            adapterId,
+            entry.getKey(),
+            e);
+      }
+    });
+    openWorkflowModules.clear();
 
   }
 
