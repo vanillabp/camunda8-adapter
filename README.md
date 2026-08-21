@@ -911,6 +911,27 @@ off and would reject a tenant id, so an application configuring nothing has to b
 deploy. While `none` applies, a WARN per workflow module names the alternatives until
 `accept-unscoped-identifiers` acknowledges that the identifiers are unique.
 
+**Two adapter ids on one cluster (story 103).** Migrating a module from tenants to prefixes
+runs both scopes side by side: two ids of type `camunda8`, one cluster, differing only in
+the mode, the new one first in `prioritized-adapters`. What tells them apart is the scope a
+workflow was deployed under, never the key of a task: job keys, user-task keys and
+process-instance keys are unique per CLUSTER, and the credential of a migration is a member
+of both tenants, so the cluster accepts an operation of the wrong adapter without a word.
+The awareness probes therefore compare (tenant, scoped process definition id) against what
+THIS adapter id deployed (`Camunda8DeployedProcesses`) before answering `ACTIVE`, and
+`processInstanceKeyOf`, which `aggregateChanged` writes through, drops what is not its own.
+The set comes from the deployment rather than from the call because one process service
+serves every workflow module of its adapter id; an empty set (a module whose deployment
+failed under the `warn` policy, a test) answers as before.
+
+The workflow probes filter the result they already have, which is free. The two task probes
+have to READ the job respectively the user task to learn its scope, so they do that only
+where `Camunda8ClientFactoryRegistry` saw a second adapter id on the same cluster. That
+read is a query-API call, which is why two ids on a cluster WITHOUT secondary storage fail
+the boot: they cannot be told apart at all, and the alternative is silent misrouting.
+`Camunda8WorkflowViewer` and `Camunda8ProcessVersions` were scope-correct from the start
+and are what the probes now copy.
+
 Where `by-adapter` applies, the adapter looks the tenant up in the cluster BEFORE deploying,
 so the two ways this can go wrong are named as VanillaBP properties instead of as the
 engine's rejection: multi-tenancy switched off (the deploy command would answer `Failed with

@@ -29,6 +29,43 @@ public class Camunda8ClientFactoryRegistry implements AutoCloseable {
         .collect(Collectors.toUnmodifiableMap(
             Map.Entry::getKey,
             entry -> new Camunda8ClientFactory(entry.getKey(), entry.getValue())));
+    tellEachFactoryWhoSharesItsCluster(configurationsByAdapterId);
+
+  }
+
+  /**
+   * Which adapter ids address the SAME cluster (story 103).
+   * <p>
+   * A job key, a user-task key and a process-instance key are unique per cluster, so two
+   * ids sharing one are handed each other's keys and their awareness probes have to check
+   * which scope a key belongs to before they answer. Nobody but this registry sees all
+   * configured ids at once, so this is where the question is answered - once, at startup,
+   * rather than per probe.
+   *
+   * @param configurationsByAdapterId The connection configuration of every configured id
+   */
+  private void tellEachFactoryWhoSharesItsCluster(
+      final Map<String, Camunda8AdapterConfiguration> configurationsByAdapterId) {
+
+    final Map<String, java.util.List<String>> idsByCluster = new java.util.LinkedHashMap<>();
+    configurationsByAdapterId.forEach((
+        adapterId,
+        configuration) -> idsByCluster
+            .computeIfAbsent(
+                Camunda8InstanceIdentity.clusterIdentityOf(configuration),
+                cluster -> new java.util.LinkedList<>())
+            .add(adapterId));
+    idsByCluster
+        .values()
+        .stream()
+        .filter(adapterIds -> adapterIds.size() > 1)
+        .forEach(adapterIds -> adapterIds
+            .forEach(adapterId -> factories
+                .get(adapterId)
+                .sharesItsClusterWith(adapterIds
+                    .stream()
+                    .filter(other -> !other.equals(adapterId))
+                    .toList())));
 
   }
 

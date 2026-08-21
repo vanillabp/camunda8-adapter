@@ -268,6 +268,14 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // answer COMPLETED for jobs (a completed job is indistinguishable from a
     // never-existing one without the eventually-consistent search API), so a
     // successful "not found" maps to UNKNOWN_TO_BPMS.
+    //
+    // story 103: a job key is unique per CLUSTER, so where another adapter id addresses
+    // the same one the probe would answer for its job and extend its lock on the way.
+    // Which scope the key belongs to is asked FIRST there, and nowhere else - the
+    // question costs a query-API round trip.
+    if (!belongsToThisAdapter(taskId, false)) {
+      return WorkflowAwareness.UNKNOWN_TO_BPMS;
+    }
     try {
       updateJobTimeout(taskId);
       return WorkflowAwareness.ACTIVE;
@@ -382,6 +390,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // query API it needs no secondary storage) which never advances the task;
     // it answers NOT_FOUND for gone tasks. Side effect: modeller-defined
     // 'updating' task listeners fire - documented in the README.
+    //
+    // story 103: as for service tasks, a user-task key is unique per cluster, and on a
+    // shared one the scope is asked before the task is claimed
+    if (!belongsToThisAdapter(taskId, true)) {
+      return WorkflowAwareness.UNKNOWN_TO_BPMS;
+    }
     try {
       updateUserTask(taskId);
       return WorkflowAwareness.ACTIVE;
@@ -631,11 +645,17 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
                       Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
-      if (found.items().isEmpty()) {
+      // story 103: on a cluster shared with another adapter id the variable alone finds
+      // the other deployment's instance too - only what THIS adapter deployed counts
+      final var mine = found
+          .items()
+          .stream()
+          .filter(instance -> isOwnScope(instance.getTenantId(), instance.getProcessDefinitionId()))
+          .toList();
+      if (mine.isEmpty()) {
         return WorkflowAwareness.UNKNOWN_TO_BPMS;
       }
-      return found
-          .items()
+      return mine
           .stream()
           .anyMatch(instance -> instance.getState() == io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
               ? WorkflowAwareness.ACTIVE
@@ -698,9 +718,14 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
                       Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
-      return found.items().isEmpty()
-          ? WorkflowAwareness.UNKNOWN_TO_BPMS
-          : WorkflowAwareness.ACTIVE;
+      return found
+          .items()
+          .stream()
+          // story 103, as in awarenessOfWorkflow: an instance of the other adapter id on
+          // this cluster does not prove that THIS one started the workflow
+          .noneMatch(instance -> isOwnScope(instance.getTenantId(), instance.getProcessDefinitionId()))
+              ? WorkflowAwareness.UNKNOWN_TO_BPMS
+              : WorkflowAwareness.ACTIVE;
     } catch (final Exception e) {
       if (isSecondaryStorageMissing(e)) {
         log.debug(
@@ -735,6 +760,132 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     return false;
 
   }
+
+  /**
+   * Whether the given process instance, job or user task belongs to a scope THIS adapter
+   * instance owns (story 103).
+   * <p>
+   * Two <code>camunda8</code> adapter ids may address one cluster - that is the setup
+   * which migrates a workflow module from tenant scoping to prefixed identifiers, and
+   * {@code Camunda8InstanceIdentity} names it as supported. On one cluster every key is
+   * global and the aggregate-ID variable says nothing about which of the two deployments
+   * a workflow belongs to, so an unscoped probe lets the first adapter of
+   * <code>prioritized-adapters</code> win every election. What tells the two apart is the
+   * pair the adapter deployed under: the tenant and the SCOPED process definition id.
+   * <p>
+   * The set is derived from what this adapter deployed at boot
+   * ({@code Camunda8DeployedProcesses}) rather than from the call, because one process
+   * service serves every workflow module of its adapter id and none of the probe
+   * signatures carries one. An EMPTY set means this application version deployed nothing
+   * through this adapter (a module whose deployment failed under the 'warn' policy, or a
+   * test): the adapter then answers as it did before this story rather than claiming
+   * nothing is its own.
+   *
+   * @param tenantId The tenant the cluster reports, possibly {@code <default>}
+   * @param processDefinitionId The process definition id the cluster reports, which is
+   *          the SCOPED one wherever a prefix is used
+   * @return Whether it belongs to this adapter instance
+   */
+  private boolean isOwnScope(
+      final String tenantId,
+      final String processDefinitionId) {
+
+    final var ownScopes = ownScopes();
+    if (ownScopes.isEmpty()) {
+      return true;
+    }
+    return ownScopes.contains(scopeKey(tenantId, processDefinitionId));
+
+  }
+
+  /**
+   * Whether the task behind the given key belongs to a scope of THIS adapter instance
+   * (story 103) - asked only where another <code>camunda8</code> adapter id addresses the
+   * same cluster, because a key is unique per cluster and the two ids would otherwise
+   * answer for each other's tasks.
+   * <p>
+   * The answer needs the query API, which is why an application configuring two ids on
+   * one cluster without secondary storage does not boot (see
+   * {@code Camunda8DeploymentService}). A task the query API does not know is left to the
+   * probe itself: it is either gone or not exported yet, and both are answered by the
+   * command which follows.
+   *
+   * @param taskId The task id, which is the job respectively user-task key
+   * @param userTask Whether it is a user task
+   * @return Whether the probe may claim the task
+   */
+  private boolean belongsToThisAdapter(
+      final String taskId,
+      final boolean userTask) {
+
+    if (!clientFactory.sharesItsCluster()) {
+      return true;
+    }
+    try {
+      if (userTask) {
+        final var task = clientFactory
+            .getClient()
+            .newUserTaskGetRequest(Long.parseLong(taskId))
+            .send()
+            .join();
+        return isOwnScope(task.getTenantId(), task.getBpmnProcessId());
+      }
+      final var job = jobOf(taskId);
+      return (job == null) || isOwnScope(job.getTenantId(), job.getProcessDefinitionId());
+    } catch (final Exception e) {
+      if (Camunda8Errors.jobAlreadyGone(e)) {
+        // not exported yet or gone - the probe's own command answers that
+        return true;
+      }
+      log.debug(
+          "Camunda8[{}]: could not read the scope of task '{}' - probing it as if it were this "
+              + "adapter's",
+          adapterId,
+          taskId,
+          e);
+      return true;
+    }
+
+  }
+
+  /**
+   * @return The (tenant, scoped process definition id) pairs this adapter deployed
+   */
+  private java.util.Set<String> ownScopes() {
+
+    return clientFactory
+        .getDeployedProcesses()
+        .all()
+        .stream()
+        .map(deployed -> scopeKey(
+            tenantIdOf(deployed.workflowModuleId()),
+            scopedProcessId(deployed.workflowModuleId(), deployed.bpmnProcessId())))
+        .collect(java.util.stream.Collectors.toSet());
+
+  }
+
+  /**
+   * The comparable form of one scope. The cluster reports {@code <default>} for an
+   * untenanted instance while the adapter has no tenant configured at all, so both are
+   * folded into the same value.
+   */
+  private static String scopeKey(
+      final String tenantId,
+      final String processDefinitionId) {
+
+    final var tenant = (tenantId == null) || tenantId.isBlank() || DEFAULT_TENANT.equals(tenantId)
+        ? DEFAULT_TENANT
+        : tenantId;
+    return tenant
+        + "|"
+        + processDefinitionId;
+
+  }
+
+  /**
+   * What Camunda 8 calls the tenant of everything which has none.
+   */
+  private static final String DEFAULT_TENANT = "<default>";
 
   /**
    * The name of the process variable holding the workflow-aggregate ID: Camunda 8
@@ -1124,9 +1275,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
                       Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
           .join();
-      return found.items().isEmpty()
-          ? null
-          : found.items().getFirst().getProcessInstanceKey();
+      // story 103: writing into the instance of ANOTHER adapter id of this cluster would
+      // put the values of one migration half into the other one
+      return found
+          .items()
+          .stream()
+          .filter(instance -> isOwnScope(instance.getTenantId(), instance.getProcessDefinitionId()))
+          .findFirst()
+          .map(instance -> instance.getProcessInstanceKey())
+          .orElse(null);
     } catch (final Exception e) {
       throw queryApiRequired(e, "the workflow of aggregate '%s'".formatted(workflowAggregateId));
     }

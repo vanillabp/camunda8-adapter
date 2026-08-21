@@ -21,7 +21,10 @@ configuration, create beans, run the bean lifecycle).
   (that happens on the first command). `newClientBuilder()` is used for self-managed,
   `newCloudClientBuilder()` for SaaS.
 - `Camunda8ClientFactoryRegistry` - map adapter ID &rarr; factory, registered as a managed
-  bean so all clients are closed on shutdown. The factory knows which workflow modules
+  bean so all clients are closed on shutdown. It is also the only place which sees every
+  configured id at once, so it answers which ids address the SAME cluster (story 103):
+  keys are unique per cluster, and where two ids share one, the awareness probes have to
+  ask which scope a key belongs to before they claim it. The factory knows which workflow modules
   have workers open and closes the ones which never stopped themselves before it closes
   the client (story 102), so the order holds on every shutdown path and not only on the
   one each platform's lifecycle takes.

@@ -92,6 +92,19 @@ public class Camunda8DeployedProcesses {
 
   }
 
+  /**
+   * Every process this application version deployed through this adapter id - the set the
+   * awareness probes derive the adapter's SCOPE from (story 103).
+   *
+   * @return The deployed processes, empty where nothing was deployed (a module whose
+   *         deployment failed under the 'warn' policy, or a test)
+   */
+  public java.util.Collection<DeployedProcess> all() {
+
+    return java.util.List.copyOf(byProcess.values());
+
+  }
+
   public DeployedProcess byDefinitionKey(
       final String processDefinitionKey) {
 
