@@ -75,8 +75,14 @@ job of the event type `creating` never reaches its worker, so three tests of
 `Camunda8TaskProcessingIT` time out while the other 34 tests of the line pass. The cause is an
 open Camunda bug, `camunda/camunda#58193`: the REST gateway throws a `NullPointerException`
 while converting a `TASK_LISTENER` job and drops the whole activate-jobs batch. Story 94
-carries it, and until it is settled the nightly matrix stays red on that line, which is the
-point of running it.
+carries it.
+
+Those three tests are excluded on that line, by the tag `user-task-listener-jobs` in the
+`line-8.10` profile, and nowhere else. Leaving them in kept the line red as a whole, and a line
+which is always red says nothing about the day something else breaks in it. What the exclusion
+costs is written into both places: the tag in `Camunda8TaskProcessingIT` and the profile in the
+root POM name the bug and say to remove them together once Camunda ships the fix. Until then the
+preview line stays unpublishable for the same reason as before, tests or no tests.
 
 Snapshots have no suffix yet. Until the first release they are `2.0.0-SNAPSHOT` of the
 current GA line, which is what a build without a profile produces.
