@@ -29,6 +29,14 @@
       <artifactId>camunda8-adapter-quarkus-deployment</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- the Quarkus end-to-end suite (story 100): it runs the adapter's documented
+         features on a booted application against a real cluster, and its execution
+         data is where the platform-neutral core's Quarkus coverage comes from -->
+    <dependency>
+      <groupId>org.camunda.community.vanillabp</groupId>
+      <artifactId>camunda8-adapter-quarkus-integration-tests</artifactId>
+      <version>${project.version}</version>
+    </dependency>
   </dependencies>
 
   <build>

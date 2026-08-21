@@ -1,0 +1,59 @@
+quarkus:
+  datasource:
+    db-kind: h2
+    jdbc:
+      url: jdbc:h2:mem:c8-e2e;DB_CLOSE_DELAY=-1
+  hibernate-orm:
+    schema-management:
+      strategy: drop-and-create
+vanillabp:
+  outbox:
+    poll-interval: PT0.5S
+    attempt-frequency: PT1S
+  adapters:
+    c8:
+      type: camunda8
+      name-clash-avoidance: use-prefix
+      job-timeout: PT30S
+      retry-backoff: PT30S
+      async-task-lock-renewal: PT2M
+  prioritized-adapters:
+    - c8
+  workflow-modules:
+    c8-e2e:
+      adapters:
+        c8:
+          resources-location: classpath:c8-e2e/processes
+          job-timeout: PT20S
+          retry-backoff: PT20S
+      workflows:
+        FailProcess:
+          adapters:
+            c8:
+              retry-backoff: PT5S
+        TaskProcess:
+          adapters:
+            c8:
+              job-timeout: PT10S
+              retry-backoff: PT10S
+          tasks:
+            happyTask:
+              adapters:
+                c8:
+                  job-timeout: PT2S
+                  retry-backoff: PT2S
+        AsyncProcess:
+          tasks:
+            asyncTask:
+              adapters:
+                c8:
+                  job-timeout: PT2S
+        FetchProcess:
+          adapters:
+            c8:
+              retry-backoff: PT5S
+          tasks:
+            fetchAllTask:
+              adapters:
+                c8:
+                  fetch-variables: all

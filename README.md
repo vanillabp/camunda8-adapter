@@ -1043,10 +1043,20 @@ committing last puts back what it read, so an iteration should write a row of it
   boot. The test provides a BPMN below the configured `resources-location` and a REST
   address pointing to a closed port: the pipeline reads/parses the BPMN and attempts
   the deployment, whose connection failure aborts the boot (the adapter is
-  first-priority) - proving the pipeline mechanics without a cluster. A real-cluster
-  deployment on Quarkus is not additionally tested: the deployment logic is shared
-  `core` code, covered against a real cluster by the Spring Boot
-  `Camunda8DeploymentAndStartIT` above.
+  first-priority) - proving the pipeline mechanics without a cluster.
+- **Quarkus** `Camunda8WorkflowLifecycleTest` (`quarkus/integration-tests`, real cluster):
+  the same documented features the Spring Boot suite runs, on a booted application against
+  a cluster with secondary storage. The duplication is deliberate - a correct
+  platform-neutral core says nothing about a platform's glue ever calling it, which is why
+  coverage is measured per platform. `QuarkusProdModeTest` runs the application in a forked
+  JVM, so the tests observe it through its own `introspect/...` endpoints and the JaCoCo
+  agent is forwarded into that JVM, otherwise the run would prove the features and count as
+  nothing. One class carries all of it because a prod-mode test boots its application once
+  per class and every boot costs a container pair. What it does NOT repeat is named in its
+  class comment: the startup check for old process versions (several boots against one
+  cluster), authentication and the shutdown drain (a cluster respectively a lifecycle of
+  their own) and `cancelUserTask` (answered by the release line, so it belongs to a
+  per-line test source).
 
 ## Known deviations
 
@@ -1223,11 +1233,21 @@ the number the badges above show). It also compares every module producing a `ja
 the two aggregates, so a module added to the build without being added to its report cannot stay
 unnoticed.
 
-The two thresholds differ, and the reason is worth knowing. Coverage is measured per platform, but
-the adapter core is platform-neutral: whatever exercises it counts only on the platform its tests run
-on, and almost everything which exercises this core is the Spring Boot integration-test suite against
-a Zeebe container. The Quarkus threshold is therefore a floor against regression, not the 90 % rule,
-until how to count a platform-neutral adapter core is decided.
+Both platforms run the documented features end to end against a real cluster: Spring Boot in the
+`spring-boot` module's `*IT` classes, Quarkus in `quarkus/integration-tests`. That duplication is
+deliberate. The adapter core is platform-neutral, but a core being correct says nothing about a
+platform's glue ever calling it, so a core line one platform never reaches names a feature that
+platform never runs.
+
+The two thresholds still differ, by what one suite can produce and the other cannot. The startup
+check for old process versions (story 57) needs several boots against one cluster, each deploying a
+different model, and a Quarkus prod-mode test boots its application once per test class - which is
+why `Camunda8ProcessVersions` stands at 27 % on Quarkus against 79 % on Spring Boot. The other half
+is the cluster itself: the Quarkus suite runs against one WITH secondary storage, so what the adapter
+answers optimistically without it is covered on Spring Boot only, and `cancelUserTask` is answered by
+the release line, which belongs to a per-line test source rather than to a prod-mode test. The
+Quarkus suite's class comment lists all of it. Everything else is at parity, `Camunda8DeploymentService`
+above the Spring Boot number.
 
 ## Noteworthy & Contributors
 
