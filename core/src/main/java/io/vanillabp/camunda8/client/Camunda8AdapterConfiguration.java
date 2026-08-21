@@ -667,6 +667,27 @@ public class Camunda8AdapterConfiguration {
   }
 
   /**
+   * The client's own default for {@link #requestTimeout}, which is also the window an
+   * activation request waits at the cluster. Named here because the shutdown has to
+   * outlast it (story 102) and the check has to know it even where nothing is configured.
+   */
+  public static final java.time.Duration DEFAULT_REQUEST_TIMEOUT = java.time.Duration.ofSeconds(10);
+
+  /**
+   * How long a request of this adapter instance may take, which for an activation request
+   * is the long-polling window: the configured value or {@link #DEFAULT_REQUEST_TIMEOUT}.
+   *
+   * @return The request timeout, never <code>null</code>
+   */
+  public java.time.Duration resolvedRequestTimeout() {
+
+    return requestTimeout != null
+        ? requestTimeout
+        : DEFAULT_REQUEST_TIMEOUT;
+
+  }
+
+  /**
    * How long this adapter instance's shutdown waits for the handlers it has in flight: the
    * configured value or {@link #DEFAULT_SHUTDOWN_GRACE}.
    *
@@ -709,6 +730,24 @@ public class Camunda8AdapterConfiguration {
                   propertyKey(adapterId, "shutdown-grace"),
                   shutdownGrace,
                   DEFAULT_SHUTDOWN_GRACE_ISO));
+    }
+    if (!shutdownGrace.isZero() && (shutdownGrace.compareTo(resolvedRequestTimeout()) < 0)) {
+      warnLogger.accept(
+          """
+              Camunda 8 adapter '%s' has '%s: %s', which is shorter than '%s: %s'. An activation request \
+              of a worker waits at the cluster for that long, closing the worker does not cancel it, and \
+              a request which is still there when the client goes down keeps the first job created \
+              afterwards until '%s' expires. The shutdown therefore waits for the cluster to release the \
+              workers, and with this grace it gives up before that happens. Raise the grace above the \
+              request timeout, or accept that a workflow started within seconds of a restart waits for \
+              its lock."""
+              .formatted(
+                  adapterId,
+                  propertyKey(adapterId, "shutdown-grace"),
+                  shutdownGrace,
+                  propertyKey(adapterId, "request-timeout"),
+                  resolvedRequestTimeout(),
+                  propertyKey(adapterId, "job-timeout")));
     }
     if (shutdownGrace.compareTo(PLATFORM_SHUTDOWN_BUDGET) < 0) {
       return;

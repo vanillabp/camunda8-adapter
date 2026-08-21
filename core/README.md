@@ -21,7 +21,10 @@ configuration, create beans, run the bean lifecycle).
   (that happens on the first command). `newClientBuilder()` is used for self-managed,
   `newCloudClientBuilder()` for SaaS.
 - `Camunda8ClientFactoryRegistry` - map adapter ID &rarr; factory, registered as a managed
-  bean so all clients are closed on shutdown.
+  bean so all clients are closed on shutdown. The factory knows which workflow modules
+  have workers open and closes the ones which never stopped themselves before it closes
+  the client (story 102), so the order holds on every shutdown path and not only on the
+  one each platform's lifecycle takes.
 
 ## What a worker sends back to the cluster
 
@@ -41,7 +44,11 @@ handlers:
   levels, per command rather than per worker. It travels with every fail command which
   leaves the job retries.
 - `Camunda8Drain` decides whether a failure belongs to the shutdown (story 90), in which
-  case no command is sent at all and the job is left to its lock.
+  case no command is sent at all and the job is left to its lock. It also holds what a
+  shutdown waits for and the line it writes about it (story 102): the handlers of the
+  module, and the workers reporting themselves closed, because an activation request which
+  is parked at the cluster when the client is closed stays parked and swallows the first
+  job of the next application.
 
 ## What a worker asks the cluster for (stories 93 and 99)
 

@@ -19,6 +19,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * Story 90: what the drain of one workflow module does while the application goes down.
  * The two halves are tested separately here - the waiting, and the rule which keeps a
  * failure of the shutdown from being reported as a failure of the application.
+ * <p>
+ * Story 102 added the second thing the shutdown waits for, the workers reporting
+ * themselves closed, and the rule that the line the drain writes can only say what this
+ * adapter knows.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8DrainTest {
@@ -26,17 +30,39 @@ public class Camunda8DrainTest {
   private final Camunda8Drain drain = new Camunda8Drain("c8", "test-module");
 
   @Test
-  @DisplayName("A drain with nothing in flight returns immediately")
+  @DisplayName("A drain with nothing in flight and released workers returns immediately")
   public void anEmptyDrainReturnsImmediately() {
 
     final var startedAt = System.nanoTime();
 
-    assertTrue(drain.awaitDrained(Duration.ofSeconds(20), () -> false));
+    assertTrue(drain.awaitQuiet(Duration.ofSeconds(20), 2, () -> true).isQuiet());
 
     final var waited = (System.nanoTime() - startedAt) / 1_000_000;
     assertTrue(
         waited < 1000,
-        "a shutdown with nothing to wait for pays nothing, even where the workers still report open (was "
+        "a shutdown with nothing to wait for pays nothing (was "
+            + waited
+            + " ms)");
+
+  }
+
+  @Test
+  @DisplayName("A worker whose activation request is still parked is waited for")
+  public void aWorkerWhichIsNotReleasedIsWaitedFor() {
+
+    final var releasedAt = System.nanoTime() + Duration.ofMillis(400).toNanos();
+
+    final var startedAt = System.nanoTime();
+    final var outcome = drain.awaitQuiet(
+        Duration.ofSeconds(20),
+        1,
+        () -> System.nanoTime() >= releasedAt);
+    final var waited = (System.nanoTime() - startedAt) / 1_000_000;
+
+    assertTrue(outcome.isQuiet(), "the worker reported itself closed before the grace passed");
+    assertTrue(
+        waited >= 350,
+        "and the shutdown waited for it rather than closing the client over a parked activation request (was "
             + waited
             + " ms)");
 
@@ -62,7 +88,7 @@ public class Camunda8DrainTest {
     assertTrue(entered.await(5, TimeUnit.SECONDS), "the handler started");
 
     assertTrue(
-        drain.awaitDrained(Duration.ofSeconds(20), () -> true),
+        drain.awaitQuiet(Duration.ofSeconds(20), 1, () -> true).isQuiet(),
         "the handler came back before the grace period passed");
     assertTrue(drain.getInFlight().isEmpty(), "and nothing is left in flight");
 
@@ -79,7 +105,7 @@ public class Camunda8DrainTest {
 
     final var startedAt = System.nanoTime();
     assertFalse(
-        drain.awaitDrained(Duration.ofMillis(300), () -> true),
+        drain.awaitQuiet(Duration.ofMillis(300), 1, () -> true).handlersReturned(),
         "the handlers did not come back");
     final var waited = (System.nanoTime() - startedAt) / 1_000_000;
     assertTrue(waited >= 300, "the grace period was granted before giving up (was "
@@ -97,7 +123,7 @@ public class Camunda8DrainTest {
     drain.jobStarted(4711L, "task", "someTask", "TestProcess");
 
     final var startedAt = System.nanoTime();
-    assertFalse(drain.awaitDrained(Duration.ZERO, () -> true));
+    assertFalse(drain.awaitQuiet(Duration.ZERO, 1, () -> true).isQuiet());
     assertTrue((System.nanoTime() - startedAt) / 1_000_000 < 200, "nothing was waited for");
 
   }
@@ -169,6 +195,95 @@ public class Camunda8DrainTest {
             .stream()
             .allMatch(job -> job.since() != null),
         "every entry knows since when it runs");
+
+  }
+
+  @Test
+  @DisplayName("A quiet module says how many workers were closed, and nothing which is not known")
+  public void theLineOfAQuietModuleSaysWhatWasDone(
+      final CapturedOutput output) {
+
+    final var outcome = drain.awaitQuiet(Duration.ofSeconds(20), 3, () -> true);
+    drain.report(Duration.ofSeconds(20), outcome);
+
+    final var logged = output.getOut() + output.getErr();
+    assertTrue(logged.contains("3 workers closed"), "the count is this adapter's own action: "
+        + logged);
+    assertTrue(
+        logged.contains("no activation request of theirs left at the cluster"),
+        "and the cluster released them, which is what makes closing the client safe: "
+            + logged);
+    assertFalse(
+        logged.contains("workers closed: false"),
+        "the line story 102 started from cannot be written any more: "
+            + logged);
+
+  }
+
+  @Test
+  @DisplayName("A worker still holding an activation request is a warning naming the consequence")
+  public void aWorkerWhichIsNeverReleasedIsWarnedAbout(
+      final CapturedOutput output) {
+
+    final var outcome = drain.awaitQuiet(Duration.ofMillis(100), 2, () -> false);
+    drain.report(Duration.ofMillis(100), outcome);
+
+    final var logged = output.getOut() + output.getErr();
+    assertFalse(
+        outcome.isQuiet(),
+        "the module is not quiet, so the client must not be closed silently behind it");
+    assertTrue(
+        logged.contains("still holding an activation request at the cluster"),
+        "the operator is told what is left: "
+            + logged);
+    assertTrue(
+        logged.contains("vanillabp.adapters.c8.job-timeout"),
+        "and how long the job of the next application waits for it: "
+            + logged);
+    assertTrue(
+        logged.contains("vanillabp.adapters.c8.shutdown-grace"),
+        "and which budget to raise: "
+            + logged);
+
+  }
+
+  @Test
+  @DisplayName("A grace of zero reports the same state without warning about it")
+  public void aGraceOfZeroIsADecisionAndNotAWarning() {
+
+    final var events = eventsOf(
+        () -> drain.report(Duration.ZERO, drain.awaitQuiet(Duration.ZERO, 1, () -> false)));
+
+    assertEquals(1, events.size(), () -> events.toString());
+    assertTrue(
+        events.getFirst().getFormattedMessage().contains("still holding an activation request"),
+        "the consequence is still said: "
+            + events);
+    assertEquals(
+        ch.qos.logback.classic.Level.INFO,
+        events.getFirst().getLevel(),
+        "but a shutdown which was configured to wait for nothing is not warned about on every restart");
+
+  }
+
+  /**
+   * What the drain logged while the action ran (this module configures no appender, so
+   * the events are collected rather than read off the console).
+   */
+  private java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> eventsOf(
+      final Runnable action) {
+
+    final var logWatcher = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+    logWatcher.start();
+    final var drainLog = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
+        .getLogger(Camunda8Drain.class);
+    drainLog.addAppender(logWatcher);
+    try {
+      action.run();
+    } finally {
+      drainLog.detachAndStopAllAppenders();
+    }
+    return java.util.List.copyOf(logWatcher.list);
 
   }
 

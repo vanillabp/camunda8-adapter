@@ -8,13 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
@@ -113,7 +110,7 @@ public class Camunda8WorkflowLifecycleTest {
           .forStatusCode(200)
           .withStartupTimeout(CONTAINER_STARTUP));
 
-  static final GenericContainer<?> CAMUNDA = new GenericContainer<>(clusterImage())
+  static final GenericContainer<?> CAMUNDA = new GenericContainer<>(ClusterImage.of())
       .withNetwork(NETWORK)
       .withExposedPorts(8080, 26500, 9600)
       .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "elasticsearch")
@@ -179,34 +176,6 @@ public class Camunda8WorkflowLifecycleTest {
                   .of("target", "c8-e2e-application.log")
                   .toAbsolutePath()
                   .toString()));
-
-  /**
-   * The image of the cluster under test, filtered into
-   * {@code camunda8-cluster.properties} from the Camunda client the active release
-   * line pins - the same mechanism the Spring Boot module uses, so a line's tests meet
-   * the oldest cluster its artifacts accept (story 53).
-   */
-  private static DockerImageName clusterImage() {
-
-    final var properties = new Properties();
-    try (var resource = Camunda8WorkflowLifecycleTest.class.getResourceAsStream("/camunda8-cluster.properties")) {
-      if (resource == null) {
-        throw new IllegalStateException(
-            "'/camunda8-cluster.properties' is missing from the test classpath. Maven filters it, so build the module once ('mvn test-compile') before running this test from the IDE.");
-      }
-      properties.load(resource);
-    } catch (final IOException e) {
-      throw new UncheckedIOException("Cannot read '/camunda8-cluster.properties'", e);
-    }
-    final var image = properties.getProperty("cluster.image");
-    if ((image == null) || image.isBlank() || image.contains("${")) {
-      throw new IllegalStateException(
-          "'cluster.image' is '%s' instead of an image - the test resources of this module have to be filtered."
-              .formatted(image));
-    }
-    return DockerImageName.parse(image);
-
-  }
 
   // --- talking to the application ---
 
