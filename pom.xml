@@ -434,6 +434,29 @@
         <camunda8.line>8.10</camunda8.line>
         <camunda8.version>${camunda8.version.line-8.10}</camunda8.version>
       </properties>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-failsafe-plugin</artifactId>
+              <configuration>
+                <!--
+                  A user-task LISTENER job never reaches its worker on this line: the REST gateway
+                  of camunda/camunda:8.10.0-alpha4 throws a NullPointerException while converting a
+                  TASK_LISTENER job and drops the whole activate-jobs batch (camunda/camunda#58193,
+                  open). Three tests then sit in their deadline and turn the line red as a whole,
+                  which hides whatever else this line might break - and a matrix that is always red
+                  stops being read. They are excluded here, by tag, so the rest of the line keeps
+                  saying something. Remove this together with the tag once Camunda ships the fix;
+                  story 94 carries that.
+                -->
+                <excludedGroups>user-task-listener-jobs</excludedGroups>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
     </profile>
   </profiles>
 </project>
