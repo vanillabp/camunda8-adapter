@@ -932,6 +932,15 @@ the boot: they cannot be told apart at all, and the alternative is silent misrou
 `Camunda8WorkflowViewer` and `Camunda8ProcessVersions` were scope-correct from the start
 and are what the probes now copy.
 
+What none of this tells apart is two workflow modules of the SAME adapter id: both are its
+own scope, and a probe is not told which module is being asked about. The workflow probes
+narrow it by the aggregate-id VARIABLE, whose name comes from `getAggregateIdName()`, so a
+false ACTIVE needs another module whose aggregate has the same id attribute name and the
+same value, and `id` on both sides is not exotic. The task probes narrow nothing: where no
+second adapter id shares the cluster they answer for any key of it. That is the same gap
+Camunda 7 documents (story 104), it needs the workflow module in the probe signature, and
+story 107 is where that is cut.
+
 Where `by-adapter` applies, the adapter looks the tenant up in the cluster BEFORE deploying,
 so the two ways this can go wrong are named as VanillaBP properties instead of as the
 engine's rejection: multi-tenancy switched off (the deploy command would answer `Failed with
