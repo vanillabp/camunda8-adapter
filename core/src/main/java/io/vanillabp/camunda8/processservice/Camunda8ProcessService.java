@@ -259,6 +259,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   @Override
   public WorkflowAwareness awarenessOfTask(
+      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
       final Object workflowAggregateId,
       final String taskId) {
 
@@ -273,7 +274,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // the same one the probe would answer for its job and extend its lock on the way.
     // Which scope the key belongs to is asked FIRST there, and nowhere else - the
     // question costs a query-API round trip.
-    if (!belongsToThisAdapter(taskId, false)) {
+    if (!belongsToThisAdapter(scope, taskId, false)) {
       return WorkflowAwareness.UNKNOWN_TO_BPMS;
     }
     try {
@@ -383,6 +384,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   @Override
   public WorkflowAwareness awarenessOfUserTask(
+      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
       final Object workflowAggregateId,
       final String taskId) {
 
@@ -393,7 +395,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     //
     // story 103: as for service tasks, a user-task key is unique per cluster, and on a
     // shared one the scope is asked before the task is claimed
-    if (!belongsToThisAdapter(taskId, true)) {
+    if (!belongsToThisAdapter(scope, taskId, true)) {
       return WorkflowAwareness.UNKNOWN_TO_BPMS;
     }
     try {
@@ -620,6 +622,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   @Override
   public WorkflowAwareness awarenessOfWorkflow(
+      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
       final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
@@ -650,7 +653,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final var mine = found
           .items()
           .stream()
-          .filter(instance -> isOwnScope(instance.getTenantId(), instance.getProcessDefinitionId()))
+          .filter(instance -> isInScope(scope, instance.getTenantId(), instance.getProcessDefinitionId()))
           .toList();
       if (mine.isEmpty()) {
         return WorkflowAwareness.UNKNOWN_TO_BPMS;
@@ -705,6 +708,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    */
   @Override
   public WorkflowAwareness awarenessOfWorkflowForRedispatch(
+      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
       final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
@@ -723,7 +727,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .stream()
           // story 103, as in awarenessOfWorkflow: an instance of the other adapter id on
           // this cluster does not prove that THIS one started the workflow
-          .noneMatch(instance -> isOwnScope(instance.getTenantId(), instance.getProcessDefinitionId()))
+          .noneMatch(instance -> isInScope(scope, instance.getTenantId(), instance.getProcessDefinitionId()))
               ? WorkflowAwareness.UNKNOWN_TO_BPMS
               : WorkflowAwareness.ACTIVE;
     } catch (final Exception e) {
@@ -762,59 +766,77 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
-   * Whether the given process instance, job or user task belongs to a scope THIS adapter
-   * instance owns (story 103).
+   * Whether the given process instance, job or user task belongs to the scope the probe
+   * was asked about (stories 103 and 107).
    * <p>
-   * Two <code>camunda8</code> adapter ids may address one cluster - that is the setup
-   * which migrates a workflow module from tenant scoping to prefixed identifiers, and
-   * {@code Camunda8InstanceIdentity} names it as supported. On one cluster every key is
-   * global and the aggregate-ID variable says nothing about which of the two deployments
-   * a workflow belongs to, so an unscoped probe lets the first adapter of
-   * <code>prioritized-adapters</code> win every election. What tells the two apart is the
-   * pair the adapter deployed under: the tenant and the SCOPED process definition id.
-   * <p>
-   * The set is derived from what this adapter deployed at boot
-   * ({@code Camunda8DeployedProcesses}) rather than from the call, because one process
-   * service serves every workflow module of its adapter id and none of the probe
-   * signatures carries one. An EMPTY set means this application version deployed nothing
-   * through this adapter (a module whose deployment failed under the 'warn' policy, or a
-   * test): the adapter then answers as it did before this story rather than claiming
-   * nothing is its own.
+   * The scope is the workflow module and the BPMN processes of the CALL, translated into
+   * what the cluster knows them by: the tenant of that module and the SCOPED process
+   * definition ids. Two facts make the comparison necessary, and neither alone would be
+   * enough. Two <code>camunda8</code> adapter ids may address ONE cluster, which is the
+   * supported setup migrating a workflow module from tenants to prefixed identifiers, and
+   * there every key is global. And one adapter id serves several workflow modules, whose
+   * aggregate ids are unique per aggregate type rather than across an application, so
+   * "one of mine" is not the same question as "the one you asked about".
    *
+   * @param scope What the probe was asked about
    * @param tenantId The tenant the cluster reports, possibly {@code <default>}
    * @param processDefinitionId The process definition id the cluster reports, which is
    *          the SCOPED one wherever a prefix is used
-   * @return Whether it belongs to this adapter instance
+   * @return Whether it belongs to the scope of the call
    */
-  private boolean isOwnScope(
+  private boolean isInScope(
+      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
       final String tenantId,
       final String processDefinitionId) {
 
-    final var ownScopes = ownScopes();
-    if (ownScopes.isEmpty()) {
-      return true;
-    }
-    return ownScopes.contains(scopeKey(tenantId, processDefinitionId));
+    return scopeKeysOf(scope).contains(scopeKey(tenantId, processDefinitionId));
 
   }
 
   /**
-   * Whether the task behind the given key belongs to a scope of THIS adapter instance
-   * (story 103) - asked only where another <code>camunda8</code> adapter id addresses the
-   * same cluster, because a key is unique per cluster and the two ids would otherwise
-   * answer for each other's tasks.
+   * @param scope What the probe was asked about
+   * @return The (tenant, scoped process definition id) pairs that scope stands for
+   */
+  private java.util.Set<String> scopeKeysOf(
+      final io.vanillabp.integration.adapter.spi.WorkflowScope scope) {
+
+    final var tenantId = tenantIdOf(scope.workflowModuleId());
+    return scope
+        .bpmnProcessIds()
+        .stream()
+        .map(bpmnProcessId -> scopeKey(
+            tenantId,
+            scopedProcessId(scope.workflowModuleId(), bpmnProcessId)))
+        .collect(java.util.stream.Collectors.toSet());
+
+  }
+
+  /**
+   * Whether the task behind the given key belongs to the scope the probe was asked about
+   * (stories 103 and 107) - asked only where another <code>camunda8</code> adapter id
+   * addresses the same cluster, because a key is unique per cluster and the two ids would
+   * otherwise answer for each other's tasks.
    * <p>
    * The answer needs the query API, which is why an application configuring two ids on
    * one cluster without secondary storage does not boot (see
    * {@code Camunda8DeploymentService}). A task the query API does not know is left to the
    * probe itself: it is either gone or not exported yet, and both are answered by the
    * command which follows.
+   * <p>
+   * <b>Why not always.</b> Where one adapter id owns the cluster, the read would buy very
+   * little for a query-API round trip on every task election: the key of another workflow
+   * module of the same application still addresses the task the operation then acts on,
+   * because completing or cancelling goes by that key, and a key of ANOTHER BPMS is not a
+   * Camunda 8 key at all. The workflow probes, whose answer routes a message or a pushed
+   * aggregate, compare the scope always - there it is free.
    *
+   * @param scope What the probe was asked about
    * @param taskId The task id, which is the job respectively user-task key
    * @param userTask Whether it is a user task
    * @return Whether the probe may claim the task
    */
   private boolean belongsToThisAdapter(
+      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
       final String taskId,
       final boolean userTask) {
 
@@ -828,10 +850,10 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
             .newUserTaskGetRequest(Long.parseLong(taskId))
             .send()
             .join();
-        return isOwnScope(task.getTenantId(), task.getBpmnProcessId());
+        return isInScope(scope, task.getTenantId(), task.getBpmnProcessId());
       }
       final var job = jobOf(taskId);
-      return (job == null) || isOwnScope(job.getTenantId(), job.getProcessDefinitionId());
+      return (job == null) || isInScope(scope, job.getTenantId(), job.getProcessDefinitionId());
     } catch (final Exception e) {
       if (Camunda8Errors.jobAlreadyGone(e)) {
         // not exported yet or gone - the probe's own command answers that
@@ -845,22 +867,6 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           e);
       return true;
     }
-
-  }
-
-  /**
-   * @return The (tenant, scoped process definition id) pairs this adapter deployed
-   */
-  private java.util.Set<String> ownScopes() {
-
-    return clientFactory
-        .getDeployedProcesses()
-        .all()
-        .stream()
-        .map(deployed -> scopeKey(
-            tenantIdOf(deployed.workflowModuleId()),
-            scopedProcessId(deployed.workflowModuleId(), deployed.bpmnProcessId())))
-        .collect(java.util.stream.Collectors.toSet());
 
   }
 
@@ -1190,7 +1196,10 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     final var variables = variablesOf(aggregatePersistence, workflowAggregateId);
 
     if (taskId == null) {
-      final var processInstanceKey = processInstanceKeyOf(aggregatePersistence, workflowAggregateId);
+      final var processInstanceKey = processInstanceKeyOf(
+          io.vanillabp.integration.adapter.spi.WorkflowScope.of(workflowModuleId, bpmnProcessId),
+          aggregatePersistence,
+          workflowAggregateId);
       if (processInstanceKey == null) {
         // at-least-once residual: the workflow ended between the dispatch-time
         // election and now - there is nothing left to write to
@@ -1261,6 +1270,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @return The process instance key or <code>null</code> if none is active
    */
   private Long processInstanceKeyOf(
+      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
       final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
@@ -1280,7 +1290,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       return found
           .items()
           .stream()
-          .filter(instance -> isOwnScope(instance.getTenantId(), instance.getProcessDefinitionId()))
+          .filter(instance -> isInScope(scope, instance.getTenantId(), instance.getProcessDefinitionId()))
           .findFirst()
           .map(instance -> instance.getProcessInstanceKey())
           .orElse(null);

@@ -21,6 +21,12 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8ProcessServiceTest {
 
+  /**
+   * What a probe is asked about (story 107).
+   */
+  private static final io.vanillabp.integration.adapter.spi.WorkflowScope SCOPE = io.vanillabp.integration.adapter.spi.WorkflowScope
+      .of("test-module", "TestProcess");
+
   /** A minimal aggregate whose ID is configurable (including {@code null}). */
   private record Aggregate(Object id) {
   }
@@ -99,7 +105,7 @@ public class Camunda8ProcessServiceTest {
     // thereby lose the workflow, which is why this probe is stricter than the
     // election's awarenessOfWorkflow (that one may answer optimistically when the
     // query API is absent)
-    final var awareness = configuredService().awarenessOfWorkflowForRedispatch(persistence("agg-1"), "agg-1");
+    final var awareness = configuredService().awarenessOfWorkflowForRedispatch(SCOPE, persistence("agg-1"), "agg-1");
 
     assertTrue(
         awareness == io.vanillabp.integration.adapter.spi.WorkflowAwareness.BPMS_UNAVAILABLE,
