@@ -80,6 +80,15 @@
       <groupId>io.vanillabp</groupId>
       <artifactId>test-utils</artifactId>
       <scope>test</scope>
+      <exclusions>
+        <!-- logging in this module runs through JBoss LogManager, and SLF4J found two
+             providers because test-utils brings Logback along: it reported the ambiguity
+             on every run and then picked JBoss anyway. Excluded rather than silenced. -->
+        <exclusion>
+          <groupId>ch.qos.logback</groupId>
+          <artifactId>logback-classic</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
@@ -115,6 +124,16 @@
         <configuration>
           <systemPropertyVariables>
             <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+            <!-- INFO and not WARN: what a level drops reaches no handler, so it reaches
+                 the capture either, and a failing test then replays nothing worth reading.
+                 The price is paid in the green build, by everything logged before the
+                 first extension callback - the containers start in a static initializer
+                 (they have to, a prod-mode test reads its ports while a field is
+                 initialized) and the augmentation logs into a log context of its own that
+                 no extension in this JVM reaches. That is roughly a dozen lines per class,
+                 and they say what they cost: a container failing to come up says so in the
+                 same place (story 109). -->
+            <quarkus.log.level>INFO</quarkus.log.level>
             <maven.home>${maven.home}</maven.home>
             <maven.repo>${settings.localRepository}</maven.repo>
             <!--suppress UnresolvedMavenProperty - filled by goal jacoco-maven-plugin:prepare-agent in the root POM -->

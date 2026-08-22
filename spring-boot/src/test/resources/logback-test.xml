@@ -5,14 +5,13 @@
         </encoder>
     </appender>
 
-    <!-- Docker environment detection, the Ryuk reaper and image pulls happen before any
-         JUnit extension can redirect the output: '@Testcontainers(disabledWithoutDocker = true)'
-         probes Docker from an ExecutionCondition, and conditions run before 'beforeAll'.
-         SuppressOutputExtension therefore cannot swallow this part - the level does. -->
-    <logger name="org.testcontainers" level="WARN"/>
-    <logger name="tc" level="WARN"/>
-    <logger name="com.github.dockerjava" level="WARN"/>
-
+    <!-- The root level alone does the work here. It used to hold org.testcontainers, tc
+         and com.github.dockerjava at WARN, which also kept them out of the replay of a
+         FAILING class: a record dropped by its level reaches no appender, so there is
+         nothing left to print afterwards. What INFO costs in a green build is the handful
+         of lines from before the first extension callback - Docker detection runs in an
+         ExecutionCondition ('@Testcontainers(disabledWithoutDocker = true)'), and the
+         image pull and the Ryuk reaper start with it - and no extension reaches those. -->
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
     </root>
