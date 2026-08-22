@@ -306,6 +306,10 @@ public class Camunda8DeploymentServiceTest {
       return java.util.Map.of();
     }
 
+    // story 66's migration fallback, deprecated for removal in 2.1 and none of Camunda
+    // 8's business: a test double implements it as long as the interface declares it,
+    // and the mandatory 'removal' lint needs the suppression
+    @SuppressWarnings("removal")
     @Override
     public boolean workflowAggregateHasProperty(
         final String workflowModuleId,
@@ -314,6 +318,7 @@ public class Camunda8DeploymentServiceTest {
       return false;
     }
 
+    @SuppressWarnings("removal")
     @Override
     public Object resolveWorkflowAggregateProperty(
         final String workflowModuleId,
