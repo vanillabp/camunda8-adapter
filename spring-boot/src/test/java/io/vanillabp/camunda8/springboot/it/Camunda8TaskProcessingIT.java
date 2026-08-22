@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,6 +67,17 @@ public class Camunda8TaskProcessingIT {
    */
   private static final io.vanillabp.integration.adapter.spi.WorkflowScope SCOPE = io.vanillabp.integration.adapter.spi.WorkflowScope
       .of("test-module", "TestProcess");
+
+  /**
+   * The three tests carrying this tag drive a user-task LISTENER job, and on the preview line such
+   * jobs never reach their worker: the REST gateway of camunda/camunda:8.10.0-alpha4 throws a
+   * NullPointerException while converting a TASK_LISTENER job and drops the whole activate-jobs
+   * batch (camunda/camunda#58193, open). Everything else of that line passes, so its profile
+   * excludes this tag instead of letting three known timeouts hide whatever else might break.
+   * Remove the tag and the exclusion in the 'line-8.10' profile once Camunda ships the fix; story
+   * 94 carries that work.
+   */
+  private static final String USER_TASK_LISTENER_JOBS = "user-task-listener-jobs";
 
   @Container
   static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
@@ -502,6 +514,7 @@ public class Camunda8TaskProcessingIT {
 
   }
 
+  @Tag(USER_TASK_LISTENER_JOBS)
   @Test
   @DisplayName("User task: CREATED via listener job, completeUserTask ends the process")
   public void userTaskCreatedAndCompleted() throws Exception {
@@ -550,6 +563,7 @@ public class Camunda8TaskProcessingIT {
 
   }
 
+  @Tag(USER_TASK_LISTENER_JOBS)
   @Test
   @DisplayName("Canceling the instance delivers CANCELED through the canceling listener")
   public void userTaskCanceledOnInstanceCancellation() throws Exception {
@@ -582,6 +596,7 @@ public class Camunda8TaskProcessingIT {
 
   }
 
+  @Tag(USER_TASK_LISTENER_JOBS)
   @Test
   @DisplayName("cancelUserTask is unsupported on Camunda 8.8 - the guiding error explains it")
   public void cancelUserTaskUnsupportedGuiding() throws Exception {
