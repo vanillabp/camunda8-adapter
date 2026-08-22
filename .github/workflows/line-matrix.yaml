@@ -55,11 +55,13 @@ jobs:
       - name: "Build and test line ${{ matrix.line }}"
         # 'clean', because classes compiled against another client are binary compatible
         # with nothing, and the revision is the version string this line would publish,
-        # so the build proves the coordinates as well as the code.
+        # so the build proves the coordinates as well as the code. 'install' without
+        # 'verify': install runs every phase verify has, and naming both compiled each
+        # module twice for nothing (story 111).
         run: mvn -s "$GITHUB_WORKSPACE/.github/workflows/github-packages-settings.xml"
           --batch-mode --no-transfer-progress --update-snapshots
           -Pline-${{ matrix.line }} -Drevision=2.0.0-${{ matrix.line }}-SNAPSHOT
-          clean install verify
+          clean install
       - name: The cluster and the client this line was tested against
         run: |
           cat spring-boot/target/test-classes/camunda8-cluster.properties
