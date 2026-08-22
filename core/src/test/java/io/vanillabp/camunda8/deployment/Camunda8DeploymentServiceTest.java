@@ -581,14 +581,16 @@ public class Camunda8DeploymentServiceTest {
     }
 
     @Test
-    @DisplayName("Without configuration the mode is NONE - a stock cluster rejects tenant ids")
-    public void defaultsToNone() {
+    @DisplayName("Without configuration the mode is BY_ADAPTER - what version 1 deployed")
+    public void defaultsToByAdapter() {
 
       assertEquals(
-          io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE,
+          io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER,
           serviceOfAdapterId("c8").defaultNameClashAvoidance(),
-          "multi-tenancy is switched off in a cluster started from the stock image, so "
-              + "by-adapter would fail the boot of an application configuring nothing");
+          "version 1 deployed every workflow module into a tenant named after it, so an "
+              + "application upgrading without touching its configuration has to keep addressing "
+              + "the workflows it started back then; a cluster without multi-tenancy says so and "
+              + "names both ways out (Camunda8TenantCheck)");
 
     }
 

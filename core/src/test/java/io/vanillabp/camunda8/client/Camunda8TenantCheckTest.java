@@ -76,6 +76,13 @@ public class Camunda8TenantCheckTest {
     assertTrue(
         message.contains("vanillabp.adapters.myengine.name-clash-avoidance: use-prefix"),
         () -> message);
+    // both ways out are named, not only prefixing: an application whose identifiers are
+    // unique across its modules says so with 'none' (story 106)
+    assertTrue(
+        message.contains("vanillabp.adapters.myengine.name-clash-avoidance: none"),
+        () -> message);
+    // and why a tenant is used at all, which matters for an application configuring nothing
+    assertTrue(message.contains("by-adapter"), () -> message);
     assertTrue(message.contains("'"
         + MODULE
         + "'"), () -> message);
@@ -95,6 +102,10 @@ public class Camunda8TenantCheckTest {
     assertTrue(message.contains("does not know that tenant"), () -> message);
     assertTrue(message.contains("vanillabp.adapters.myengine.tenant-id"), () -> message);
     assertTrue(message.contains("'banking'"), () -> message);
+    // deploying without a tenant is the third way out and was missing here (story 106)
+    assertTrue(
+        message.contains("vanillabp.adapters.myengine.name-clash-avoidance: none"),
+        () -> message);
 
   }
 
