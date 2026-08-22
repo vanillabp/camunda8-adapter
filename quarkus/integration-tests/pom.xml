@@ -124,15 +124,16 @@
         <configuration>
           <systemPropertyVariables>
             <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
-            <!-- Everything logged in the test JVM before the first extension callback
-                 goes to the real console, whatever the capture does afterwards: the
-                 containers start in a static initializer (they have to, a prod-mode test
-                 reads its ports while a field is initialized), and the augmentation logs
-                 into a log context of its own. WARN is where that noise stops and a
-                 problem still speaks - a wait strategy running out or a container dying
-                 is not an INFO. The platform's Quarkus modules set ERROR; here the
-                 container lines are the reason to keep one level more (story 109). -->
-            <quarkus.log.level>WARN</quarkus.log.level>
+            <!-- INFO and not WARN: what a level drops reaches no handler, so it reaches
+                 the capture either, and a failing test then replays nothing worth reading.
+                 The price is paid in the green build, by everything logged before the
+                 first extension callback - the containers start in a static initializer
+                 (they have to, a prod-mode test reads its ports while a field is
+                 initialized) and the augmentation logs into a log context of its own that
+                 no extension in this JVM reaches. That is roughly a dozen lines per class,
+                 and they say what they cost: a container failing to come up says so in the
+                 same place (story 109). -->
+            <quarkus.log.level>INFO</quarkus.log.level>
             <maven.home>${maven.home}</maven.home>
             <maven.repo>${settings.localRepository}</maven.repo>
             <!--suppress UnresolvedMavenProperty - filled by goal jacoco-maven-plugin:prepare-agent in the root POM -->
