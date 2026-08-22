@@ -60,6 +60,12 @@ import io.vanillabp.spi.process.ProcessService;
 @DirtiesContext
 public class Camunda8DeploymentAndStartIT {
 
+  /**
+   * What a probe is asked about (story 107).
+   */
+  private static final io.vanillabp.integration.adapter.spi.WorkflowScope SCOPE = io.vanillabp.integration.adapter.spi.WorkflowScope
+      .of("test-module", "TestProcess");
+
   private static final String JOB_TYPE = "test-job";
 
   private static final String COUNT_OUTBOX_ENTRIES = "select count(*) from TXNO_OUTBOX";
@@ -211,14 +217,14 @@ public class Camunda8DeploymentAndStartIT {
     // working on a plain broker (documented as unsafe for multi-BPMS setups)
     assertEquals(
         io.vanillabp.integration.adapter.spi.WorkflowAwareness.ACTIVE,
-        camunda8ProcessService.awarenessOfWorkflow(AGGREGATE_PERSISTENCE, neverStartedAggregateId));
+        camunda8ProcessService.awarenessOfWorkflow(SCOPE, AGGREGATE_PERSISTENCE, neverStartedAggregateId));
 
     // the START RE-DISPATCH probe must never do that: an optimistic "known" would
     // skip a recovered start and thereby LOSE the workflow, whereas proceeding
     // only risks the documented at-least-once duplicate
     assertEquals(
         io.vanillabp.integration.adapter.spi.WorkflowAwareness.UNKNOWN_TO_BPMS,
-        camunda8ProcessService.awarenessOfWorkflowForRedispatch(AGGREGATE_PERSISTENCE, neverStartedAggregateId));
+        camunda8ProcessService.awarenessOfWorkflowForRedispatch(SCOPE, AGGREGATE_PERSISTENCE, neverStartedAggregateId));
 
   }
 

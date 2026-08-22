@@ -26,6 +26,14 @@ import java.util.function.Function;
  * </ul>
  * Two ids whose relevant keys are identical are the same instance - configuring
  * them as separate adapters is an error.
+ * <p>
+ * Two ids which ARE distinct and still address one CLUSTER need something more since
+ * story 103: the query API of that cluster. Job keys, user-task keys and
+ * process-instance keys are unique per cluster and carry neither tenant nor prefix, so
+ * the election has to look a key up to learn which of the two scopes it belongs to.
+ * Such a setup on a cluster without secondary storage ends the boot; what counts as one
+ * cluster there is {@link #clusterIdentityOf}, which deliberately ignores the tenant and
+ * the credentials this identity includes.
  */
 public final class Camunda8InstanceIdentity {
 
@@ -62,6 +70,33 @@ public final class Camunda8InstanceIdentity {
         ? ""
         : ", name-clash avoidance '%s'".formatted(nameClashAvoidance.name().toLowerCase().replace('_', '-'));
     return connectionIdentityOf(configuration) + scoping;
+
+  }
+
+  /**
+   * What makes two adapter ids the SAME CLUSTER, which is a coarser question than
+   * {@link #identityOf}: neither the tenant nor the credentials matter here, because a
+   * job key, a user-task key and a process-instance key are unique per CLUSTER and not
+   * per tenant. Two ids sharing this identity can be handed each other's keys, which is
+   * what makes their awareness probes scope-sensitive (story 103).
+   *
+   * @param configuration The adapter id's connection configuration
+   * @return The cluster identity, never <code>null</code>
+   */
+  static String clusterIdentityOf(
+      final Camunda8AdapterConfiguration configuration) {
+
+    if (configuration == null) {
+      return "<unconfigured>";
+    }
+    if (configuration.getMode() == Camunda8AdapterConfiguration.Mode.SAAS) {
+      return "SaaS cluster '%s' (region '%s')".formatted(
+          configuration.getClusterId(),
+          configuration.getRegion());
+    }
+    return "self-managed cluster (rest-address '%s', grpc-address '%s')".formatted(
+        configuration.getRestAddress(),
+        configuration.getGrpcAddress());
 
   }
 

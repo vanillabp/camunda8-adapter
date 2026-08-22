@@ -63,6 +63,12 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 public class Camunda8TaskProcessingIT {
 
   /**
+   * What a probe is asked about (story 107).
+   */
+  private static final io.vanillabp.integration.adapter.spi.WorkflowScope SCOPE = io.vanillabp.integration.adapter.spi.WorkflowScope
+      .of("test-module", "TestProcess");
+
+  /**
    * The three tests carrying this tag drive a user-task LISTENER job, and on the preview line such
    * jobs never reach their worker: the REST gateway of camunda/camunda:8.10.0-alpha4 throws a
    * NullPointerException while converting a TASK_LISTENER job and drops the whole activate-jobs
@@ -72,7 +78,6 @@ public class Camunda8TaskProcessingIT {
    * 94 carries that work.
    */
   private static final String USER_TASK_LISTENER_JOBS = "user-task-listener-jobs";
-
 
   @Container
   static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
@@ -641,7 +646,7 @@ public class Camunda8TaskProcessingIT {
     // gone user task: awareness UNKNOWN, phase two tolerated as warned no-op
     assertEquals(
         io.vanillabp.integration.adapter.spi.WorkflowAwareness.UNKNOWN_TO_BPMS,
-        c8ProcessService.awarenessOfUserTask(silentAggregateId, "1"));
+        c8ProcessService.awarenessOfUserTask(SCOPE, silentAggregateId, "1"));
     org.junit.jupiter.api.Assertions.assertDoesNotThrow(
         () -> c8ProcessService.completeUserTaskPhaseTwo("test-app", "SilentUserTaskProcess", null,
             silentAggregateId, "1"));

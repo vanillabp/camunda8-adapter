@@ -303,6 +303,46 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
+   * The other <code>camunda8</code> adapter ids addressing the SAME cluster (story 103),
+   * told by {@link Camunda8ClientFactoryRegistry} at startup. Empty for the ordinary
+   * application with one Camunda 8 adapter.
+   * <p>
+   * What it decides: keys are unique per cluster and not per tenant or prefix, so where
+   * this list is not empty an awareness probe has to find out which scope a key belongs
+   * to before it claims the task. That answer costs a query-API round trip, which is why
+   * it is only paid where two ids can actually be confused.
+   */
+  private java.util.List<String> adapterIdsSharingTheCluster = java.util.List.of();
+
+  /**
+   * @param adapterIds The other adapter ids addressing this cluster
+   */
+  void sharesItsClusterWith(
+      final java.util.List<String> adapterIds) {
+
+    this.adapterIdsSharingTheCluster = java.util.List.copyOf(adapterIds);
+
+  }
+
+  /**
+   * @return The other adapter ids addressing this cluster, empty where this id is alone
+   */
+  public java.util.List<String> getAdapterIdsSharingTheCluster() {
+
+    return adapterIdsSharingTheCluster;
+
+  }
+
+  /**
+   * @return Whether another <code>camunda8</code> adapter id addresses the same cluster
+   */
+  public boolean sharesItsCluster() {
+
+    return !adapterIdsSharingTheCluster.isEmpty();
+
+  }
+
+  /**
    * How the factory stops the workers of one workflow module on a path which did not
    * reach {@code stopWorkflowProcessing} (story 102). Implemented by the deployment
    * service, which owns the workers and the drain.

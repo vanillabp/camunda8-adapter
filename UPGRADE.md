@@ -5,6 +5,38 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## Two Camunda 8 adapter ids on one cluster are told apart by their scope (2026-08-21)
+
+Story 103. Nothing changes for an application with one Camunda 8 adapter. What changes is the
+setup which migrates a workflow module from tenants to prefixed identifiers on the SAME
+cluster, and there it changes correctness.
+
+Until now the election asked every adapter "do you hold the workflow of aggregate X" and the
+Camunda 8 adapter searched by the aggregate-ID process variable alone. On one cluster both
+deployments carry that variable, so both answered yes and the first entry of
+`vanillabp.prioritized-adapters` won every operation. Nothing failed visibly: a user task is
+addressed by its key and keys are cluster-global, and the job types of the two scopes differ,
+so the jobs went where they belonged. A correlated message did not: it was published under the
+name and tenant of the WRONG adapter, where nobody subscribes, and the cluster dropped it once
+`message-time-to-live` passed.
+
+The probes now compare the tenant and the process definition id against what the adapter id
+itself deployed. Three things follow for such a setup:
+
+- **the cluster needs secondary storage.** A task key can only be mapped to its scope through
+  the query API. Two ids on one cluster without it do not boot any more, with a message naming
+  the ids which share the cluster. A single Camunda 8 adapter keeps working without it,
+- **an election of a task costs one query-API read**, and only where a second id shares the
+  cluster,
+- **check your election cache.** `WorkflowLocator` remembers which adapter holds a workflow. An
+  entry written by the old, wrong election survives this upgrade wherever the application
+  supplies its own (clustered) `WorkflowAdapterCache`; the built-in in-memory cache is empty
+  after the restart which brings the new version. Where such a cache is shared, clear it while
+  upgrading.
+
+Signals were never affected: `sendSignal` broadcasts to every deployed adapter, so each scope
+gets its own.
+
 ## A restart waits a few seconds longer, and the application after it does not (2026-08-21)
 
 Story 102. No new property, and nothing to configure. What changes is how long a shutdown

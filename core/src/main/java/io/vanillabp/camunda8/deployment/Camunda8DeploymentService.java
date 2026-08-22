@@ -920,6 +920,82 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // annotations name can be resolved against what the cluster has now
     workflowTaskInvoker.resolveProcessVersions(workflowModuleId);
 
+    // story 103: two adapter ids on one cluster are told apart by the scope a workflow
+    // was deployed under, and asking a KEY for its scope needs the query API
+    failIfTwoAdapterIdsShareAClusterWithoutQueryApi();
+
+  }
+
+  /**
+   * Whether the check below already ran for this adapter id.
+   */
+  private final java.util.concurrent.atomic.AtomicBoolean sharedClusterChecked = new java.util.concurrent.atomic.AtomicBoolean();
+
+  /**
+   * Ends the boot where two <code>camunda8</code> adapter ids address one cluster whose
+   * query API is unavailable (story 103).
+   * <p>
+   * On a shared cluster every key is global, so the election has to ask which scope a job
+   * respectively a user task belongs to before an adapter claims it, and that question can
+   * only be answered by the query API. Without secondary storage the two ids are
+   * indistinguishable and the first entry of <code>prioritized-adapters</code> silently
+   * wins every operation of both, which routes messages into the wrong scope and writes a
+   * changed aggregate into the wrong instance. An application with ONE Camunda 8 adapter is
+   * not affected and keeps working without secondary storage.
+   */
+  private void failIfTwoAdapterIdsShareAClusterWithoutQueryApi() {
+
+    if (!clientFactory.sharesItsCluster() || !sharedClusterChecked.compareAndSet(false, true)) {
+      return;
+    }
+    try {
+      clientFactory
+          .getClient()
+          .newProcessInstanceSearchRequest()
+          .page(page -> page.limit(1))
+          .send()
+          .join();
+    } catch (final RuntimeException e) {
+      if (!secondaryStorageMissing(e)) {
+        // any other failure is not this check's business - the cluster answered, and
+        // whatever it answered is reported by whoever asked next
+        return;
+      }
+      throw new IllegalStateException(
+          """
+              Camunda 8 adapter '%s' shares its cluster with the adapter id(s) '%s', and that cluster \
+              runs WITHOUT secondary storage. Two adapter ids on one cluster are told apart by the \
+              scope they deployed under (the tenant respectively the prefixed process id), and the \
+              key of a job or user task carries neither - the query API is what maps a key to its \
+              scope. Without it VanillaBP would route every operation to the first entry of \
+              'vanillabp.prioritized-adapters', which sends messages into the wrong scope and writes \
+              a changed workflow aggregate into the wrong instance, all without an error. Configure \
+              secondary storage for this cluster (camunda.data.secondaryStorage), or give each \
+              adapter id a cluster of its own."""
+              .formatted(
+                  adapterId,
+                  String.join("', '", clientFactory.getAdapterIdsSharingTheCluster())), e);
+    }
+
+  }
+
+  /**
+   * @param throwable What a query-API request failed with
+   * @return Whether the cluster answered that it has no secondary storage
+   */
+  private static boolean secondaryStorageMissing(
+      final Throwable throwable) {
+
+    var current = throwable;
+    while (current != null) {
+      final var message = current.getMessage();
+      if ((message != null) && message.contains("secondary storage")) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
+
   }
 
   /**
