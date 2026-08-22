@@ -38,4 +38,18 @@ public class TestClassConventionsTest {
 
   }
 
+  @Test
+  @DisplayName("No test class registers the suppression after '@Testcontainers'")
+  public void noTestClassSuppressesTooLate() {
+
+    final var root = CoverageGate.repositoryRoot("coverage.repository.root");
+
+    final var offenders = TestClassConventions.testClassesSuppressingTooLate(root);
+
+    assertTrue(
+        offenders.isEmpty(),
+        () -> TestClassConventions.describeTestClassesSuppressingTooLate(offenders));
+
+  }
+
 }
