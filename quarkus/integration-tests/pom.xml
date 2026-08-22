@@ -80,6 +80,15 @@
       <groupId>io.vanillabp</groupId>
       <artifactId>test-utils</artifactId>
       <scope>test</scope>
+      <exclusions>
+        <!-- logging in this module runs through JBoss LogManager, and SLF4J found two
+             providers because test-utils brings Logback along: it reported the ambiguity
+             on every run and then picked JBoss anyway. Excluded rather than silenced. -->
+        <exclusion>
+          <groupId>ch.qos.logback</groupId>
+          <artifactId>logback-classic</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
@@ -115,6 +124,15 @@
         <configuration>
           <systemPropertyVariables>
             <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+            <!-- Everything logged in the test JVM before the first extension callback
+                 goes to the real console, whatever the capture does afterwards: the
+                 containers start in a static initializer (they have to, a prod-mode test
+                 reads its ports while a field is initialized), and the augmentation logs
+                 into a log context of its own. WARN is where that noise stops and a
+                 problem still speaks - a wait strategy running out or a container dying
+                 is not an INFO. The platform's Quarkus modules set ERROR; here the
+                 container lines are the reason to keep one level more (story 109). -->
+            <quarkus.log.level>WARN</quarkus.log.level>
             <maven.home>${maven.home}</maven.home>
             <maven.repo>${settings.localRepository}</maven.repo>
             <!--suppress UnresolvedMavenProperty - filled by goal jacoco-maven-plugin:prepare-agent in the root POM -->
