@@ -17,7 +17,7 @@ vanillabp:
   prioritized-adapters:
     - c8-plain
   workflow-modules:
-    test-app:
+    election-app:
       adapters:
         c8-plain:
           resources-location: classpath:it-election

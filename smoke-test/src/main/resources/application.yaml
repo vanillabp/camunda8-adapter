@@ -5,7 +5,7 @@ vanillabp:
   prioritized-adapters:
     - c8
   workflow-modules:
-    test-app:
+    smoke-app:
       adapters:
         c8:
-          resources-location: classpath*:test-app/processes
+          resources-location: classpath*:smoke-app/processes

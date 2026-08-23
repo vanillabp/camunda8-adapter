@@ -8,7 +8,12 @@ import io.vanillabp.integration.utils.SpringDataUtil;
 
 /**
  * Minimal Spring Boot application used by {@link Camunda8AdapterDiscoveryTest} to prove
- * the Camunda 8 adapter is discovered when configured. It provides a
+ * the Camunda 8 adapter is discovered when configured. It lives in a MAVEN MODULE of its
+ * own, and so does its workflow module {@code smoke-app}: a workflow module is a
+ * classpath entry carrying {@code META-INF/workflow-module}, so a scenario sharing that
+ * entry with another one shares its workflow module - and every application is then asked
+ * for the persistence of the other scenario's aggregates, which since story 114 of the
+ * platform ends the startup (story 118). It provides a
  * {@link SpringDataUtil} stub so the test does not need a real database - no workflow is
  * ever started, so persistence is never actually used.
  * <p>

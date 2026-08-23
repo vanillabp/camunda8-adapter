@@ -104,7 +104,7 @@ public class Camunda8StartupValidationBootTest {
         "vanillabp.adapters.c8-two.type=camunda8",
         "vanillabp.adapters.c8-two.deployment-failure=warn",
         "vanillabp.adapters.c8-two.mode=saas",
-        "vanillabp.workflow-modules.test-app.adapters.c8-two.resources-location=classpath*:test-app/processes-two")) {
+        "vanillabp.workflow-modules.smoke-app.adapters.c8-two.resources-location=classpath*:test-app/processes-two")) {
       Assertions.assertTrue(context.isActive());
     }
 

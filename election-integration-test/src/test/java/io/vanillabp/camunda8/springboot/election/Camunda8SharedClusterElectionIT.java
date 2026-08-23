@@ -21,7 +21,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
-import io.vanillabp.camunda8.springboot.it.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -39,7 +38,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <b>What fails without the fix.</b> Both adapters find the instance, because the search
  * behind <code>awarenessOfWorkflow</code> filtered by the aggregate-ID variable alone, and
  * the walk stops at the first <code>ACTIVE</code>. The message is then published as
- * <code>test-app__ElectionMessage</code>, which nobody subscribes to, and the cluster
+ * <code>election-app__ElectionMessage</code>, which nobody subscribes to, and the cluster
  * buffers it until its time to live passes. Nothing fails, the workflow simply never
  * continues, which is why the assertion here is a task that ran.
  * <p>
@@ -76,7 +75,7 @@ public class Camunda8SharedClusterElectionIT {
    * which is the other half of what story 103 decided.
    */
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.withSecondaryStorage(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> CAMUNDA = ElectionCluster.withSecondaryStorage(NETWORK, ELASTICSEARCH);
 
   private ConfigurableApplicationContext application;
 
@@ -124,7 +123,7 @@ public class Camunda8SharedClusterElectionIT {
           + grpcAddress());
       arguments.add("--vanillabp.adapters.c8-prefix.workflow-visibility-timeout=PT60S");
       arguments.add(
-          "--vanillabp.workflow-modules.test-app.adapters.c8-prefix.resources-location=classpath:it-election");
+          "--vanillabp.workflow-modules.election-app.adapters.c8-prefix.resources-location=classpath:it-election");
       // the new deployment takes over new workflows, which is what makes the old ones
       // the ones the election has to find
       arguments.add("--vanillabp.prioritized-adapters[0]=c8-prefix");

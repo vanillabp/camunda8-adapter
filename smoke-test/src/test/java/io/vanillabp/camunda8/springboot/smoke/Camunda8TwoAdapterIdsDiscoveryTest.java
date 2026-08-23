@@ -27,7 +27,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @SpringBootTest(
     classes = SmokeTestApplication.class,
     properties = {
-        "spring.autoconfigure.exclude=io.vanillabp.integration.deployment.DeploymentAutoConfiguration", "vanillabp.prioritized-adapters=c8,c8-two", "vanillabp.adapters.c8-two.type=camunda8", "vanillabp.adapters.c8-two.rest-address=http://localhost:8081", "vanillabp.workflow-modules.test-app.adapters.c8-two.resources-location=classpath:test-app/processes/c8-two"
+        "spring.autoconfigure.exclude=io.vanillabp.integration.deployment.DeploymentAutoConfiguration", "vanillabp.prioritized-adapters=c8,c8-two", "vanillabp.adapters.c8-two.type=camunda8", "vanillabp.adapters.c8-two.rest-address=http://localhost:8081", "vanillabp.workflow-modules.smoke-app.adapters.c8-two.resources-location=classpath:test-app/processes/c8-two"
     })
 public class Camunda8TwoAdapterIdsDiscoveryTest {
 

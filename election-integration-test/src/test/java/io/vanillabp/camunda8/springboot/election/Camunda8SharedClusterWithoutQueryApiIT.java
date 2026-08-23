@@ -14,7 +14,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import io.vanillabp.camunda8.springboot.it.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -39,7 +38,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 public class Camunda8SharedClusterWithoutQueryApiIT {
 
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
+  static final GenericContainer<?> CAMUNDA = ElectionCluster.standaloneBroker();
 
   private ConfigurableApplicationContext application;
 
@@ -90,7 +89,7 @@ public class Camunda8SharedClusterWithoutQueryApiIT {
                     + restAddress(),
                 "--vanillabp.adapters.c8-prefix.grpc-address="
                     + grpcAddress(),
-                "--vanillabp.workflow-modules.test-app.adapters.c8-prefix.resources-location=classpath:it-election",
+                "--vanillabp.workflow-modules.election-app.adapters.c8-prefix.resources-location=classpath:it-election",
                 "--vanillabp.prioritized-adapters[0]=c8-prefix",
                 "--vanillabp.prioritized-adapters[1]=c8-plain"));
 

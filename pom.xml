@@ -28,6 +28,8 @@
   <modules>
     <module>core</module>
     <module>spring-boot</module>
+    <module>election-integration-test</module>
+    <module>smoke-test</module>
     <module>quarkus/runtime</module>
     <module>quarkus/deployment</module>
     <module>quarkus/integration-tests</module>
