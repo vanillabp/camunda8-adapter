@@ -64,9 +64,11 @@ public final class Camunda8TenantCheck {
             """
                 Camunda 8 adapter '%s' would deploy workflow module '%s' into the tenant '%s', but \
                 MULTI-TENANCY IS DISABLED on this cluster - a cluster started from the stock image \
-                has it switched off, and it rejects every request carrying a tenant identifier. \
-                Either enable multi-tenancy on the cluster, or keep the workflow modules apart \
-                without tenants:
+                has it switched off, and it rejects every request carrying a tenant identifier. A \
+                tenant per workflow module is what 'name-clash-avoidance: by-adapter' means, and \
+                that is the DEFAULT (version 1 deployed every workflow module into a tenant named \
+                after it). Either enable multi-tenancy on the cluster, or keep the workflow modules \
+                apart without tenants:
                   %s: use-prefix   # VanillaBP prefixes the identifiers with the workflow module id
                   %s: none         # your identifiers are unique across all workflow modules already
                 The same key may be set per workflow module \
@@ -85,16 +87,19 @@ public final class Camunda8TenantCheck {
             """
                 Camunda 8 adapter '%s' would deploy workflow module '%s' into the tenant '%s', but \
                 this cluster does not know that tenant. Create it in the cluster (Identity, or the \
-                tenant API), or point the adapter at an existing one, or deploy without a tenant:
+                tenant API), or point the adapter at an existing one, or keep the workflow modules \
+                apart without a tenant:
                   %s: <an existing tenant>
                   %s: use-prefix   # VanillaBP prefixes the identifiers instead of using a tenant
+                  %s: none         # your identifiers are unique across all workflow modules already
                 Without '%s' the tenant is named after the workflow module, which is where '%s' \
-                comes from."""
+                comes from - a tenant per module is what the DEFAULT mode 'by-adapter' means."""
                 .formatted(
                     adapterId,
                     workflowModuleId,
                     tenantId,
                     Camunda8AdapterConfiguration.propertyKey(adapterId, "tenant-id"),
+                    modeKey(adapterId),
                     modeKey(adapterId),
                     Camunda8AdapterConfiguration.propertyKey(adapterId, "tenant-id"),
                     tenantId), e);

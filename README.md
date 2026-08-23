@@ -907,15 +907,22 @@ tenant named after the module (`tenant-id` overrides the name) and the job worke
 subscribe for that tenant; `use-prefix` deploys into the default tenant with prefixed
 identifiers instead, process ids, message names, error codes, signal and escalation names,
 JOB TYPES and the user-task form reference, the latter two additionally scoped by their
-BPMN process; `none`, the default, scopes nothing.
+BPMN process; `none` scopes nothing.
 
 Prefixing is what makes tenants avoidable, which matters because Camunda licenses per
 tenant, and it is transparent: BPMN, business code and configuration keep the plain
-identifiers while the adapter translates at every boundary. The default is `none` rather
-than `by-adapter` because a cluster started from the stock image has multi-tenancy switched
-off and would reject a tenant id, so an application configuring nothing has to boot and
-deploy. While `none` applies, a WARN per workflow module names the alternatives until
-`accept-unscoped-identifiers` acknowledges that the identifiers are unique.
+identifiers while the adapter translates at every boundary.
+
+**The default is `by-adapter`, which is version 1's behaviour** (its `use-tenants` was on
+and the tenant id defaulted to the workflow module id), so an application upgrading without
+touching its configuration keeps addressing the workflows it started before. What the
+cluster owes that mode is multi-tenancy plus an existing tenant: a cluster from the stock
+image has multi-tenancy switched off, and `Camunda8TenantCheck` ends the boot naming both
+ways out, `use-prefix` (modules stay apart, no tenant needed) and `none` (version 1's
+`use-tenants: false`). The default stood at `none` between 2026-08-11 and 2026-08-22, which
+left an upgraded version-1 application deploying into no tenant while its workflows lived in
+theirs - story 106. While `none` applies, a WARN per workflow module names the alternatives
+until `accept-unscoped-identifiers` acknowledges that the identifiers are unique.
 
 **Two adapter ids on one cluster (story 103).** Migrating a module from tenants to prefixes
 runs both scopes side by side: two ids of type `camunda8`, one cluster, differing only in

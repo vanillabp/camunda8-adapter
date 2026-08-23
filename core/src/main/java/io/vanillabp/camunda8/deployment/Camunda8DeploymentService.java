@@ -511,18 +511,31 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
-   * Camunda 8 deploys without any name-clash avoidance unless the application asks
-   * for one: multi-tenancy is switched off in a cluster started from the stock image
-   * and such a cluster rejects a deploy command carrying a tenant id, so
-   * {@link io.vanillabp.integration.adapter.spi.NameClashAvoidance#BY_ADAPTER} would
-   * fail the boot of an application which configured nothing at all. Since
-   * {@code none} protects nothing, every workflow module deployed under it is
-   * reported by {@link #warnAboutUnscopedIdentifiers(String, boolean)}.
+   * Camunda 8 keeps the SPI's default, {@code by-adapter}, which on this BPMS means a
+   * TENANT named after the workflow module. That is what VanillaBP 1 deployed when
+   * nothing was configured (its {@code use-tenants} was on and the tenant id defaulted
+   * to the workflow module id), so an application upgrading from version 1 without
+   * touching its configuration keeps addressing the workflows it started back then.
+   * <p>
+   * <b>What it asks of the cluster.</b> A tenant id other than {@code <default>} needs
+   * multi-tenancy enabled, and the tenant has to exist: a cluster started from the
+   * stock image answers a deploy command carrying one with "multi-tenancy is
+   * disabled". {@link io.vanillabp.camunda8.client.Camunda8TenantCheck} turns that into
+   * a boot failure naming the properties leading out, which is the point: the
+   * alternative would be a default which quietly deploys every workflow module into
+   * the {@code <default>} tenant, and that is not a weaker isolation but none at all -
+   * {@code none} by another name, without the warning {@code none} carries.
+   * <p>
+   * An application on such a cluster says so once, with
+   * {@code vanillabp.adapters.<id>.name-clash-avoidance: none} (version 1's
+   * {@code use-tenants: false}) or {@code use-prefix}, which needs no cluster support
+   * at all. Story 106 restored this default after it stood at {@code none} between
+   * 2026-08-11 and 2026-08-22; {@code Camunda8DeploymentServiceTest} holds it.
    */
   @Override
   public io.vanillabp.integration.adapter.spi.NameClashAvoidance defaultNameClashAvoidance() {
 
-    return io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE;
+    return io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER;
 
   }
 

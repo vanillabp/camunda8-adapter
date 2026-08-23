@@ -197,11 +197,17 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * aggregate's ID (named after the aggregate's ID property). Camunda 8 has no
    * business key: that variable is how VanillaBP finds the workflow again.
    *
+   * <p>
+   * Package-private so {@code Camunda8SharedValuesTest} can hold the second half of that
+   * promise without a cluster: an aggregate annotated {@code @NoSyncWithBPMS} shares
+   * nothing, and Camunda 8 has no business key, so losing the ID variable would start a
+   * workflow nobody can find again (story 116).
+   *
    * @param aggregatePersistence The aggregate's persistence
    * @param workflowAggregateId The aggregate's ID
    * @return The variables (never <code>null</code>)
    */
-  private java.util.Map<String, Object> variablesOf(
+  java.util.Map<String, Object> variablesOf(
       final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 

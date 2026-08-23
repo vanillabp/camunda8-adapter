@@ -24,6 +24,20 @@
       <artifactId>camunda8-adapter-spring-boot</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- the shared-cluster election of story 103 lives in a module of its own, because a
+         workflow module is a classpath entry and that test is a workflow module of its
+         own (story 118). Its execution data belongs to this report like every other
+         Spring Boot test's -->
+    <dependency>
+      <groupId>org.camunda.community.vanillabp</groupId>
+      <artifactId>camunda8-adapter-election-integration-test</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.camunda.community.vanillabp</groupId>
+      <artifactId>camunda8-adapter-smoke-test</artifactId>
+      <version>${project.version}</version>
+    </dependency>
   </dependencies>
 
   <build>
