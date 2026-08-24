@@ -3,6 +3,7 @@ package io.vanillabp.camunda8.springboot.election;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +24,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
+import io.vanillabp.spi.process.WorkflowNotFoundException;
 
 /**
  * Two <code>camunda8</code> adapter ids on ONE cluster
@@ -164,17 +166,20 @@ public class Camunda8SharedClusterElectionIT {
             .startWorkflow()
             .getId());
     assertNotNull(aggregateId, "the workflow was started by 'c8-plain'");
+    // Camunda 8 is started after the caller's commit, so returning from startWorkflow says
+    // nothing about the cluster yet. Closing here would hand the start to the restart, where
+    // the prefixed adapter is already deployed: the instance the election has to find would
+    // then be created seconds before the message asks for it.
+    awaitInOutput(
+        output,
+        "Started Camunda 8 workflow 'ElectionProcess' (adapter 'c8-plain'",
+        "the workflow to reach the cluster while only 'c8-plain' exists");
     application.close();
 
     // and after it: the same cluster, a second adapter id deploying the same process
     // under a prefixed identifier, first in the prioritized list
     application = boot(true);
-    final var aggregate = bean(ElectionAggregateRepository.class)
-        .findById(aggregateId)
-        .orElseThrow();
-    bean(TransactionTemplate.class)
-        .executeWithoutResult(
-            status -> bean(ElectionWorkflowService.class).theMessageArrived(aggregate));
+    correlateUntilTheClusterKnowsTheWorkflow(aggregateId);
 
     assertTrue(
         ElectionWorkflowService.SERVED.await(2, TimeUnit.MINUTES),
@@ -190,6 +195,70 @@ public class Camunda8SharedClusterElectionIT {
         logged.contains("Camunda8[c8-prefix]: published message"),
         "the adapter of the new deployment must not answer for a workflow of the old one: "
             + logged);
+
+  }
+
+
+  /**
+   * Correlates the message, tolerating the read model the election asks.
+   * <p>
+   * The restart leaves no hint behind which adapter started the workflow, so the walk gets
+   * the honest "unknown" of an exporter which has not indexed the instance yet, and the core
+   * has nothing to wait for. VanillaBP documents that residual and names retrying the
+   * business operation as the answer, which is what happens here: this test asks WHICH
+   * adapter answers for the workflow, not how fast the query API catches up.
+   *
+   * @param aggregateId The aggregate whose workflow waits for the message
+   */
+  private void correlateUntilTheClusterKnowsTheWorkflow(
+      final Long aggregateId) throws InterruptedException {
+
+    final var deadline = System.currentTimeMillis() + Duration
+        .ofMinutes(1)
+        .toMillis();
+    while (true) {
+      try {
+        final var aggregate = bean(ElectionAggregateRepository.class)
+            .findById(aggregateId)
+            .orElseThrow();
+        bean(TransactionTemplate.class)
+            .executeWithoutResult(
+                status -> bean(ElectionWorkflowService.class).theMessageArrived(aggregate));
+        return;
+      } catch (final WorkflowNotFoundException e) {
+        if (System.currentTimeMillis() >= deadline) {
+          throw e;
+        }
+        Thread.sleep(500);
+      }
+    }
+
+  }
+
+  /**
+   * Waits for a line the application logs, which is the only place a test outside the
+   * application learns that its phase two ran.
+   *
+   * @param output What the application logged so far
+   * @param line The line to wait for
+   * @param what What waiting for it means, for the failure message
+   */
+  private static void awaitInOutput(
+      final CapturedOutput output,
+      final String line,
+      final String what) throws InterruptedException {
+
+    final var deadline = System.currentTimeMillis() + Duration
+        .ofMinutes(1)
+        .toMillis();
+    while (System.currentTimeMillis() < deadline) {
+      if ((output.getOut() + output.getErr()).contains(line)) {
+        return;
+      }
+      Thread.sleep(200);
+    }
+    fail("timed out waiting for "
+        + what);
 
   }
 

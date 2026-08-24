@@ -455,6 +455,20 @@
                 <excludedGroups>user-task-listener-jobs</excludedGroups>
               </configuration>
             </plugin>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-surefire-plugin</artifactId>
+              <configuration>
+                <!--
+                  The same bug, in the suite which runs its end-to-end tests through surefire:
+                  the Quarkus tests wait for a user task's CREATED notification which the broken
+                  activate-jobs batch never delivers. Excluding the tag in failsafe alone left
+                  this line red once it got as far as this module, which is the point where the
+                  exclusion was supposed to start paying off.
+                -->
+                <excludedGroups>user-task-listener-jobs</excludedGroups>
+              </configuration>
+            </plugin>
           </plugins>
         </pluginManagement>
       </build>
