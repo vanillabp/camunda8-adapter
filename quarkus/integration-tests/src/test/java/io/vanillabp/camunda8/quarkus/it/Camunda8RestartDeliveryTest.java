@@ -27,7 +27,7 @@ import io.vanillabp.integration.test.utils.FreePortUtil;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The Quarkus half of story 102: the workers of a workflow module are closed before the
+ * The Quarkus half: the workers of a workflow module are closed before the
  * client on this platform too, and a workflow started right after a restart gets its
  * first job in milliseconds rather than in a job timeout.
  * <p>
@@ -198,10 +198,10 @@ public class Camunda8RestartDeliveryTest {
       final TestReporter reporter,
       final String measurement) {
 
-    reporter.publishEntry("story-102-restart-delivery", measurement);
+    reporter.publishEntry("restart-delivery", measurement);
     try {
       Files.writeString(
-          Path.of("target", "story-102-restart-delivery.txt"),
+          Path.of("target", "restart-delivery.txt"),
           measurement + System.lineSeparator());
     } catch (final IOException e) {
       throw new UncheckedIOException("Cannot write down what was measured", e);
@@ -246,7 +246,7 @@ public class Camunda8RestartDeliveryTest {
     final var deliveredAfterMillis = awaitDelivery(JOB_TIMEOUT.multipliedBy(2));
 
     // written down rather than printed: the output of a test which passes is suppressed,
-    // and this number is what the story asked for
+    // and this number is the whole point of the test
     report(
         reporter,
         "the first job of a workflow started %s after a restart was delivered after %d ms (job timeout %s)"

@@ -13,7 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * The versions of the process definitions of ONE Camunda 8 cluster (= one adapter id):
  * what the core matches <code>&#64;WorkflowTask(version = ...)</code> and its siblings
- * against (story 48).
+ * against.
  * <p>
  * The version itself travels with every job ({@code ActivatedJob#getProcessDefinitionVersion}),
  * so nothing here is needed for version specifications made of numbers. Version TAGS
@@ -36,12 +36,12 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   /**
    * The BPMN process id as the CLUSTER knows it for a (workflow module, plain BPMN
-   * process id) - the identifiers may be prefixed (story 35).
+   * process id) - the identifiers may be prefixed.
    */
   private final BiFunction<String, String, String> scopedProcessIds;
 
   /**
-   * The tenant a workflow module is deployed to, or <code>null</code> (story 35).
+   * The tenant a workflow module is deployed to, or <code>null</code>.
    */
   private final Function<String, String> tenants;
 
@@ -49,7 +49,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   /**
    * Reads the tasks of a model the cluster holds - the deployment service' own
-   * extraction (story 57).
+   * extraction.
    */
   @FunctionalInterface
   public interface TasksOfModel {

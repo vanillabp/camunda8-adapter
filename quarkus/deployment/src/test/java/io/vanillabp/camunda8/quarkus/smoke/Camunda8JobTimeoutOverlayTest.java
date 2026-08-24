@@ -17,7 +17,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * Proves the job timeout resolves through all FOUR configuration levels of the
- * Quarkus overlay mapping (story 21c) - task, workflow, workflow-module and
+ * Quarkus overlay mapping - task, workflow, workflow-module and
  * adapter level, most specific wins - and that the async-task-lock-renewal is read at
  * adapter level. It is also where the Quarkus overlay is checked key by key: every
  * client, worker and authentication key has to bind AND arrive at the client the adapter
@@ -75,7 +75,7 @@ public class Camunda8JobTimeoutOverlayTest {
 
     final var overlay = overlay();
 
-    // story 91: the backoff of a FAILED job is resolved from the same four levels
+    // The backoff of a FAILED job is resolved from the same four levels
     Assertions.assertEquals(
         Duration.ofSeconds(2),
         overlay.retryBackoffFor("test-app", "TaskProcess", "happyTask", "c8"));
@@ -100,7 +100,7 @@ public class Camunda8JobTimeoutOverlayTest {
 
     final var overlay = overlay();
 
-    // story 93: the escape hatch is resolved from the same four levels, and the task
+    // The escape hatch is resolved from the same four levels, and the task
     // level is its point - the case which needs everything is one task
     Assertions.assertEquals(
         io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.ALL,
@@ -148,7 +148,7 @@ public class Camunda8JobTimeoutOverlayTest {
             .get("c8")
             .asyncTaskLockRenewal()
             .orElseThrow());
-    // and so is the grace a shutdown grants its handlers (story 90)
+    // and so is the grace a shutdown grants its handlers
     Assertions.assertEquals(
         Duration.ofSeconds(5),
         overlay

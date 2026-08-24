@@ -31,7 +31,7 @@ import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The adapter against a cluster with its authentication SWITCHED ON (story 88).
+ * The adapter against a cluster with its authentication SWITCHED ON.
  * <p>
  * This is the test whose absence let the gap live: every other cluster here runs with
  * {@code CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI=true}, so an adapter which never

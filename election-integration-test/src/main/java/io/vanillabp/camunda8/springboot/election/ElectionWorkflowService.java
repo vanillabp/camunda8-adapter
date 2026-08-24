@@ -11,7 +11,7 @@ import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
 /**
- * The workflow of the shared-cluster election test (story 103): it waits for a message
+ * The workflow of the shared-cluster election test: it waits for a message
  * and records that the message arrived.
  */
 @Service

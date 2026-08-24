@@ -44,7 +44,7 @@ public final class Camunda8Errors {
   }
 
   /**
-   * HTTP statuses of the REST transport a repetition cannot change (story 73):
+   * HTTP statuses of the REST transport a repetition cannot change:
    * <ul>
    * <li><code>400</code> - the cluster rejected the request itself,</li>
    * <li><code>403</code> - the credentials or the tenant are wrong, not late,</li>
@@ -72,8 +72,8 @@ public final class Camunda8Errors {
           io.grpc.Status.Code.UNIMPLEMENTED);
 
   /**
-   * Whether repeating a phase-two operation which failed like this cannot help
-   * (story 73), so the outbox entry is blocked at once instead of being retried until
+   * Whether repeating a phase-two operation which failed like this cannot help,
+   * so the outbox entry is blocked at once instead of being retried until
    * its attempts are used up.
    * <p>
    * The list is short on purpose: repeating is the safe answer and stays the default
@@ -110,7 +110,7 @@ public final class Camunda8Errors {
 
   /**
    * Whether repeating a command a JOB HANDLER sends back to the cluster - a completion, a
-   * BPMN error, a failure, a lock renewal - can change its answer (story 91). It is
+   * BPMN error, a failure, a lock renewal - can change its answer. It is
    * {@link #permanentFailure} plus the one case which is permanent for a job command and
    * not for an outbox entry: a job which is gone stays gone, and repeating a command
    * against it would turn the benign at-least-once residual into a retry storm.

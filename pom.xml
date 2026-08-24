@@ -51,10 +51,10 @@
     <jacoco.version>0.8.15</jacoco.version>
     <!-- the line each platform's aggregated report has to stay above, in PERCENT of
          covered instructions - enforced by test-coverage-report/coverage-gate. The rule
-         is 90. Since story 100 both platforms run the documented features end to end
+         is 90. Both platforms run the documented features end to end
          against a real cluster, so the Quarkus line moved from 72 to what its own suite
          reaches. What still separates the two is the startup check for old process
-         versions (story 57): it needs several boots against one cluster, and a Quarkus
+         versions: it needs several boots against one cluster, and a Quarkus
          prod-mode test boots its application once per test class. -->
     <coverage.threshold.spring-boot>90</coverage.threshold.spring-boot>
     <coverage.threshold.quarkus>87</coverage.threshold.quarkus>
@@ -450,8 +450,7 @@
                   open). Three tests then sit in their deadline and turn the line red as a whole,
                   which hides whatever else this line might break - and a matrix that is always red
                   stops being read. They are excluded here, by tag, so the rest of the line keeps
-                  saying something. Remove this together with the tag once Camunda ships the fix;
-                  story 94 carries that.
+                  saying something. Remove this together with the tag once Camunda ships the fix.
                 -->
                 <excludedGroups>user-task-listener-jobs</excludedGroups>
               </configuration>

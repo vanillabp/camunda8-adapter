@@ -14,7 +14,7 @@ import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
 /**
- * The two workflows of the shutdown integration test (story 90): one handler outlives the
+ * The two workflows of the shutdown integration test: one handler outlives the
  * grace period and is cut off by the closing client, the other one finishes inside it.
  */
 @Service

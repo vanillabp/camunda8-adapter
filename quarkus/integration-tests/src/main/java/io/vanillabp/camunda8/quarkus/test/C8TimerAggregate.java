@@ -7,7 +7,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * The workflow aggregate of the workflow the CLUSTER starts on its own (story 41). Its
+ * The workflow aggregate of the workflow the CLUSTER starts on its own. Its
  * id is a String assigned by VanillaBP - nobody starts this workflow through the
  * {@code ProcessService}, so no application code could assign one.
  */
@@ -23,7 +23,7 @@ public class C8TimerAggregate {
   private String processedBy;
 
   /**
-   * Set by the <code>&#64;WorkflowEnded</code> method (story 43).
+   * Set by the <code>&#64;WorkflowEnded</code> method.
    */
   private String endedAs;
 

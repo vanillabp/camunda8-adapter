@@ -9,7 +9,7 @@ import io.camunda.client.CredentialsProvider;
 
 /**
  * The credentials one Camunda 8 adapter instance sends, and what it says when the
- * cluster refuses them (story 88).
+ * cluster refuses them.
  * <p>
  * Two things happen here. The first is building the client's own
  * {@link CredentialsProvider} from the adapter's <code>auth.*</code> block, reusing the

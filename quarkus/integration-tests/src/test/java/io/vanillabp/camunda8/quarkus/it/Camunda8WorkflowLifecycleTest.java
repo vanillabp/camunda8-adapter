@@ -31,7 +31,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * The Camunda 8 adapter's documented features, run end to end on a BOOTED Quarkus
- * application against a real cluster (story 100).
+ * application against a real cluster.
  * <p>
  * This duplicates what the Spring Boot integration tests prove, and the duplication is
  * the point: the adapter's platform-neutral core being correct says nothing about a
@@ -59,12 +59,12 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <p>
  * Three things of the Spring Boot suite are deliberately NOT repeated here:
  * <ul>
- * <li>the startup check for old process versions (story 57) needs several boots
+ * <li>the startup check for old process versions needs several boots
  * against one cluster, each with a different model, and a prod-mode test boots its
  * application once per test class - the same reason the Camunda 7 adapter wrote
  * down;</li>
- * <li>authentication against a protected cluster (story 88) and the shutdown drain
- * (story 90) each need a cluster or a lifecycle of their own, which is a second
+ * <li>authentication against a protected cluster and the shutdown drain
+ * each need a cluster or a lifecycle of their own, which is a second
  * container and a second boot;</li>
  * <li>{@code cancelUserTask} is answered by the release line the build runs on, so
  * asserting it here would need a test source per line - the core's
@@ -116,7 +116,7 @@ public class Camunda8WorkflowLifecycleTest {
       .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "elasticsearch")
       .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_ELASTICSEARCH_URL", "http://elasticsearch:9200")
       // an unprotected API keeps an authentication provider out of this test - what
-      // credentials reaching the cluster look like is story 88's own test
+      // credentials reaching the cluster look like has a test of its own
       .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
       // the readiness probe turns UP only once the partition leader accepts
       // deployments, which avoids a transient 503 on the first deploy at startup
@@ -802,7 +802,7 @@ public class Camunda8WorkflowLifecycleTest {
 
   }
 
-  // --- pushing a changed aggregate (story 44) ---
+  // --- pushing a changed aggregate ---
 
   @Test
   @DisplayName("A global push updates the workflow's own scope")
@@ -915,7 +915,7 @@ public class Camunda8WorkflowLifecycleTest {
 
   }
 
-  // --- process versions (story 48) ---
+  // --- process versions ---
 
   @Test
   @DisplayName("The version of the deployed process definition decides which method serves the task")
@@ -942,7 +942,7 @@ public class Camunda8WorkflowLifecycleTest {
 
   }
 
-  // --- a workflow the cluster starts on its own (story 41) ---
+  // --- a workflow the cluster starts on its own ---
 
   @Test
   @DisplayName("A timer start event creates the aggregate, the task finds it and the end is reported")
@@ -960,7 +960,7 @@ public class Camunda8WorkflowLifecycleTest {
 
   }
 
-  // --- what a completed job pushes (story 28b) ---
+  // --- what a completed job pushes ---
 
   @Test
   @DisplayName("A gateway right after a @WorkflowTask sees the values that task produced")
@@ -1004,7 +1004,7 @@ public class Camunda8WorkflowLifecycleTest {
     // reaches its worker and a worker asking for everything keeps working
     await(() -> invocations("fetchAllTask", aggregateId) >= 1, "the task fetching everything to be delivered");
     // the SECOND task configures nothing, and its worker still asks for 'bigPayload':
-    // the core scanned the name off the method while wiring (story 99)
+    // the core scanned the name off the method while wiring
     await(() -> invocations("fetchDerivedTask", aggregateId) >= 1, "the task fetching the derived list");
     await(() -> "fetch-all|fetch-derived".equals(resultsOf(aggregateId)), "both tasks to have committed");
 
@@ -1017,7 +1017,7 @@ public class Camunda8WorkflowLifecycleTest {
 
   }
 
-  // --- the viewer (story 45) ---
+  // --- the viewer ---
 
   @Test
   @DisplayName("The viewer serves the deployed model, its history and a guiding error for an unknown one")

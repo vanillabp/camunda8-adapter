@@ -10,7 +10,7 @@
 
   <artifactId>camunda8-adapter-election-integration-test</artifactId>
   <name>VanillaBP Camunda 8 adapter - Election integration test</name>
-  <description>The shared-cluster election of story 103, in a Maven module of its own so its workflow module is one of its own.</description>
+  <description>The shared-cluster election, in a Maven module of its own so its workflow module is one of its own.</description>
 
   <properties>
     <!-- test-only module: no artifact to publish -->

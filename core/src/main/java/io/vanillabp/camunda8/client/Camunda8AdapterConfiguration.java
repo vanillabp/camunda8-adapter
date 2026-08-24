@@ -118,7 +118,7 @@ public class Camunda8AdapterConfiguration {
    * How this adapter instance proves who it is - the block
    * <code>vanillabp.adapters.&lt;id&gt;.auth.*</code>. Never <code>null</code>: an
    * adapter without the block authenticates with <code>none</code>, which is what every
-   * configuration written before story 88 did.
+   * configuration without it does.
    */
   private Camunda8AuthConfiguration auth = new Camunda8AuthConfiguration();
 
@@ -669,7 +669,7 @@ public class Camunda8AdapterConfiguration {
   /**
    * The client's own default for {@link #requestTimeout}, which is also the window an
    * activation request waits at the cluster. Named here because the shutdown has to
-   * outlast it (story 102) and the check has to know it even where nothing is configured.
+   * outlast it and the check has to know it even where nothing is configured.
    */
   public static final java.time.Duration DEFAULT_REQUEST_TIMEOUT = java.time.Duration.ofSeconds(10);
 

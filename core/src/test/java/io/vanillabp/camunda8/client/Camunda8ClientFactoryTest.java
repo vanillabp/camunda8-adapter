@@ -84,7 +84,7 @@ public class Camunda8ClientFactoryTest {
     try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
 
       assertEquals(4, factory.getClient().getConfiguration().getNumJobWorkerExecutionThreads(),
-          "the client's own default of one is what this story fixes");
+          "four execution slots, not the client's own default of one");
       assertNull(factory.getVirtualThreadExecutor(), "the platform mode lets the client build its pool");
       assertEquals(32, factory.getClient().getConfiguration().getDefaultJobWorkerMaxJobsActive(),
           "eight per slot, capped at the client's 32");

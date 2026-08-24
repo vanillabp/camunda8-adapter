@@ -8,7 +8,7 @@ import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
 /**
- * The workflow service of the secondary-storage integration test (story 52): the
+ * The workflow service of the secondary-storage integration test: the
  * workflow waits for a message, and correlating it needs the probe which locates the
  * BPMS holding the workflow.
  */

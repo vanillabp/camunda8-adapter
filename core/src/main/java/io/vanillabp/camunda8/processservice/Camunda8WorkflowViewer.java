@@ -25,7 +25,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The Camunda 8 part of VanillaBP's viewer/history API (story 26).
+ * The Camunda 8 part of VanillaBP's viewer/history API.
  * <p>
  * <b>Two data sources, deliberately:</b>
  * <ol>
@@ -60,7 +60,7 @@ public class Camunda8WorkflowViewer {
 
   /**
    * Maps (workflow module ID, plain BPMN process ID) to the process definition id the
-   * CLUSTER knows - the name-clash-avoidance mode may prefix it (story 35). Queries
+   * CLUSTER knows - the name-clash-avoidance mode may prefix it. Queries
    * against the cluster have to use the scoped id, while everything served from the
    * deployment record stays plain.
    */

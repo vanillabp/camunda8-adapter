@@ -14,7 +14,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * How the authentication of one adapter instance resolves, and what it says while it
- * cannot be built (story 88). Every message is asserted by the property keys it has to
+ * cannot be built. Every message is asserted by the property keys it has to
  * carry: a message which names the defect without naming the key sends the reader to the
  * documentation, which is what these messages exist to avoid.
  */

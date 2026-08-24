@@ -21,8 +21,8 @@ import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeIoMapping;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * What the adapter has to do to a model before Camunda 8 can report an iteration
- * (story 62): every multi-instance element gets input mappings named after itself,
+ * What the adapter has to do to a model before Camunda 8 can report an iteration:
+ * every multi-instance element gets input mappings named after itself,
  * and which iterations enclose which element is remembered for dispatch.
  */
 @ExtendWith(SuppressOutputExtension.class)

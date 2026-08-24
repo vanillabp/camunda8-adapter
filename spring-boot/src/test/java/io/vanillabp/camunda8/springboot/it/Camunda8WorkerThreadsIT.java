@@ -24,10 +24,10 @@ import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The acceptance test of story 74 against a real Camunda 8 cluster: a handler which
+ * Execution slots against a real Camunda 8 cluster: a handler which
  * blocks must not delay the job of another worker of the same adapter.
  * <p>
- * This is the defect the story fixes, turned into a test. The client's own default is
+ * The defect this guards against, turned into a test. The client's own default is
  * ONE execution thread, and that one thread runs every handler invocation AND the poll
  * scheduling of every worker of the client, so a blocking handler stopped the adapter
  * from asking the cluster for work at all. The spike measured 8013 ms of delay for an
@@ -151,7 +151,7 @@ public class Camunda8WorkerThreadsIT {
   }
 
   @Test
-  @DisplayName("the cluster reports itself to the metrics and to the health endpoint (story 92)")
+  @DisplayName("the cluster reports itself to the metrics and to the health endpoint")
   public void theClusterIsMeasuredAndReported() throws Exception {
 
     // the meters of this adapter, bound by hand: this application has no Actuator, which

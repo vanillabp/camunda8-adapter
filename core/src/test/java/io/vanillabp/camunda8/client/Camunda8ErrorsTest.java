@@ -15,7 +15,7 @@ import io.camunda.client.api.command.ProblemException;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 73: which phase-two failures of Camunda 8 are worth repeating. The classification
+ * Which phase-two failures of Camunda 8 are worth repeating. The classification
  * is a pure function of the failure, so the boundary cases belong here and not into a test
  * against a cluster.
  */
@@ -116,7 +116,7 @@ public class Camunda8ErrorsTest {
 
     // repeatable for an outbox entry (404 is the signature of eventual consistency) and
     // permanent for a command against THIS job - repeating it would turn the tolerated
-    // at-least-once residual into a retry storm (story 91)
+    // at-least-once residual into a retry storm
     assertFalse(Camunda8Errors.permanentFailure(problem(404)));
     assertFalse(Camunda8Errors.repeatableJobCommandFailure(problem(404)));
 

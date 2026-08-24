@@ -27,13 +27,13 @@ import java.util.TreeSet;
  * worker kinds starts by reading it, and the name is a property of the BPMN process
  * rather than of the adapter, so a worker serving two processes which disagree carries
  * both names;</li>
- * <li>the <strong>multi-instance context</strong> of the element the job belongs to
- * (story 62): the index, the total and the element of every iteration enclosing it,
+ * <li>the <strong>multi-instance context</strong> of the element the job belongs to:
+ * the index, the total and the element of every iteration enclosing it,
  * in the variables {@link Camunda8MultiInstance} injects while the model is deployed.
  * Which ones those are depends on the element, which is why this list is not a
  * constant;</li>
  * <li>every variable a {@code @TaskParam} of the served tasks reads
- * ({@code WorkflowTaskInvoker#taskParameterNames}, story 99). Those names live on the
+ * ({@code WorkflowTaskInvoker#taskParameterNames}). Those names live on the
  * handler methods, and the core reads them off the annotations while the application
  * wires itself - so this part of the list says what the application asks for instead of
  * guessing it from the model. The workflow-end listener is left out of it: a
@@ -52,7 +52,7 @@ import java.util.TreeSet;
  * subscribes to a job type and serves every task of the workflow module using it, across
  * BPMN processes, so its list is the union over everything it serves. The list is also
  * part of what the gateway compares when it decides whether two job streams are
- * equivalent (story 74), so it has to be the same on every node and after every restart
+ * equivalent, so it has to be the same on every node and after every restart
  * of one application version: it is therefore sorted, and derived from the deployed
  * models rather than from the iteration order of a hash map.
  * </p>
@@ -162,9 +162,8 @@ public final class Camunda8FetchVariables {
 
   /**
    * What a delivery says when the variable holding the workflow aggregate's ID is not
-   * there. Until story 93 there was one cause, a workflow started past VanillaBP; since
-   * the workers name what they fetch, a list which does not carry the name is the second
-   * one, so the message names the list too.
+   * there. Two causes lead here: a workflow started past VanillaBP, and a worker whose
+   * fetched list does not carry the name. The message therefore names the list too.
    *
    * @param what What kind of job it is, capitalized ("Job", "The user-task listener job")
    * @param jobKey The job's key
@@ -207,8 +206,8 @@ public final class Camunda8FetchVariables {
    * of what the model computed - so the delivery fails, which on this BPMS means retries
    * and then an incident naming the way out.
    * <p>
-   * Since story 99 the worker asks for every name a <code>&#64;TaskParam</code> of the
-   * tasks it serves DECLARES, so getting here means the name was not declared on the
+   * The worker asks for every name a <code>&#64;TaskParam</code> of the tasks it serves
+   * DECLARES, so getting here means the name was not declared on the
    * method: it was assembled at runtime, or read past the annotation. The message says
    * so, because the first thing a reader will check is the annotation, and it is right
    * there.

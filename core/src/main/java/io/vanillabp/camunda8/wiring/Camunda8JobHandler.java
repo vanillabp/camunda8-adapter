@@ -29,7 +29,7 @@ import lombok.extern.slf4j.Slf4j;
  * changes committed);</li>
  * <li>any other exception fails the job with decremented retries - the local
  * transaction was already rolled back by the core;</li>
- * <li>the completion CARRIES THE AGGREGATE STATE (story 28b): the values the
+ * <li>the completion CARRIES THE AGGREGATE STATE: the values the
  * aggregate shares with the BPMS plus - always - the technical aggregate-ID
  * variable. Without them a gateway right after the service task would evaluate the
  * values of the last {@code ProcessService}-driven sync point, i.e. STALE data. The
@@ -49,14 +49,14 @@ import lombok.extern.slf4j.Slf4j;
  * redelivery and the application never notices it. The worker's regular job timeout
  * stays short: crash recovery of non-async tasks is not delayed.</li>
  * <li>the command which reports the outcome is REPEATED where the cluster rejected it for
- * backpressure (story 91): a completion of work which is already committed must not cost
+ * backpressure: a completion of work which is already committed must not cost
  * the job a retry just because the cluster was busy. The retry is bounded by the job's
  * remaining lock and by five attempts, see
  * {@link io.vanillabp.camunda8.client.Camunda8CommandRetry} - a handler waiting occupies
  * an execution slot, which is why the bound is small. A job which is failed after all gets
  * a <code>retry-backoff</code>, so the cluster's next attempt is not immediate;</li>
  * <li>a delivery which fails while the workflow module is SHUTTING DOWN is not reported
- * as a job failure (story 90): the adapter's state decides, not the exception, because a
+ * as a job failure: the adapter's state decides, not the exception, because a
  * handler interrupted by the closing client throws like any other. The job keeps its lock
  * and its retries, the cluster hands it out again once the lock expires, and VanillaBP's
  * delivery record decides whether the work has to run again. Before that, the shutdown
@@ -93,7 +93,7 @@ public class Camunda8JobHandler implements JobHandler {
   private final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction;
 
   /**
-   * What the workflow module has in flight, and whether it is going down (story 90):
+   * What the workflow module has in flight, and whether it is going down:
    * this handler registers its delivery there, and a failure while the module is going
    * down is the shutdown rather than the application. Never <code>null</code> - a handler
    * built without one (tests) gets a drain of its own, which never shuts down.
@@ -107,27 +107,27 @@ public class Camunda8JobHandler implements JobHandler {
 
   /**
    * Translates the identifiers the cluster reports back into the plain ones the core
-   * knows (story 35) - a no-op unless the workflow module uses prefixes. May be
+   * knows - a no-op unless the workflow module uses prefixes. May be
    * <code>null</code> (tests).
    */
   private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
 
   /**
-   * Which multi-instance elements enclose the job's element (story 62). May be
+   * Which multi-instance elements enclose the job's element. May be
    * <code>null</code> (tests) - then no iteration is reported, which is what this
    * adapter did before.
    */
   private final Camunda8MultiInstance.Registry multiInstanceRegistry;
 
   /**
-   * How long the cluster waits before it hands a failed job out again (story 91), resolved
+   * How long the cluster waits before it hands a failed job out again, resolved
    * per task. May be <code>null</code> (tests) - then
    * {@link Camunda8RetryBackoffResolver#DEFAULT_RETRY_BACKOFF} applies.
    */
   private final Camunda8RetryBackoffResolver retryBackoffResolver;
 
   /**
-   * What this worker asked the cluster for (story 93) - a job carries these variables and
+   * What this worker asked the cluster for - a job carries these variables and
    * no others. Read twice: a missing aggregate-ID variable now has a second possible
    * cause, and a <code>&#64;TaskParam</code> outside the list is a question this delivery
    * cannot answer. Never <code>null</code>; a handler built without one (tests) sees
@@ -259,7 +259,7 @@ public class Camunda8JobHandler implements JobHandler {
       final ActivatedJob job) {
 
     // the cluster reports the identifiers IT knows - translate them back into the
-    // plain ones the core's registries are keyed by (story 35)
+    // plain ones the core's registries are keyed by
     final var bpmnProcessId = scoping == null
         ? job.getBpmnProcessId()
         : scoping.plainProcessId(workflowModuleId, job.getBpmnProcessId(), adapterId);
@@ -267,7 +267,7 @@ public class Camunda8JobHandler implements JobHandler {
         ? job.getType()
         : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, job.getType(), adapterId);
 
-    // story 90: from here until the finally, the shutdown of this workflow module waits
+    // From here until the finally, the shutdown of this workflow module waits
     // for this handler instead of pulling the client away from under it
     drain.jobStarted(job.getKey(), KIND, taskDefinition, bpmnProcessId);
     try {
@@ -317,7 +317,7 @@ public class Camunda8JobHandler implements JobHandler {
           new Camunda8TaskInvocationContext(adapterId, taskDefinition, String
               .valueOf(aggregateId), job, multiInstanceRegistry, fetchVariables));
     } catch (final Exception e) {
-      // story 90: while the module is going down, the failure is the shutdown and not the
+      // While the module is going down, the failure is the shutdown and not the
       // application - the job keeps its lock and its retries
       if (drain.leaveJobToItsLock(job.getKey(), KIND, taskDefinition, e)) {
         return;
@@ -347,7 +347,7 @@ public class Camunda8JobHandler implements JobHandler {
               .retries(job.getRetries() - 1)
               // without it the cluster hands the job out again at once, so a handler
               // failing on something which needs a moment burns its retries before the
-              // cause has a chance to pass (story 91)
+              // cause has a chance to pass
               .retryBackoff(retryBackoff)
               // the type belongs into the incident as much as the message does: what a
               // NullPointerException says on its own is 'null'
@@ -376,7 +376,7 @@ public class Camunda8JobHandler implements JobHandler {
             drain::isShuttingDown,
             () -> client
                 .newThrowErrorCommand(job.getKey())
-                // the model's error codes are prefixed too (story 35), so the code the
+                // the model's error codes are prefixed too, so the code the
                 // business method raised has to be translated on its way to the cluster
                 .errorCode(scoping == null
                     ? outcome.errorCode()
@@ -497,8 +497,9 @@ public class Camunda8JobHandler implements JobHandler {
 
   /**
    * The variables the completion of a job carries: the values the workflow
-   * aggregate shares with the cluster (story 28b - the {@code @WorkflowTask} method
-   * just changed it and a gateway right after this task has to see the NEW values)
+   * aggregate shares with the cluster (the {@code @WorkflowTask} method just changed
+   * it and a gateway right after this task has to see the NEW values; see decision 1
+   * in the repository's README.md)
    * plus - always, no matter what the sync model says - the technical variable
    * holding the aggregate's ID.
    *
@@ -538,7 +539,7 @@ public class Camunda8JobHandler implements JobHandler {
 
     try {
       // the work is committed at this point, so a cluster which is momentarily too busy
-      // must not cost the job a retry (story 91)
+      // must not cost the job a retry
       io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
           adapterId,
           "completion",
@@ -625,7 +626,7 @@ public class Camunda8JobHandler implements JobHandler {
     }
 
     /**
-     * What the cluster knows about the iteration this job belongs to (story 62). The
+     * What the cluster knows about the iteration this job belongs to. The
      * registry is keyed by the process id the CLUSTER knows, which is what the job
      * reports - element ids themselves are never scoped.
      */
@@ -659,7 +660,7 @@ public class Camunda8JobHandler implements JobHandler {
     public String getProcessVersion() {
 
       // the version of the deployed process definition this job belongs to - the
-      // cluster ships it with every job, so nothing has to be queried (story 48)
+      // cluster ships it with every job, so nothing has to be queried
       return String.valueOf(job.getProcessDefinitionVersion());
 
     }
@@ -685,7 +686,7 @@ public class Camunda8JobHandler implements JobHandler {
       // the job key is stable across redeliveries of the same job (a failed job is
       // re-activated under its key, and the key of a completed job is never handed out
       // again), while every new element activation creates a new job - exactly the
-      // identity the core remembers a processed delivery by (story 51)
+      // identity the core remembers a processed delivery by
       return String.valueOf(job.getKey());
 
     }

@@ -66,14 +66,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final io.vanillabp.camunda8.wiring.Camunda8MultiInstance.Registry multiInstanceRegistry = new io.vanillabp.camunda8.wiring.Camunda8MultiInstance.Registry();
 
   /**
-   * The core's entry point for workflows the cluster starts on its own (story 41):
+   * The core's entry point for workflows the cluster starts on its own:
    * the start events of a process are reported here while wiring, and the start
    * execution-listener workers dispatch through it. May be <code>null</code> (tests).
    */
   private io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker;
 
   /**
-   * The core's entry point for workflows which ended (story 43). May be
+   * The core's entry point for workflows which ended. May be
    * <code>null</code> (tests) - no end listener is attached then.
    */
   private io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker workflowEndedInvoker;
@@ -104,7 +104,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * Whether a worker asks the cluster for the variables this adapter derived or for all
-   * of them (story 93). Handed in by the platform module after construction rather than
+   * of them. Handed in by the platform module after construction rather than
    * through the constructor, whose parameter list is long enough; <code>null</code>
    * (tests) means the default, which is the derived list.
    */
@@ -123,7 +123,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
-   * What this adapter instance measures on top of what the core measures (story 92).
+   * What this adapter instance measures on top of what the core measures.
    * Handed in by the platform module after construction, because it exists once per
    * application while deployment services exist per adapter id;
    * {@link io.vanillabp.camunda8.observability.Camunda8Metrics#NONE} for an application
@@ -152,8 +152,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * Publishes how many handlers this adapter instance may run, how many of them run right
    * now and how many jobs wait for a slot.
    * <p>
-   * The last two exist only in the virtual-thread mode, where the executor of story 74
-   * holds the bound. In the platform-thread mode the client owns its own pool and does
+   * The last two exist only in the virtual-thread mode, where the adapter's own
+   * executor holds the bound. In the platform-thread mode the client owns its own pool and does
    * not report what it does with it, so those two gauges are absent rather than guessed.
    */
   private void registerExecutionSlots() {
@@ -202,8 +202,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
-   * How long this adapter instance's shutdown waits for the handlers it has in flight
-   * (story 90). Read from the adapter's own configuration rather than passed through the
+   * How long this adapter instance's shutdown waits for the handlers it has in flight.
+   * Read from the adapter's own configuration rather than passed through the
    * wiring, because it belongs to the connection like every other adapter-level key; a
    * setup without the resolver (tests) uses the default.
    *
@@ -223,7 +223,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * What each workflow module of this adapter instance has in flight, and whether it is
-   * going down (story 90). One per workflow module: stopping one module must not make the
+   * going down. One per workflow module: stopping one module must not make the
    * handlers of another one believe they were cut off.
    */
   private final Map<String, io.vanillabp.camunda8.client.Camunda8Drain> drains = new java.util.concurrent.ConcurrentHashMap<>();
@@ -267,7 +267,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final Camunda8JobTimeoutResolver jobTimeoutResolver;
 
   /**
-   * Resolves how long the cluster waits before it hands a FAILED job out again (story 91),
+   * Resolves how long the cluster waits before it hands a FAILED job out again,
    * from the same four levels the job timeout comes from. Unlike the timeout this is not a
    * property of the worker but of each fail command, so nothing has to be aligned between
    * the processes one worker serves. May be <code>null</code> (tests): the default of ten
@@ -289,7 +289,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations;
 
   /**
-   * The core's name-clash-avoidance model (story 35): decides whether a workflow
+   * The core's name-clash-avoidance model: decides whether a workflow
    * module is isolated by a TENANT ({@code by-adapter}, version 1's behavior), by
    * PREFIXING the identifiers ({@code use-prefix} - no tenant, which is what makes
    * tenant licenses avoidable) or not at all ({@code none}, this adapter's default).
@@ -368,7 +368,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     // which release line this application runs, once per adapter id: the client named
     // here is the LOWEST cluster version these artifacts accept, and a reader comparing
-    // it to their cluster sees at a glance whether they are on the right line (story 53)
+    // it to their cluster sees at a glance whether they are on the right line
     log.info(
         "Camunda8[{}]: release line {} of the adapter, built against Camunda client {}, "
             + "which is the lowest cluster version it accepts",
@@ -383,7 +383,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     this.asyncTaskLockRenewal = asyncTaskLockRenewal;
     this.configurations = configurations;
     this.scoping = scoping;
-    // story 48: what the cluster's process definitions are versioned as - the version
+    // What the cluster's process definitions are versioned as - the version
     // travels with every job, the version TAGS come from here
     this.processVersions = new Camunda8ProcessVersions(
         adapterId, clientFactory::getClient, this::scopedProcessId, this::tenantIdOf);
@@ -391,14 +391,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
-   * The versions of this cluster's process definitions (story 48): the catalog the core
+   * The versions of this cluster's process definitions: the catalog the core
    * resolves version TAGS through. The version itself travels with every job.
    */
   private final Camunda8ProcessVersions processVersions;
 
   /**
    * The tenant a workflow module is deployed to, respectively its operations are
-   * executed in - decided by the name-clash-avoidance mode (story 35), with the
+   * executed in - decided by the name-clash-avoidance mode, with the
    * adapter's configured <code>tenant-id</code> naming it under
    * {@code by-adapter}.
    *
@@ -406,7 +406,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * @return The tenant ID or <code>null</code> if no tenant is used
    */
   /**
-   * The BPMN process id as the CLUSTER knows it (story 35) - the model carries the
+   * The BPMN process id as the CLUSTER knows it - the model carries the
    * scoped ids after {@code prepareBpmn}, while the core is keyed by the plain ones.
    */
   private String scopedProcessId(
@@ -434,7 +434,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * The identifier as the application modelled it - the model carries the scoped one
-   * where the workflow module prefixes its identifiers (story 35).
+   * where the workflow module prefixes its identifiers.
    */
   private String plainIdentifier(
       final String workflowModuleId,
@@ -529,8 +529,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * An application on such a cluster says so once, with
    * {@code vanillabp.adapters.<id>.name-clash-avoidance: none} (version 1's
    * {@code use-tenants: false}) or {@code use-prefix}, which needs no cluster support
-   * at all. Story 106 restored this default after it stood at {@code none} between
-   * 2026-08-11 and 2026-08-22; {@code Camunda8DeploymentServiceTest} holds it.
+   * at all. This default stood at {@code none} between 2026-08-11 and 2026-08-22,
+   * which was the defect; {@code Camunda8DeploymentServiceTest} holds it now.
    */
   @Override
   public io.vanillabp.integration.adapter.spi.NameClashAvoidance defaultNameClashAvoidance() {
@@ -663,7 +663,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     final var context = existingContext != null
         ? existingContext
         : new Camunda8ProcessingContext(workflowModuleId);
-    // story 35: rewrite the identifiers the cluster resolves globally BEFORE wiring,
+    // Rewrite the identifiers the cluster resolves globally BEFORE wiring,
     // so everything downstream (wiring validation, listener injection, workers) sees
     // what the cluster will see. A no-op unless the mode is 'use-prefix'. The core
     // calls prepareBpmn once per executable PROCESS while all processes of a file
@@ -692,13 +692,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // the model carries the identifiers the CLUSTER will know (prepareBpmn rewrote
     // them in mode 'use-prefix'), while the core is keyed by the plain ones - so the
     // model is searched by the SCOPED process id and the invoker is called with the
-    // plain one (story 35)
+    // plain one
     final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
     // extract the job-worker tasks (zeebe:taskDefinition type = VanillaBP task
     // definition) and validate them against the registered @WorkflowTask methods;
     // throwing here honors the deployment-failure policy
     final var tasks = Camunda8TaskWiring.tasksOf(model, scopedBpmnProcessId);
-    // Camunda-managed user tasks (story 24): the V1-compatible lifecycle task
+    // Camunda-managed user tasks: the V1-compatible lifecycle task
     // listeners are ADDED TO THE MODEL here (wireBpmn is the BPMN-modification
     // stage of the pipeline) - the modified model is what deployResources deploys
     final var userTasks = Camunda8TaskWiring.userTasksOf(model, scopedBpmnProcessId, workflowModuleId, filename);
@@ -715,16 +715,16 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
     workflowTaskInvoker.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
-    // story 57: the same extraction serves the models of OLDER versions the cluster
+    // The same extraction serves the models of OLDER versions the cluster
     // still holds, so both directions see a model the same way
     processVersions.setTasksOfModel(this::taskSpecsOf);
 
-    // story 48: the cluster can be asked which versions of this process it has, which
+    // The cluster can be asked which versions of this process it has, which
     // is what a version specification naming a version TAG needs
     workflowTaskInvoker
         .registerProcessVersions(adapterId, workflowModuleId, bpmnProcessId, processVersions);
 
-    // story 59: which elements can put a second token into a running workflow - two
+    // Which elements can put a second token into a running workflow - two
     // tokens are two writers on the workflow aggregate, and the core knows whether
     // that aggregate can survive them
     workflowTaskInvoker
@@ -733,7 +733,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             bpmnProcessId,
             Camunda8TaskWiring.concurrentTokenElementIdsOf(model, scopedBpmnProcessId));
 
-    // message correlation (story 23): inject the correlation-key expression
+    // message correlation: inject the correlation-key expression
     // '=<aggregate-ID variable>' into message subscriptions lacking one - the V2
     // convention enabling ProcessService#correlateMessage without manual model
     // tweaks (existing expressions stay untouched, V1 models deploy unchanged)
@@ -741,7 +741,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         model,
         scopedBpmnProcessId,
         () -> workflowTaskInvoker.resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId));
-    // multi-instance (story 62): the input mappings which make the element, the index
+    // multi-instance: the input mappings which make the element, the index
     // and the total of every iteration readable from a job are ADDED TO THE MODEL
     // here, and which iterations enclose which element is remembered for dispatch
     io.vanillabp.camunda8.wiring.Camunda8MultiInstance
@@ -749,7 +749,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     context.getTasksToWire().addAll(tasks);
     context.getUserTasksToWire().addAll(userTasks);
 
-    // start events the cluster fires on its own (story 41): the start execution
+    // start events the cluster fires on its own: the start execution
     // listener building the workflow aggregate is ADDED TO THE MODEL here as well
     if (bpmsInitiatedStartInvoker != null) {
       final var bpmsInitiatedStarts = Camunda8TaskWiring
@@ -770,7 +770,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     }
 
     // the end of a workflow is reported only where the application asked for it -
-    // a model must not pay for a listener nobody wants (story 43)
+    // a model must not pay for a listener nobody wants
     if ((workflowEndedInvoker != null) && workflowEndedInvoker
         .workflowEndedHandlerExists(workflowModuleId, bpmnProcessId) && Camunda8TaskWiring
             .attachWorkflowEndedListener(model, scopedBpmnProcessId)) {
@@ -789,7 +789,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * The tasks of ONE model as the core validates them - used for the model this boot
-   * deploys and for the models of older versions the cluster still holds (story 57).
+   * deploys and for the models of older versions the cluster still holds.
    *
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The PLAIN BPMN process ID
@@ -841,7 +841,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       command = next.addProcessModel(resource.getValue(), resource.getKey());
     }
 
-    // story 35: which tenant a workflow module is deployed to is decided by the
+    // Which tenant a workflow module is deployed to is decided by the
     // name-clash-avoidance mode - 'by-adapter' (the default, version 1's behavior)
     // uses the workflow module id, overridable by the adapter's 'tenant-id';
     // 'use-prefix' and 'none' use no tenant at all (the identifiers were prefixed
@@ -886,7 +886,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               return;
             }
             // the cluster reports the id IT knows; the viewer API is keyed by the
-            // PLAIN one, like every other core-facing identifier (story 35)
+            // PLAIN one, like every other core-facing identifier
             final var plainBpmnProcessId = scoping == null
                 ? process.getBpmnProcessId()
                 : scoping.plainProcessId(workflowModuleId, process.getBpmnProcessId(), adapterId);
@@ -896,7 +896,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                     new Camunda8DeployedProcesses.DeployedProcess(
                         workflowModuleId, plainBpmnProcessId, String
                             .valueOf(process.getProcessDefinitionKey()), process.getVersion(), model));
-            // story 48: the version the cluster just assigned, together with the
+            // The version the cluster just assigned, together with the
             // version tag of the model deployed - no query needed for either
             processVersions
                 .recordDeployed(
@@ -904,7 +904,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                     plainBpmnProcessId,
                     process.getVersion(),
                     Camunda8TaskWiring.versionTagOf(model, process.getBpmnProcessId()));
-            // story 57: the border between the model this boot brought and the older
+            // The border between the model this boot brought and the older
             // versions the cluster still holds
             workflowTaskInvoker
                 .registerDeployedVersion(
@@ -929,11 +929,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // any wired process are a defect (per-module check, honors the policy)
     workflowTaskInvoker.validateNoUnwiredWorkflowTaskMethods(workflowModuleId);
 
-    // story 48: the deployment is done, so the version tags the application's
+    // The deployment is done, so the version tags the application's
     // annotations name can be resolved against what the cluster has now
     workflowTaskInvoker.resolveProcessVersions(workflowModuleId);
 
-    // story 103: two adapter ids on one cluster are told apart by the scope a workflow
+    // Two adapter ids on one cluster are told apart by the scope a workflow
     // was deployed under, and asking a KEY for its scope needs the query API
     failIfTwoAdapterIdsShareAClusterWithoutQueryApi();
 
@@ -946,7 +946,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * Ends the boot where two <code>camunda8</code> adapter ids address one cluster whose
-   * query API is unavailable (story 103).
+   * query API is unavailable.
    * <p>
    * On a shared cluster every key is global, so the election has to ask which scope a job
    * respectively a user task belongs to before an adapter claims it, and that question can
@@ -1025,7 +1025,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder,
       final String jobType) {
 
-    // the client's own counters (story 92): it activates and hands over jobs long before
+    // the client's own counters: it activates and hands over jobs long before
     // the core sees a delivery, so this is where the queue in front of the execution
     // slots becomes visible
     final var withMetrics = builder.metrics(metrics.workerMetrics(adapterId, jobType));
@@ -1125,7 +1125,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
-   * What one worker asks the cluster for (story 93): the union of the aggregate-ID
+   * What one worker asks the cluster for: the union of the aggregate-ID
    * variables, multi-instance contexts and declared <code>&#64;TaskParam</code> names of
    * everything it serves, unless a level of the configuration says <code>all</code>.
    *
@@ -1163,7 +1163,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           variables,
           aggregateIdName,
           multiInstanceRegistry.chainOf(element.scopedBpmnProcessId(), element.elementId()));
-      // and what the handlers of this element read with @TaskParam (story 99): the core
+      // and what the handlers of this element read with @TaskParam: the core
       // scanned those names off the methods while wiring, so the list is what the
       // application asks for rather than what the model happens to mention
       variables
@@ -1234,14 +1234,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // The job timeout is resolved most-specific-wins - a task definition used by
     // several tasks with CONFLICTING configured timeouts fails guiding.
     final var timeoutsByDefinition = new LinkedHashMap<String, Duration>();
-    // what each worker serves, which is what its fetch list is the union over (story 93)
+    // what each worker serves, which is what its fetch list is the union over
     final var servedByJobType = new LinkedHashMap<String, List<ServedElement>>();
     final var client = clientFactory.getClient();
     // what this module has in flight, and later whether it is going down: every handler
-    // registers its delivery here, and stopWorkflowProcessing waits for them (story 90)
+    // registers its delivery here, and stopWorkflowProcessing waits for them
     final var drain = freshDrainOf(workflowModuleId);
     // and the client learns that this module has workers open, so a shutdown path which
-    // never reaches stopWorkflowProcessing does not close the client under them (story 102)
+    // never reaches stopWorkflowProcessing does not close the client under them
     clientFactory.workflowModuleStarted(
         workflowModuleId,
         () -> stopWorkflowProcessing(workflowModuleId, bpmsProcessingContext));
@@ -1252,7 +1252,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             return; // already reported by the wiring validation
           }
           // the records carry what the CLUSTER knows (the worker subscribes to it),
-          // but the configuration is keyed by the PLAIN names (story 35)
+          // but the configuration is keyed by the PLAIN names
           final var plainBpmnProcessId = plainProcessId(workflowModuleId, task.bpmnProcessId());
           final var plainTaskDefinition = plainTaskDefinition(
               workflowModuleId,
@@ -1283,7 +1283,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                         adapterId));
           }
         });
-    // user-task lifecycle listeners (story 24): one worker per distinct listener
+    // user-task lifecycle listeners: one worker per distinct listener
     // job type; listener jobs are consumed like normal jobs
     final var userTasksByListenerJobType = new LinkedHashMap<String, java.util.List<String>>();
     bpmsProcessingContext
@@ -1318,7 +1318,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           listenerFetch);
       final var listenerTenantId = tenantIdOf(workflowModuleId);
       if (listenerTenantId != null) {
-        // story 35 / 'by-adapter': jobs of a tenant are only delivered to workers
+        // with 'by-adapter': jobs of a tenant are only delivered to workers
         // subscribing for that tenant
         listenerWorkerBuilder = listenerWorkerBuilder.tenantId(listenerTenantId);
       }
@@ -1331,7 +1331,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           workflowModuleId);
     });
 
-    // start events the cluster fires on its own (story 41): one worker per start
+    // start events the cluster fires on its own: one worker per start
     // event, since its job type carries the process and the element
     bpmsProcessingContext
         .getBpmsInitiatedStartsToWire()
@@ -1368,7 +1368,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               workflowModuleId);
         });
 
-    // one worker per process whose end is reported (story 43)
+    // one worker per process whose end is reported
     bpmsProcessingContext
         .getWorkflowEndedProcessesToWire()
         .forEach(scopedProcessId -> {
@@ -1442,7 +1442,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final Camunda8ProcessingContext bpmsProcessingContext) {
 
-    // story 90: from here on, a delivery which fails is the shutdown and not the
+    // From here on, a delivery which fails is the shutdown and not the
     // application - the handlers ask the drain before they report anything to the cluster
     final var drain = drainOf(workflowModuleId);
     drain.beginShutdown();
@@ -1456,9 +1456,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     // and then wait until the module is quiet: for the handlers, because closing a worker
     // does not drain it and the client interrupts every running handler when it goes down
-    // right afterwards (story 90), and for the workers themselves, because an activation
+    // right afterwards, and for the workers themselves, because an activation
     // request which is parked at the cluster when the client is closed stays parked and
-    // swallows the first job of the next application (story 102)
+    // swallows the first job of the next application
     final var grace = shutdownGrace();
     final var closedWorkers = workers.size();
     final var outcome = drain.awaitQuiet(

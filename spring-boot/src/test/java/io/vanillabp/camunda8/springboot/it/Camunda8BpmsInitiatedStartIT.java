@@ -21,7 +21,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * End-to-end test of a workflow the CLUSTER starts on its own (story 41) against a
+ * End-to-end test of a workflow the CLUSTER starts on its own against a
  * real Camunda 8: a timer start event fires, the start execution listener VanillaBP
  * injected into the model activates a job, the core builds the workflow aggregate and
  * the job completion writes its ID into the instance - which is how the service task
@@ -31,7 +31,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <p>
  * Every IT class of this module brings a Camunda 8 container of its own, and a fresh
  * cluster hands out the same job keys again. Those keys are what VanillaBP remembers a
- * delivery by (story 51), so the test configuration gives every class a DATABASE of its
+ * delivery by, so the test configuration gives every class a DATABASE of its
  * own (<code>spring.datasource.generate-unique-name</code>) - a shared one let the
  * records of an earlier class answer this class' task with "processed before", and the
  * handler never ran while the workflow completed.
@@ -39,7 +39,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
  * awareness probe answers optimistically - what this test exercises is that fallback.
  * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
- * Elasticsearch (story 52).
+ * Elasticsearch.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -129,7 +129,7 @@ public class Camunda8BpmsInitiatedStartIT {
                 .orElse(null)),
         "the task following the timer start event to be processed");
 
-    // story 43: the cluster reports the end of the workflow, and the application's
+    // The cluster reports the end of the workflow, and the application's
     // method ran against the aggregate
     awaitUntil(
         () -> "COMPLETED".equals(

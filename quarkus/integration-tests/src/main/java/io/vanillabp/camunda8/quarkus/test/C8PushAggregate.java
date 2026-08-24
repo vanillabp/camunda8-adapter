@@ -11,7 +11,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * The workflow aggregate of the aggregateChanged tests (story 44). Every attribute is
+ * The workflow aggregate of the aggregateChanged tests. Every attribute is
  * shared with the cluster, so {@link #note} arrives there as a process variable - and
  * reading it back with its scope is how the test sees WHERE a push landed.
  * <p>

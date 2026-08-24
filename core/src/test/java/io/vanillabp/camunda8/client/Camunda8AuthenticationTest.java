@@ -20,7 +20,7 @@ import io.vanillabp.camunda8.client.Camunda8AuthConfiguration.Method;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * What the adapter sends, and what it says when the cluster refuses it (story 88).
+ * What the adapter sends, and what it says when the cluster refuses it.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8AuthenticationTest {

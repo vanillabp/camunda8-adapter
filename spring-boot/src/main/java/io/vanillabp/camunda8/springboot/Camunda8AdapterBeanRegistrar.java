@@ -83,7 +83,7 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                                     bpmnProcessId,
                                                     taskDefinition) -> overlay.retryBackoffFor(
                                                         workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
-                // story 93: what each worker asks the cluster for, resolvable down to
+                // What each worker asks the cluster for, resolvable down to
                 // task level
                 deploymentService.setFetchVariablesResolver((
                     workflowModuleId,
@@ -100,7 +100,7 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                         .beanProvider(
                             io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker.class)
                         .getIfAvailable());
-                // story 92: the client's job counters and this adapter's execution slots,
+                // The client's job counters and this adapter's execution slots,
                 // where the application brings Micrometer
                 deploymentService.setMetrics(
                     supplierContext

@@ -106,8 +106,8 @@ public final class Camunda8EnvironmentOverrides {
 
   /**
    * The variables from which the client would pick an authentication method of its own -
-   * but only while the application set none. Once the adapter sets a provider, and since
-   * story 88 it always does unless it authenticates with <code>none</code>, these stop
+   * but only while the application set none. Once the adapter sets a provider, which it
+   * always does unless it authenticates with <code>none</code>, these stop
    * choosing the method. The values still apply where they belong to the method the
    * adapter chose, because the client's credential builders read their own environment.
    *

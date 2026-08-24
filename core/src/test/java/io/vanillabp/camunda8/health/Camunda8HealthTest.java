@@ -22,7 +22,7 @@ import io.vanillabp.integration.adapter.spi.health.AdapterHealth;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 92: what one Camunda 8 adapter instance answers when the health endpoint asks
+ * What one Camunda 8 adapter instance answers when the health endpoint asks
  * it. The rules being pinned here are the ones easy to get wrong: an adapter which is
  * not configured yet must not read as an outage, and every answer has to name the
  * address, because that is what an operator acts on.

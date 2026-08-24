@@ -30,7 +30,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.service.BpmsStartTrigger;
 
 /**
- * Story 90, the rule all four worker kinds of this adapter share: a delivery which fails
+ * The rule all four worker kinds of this adapter share: a delivery which fails
  * while the workflow module is shutting down is not reported to the cluster as a job
  * failure. The job keeps its lock and its retries, so an ordinary restart does not walk a
  * job towards an incident it never earned.

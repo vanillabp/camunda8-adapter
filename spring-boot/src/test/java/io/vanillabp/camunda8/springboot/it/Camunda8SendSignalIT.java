@@ -23,7 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * End-to-end test of broadcasting a BPMN signal (story 42) against a real Camunda 8:
+ * End-to-end test of broadcasting a BPMN signal against a real Camunda 8:
  * two workflows wait at an intermediate signal catch event, one broadcast continues
  * both of them. The broadcast happens in phase two, after the local transaction was
  * committed - a rolled-back transaction broadcasts nothing, because its outbox entry
@@ -36,7 +36,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
  * awareness probe answers optimistically - what this test exercises is that fallback.
  * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
- * Elasticsearch (story 52).
+ * Elasticsearch.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -113,7 +113,7 @@ public class Camunda8SendSignalIT {
     // reach the catch event, so the test broadcasts REPEATEDLY until both continued
     // instead of guessing a sleep - which is also what an application would do if it
     // cared, and harmless because a signal has no deduplication anyway.
-    // generous since this module also runs a two-container test (story 44): under that
+    // generous since this module also runs a two-container test: under that
     // load the cluster needs longer to reach the catch event, and a signal is not
     // buffered - the broadcast has to keep meeting a workflow which already waits
     final var deadline = System.currentTimeMillis() + 150_000;

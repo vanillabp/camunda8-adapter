@@ -46,7 +46,7 @@ public class C8E2eIntrospectionController {
 
   /**
    * The adapter runs with name-clash-avoidance 'use-prefix' here, so the CLUSTER knows
-   * every process under its prefixed id (story 35).
+   * every process under its prefixed id.
    */
   static String scoped(
       final String bpmnProcessId) {
@@ -132,7 +132,7 @@ public class C8E2eIntrospectionController {
   }
 
   /**
-   * The aggregates of the workflows the CLUSTER started on its own (story 41) - the
+   * The aggregates of the workflows the CLUSTER started on its own - the
    * application never creates one of them.
    *
    * @return One "id|processedBy|endedAs" per aggregate
@@ -441,7 +441,7 @@ public class C8E2eIntrospectionController {
 
   }
 
-  // --- pushing a changed aggregate (story 44) ---
+  // --- pushing a changed aggregate ---
 
   @POST
   @Path("/push/workflows")
@@ -506,7 +506,7 @@ public class C8E2eIntrospectionController {
 
   }
 
-  // --- the viewer (story 45) ---
+  // --- the viewer ---
 
   /**
    * The process definitions the viewer reports for a workflow, as
@@ -765,8 +765,7 @@ public class C8E2eIntrospectionController {
 
   /**
    * Deploys the second, tagged version of {@code VersionedProcess} while the
-   * application runs - the way another node of a rolling deployment does it (story
-   * 48).
+   * application runs - the way another node of a rolling deployment does it.
    */
   @POST
   @Path("/cluster/deploy-version-two")
@@ -828,8 +827,8 @@ public class C8E2eIntrospectionController {
   // --- plumbing ---
 
   /**
-   * Runs one {@code ProcessService} call in a transaction of its own - since story 63
-   * everything reaching the cluster happens after that transaction committed, so a
+   * Runs one {@code ProcessService} call in a transaction of its own - everything
+   * reaching the cluster happens after that transaction committed, so a
    * rollback has to leave the cluster untouched.
    *
    * @param aggregateId The aggregate the operation works on

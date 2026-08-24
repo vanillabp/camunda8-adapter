@@ -74,8 +74,7 @@ The preview line is not publishable at the moment. On `8.10.0-alpha4` the user-t
 job of the event type `creating` never reaches its worker, so three tests of
 `Camunda8TaskProcessingIT` time out while the other 34 tests of the line pass. The cause is an
 open Camunda bug, `camunda/camunda#58193`: the REST gateway throws a `NullPointerException`
-while converting a `TASK_LISTENER` job and drops the whole activate-jobs batch. Story 94
-carries it.
+while converting a `TASK_LISTENER` job and drops the whole activate-jobs batch.
 
 Those three tests are excluded on that line, by the tag `user-task-listener-jobs` in the
 `line-8.10` profile, and nowhere else. Leaving them in kept the line red as a whole, and a line
@@ -195,10 +194,10 @@ The nightly matrix (`.github/workflows/line-matrix.yaml`) builds every live line
 own version string and runs its integration tests against its own cluster. The matrix is
 read out of the `line-*` profiles, so it cannot fall behind the build. A pull request runs
 the current GA line alone: the Camunda 8 integration tests are the slowest thing in the
-workspace, and every story touching the adapter would otherwise pay for every line. What a
+workspace, and every change touching the adapter would otherwise pay for every line. What a
 pull request does run for all lines is the API identity check, which needs no cluster.
 
-### Handover to story 31 (release and CI plumbing)
+### Release and CI plumbing
 
 A release of one line consists of:
 
@@ -292,18 +291,18 @@ EAGERLY at startup for every completely configured adapter instance. The adapter
 set always comes from the platform's core properties (ids of type `camunda8`); the
 overlay maps are per-known-id lookups only.
 
-|                    Property                     |  Applies to  |                  Required                  |                                      Description                                       |
-|-------------------------------------------------|--------------|--------------------------------------------|----------------------------------------------------------------------------------------|
-| `vanillabp.adapters.<id>.mode`                  | both         | no (default `self-managed`)                | `self-managed` or `saas`                                                               |
-| `vanillabp.adapters.<id>.rest-address`          | self-managed | yes (unless `prefer-rest-over-grpc=false`) | REST API address, e.g. `http://localhost:8080`                                         |
-| `vanillabp.adapters.<id>.grpc-address`          | self-managed | only if `prefer-rest-over-grpc=false`      | gRPC address, e.g. `http://localhost:26500`                                            |
-| `vanillabp.adapters.<id>.prefer-rest-over-grpc` | self-managed | no (default `true`)                        | use the REST API (recommended) or gRPC                                                 |
-| `vanillabp.adapters.<id>.cluster-id`            | saas         | yes                                        | SaaS cluster ID                                                                        |
-| `vanillabp.adapters.<id>.region`                | saas         | yes                                        | SaaS region                                                                            |
-| `vanillabp.adapters.<id>.client-id`             | saas         | yes                                        | OAuth client ID                                                                        |
-| `vanillabp.adapters.<id>.client-secret`         | saas         | yes                                        | OAuth client secret                                                                    |
-| `vanillabp.adapters.<id>.tenant-id`             | both         | no                                         | Camunda 8 multi-tenancy tenant                                                         |
-| `vanillabp.adapters.<id>.auth.*`                | both         | no (default: no credentials)               | how the adapter authenticates, see [below](#authenticating-against-a-cluster-story-88) |
+|                    Property                     |  Applies to  |                  Required                  |                                  Description                                  |
+|-------------------------------------------------|--------------|--------------------------------------------|-------------------------------------------------------------------------------|
+| `vanillabp.adapters.<id>.mode`                  | both         | no (default `self-managed`)                | `self-managed` or `saas`                                                      |
+| `vanillabp.adapters.<id>.rest-address`          | self-managed | yes (unless `prefer-rest-over-grpc=false`) | REST API address, e.g. `http://localhost:8080`                                |
+| `vanillabp.adapters.<id>.grpc-address`          | self-managed | only if `prefer-rest-over-grpc=false`      | gRPC address, e.g. `http://localhost:26500`                                   |
+| `vanillabp.adapters.<id>.prefer-rest-over-grpc` | self-managed | no (default `true`)                        | use the REST API (recommended) or gRPC                                        |
+| `vanillabp.adapters.<id>.cluster-id`            | saas         | yes                                        | SaaS cluster ID                                                               |
+| `vanillabp.adapters.<id>.region`                | saas         | yes                                        | SaaS region                                                                   |
+| `vanillabp.adapters.<id>.client-id`             | saas         | yes                                        | OAuth client ID                                                               |
+| `vanillabp.adapters.<id>.client-secret`         | saas         | yes                                        | OAuth client secret                                                           |
+| `vanillabp.adapters.<id>.tenant-id`             | both         | no                                         | Camunda 8 multi-tenancy tenant                                                |
+| `vanillabp.adapters.<id>.auth.*`                | both         | no (default: no credentials)               | how the adapter authenticates, see [below](#authenticating-against-a-cluster) |
 
 Example (self-managed):
 
@@ -332,9 +331,9 @@ Messages name property KEYS only - values, especially credentials like
 `client-secret`, are never echoed. Using an unconfigured adapter at runtime keeps a
 guiding failure message as backstop.
 
-### Authenticating against a cluster (story 88)
+### Authenticating against a cluster
 
-Until this story the adapter could authenticate against Camunda SaaS and against nothing else.
+The adapter used to authenticate against Camunda SaaS and against nothing else.
 `client-id` and `client-secret` hung on the cloud builder, the self-managed branch set
 addresses, the transport preference and the tenant, and never a credentials provider. A
 self-managed cluster with its authentication switched on, which is what a self-managed
@@ -424,7 +423,7 @@ accounts they are two, which is the same reasoning that already made the SaaS cl
     as process variables. No other variables are set (aggregate attribute sync is the
     `@SyncWithBPMS` story).
 
-### When a phase-one check runs (story 87)
+### When a phase-one check runs
 
 The non-advancing checks of phase one - the job-timeout update for a service task, the empty
 update for a user task - run right before the caller's transaction commits, not when the
@@ -434,14 +433,14 @@ application learns about a task which is already gone.
 
 The adapter no longer carries that mechanism. It hands the check to the platform
 (`PreCommitRegistrar` of the adapter SPI), naming the workflow aggregate, and the platform
-asks the transaction runner of that aggregate - which since story 70 may be a unit of work the
+asks the transaction runner of that aggregate - which may be a unit of work the
 application brought. A runner which cannot offer a pre-commit hook runs the check immediately,
 the behaviour this adapter had before.
 
 ### The delivery identity is a job key, so it belongs to one cluster
 
 `Camunda8JobHandler` reports the job key as the delivery id, which is what the core remembers a processed delivery
-by (story 51). A key is stable across every redelivery of that job and is never handed out twice - within one
+by. A key is stable across every redelivery of that job and is never handed out twice - within one
 cluster. The delivery key of the core starts with the adapter id
 (`TaskDeliveryKey`: `<adapterId>|<workflowModuleId>|<bpmnProcessId>|<event>|<deliveryId>`), so two adapter ids have
 separate identities and a migration between two clusters works even though both count their keys from the same
@@ -455,7 +454,7 @@ and every heuristic (comparing process definition keys, watching for keys which 
 misses cases or risks the opposite mistake, processing a task twice after a harmless redeployment. So it is
 documented here and in the wiki instead.
 
-### Which phase-two failures are repeated (story 73)
+### Which phase-two failures are repeated
 
 The phase-two outbox repeats a failed operation until the entry is blocked. That is right for
 a cluster which is busy, unreachable or lost a conflict, and pointless for a command the
@@ -476,7 +475,7 @@ classification at all - a gone job is the accepted at-least-once residual and co
 entry. `401` is usually an expired token, which the client refreshes. `409`, `429` and every
 `5xx` are what the outbox exists for.
 
-Story 91 reuses the same classification for the commands a job handler sends back to the
+The same classification serves the commands a job handler sends back to the
 cluster (`Camunda8Errors.repeatableJobCommandFailure`), adding the one case which is
 permanent there and not here: a job which is gone. One classification serving both
 directions is the point - a second opinion about what a repetition can change would drift
@@ -515,11 +514,11 @@ cannot run at all (it then answers honestly "unknown" and the idempotent start
 proceeds — deliberately NOT the optimistic ACTIVE of the election probe, which would
 skip and thereby LOSE workflows). Do not build on exactly-once semantics.
 
-### How the adapter runs what it delivers (story 74)
+### How the adapter runs what it delivers
 
 The Camunda client owns one executor per client and this adapter owns one client per adapter
 id, so a single number decides how much of everything an adapter delivers may be in flight
-at once. Until this story the number was the client's own default of one, nothing passed it
+at once. That number used to be the client's own default of one, nothing passed it
 through, and on the 8.8 client that one thread runs the handler invocations AND the poll
 scheduling of every worker. Measured against a real cluster: an unrelated job of another
 worker waited 8013 ms behind a blocking handler and 13 ms with four threads, and a poll
@@ -590,11 +589,12 @@ it is today the only way to reach a client option this adapter does not model.
 `Camunda8EnvironmentOverrides` compares what the adapter configured against what the built
 client reports and logs a WARN naming every value a variable changed, with the variable, the
 property key and both values. Credentials are not among the compared values, so no message
-can carry a secret. What that means for credentials is settled by story
-88 below: the client installs a provider from the environment only while the application set
+can carry a secret. What that means for credentials is settled by
+[Authenticating against a cluster](#authenticating-against-a-cluster): the client installs
+a provider from the environment only while the application set
 none.
 
-### Task processing (story 21c)
+### Task processing
 
 `@WorkflowTask` methods are served by **polling job workers**: at
 `startWorkflowProcessing` the adapter opens ONE worker per distinct task definition
@@ -634,7 +634,7 @@ SHORT - it is the crash-recovery horizon for synchronous handlers.
 The window has to sit clearly below `vanillabp.outbox.retention` (seven days), since
 the delivery record is what answers the redelivery which renews the lock; a value
 which is not below it ends the boot naming both properties and both values. The key
-was called `async-task-timeout` before story 89 and meant a horizon of fourteen days
+was called `async-task-timeout` once and meant a horizon of fourteen days
 which outlived that record, so an asynchronous task open longer than it ran the
 handler a second time; the old key now ends the boot naming its successor.
 
@@ -644,7 +644,7 @@ The core measures how long such a task has been open (`vanillabp.delivery.max-ta
 with no retries left, so the cluster raises an incident naming the workflow aggregate
 and the age.
 
-**The command which reports the outcome is repeated (story 91):** a cluster which
+**The command which reports the outcome is repeated:** a cluster which
 cannot keep up rejects commands, as `RESOURCE_EXHAUSTED` on gRPC and as HTTP 503 on
 REST, and the client repeats neither of them (its gRPC retry policy is off by default
 and would not cover REST anyway; probe P5b measured 19.433 of 20.000 gRPC commands
@@ -654,11 +654,11 @@ completion of committed work escaped into the client's fail path and cost the jo
 retry. `Camunda8CommandRetry` now wraps the completion, the BPMN error, the fail command
 and the lock renewal of all four worker kinds. It repeats only what
 `Camunda8Errors.repeatableJobCommandFailure` calls repeatable, which is the outbox
-classification of story 73 plus the gone job (repeating a command against a job which no
+classification named above plus the gone job (repeating a command against a job which no
 longer exists would turn the tolerated at-least-once residual into a storm). It stops at
 the job's remaining lock, read from `ActivatedJob#getDeadline()` rather than from the
-configured timeout, at five attempts, and at once when the module is shutting down (story
-90 keeps the job then, and a retry loop must not hold the drain). The waits are the
+configured timeout, at five attempts, and at once when the module is shutting down (the
+job keeps its lock then, and a retry loop must not hold the drain). The waits are the
 client's own activation backoff numbers: 50 ms initially, factor 1.6, a tenth of jitter
 and a 5s ceiling the five attempts never reach, which keeps the whole sequence below half
 a second because a waiting handler occupies an execution slot. When the bound is reached
@@ -673,14 +673,14 @@ error message of a fail command carries the exception's TYPE next to its message
 that text is what an operator reads in Operate and `NullPointerException` used to write
 `null` there.
 
-**Shutting down while work is in flight (story 90):** the client does not drain. A
+**Shutting down while work is in flight:** the client does not drain. A
 worker's `close()` returns without waiting for the jobs it already handed to a handler,
 and `CamundaClient.close()` interrupts every running handler milliseconds later. So
 `stopWorkflowProcessing` closes the module's workers and then waits `shutdown-grace`
 (default `PT20S`) for the handlers which are still inside the application; every handler
 registers its delivery in a per-module `Camunda8Drain`, which is what the wait watches.
 
-**And for the workers themselves (story 102).** Story 90 deliberately did not wait for
+**And for the workers themselves.** The handler drain deliberately did not wait for
 `JobWorker#isClosed()`, because that answer also covers the activation request in flight
 and closing a worker does not cancel it, so an idle worker keeps reporting open for up to
 `request-timeout`. What that costs was known, what it buys was not. Measured against
@@ -763,8 +763,8 @@ definition appears with DIFFERENT resolved job timeouts within one module, the
 startup fails with a guiding message (one worker per job type - give the
 definitions distinct names or align the timeouts).
 
-**Completing/canceling async tasks (`ProcessService#completeTask`/`#cancelTask`,
-story 22):** the adapter locates the job by its key (the `@TaskId` value). The
+**Completing/canceling async tasks (`ProcessService#completeTask`/`#cancelTask`):**
+the adapter locates the job by its key (the `@TaskId` value). The
 awareness probe and the phase-one check are the same NON-ADVANCING command -
 `UpdateJobTimeout` by `async-task-lock-renewal` (which conveniently renews the open
 job's lock): success means the job exists, `NOT_FOUND` maps to
@@ -777,7 +777,7 @@ BPMN error code routes boundary events); a `NOT_FOUND` answer is tolerated with
 a WARN (at-least-once residual). Camunda 8 cannot deliver `@TaskEvent CANCELED`
 - Zeebe does not notify workers about canceled jobs.
 
-**User tasks (story 24):** Camunda-managed user tasks (`zeebe:userTask`) with an
+**User tasks:** Camunda-managed user tasks (`zeebe:userTask`) with an
 EXTERNAL form reference - the reference IS the task definition (V1 convention).
 During `wireBpmn` the adapter adds the V1-COMPATIBLE lifecycle task listeners to
 the BPMN model: per user task `creating` (→ `@TaskEvent CREATED`) and `canceling`
@@ -797,9 +797,9 @@ offers no command to cancel a Camunda-managed user task by BPMN error (ThrowErro
 is job-based) and V1's marker-variable workaround is broken by V1's own admission
 - a guiding error naming the release line explains it; the listeners it needs
 arrive with Camunda 8.10, so it can only ever come on a line built against 8.10
-or later (see the prepared follow-up prompt).
+or later.
 
-**Message correlation (story 23):** `correlateMessage` publishes AFTER the commit
+**Message correlation:** `correlateMessage` publishes AFTER the commit
 (outbox) with `correlationKey = correlationId ?? aggregate ID` and NO variables
 (payload doctrine). During `wireBpmn` the adapter INJECTS the `zeebe:subscription`
 correlation-key expression `=<aggregate-ID variable>` into message subscriptions
@@ -815,7 +815,7 @@ idempotency key as `messageId` and ONLY the aggregate-ID variable.
 secondary storage the adapter answers OPTIMISTICALLY (one-time guiding WARN) -
 fine for single-BPMS setups, configure secondary storage for migration scenarios.
 
-### What a worker fetches (stories 93 and 99)
+### What a worker fetches
 
 A Camunda 8 worker which names no variables receives the complete variable scope of the
 process instance with every job, which Camunda warns can be "tens or more variables, of
@@ -828,10 +828,10 @@ deployed models:
 - the variable holding the workflow aggregate's id, named after the aggregate's id
   attribute. Every worker kind begins by reading it;
 - the multi-instance variables of the iterations enclosing the element the job belongs to,
-  which this adapter injected into the model while deploying (story 62). They depend on
+  which this adapter injected into the model while deploying. They depend on
   the element, which is why the list is not a constant;
 - every variable a `@TaskParam` of the served tasks reads, reported by the core
-  (`WorkflowTaskInvoker#taskParameterNames`, story 99). Story 93 read those names off the
+  (`WorkflowTaskInvoker#taskParameterNames`). The adapter used to read those names off the
   MODEL instead - the mapping targets, script and decision result variables and
   multi-instance output collections a Camunda 8 process declares - because that was the
   only place the adapter could see one. It was a guess in both directions: a model declares
@@ -851,7 +851,7 @@ across the BPMN processes of a workflow module, so its list is the union over ev
 it serves; two processes disagreeing about the name of the aggregate id are no conflict,
 `fetchVariables` being a list. The list is sorted, because the gateway treats two job
 streams as equivalent only when job type, worker name, timeout and fetch variables match
-(story 74), and that comparison has to survive a restart of the same application version.
+and that comparison has to survive a restart of the same application version.
 
 Two cases fetch everything instead. A worker serving a start event the cluster fires
 itself hands the variables of that start to the core, which copies them into the aggregate
@@ -860,9 +860,9 @@ process, the aggregate's id variable cannot be named at all; such a worker asks 
 everything rather than for a list which may be missing exactly what its handler needs.
 
 `vanillabp.adapters.<id>.fetch-variables: all` is the escape hatch, resolvable per
-workflow module, workflow and task. Since story 99 a statically named `@TaskParam` does not
-need it any more, which leaves the case the scanner cannot see: a name assembled while the
-delivery runs. Such a read is not answered with a null. It fails the delivery with a message
+workflow module, workflow and task. A statically named `@TaskParam` does not need it, which
+leaves the case the scanner cannot see: a name assembled while the delivery runs. Such a
+read is not answered with a null. It fails the delivery with a message
 naming the variable, the list and the property, and saying that the name is not on the
 method - so the cluster raises an incident instead of the handler computing on a value which
 was quietly dropped.
@@ -870,7 +870,7 @@ was quietly dropped.
 Every worker logs at DEBUG what it fetches when it opens. When somebody reports a variable
 their handler no longer sees, that line answers the first question.
 
-### Viewing workflows (story 26)
+### Viewing workflows
 
 `ProcessService#getProcessDefinitions`, `#getBpmnXml` and `#getWorkflowHistory` are served
 from two sources:
@@ -921,10 +921,10 @@ image has multi-tenancy switched off, and `Camunda8TenantCheck` ends the boot na
 ways out, `use-prefix` (modules stay apart, no tenant needed) and `none` (version 1's
 `use-tenants: false`). The default stood at `none` between 2026-08-11 and 2026-08-22, which
 left an upgraded version-1 application deploying into no tenant while its workflows lived in
-theirs - story 106. While `none` applies, a WARN per workflow module names the alternatives
+theirs. While `none` applies, a WARN per workflow module names the alternatives
 until `accept-unscoped-identifiers` acknowledges that the identifiers are unique.
 
-**Two adapter ids on one cluster (story 103).** Migrating a module from tenants to prefixes
+**Two adapter ids on one cluster.** Migrating a module from tenants to prefixes
 runs both scopes side by side: two ids of type `camunda8`, one cluster, differing only in
 the mode, the new one first in `prioritized-adapters`. What tells them apart is the scope a
 workflow was deployed under, never the key of a task: job keys, user-task keys and
@@ -945,7 +945,7 @@ the boot: they cannot be told apart at all, and the alternative is silent misrou
 `Camunda8WorkflowViewer` and `Camunda8ProcessVersions` were scope-correct from the start
 and are what the probes now copy.
 
-**Since story 107 the scope is the one of the CALL.** A probe is handed a
+**The scope is the one of the CALL.** A probe is handed a
 `WorkflowScope` naming the workflow module and the BPMN processes the asking process
 service serves, so the comparison is not "one of my deployments" any more but "the module
 and process you asked about", translated into the tenant and the scoped process definition
@@ -1109,7 +1109,7 @@ committing last puts back what it read, so an iteration should write a row of it
   is ever activated). Skipped automatically when Docker is unavailable
   (`@Testcontainers(disabledWithoutDocker = true)`).
 - **Spring Boot** `Camunda8WorkerThreadsIT` and `Camunda8VirtualThreadsIT` (real cluster): the
-  acceptance test of story 74. A handler blocks its execution slot for four seconds while a
+  acceptance test of the execution slots. A handler blocks its slot for four seconds while a
   workflow of ANOTHER worker of the same adapter is started, and its job has to be served
   meanwhile - which one execution thread could not do. The virtual variant asserts the same
   property plus that the handler really ran on a virtual thread and that the client runs its
@@ -1120,11 +1120,11 @@ committing last puts back what it read, so an iteration should write a row of it
   service (one per configured adapter id), process service and client-factory registry
   beans are created (no cluster needed).
 - **Quarkus deployment-pipeline test** (`Camunda8DeploymentPipelineTest`, no Docker):
-  since story 26b the Quarkus platform integration runs the deployment pipeline at
-  boot. The test provides a BPMN below the configured `resources-location` and a REST
-  address pointing to a closed port: the pipeline reads/parses the BPMN and attempts
-  the deployment, whose connection failure aborts the boot (the adapter is
-  first-priority) - proving the pipeline mechanics without a cluster.
+  the Quarkus platform integration runs the deployment pipeline at boot. The test provides
+  a BPMN below the configured `resources-location` and a REST address pointing to a closed
+  port: the pipeline reads/parses the BPMN and attempts the deployment, whose connection
+  failure aborts the boot (the adapter is first-priority) - proving the pipeline mechanics
+  without a cluster.
 - **Quarkus** `Camunda8WorkflowLifecycleTest` (`quarkus/integration-tests`, real cluster):
   the same documented features the Spring Boot suite runs, on a booted application against
   a cluster with secondary storage. The duplication is deliberate - a correct
@@ -1138,6 +1138,46 @@ committing last puts back what it read, so an iteration should write a row of it
   cluster), authentication and the shutdown drain (a cluster respectively a lifecycle of
   their own) and `cancelUserTask` (answered by the release line, so it belongs to a
   per-line test source).
+
+## Decision log
+
+Decisions this repository's code points at. A number is handed out once and never reused or
+renumbered, so a citation stays resolvable; a decision which gets overturned keeps its entry,
+marked as superseded and naming the entry which replaced it.
+
+### 1. A command carries the shared aggregate values and the aggregate-ID variable, nothing else
+
+Camunda 8 has no business key, so the variable named after the aggregate's ID attribute is
+the only way back from a process instance to the workflow, and it is written no matter what
+the sync model says. Beside it travel the values the aggregate shares, because a gateway right
+behind a service task decides on what the handler just computed. Nothing else does: a
+correlated message carries no content of its own.
+
+The one command which carries NO variables at all is the completion of a user-task listener
+job. It does not advance the process - the user task stays where it is - and writing there
+would overwrite what a form or a task list put into the instance.
+
+### 2. Workflow modules are kept apart by scoping the identifiers
+
+The cluster is always addressed with the SCOPED identifiers - process ids, message and signal
+names, error codes and task definitions - while the core's registries stay keyed by the plain
+ones, and everything coming back from the cluster is translated before the core sees it. Which
+shape scoping takes is the workflow module's configuration: a tenant, a prefix, or nothing at
+all, so no code may assume either. Two processes must not end up under the same scoped
+identifier, which is what the collision check while preparing a model is for.
+See [Keeping workflow modules apart](#keeping-workflow-modules-apart).
+
+### 3. A cluster key never says which scope it belongs to
+
+Job keys, user-task keys and process-instance keys are unique per CLUSTER and carry neither
+tenant nor prefix. Where two adapter ids address one cluster - the setup which migrates a
+workflow module from tenants to prefixes - a credential which is a member of both scopes gets
+an operation of the wrong adapter accepted without a word. Ownership is therefore decided by
+the scope a workflow was deployed under, never by a key: the awareness probes compare tenant
+and scoped process definition id against the scope of the CALL before they answer, and the two
+task probes read the job respectively the user task to learn its scope. That read is a
+query-API call, which is why two ids on a cluster without secondary storage end the boot
+rather than misrouting silently.
 
 ## Known deviations
 
@@ -1179,7 +1219,7 @@ probe cannot: a workflow started moments ago is not searchable yet, and reportin
 `UNKNOWN_TO_BPMS` would make the core raise `WorkflowNotFoundException` with causes that all
 do not apply.
 
-Since story 54 the adapter reports a window instead
+The adapter reports a window instead
 (`workflowVisibilityDelay()`, configured as
 `vanillabp.adapters.<id>.workflow-visibility-timeout`, default 10 seconds, zero switches it
 off), and the core keeps asking for that long - but only while probing an adapter its
@@ -1262,7 +1302,7 @@ page](https://github.com/vanillabp/adapter-platform-integration/wiki/Observabili
 describes all of it. What this adapter adds is documented in the
 [Configuration wiki page](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration),
 section "What an operator gets to see": the client's own job counters bridged into the
-same registry, the execution slots of story 74 as gauges, and a health contribution
+same registry, the execution slots as gauges, and a health contribution
 asking the cluster for its topology.
 
 The reasoning behind the shape of it - why the client's Micrometer implementation is not
@@ -1321,7 +1361,7 @@ platform's glue ever calling it, so a core line one platform never reaches names
 platform never runs.
 
 The two thresholds still differ, by what one suite can produce and the other cannot. The startup
-check for old process versions (story 57) needs several boots against one cluster, each deploying a
+check for old process versions needs several boots against one cluster, each deploying a
 different model, and a Quarkus prod-mode test boots its application once per test class - which is
 why `Camunda8ProcessVersions` stands at 27 % on Quarkus against 79 % on Spring Boot. The other half
 is the cluster itself: the Quarkus suite runs against one WITH secondary storage, so what the adapter

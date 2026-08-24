@@ -34,14 +34,14 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.service.BpmsStartTrigger;
 
 /**
- * Story 91 at the handler: each of the commands a worker sends BACK to the cluster is
+ * The retry at the handler: each of the commands a worker sends BACK to the cluster is
  * repeated where the cluster rejected it because it was busy, and none of them is repeated
  * where a repetition cannot change the answer. What makes the difference is the
  * classification of {@code Camunda8Errors} and nothing the handlers decide themselves.
  * <p>
  * The counter-tests matter as much as the tests: a job which is GONE must stay the benign
  * at-least-once residual it was rather than becoming five commands, and a shutdown during a
- * retry must still end without a fail command (story 90).
+ * retry must still end without a fail command.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8OutcomeCommandRetryTest {
@@ -53,7 +53,7 @@ public class Camunda8OutcomeCommandRetryTest {
   private final Camunda8Drain drain = new Camunda8Drain("c8", "test-module");
 
   /**
-   * How the REST transport reports backpressure - the answer story 91 exists for.
+   * How the REST transport reports backpressure - the failure the retry exists for.
    */
   private static ProblemException backpressure() {
 
@@ -151,8 +151,8 @@ public class Camunda8OutcomeCommandRetryTest {
     when(jobClient.newCompleteCommand(4711L).variables(any(Map.class)).send())
         .thenAnswer(rejecting(attempts, Integer.MAX_VALUE, problem(400)));
 
-    // and the failure escapes to the client, which fails the job - the behaviour after the
-    // retry gave up is what it was before story 91
+    // and the failure escapes to the client, which fails the job - a retry which gave up
+    // changes nothing about that
     org.junit.jupiter.api.Assertions.assertThrows(
         ProblemException.class,
         () -> jobHandler(invokerReturning(WorkflowTaskOutcome.completed())).handle(jobClient, job()));

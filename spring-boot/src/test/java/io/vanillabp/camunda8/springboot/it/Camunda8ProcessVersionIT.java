@@ -25,7 +25,7 @@ import io.camunda.client.CamundaClient;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * What <code>&#64;WorkflowTask(version = ...)</code> means on Camunda 8 (story 48), with
+ * What <code>&#64;WorkflowTask(version = ...)</code> means on Camunda 8, with
  * TWO deployed versions of one process: the workflow started while only version 1 exists
  * is served by the method specifying that version, and a workflow started after a second,
  * TAGGED version was deployed is served by the method naming that tag.

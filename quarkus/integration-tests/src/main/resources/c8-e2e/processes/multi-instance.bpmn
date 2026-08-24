@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="Definitions_multi_instance" targetNamespace="http://bpmn.io/schema/bpmn">
   <!--
-    Story 62: what the adapter has to report about an iteration. Sequential on purpose -
+    What the adapter has to report about an iteration. Sequential on purpose -
     the values a job carries are the same either way, and a sequential order makes the
     assertion an exact string rather than a set.
   -->

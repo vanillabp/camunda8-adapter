@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Story 53: the VanillaBP-facing API of every release line has to be IDENTICAL. A user
+# The VanillaBP-facing API of every release line has to be IDENTICAL. A user
 # must never read the version suffix of an artifact to find out which methods exist; where
 # a line's cluster cannot do something, the method is still there and degrades with a
 # guiding message.

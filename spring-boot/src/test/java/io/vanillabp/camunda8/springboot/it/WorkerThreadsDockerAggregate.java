@@ -9,7 +9,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * JPA workflow aggregate of the worker-threads integration test (story 74).
+ * JPA workflow aggregate of the worker-threads integration test.
  */
 @Entity
 @Table(name = "C8_WORKER_THREADS_AGGREGATE")

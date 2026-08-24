@@ -10,17 +10,17 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * The aggregate of the old-process-versions integration test (story 57).
+ * The aggregate of the old-process-versions integration test.
  */
 @Entity
-@Table(name = "C8_STORY57_TEST")
+@Table(name = "C8_OLD_PROCESS_VERSIONS_TEST")
 @Getter
 @Setter
-public class Story57DockerAggregate {
+public class OldProcessVersionsDockerAggregate {
 
   @Id
-  @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "c8Story57Seq")
-  @SequenceGenerator(name = "c8Story57Seq", initialValue = 900000, allocationSize = 1)
+  @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "c8OldProcessVersionsSeq")
+  @SequenceGenerator(name = "c8OldProcessVersionsSeq", initialValue = 900000, allocationSize = 1)
   private Long id;
 
   private String servedBy;

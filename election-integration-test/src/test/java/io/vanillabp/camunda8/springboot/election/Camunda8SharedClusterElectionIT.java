@@ -25,7 +25,7 @@ import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The acceptance test of story 103: two <code>camunda8</code> adapter ids on ONE cluster
+ * Two <code>camunda8</code> adapter ids on ONE cluster
  * are told apart by the scope they deployed under, not by the first entry of
  * <code>prioritized-adapters</code>.
  * <p>
@@ -72,7 +72,7 @@ public class Camunda8SharedClusterElectionIT {
   /**
    * The election probes ask the query API, so this cluster exports to Elasticsearch.
    * Without it an application configuring two ids on one cluster does not boot at all,
-   * which is the other half of what story 103 decided.
+   * which is the other half of the rule.
    */
   @Container
   static final GenericContainer<?> CAMUNDA = ElectionCluster.withSecondaryStorage(NETWORK, ELASTICSEARCH);

@@ -45,7 +45,7 @@ import io.vanillabp.spi.process.ProcessService;
  * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
  * awareness probe answers optimistically - what this test exercises is that fallback.
  * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
- * Elasticsearch (story 52).
+ * Elasticsearch.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -61,7 +61,7 @@ import io.vanillabp.spi.process.ProcessService;
 public class Camunda8DeploymentAndStartIT {
 
   /**
-   * What a probe is asked about (story 107).
+   * What a probe is asked about.
    */
   private static final io.vanillabp.integration.adapter.spi.WorkflowScope SCOPE = io.vanillabp.integration.adapter.spi.WorkflowScope
       .of("test-module", "TestProcess");

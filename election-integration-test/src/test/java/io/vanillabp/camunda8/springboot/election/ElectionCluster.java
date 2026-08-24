@@ -17,7 +17,7 @@ import org.testcontainers.utility.DockerImageName;
  * {@code ClusterImage} use, kept local like theirs: the image is filtered into
  * {@code camunda8-cluster.properties} at build time from the Camunda client the active
  * release line pins ({@code camunda8.version}), so activating another line moves the
- * client and the cluster together (story 53).
+ * client and the cluster together.
  * <p>
  * Two flavours, which is all these tests need: a cluster WITHOUT secondary storage, where
  * two adapter ids sharing it cannot be told apart and the boot has to say so, and one WITH

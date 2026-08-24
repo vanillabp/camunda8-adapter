@@ -7,7 +7,7 @@ file exists for
 
 ## Two Camunda 8 adapter ids on one cluster are told apart by their scope (2026-08-21)
 
-Story 103. Nothing changes for an application with one Camunda 8 adapter. What changes is the
+Nothing changes for an application with one Camunda 8 adapter. What changes is the
 setup which migrates a workflow module from tenants to prefixed identifiers on the SAME
 cluster, and there it changes correctness.
 
@@ -39,7 +39,7 @@ gets its own.
 
 ## A restart waits a few seconds longer, and the application after it does not (2026-08-21)
 
-Story 102. No new property, and nothing to configure. What changes is how long a shutdown
+No new property, and nothing to configure. What changes is how long a shutdown
 takes and how quickly the next start gets its first job.
 
 A worker asks the cluster for work with a long poll which waits at the cluster for up to
@@ -59,7 +59,7 @@ things follow for an application:
 
 - an ordinary restart takes those seconds longer. `shutdown-grace` (default `PT20S`) bounds
   it, and it still sits below the shutdown budgets of Spring Boot and Kubernetes. `PT0S`
-  waives the wait together with the handler drain of story 90,
+  waives the wait together with the handler drain,
 - a process which is killed rather than asked to stop cannot pay it, so a workflow started
   within ten seconds of a `SIGKILL` may still wait for its lock. A shorter `job-timeout`
   bounds what that costs where restarts are frequent, and `stream-enabled: true` or
@@ -71,8 +71,7 @@ when the grace passes.
 
 ## The cluster reports itself to your metrics and your health endpoint (2026-08-20)
 
-Story 92. Additive with one new property, and nothing changes for an application which does
-nothing.
+Additive with one new property, and nothing changes for an application which does nothing.
 
 Where your application brings Micrometer, this adapter now bridges the client's own job
 counters per worker into your registry (`vanillabp.camunda8.jobs.activated` and
@@ -92,7 +91,7 @@ notes](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRA
 
 ## The artifact version names the Camunda 8 minor (2026-08-19)
 
-Story 53. Visible to every consumer, because the coordinates change.
+Visible to every consumer, because the coordinates change.
 
 The adapter is published once per Camunda 8 minor from now on, and the minor is part of the
 version: `2.1.0-8.8`, `2.1.0-8.9`, and `2.1.0-8.10-alpha<n>` for the preview line built

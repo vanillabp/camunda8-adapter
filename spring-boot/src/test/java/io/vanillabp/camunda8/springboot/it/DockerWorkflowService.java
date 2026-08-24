@@ -8,7 +8,7 @@ import io.vanillabp.spi.service.WorkflowService;
 
 /**
  * Workflow service bound to the BPMN process {@code TestProcess} deployed to the Camunda 8
- * cluster. Since task wiring (story 21c) the BPMN service task is served by the
+ * cluster. Since task wiring the BPMN service task is served by the
  * {@code @WorkflowTask} method below through the adapter's polling job worker.
  */
 @Service

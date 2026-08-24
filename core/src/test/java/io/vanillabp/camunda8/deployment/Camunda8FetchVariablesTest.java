@@ -20,7 +20,7 @@ import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * What a worker of this adapter asks the cluster for (story 93). The derivation has to be
+ * What a worker of this adapter asks the cluster for. The derivation has to be
  * COMPLETE: a variable missing from the list is a variable the handler simply does not
  * see any more, and nothing fails to say so. The cases below are the ones the adapter
  * reads a variable in.

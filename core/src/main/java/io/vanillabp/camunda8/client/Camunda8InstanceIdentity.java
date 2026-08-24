@@ -6,8 +6,8 @@ import java.util.List;
 import java.util.function.Function;
 
 /**
- * What makes two configured <code>camunda8</code> adapter ids DIFFERENT clusters
- * (story 34). Camunda 8 is remote, so two ids are distinct if they address
+ * What makes two configured <code>camunda8</code> adapter ids DIFFERENT clusters.
+ * Camunda 8 is remote, so two ids are distinct if they address
  * different systems - or the same system with different credentials:
  * <ul>
  * <li><b>self-managed:</b> different <code>rest-address</code>/
@@ -18,7 +18,7 @@ import java.util.function.Function;
  * client id counts;</li>
  * <li>additionally the <code>tenant-id</code>: the same cluster with different
  * multi-tenancy tenants are different systems from the application's view;</li>
- * <li>and - since story 35 - a different <code>name-clash-avoidance</code> mode: the
+ * <li>and a different <code>name-clash-avoidance</code> mode: the
  * identifiers of the SAME workflow module look different in each of them (a tenant
  * versus prefixed identifiers), which is exactly the setup used to MIGRATE from
  * tenants to prefixes: two ids on one cluster, differing only in that mode, the new
@@ -27,8 +27,8 @@ import java.util.function.Function;
  * Two ids whose relevant keys are identical are the same instance - configuring
  * them as separate adapters is an error.
  * <p>
- * Two ids which ARE distinct and still address one CLUSTER need something more since
- * story 103: the query API of that cluster. Job keys, user-task keys and
+ * Two ids which ARE distinct and still address one CLUSTER need something more: the
+ * query API of that cluster. Job keys, user-task keys and
  * process-instance keys are unique per cluster and carry neither tenant nor prefix, so
  * the election has to look a key up to learn which of the two scopes it belongs to.
  * Such a setup on a cluster without secondary storage ends the boot; what counts as one
@@ -55,7 +55,7 @@ public final class Camunda8InstanceIdentity {
 
   /**
    * The comparable identity of an adapter id's connection configuration, including
-   * the name-clash-avoidance mode it uses (story 35).
+   * the name-clash-avoidance mode it uses.
    *
    * @param configuration The adapter id's connection configuration
    * @param nameClashAvoidance The mode configured for the adapter or
@@ -78,7 +78,7 @@ public final class Camunda8InstanceIdentity {
    * {@link #identityOf}: neither the tenant nor the credentials matter here, because a
    * job key, a user-task key and a process-instance key are unique per CLUSTER and not
    * per tenant. Two ids sharing this identity can be handed each other's keys, which is
-   * what makes their awareness probes scope-sensitive (story 103).
+   * what makes their awareness probes scope-sensitive.
    *
    * @param configuration The adapter id's connection configuration
    * @return The cluster identity, never <code>null</code>
@@ -113,7 +113,7 @@ public final class Camunda8InstanceIdentity {
           configuration.getClientId(),
           configuration.getTenantId());
     }
-    // who the adapter authenticates as is part of the identity since story 88: one
+    // who the adapter authenticates as is part of the identity: one
     // self-managed cluster serving two applications with separate accounts is the same
     // legitimate setup the SaaS client id already stood for
     return "self-managed cluster (rest-address '%s', grpc-address '%s'), tenant '%s', authenticated as '%s'"

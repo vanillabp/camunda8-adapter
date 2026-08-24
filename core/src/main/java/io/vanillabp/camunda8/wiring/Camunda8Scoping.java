@@ -15,7 +15,7 @@ import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Applies {@link NameClashAvoidance#USE_PREFIX} to a Camunda 8 model (story 35):
+ * Applies {@link NameClashAvoidance#USE_PREFIX} to a Camunda 8 model:
  * every identifier a cluster resolves GLOBALLY is prefixed, so two workflow modules
  * may use the same names without a tenant.
  *

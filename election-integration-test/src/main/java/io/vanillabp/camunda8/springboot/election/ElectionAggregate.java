@@ -9,7 +9,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * The workflow aggregate of the shared-cluster election test (story 103).
+ * The workflow aggregate of the shared-cluster election test.
  */
 @Entity
 @Table(name = "C8_ELECTION_AGGREGATE")

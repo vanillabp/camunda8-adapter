@@ -401,7 +401,7 @@ public class Camunda8ViewerQueryTest {
 
     assertNull(viewer.getWorkflowHistory("test-module", "ParentProcess", "aggregateId", "42", null).elementsHistory());
 
-    // story 52: the cluster compares a variable against its stored JSON, so the ID
+    // The cluster compares a variable against its stored JSON, so the ID
     // travels quoted. This assertion used to pin the plain value and thereby pinned
     // the defect - the viewer found no workflow at all on a cluster with secondary
     // storage

@@ -26,8 +26,7 @@ import io.camunda.client.CamundaClient;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * What a cluster WITH secondary storage does to operations on running workflows
- * (story 52).
+ * What a cluster WITH secondary storage does to operations on running workflows.
  * <p>
  * This is the cluster the other Camunda 8 tests deliberately do not run on: without
  * secondary storage the query API is unavailable, the adapter answers its awareness
@@ -187,8 +186,8 @@ public class Camunda8SecondaryStorageIT {
 
     // deliberately NO awaitUntil(queryApiKnows(...)) here: this is the everyday
     // sequence "start a workflow, then correlate the message which lets it
-    // continue", and until story 54 it failed with WorkflowNotFoundException
-    // because the exporter had not fed the query API yet
+    // continue", which must not fail with a WorkflowNotFoundException just because
+    // the exporter has not fed the query API yet
     final var aggregateId = transactionTemplate
         .execute(status -> workflowService.startWorkflow().getLoanRequestId());
     assertNotNull(aggregateId);

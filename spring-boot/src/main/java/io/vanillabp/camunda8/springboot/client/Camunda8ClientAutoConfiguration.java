@@ -70,7 +70,7 @@ public class Camunda8ClientAutoConfiguration {
   }
 
   /**
-   * What this adapter measures on top of the core's meters (story 92): the client's own
+   * What this adapter measures on top of the core's meters: the client's own
    * job counters per worker and the execution slots of every adapter instance.
    * Micrometer is optional, so the whole configuration is conditional on it - an
    * application without Micrometer boots unchanged and reports nothing.

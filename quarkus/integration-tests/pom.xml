@@ -101,7 +101,7 @@
     <testResources>
       <!-- 'camunda8-cluster.properties' carries the cluster image of the active release
            line into the integration test, the same way the Spring Boot module does it
-           (story 53). Only that file is filtered; a BPMN or a YAML holding a placeholder
+           Only that file is filtered; a BPMN or a YAML holding a placeholder
            must reach the test as written -->
       <testResource>
         <filtering>false</filtering>
@@ -132,7 +132,7 @@
                  initialized) and the augmentation logs into a log context of its own that
                  no extension in this JVM reaches. That is roughly a dozen lines per class,
                  and they say what they cost: a container failing to come up says so in the
-                 same place (story 109). -->
+                 same place. -->
             <quarkus.log.level>INFO</quarkus.log.level>
             <maven.home>${maven.home}</maven.home>
             <maven.repo>${settings.localRepository}</maven.repo>
@@ -146,7 +146,7 @@
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
-          <!-- the adapter reads a task handler's parameter names (story 99) -->
+          <!-- the adapter reads a task handler's parameter names -->
           <parameters>true</parameters>
         </configuration>
       </plugin>

@@ -17,7 +17,7 @@ import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 73: phase one of a message correlation asks the deployed models whether they
+ * Phase one of a message correlation asks the deployed models whether they
  * declare the message. A name no model knows would be published into the void - the
  * cluster buffers it until its time-to-live passes, so nothing correlates and nothing
  * fails.

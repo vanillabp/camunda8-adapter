@@ -34,8 +34,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
   private final Camunda8AdapterConfiguration configuration;
 
   /**
-   * The per-adapter-id record of what this application version deployed (story
-   * 26's viewer API). It lives here because the factory is the one object BOTH
+   * The per-adapter-id record of what this application version deployed, which the
+   * viewer API serves from. It lives here because the factory is the one object BOTH
    * the deployment service (which fills it) and the process service (which reads
    * it) already receive per adapter id on both platforms.
    */
@@ -303,7 +303,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
-   * The other <code>camunda8</code> adapter ids addressing the SAME cluster (story 103),
+   * The other <code>camunda8</code> adapter ids addressing the SAME cluster,
    * told by {@link Camunda8ClientFactoryRegistry} at startup. Empty for the ordinary
    * application with one Camunda 8 adapter.
    * <p>
@@ -344,7 +344,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
   /**
    * How the factory stops the workers of one workflow module on a path which did not
-   * reach {@code stopWorkflowProcessing} (story 102). Implemented by the deployment
+   * reach {@code stopWorkflowProcessing}. Implemented by the deployment
    * service, which owns the workers and the drain.
    */
   @FunctionalInterface
@@ -362,11 +362,11 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * The workflow modules of this adapter instance whose workers are open right now,
    * registered when processing starts and removed when it stops.
    * <p>
-   * Story 90 promised that the workers of a module are closed before its client, and on
-   * the ordinary path that is the order the platform's lifecycle produces. This map is
+   * The workers of a module are closed before its client, and on the ordinary path
+   * that is the order the platform's lifecycle produces. This map is
    * what makes the promise hold on EVERY path: whatever is left in it when the client
    * goes down is stopped here first, and the operator is told that a hook was missing.
-   * Order matters more than it looks (story 102): an activation request which is parked
+   * Order matters more than it looks: an activation request which is parked
    * at the cluster when its client is closed stays parked, and a job created within the
    * request timeout afterwards waits for its lock instead of reaching the next worker.
    */
@@ -421,7 +421,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
-   * The backstop of story 102: a workflow module which never reached
+   * The backstop: a workflow module which never reached
    * {@code stopWorkflowProcessing} is stopped here, before the client goes down, and the
    * missing hook is named. The client is still open at this point, so the module's
    * handlers can finish and its workers can be released the ordinary way.

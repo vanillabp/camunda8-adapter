@@ -22,7 +22,7 @@ import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 90 at the level where the shutdown happens: what
+ * The shutdown at the level where it happens: what
  * {@code stopWorkflowProcessing} does with the handlers the closed workers still have
  * inside the application.
  */
@@ -86,7 +86,7 @@ public class Camunda8ShutdownDrainTest {
   /**
    * A worker whose activation request is parked at the cluster: closing it does not
    * cancel that request, so it keeps reporting itself open for as long as the request
-   * takes (story 102).
+   * takes.
    */
   private JobWorker workerWithAnActivationRequestInFlight() {
 

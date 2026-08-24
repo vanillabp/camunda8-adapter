@@ -266,7 +266,7 @@ public class Camunda8DeploymentServiceTest {
 
     assertNotNull(deploymentService.applyWorkerOptions(builder, "approve"));
 
-    // story 92: the metrics hook is the ONE thing every worker gets, and without a
+    // The metrics hook is the ONE thing every worker gets, and without a
     // metrics backend it is the client's own no-op
     org.mockito.Mockito
         .verify(builder)
@@ -306,7 +306,7 @@ public class Camunda8DeploymentServiceTest {
       return java.util.Map.of();
     }
 
-    // story 66's migration fallback, deprecated for removal in 2.1 and none of Camunda
+    // the migration fallback, deprecated for removal in 2.1 and none of Camunda
     // 8's business: a test double implements it as long as the interface declares it,
     // and the mandatory 'removal' lint needs the suppression
     @SuppressWarnings("removal")
@@ -347,7 +347,7 @@ public class Camunda8DeploymentServiceTest {
 
 
   /**
-   * Story 35: the tenant a workflow module is deployed to, and the prefixed
+   * The tenant a workflow module is deployed to, and the prefixed
    * identifiers replacing it. Asserted on the model and the resolved tenant - the
    * cluster round-trip is covered by the Docker ITs.
    */

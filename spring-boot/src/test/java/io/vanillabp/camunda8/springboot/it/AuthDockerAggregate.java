@@ -10,7 +10,7 @@ import lombok.Setter;
 
 /**
  * JPA workflow aggregate of the workflow which runs against a cluster with its
- * authentication switched on (story 88).
+ * authentication switched on.
  */
 @Entity
 @Table(name = "C8_AUTH_AGGREGATE")

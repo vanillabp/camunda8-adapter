@@ -11,7 +11,7 @@ import io.quarkus.test.QuarkusExtensionTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Startup-validation boot test (story 26c) on Quarkus: an INCONSISTENTLY configured
+ * Startup-validation boot test on Quarkus: an INCONSISTENTLY configured
  * first-priority adapter (here <code>mode: saas</code> without any credential) fails
  * the boot with a message naming the missing property keys - the developer learns
  * about the defect at startup, not when the first workflow is started.

@@ -11,7 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * How an aggregate ID has to look in a variable filter (story 52). Camunda 8 compares
+ * How an aggregate ID has to look in a variable filter. Camunda 8 compares
  * a variable against its stored JSON and the client passes the filter value through
  * verbatim, so a value which is not JSON matches nothing - and a search returning
  * nothing is indistinguishable from a workflow which does not exist. This defect cost

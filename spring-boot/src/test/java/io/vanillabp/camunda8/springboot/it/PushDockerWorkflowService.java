@@ -9,7 +9,7 @@ import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
 /**
- * The workflow service of the aggregateChanged integration test (story 44): both
+ * The workflow service of the aggregateChanged integration test: both
  * processes park in an asynchronous task, so the test can push into the workflow's
  * scope and into the scope of ONE instance of a multi-instance activity.
  */

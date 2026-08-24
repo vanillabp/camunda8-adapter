@@ -22,7 +22,7 @@ import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The startup check of story 57 against a REAL cluster: the application deploys version
+ * The old-versions startup check against a REAL cluster: the application deploys version
  * 1 of a process and boots again with a model which dropped one of its tasks. Reading
  * the model of the older version and counting the workflows running on it are the two
  * things only Camunda 8 can answer here, and both need the query API - which is why
@@ -64,8 +64,8 @@ public class Camunda8OldProcessVersionsIT {
 
     final var application = boot("v1");
     try {
-      final var workflowService = application.getBean(Story57DockerWorkflowService.class);
-      final var repository = application.getBean(Story57DockerAggregateRepository.class);
+      final var workflowService = application.getBean(OldProcessVersionsDockerWorkflowService.class);
+      final var repository = application.getBean(OldProcessVersionsDockerAggregateRepository.class);
       final var aggregate = application
           .getBean(org.springframework.transaction.support.TransactionTemplate.class)
           .execute(status -> workflowService.startWorkflow());
@@ -99,7 +99,7 @@ public class Camunda8OldProcessVersionsIT {
 
     // version 1 is served by the method kept for it, so nothing is demanded ...
     assertTrue(
-        !reported.contains("definition(s) 'story57Gone'"),
+        !reported.contains("definition(s) 'droppedInVersionTwo'"),
         "the task served by the version-1 method is not reported");
     // ... which is only provable if the model of version 1 was read at all: without
     // the query API the adapter says so instead
@@ -119,7 +119,7 @@ public class Camunda8OldProcessVersionsIT {
     boot("v2", "--vanillabp.workflow-modules.test-app.adapters.c8.outfaded-versions=<2").close();
     final var reported = output.getAll().substring(before);
 
-    assertTrue(reported.contains("story57Gone"), "the method serving the faded-out version is named");
+    assertTrue(reported.contains("droppedInVersionTwo"), "the method serving the faded-out version is named");
     assertTrue(reported.contains("the method never runs"), "and what that means is said");
     assertTrue(reported.contains("faded out by"), "and why");
 
@@ -141,7 +141,7 @@ public class Camunda8OldProcessVersionsIT {
             CAMUNDA.getMappedPort(26500)));
     boot.add("--vanillabp.adapters.c8.workflow-visibility-timeout=PT60S");
     boot
-        .add("--vanillabp.workflow-modules.test-app.adapters.c8.resources-location=classpath*:story57/%s"
+        .add("--vanillabp.workflow-modules.test-app.adapters.c8.resources-location=classpath*:old-process-versions/%s"
             .formatted(version));
     boot.addAll(java.util.List.of(arguments));
     return new SpringApplicationBuilder(DockerTestApplication.class).run(boot.toArray(String[]::new));

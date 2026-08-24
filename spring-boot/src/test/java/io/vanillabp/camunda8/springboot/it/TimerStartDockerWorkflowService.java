@@ -22,7 +22,7 @@ import io.vanillabp.spi.service.WorkflowTask;
 public class TimerStartDockerWorkflowService {
 
   /**
-   * Story 43: the workflow reports its end as well.
+   * The workflow reports its end as well.
    */
   @WorkflowEnded
   public void workflowEnded(

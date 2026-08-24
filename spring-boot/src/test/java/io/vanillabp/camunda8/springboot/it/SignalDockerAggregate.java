@@ -9,7 +9,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * JPA workflow aggregate of the signal integration test (story 42).
+ * JPA workflow aggregate of the signal integration test.
  */
 @Entity
 @Table(name = "C8_SIGNAL_AGGREGATE")

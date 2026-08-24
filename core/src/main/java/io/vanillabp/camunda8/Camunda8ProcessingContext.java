@@ -38,21 +38,21 @@ public class Camunda8ProcessingContext {
   private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8TaskToWire> tasksToWire = new java.util.LinkedList<>();
 
   /**
-   * The Camunda-managed user tasks collected during {@code wireBpmn} (story 24) -
+   * The Camunda-managed user tasks collected during {@code wireBpmn} -
    * one listener-job worker is opened per distinct listener job type.
    */
   @Getter
   private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8UserTaskToWire> userTasksToWire = new java.util.LinkedList<>();
 
   /**
-   * The start events the cluster fires on its own (story 41), collected while wiring
+   * The start events the cluster fires on its own, collected while wiring
    * and served by one worker each once workflow processing starts.
    */
   @Getter
   private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8BpmsInitiatedStartToWire> bpmsInitiatedStartsToWire = new java.util.LinkedList<>();
 
   /**
-   * The BPMN processes whose end has to be reported to the application (story 43),
+   * The BPMN processes whose end has to be reported to the application,
    * as (scoped process id) - one worker each once workflow processing starts.
    */
   @Getter
@@ -81,8 +81,9 @@ public class Camunda8ProcessingContext {
    */
   /**
    * The PLAIN BPMN process ids of the module's executable processes, collected in
-   * {@code prepareBpmn} - the input of the collision check of story 35 (two
-   * processes must not end up under the same prefixed identifier).
+   * {@code prepareBpmn} - the input of the collision check (two processes must not
+   * end up under the same prefixed identifier, see decision 2 in the repository's
+   * README.md).
    */
   @Getter
   private final java.util.List<String> deployedProcessIds = new java.util.LinkedList<>();

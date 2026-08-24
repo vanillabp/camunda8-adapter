@@ -8,7 +8,7 @@ import io.vanillabp.spi.service.WorkflowTask;
 import jakarta.enterprise.context.ApplicationScoped;
 
 /**
- * The workflow service of the timer-started workflow (story 41). It has NO method
+ * The workflow service of the timer-started workflow. It has NO method
  * starting anything on purpose: the aggregate of a workflow the cluster starts comes
  * into existence without any application code, and the task following the start event
  * has to find it through the aggregate-id variable the start listener wrote.
@@ -20,7 +20,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 public class C8TimerWorkflowService {
 
   /**
-   * Story 43: the workflow started by the timer also reports its end.
+   * The workflow started by the timer also reports its end.
    *
    * @param aggregate The workflow aggregate
    * @param end How the workflow ended

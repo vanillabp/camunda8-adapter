@@ -27,7 +27,7 @@ import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Task processing against a REAL Camunda 8 broker (Testcontainers) - story 21c:
+ * Task processing against a REAL Camunda 8 broker (Testcontainers):
  * <ul>
  * <li>happy path through the adapter's polling job workers incl. redelivery
  * convergence (the first invocation blocks beyond the task's job timeout - the
@@ -47,7 +47,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
  * awareness probe answers optimistically - what this test exercises is that fallback.
  * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
- * Elasticsearch (story 52).
+ * Elasticsearch.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -63,7 +63,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 public class Camunda8TaskProcessingIT {
 
   /**
-   * What a probe is asked about (story 107).
+   * What a probe is asked about.
    */
   private static final io.vanillabp.integration.adapter.spi.WorkflowScope SCOPE = io.vanillabp.integration.adapter.spi.WorkflowScope
       .of("test-module", "TestProcess");
@@ -74,8 +74,7 @@ public class Camunda8TaskProcessingIT {
    * NullPointerException while converting a TASK_LISTENER job and drops the whole activate-jobs
    * batch (camunda/camunda#58193, open). Everything else of that line passes, so its profile
    * excludes this tag instead of letting three known timeouts hide whatever else might break.
-   * Remove the tag and the exclusion in the 'line-8.10' profile once Camunda ships the fix; story
-   * 94 carries that work.
+   * Remove the tag and the exclusion in the 'line-8.10' profile once Camunda ships the fix.
    */
   private static final String USER_TASK_LISTENER_JOBS = "user-task-listener-jobs";
 
@@ -243,7 +242,7 @@ public class Camunda8TaskProcessingIT {
         "a worker fetching the complete scope answers the @TaskParam as it always did");
 
     // the SECOND task configures nothing, and its worker still asks the cluster for
-    // 'bigPayload': the core scanned the name off the method while wiring (story 99),
+    // 'bigPayload': the core scanned the name off the method while wiring,
     // so the derivation covers what the application reads instead of what the model
     // happens to declare. How SHORT that list is has its own tests in the core module -
     // here the point is that the value arrives
@@ -619,7 +618,7 @@ public class Camunda8TaskProcessingIT {
           workflowService.cancelUserTask(aggregate, taskId, "SOME_ERROR");
         }));
     // the message names the release line the application runs, not a fixed version:
-    // that is what a reader has to change to get the operation (story 53)
+    // that is what a reader has to change to get the operation
     assertTrue(
         exception.getMessage().contains("release line "
             + Camunda8ReleaseLine.id()) && exception.getMessage().contains("8.10"),
@@ -759,7 +758,7 @@ public class Camunda8TaskProcessingIT {
   private long lastStartedInstanceKey;
 
   @Test
-  @DisplayName("A gateway right after a @WorkflowTask sees the values that task produced (story 28b)")
+  @DisplayName("A gateway right after a @WorkflowTask sees the values that task produced")
   public void gatewayAfterTaskSeesTheNewValues() throws Exception {
 
     TaskDockerWorkflowService.OBSERVED_VARIABLES.clear();
@@ -801,7 +800,7 @@ public class Camunda8TaskProcessingIT {
     // secondary processes are started directly against the cluster carrying the
     // aggregate-ID variable - exactly what VanillaBP's start writes. The name-clash
     // avoidance mode of these tests is 'use-prefix', so the CLUSTER knows the process
-    // under its prefixed id (story 35)
+    // under its prefixed id
     lastStartedInstanceKey = workflowServiceClient()
         .newCreateInstanceCommand()
         .bpmnProcessId("test-app__"

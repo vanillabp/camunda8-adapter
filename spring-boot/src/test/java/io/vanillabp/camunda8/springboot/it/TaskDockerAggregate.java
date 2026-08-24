@@ -9,7 +9,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * JPA workflow aggregate of the task-processing integration test (story 21c).
+ * JPA workflow aggregate of the task-processing integration test.
  */
 @Entity
 @Table(name = "C8_TASK_AGGREGATE")
@@ -28,12 +28,12 @@ public class TaskDockerAggregate {
   /**
    * The attribute a FEEL gateway condition of {@code SyncProcess} branches on - it
    * is set by the {@code @WorkflowTask} method right before that gateway, so the
-   * cluster can only evaluate it if the job completion PUSHED it (story 28b).
+   * cluster can only evaluate it if the job completion PUSHED it.
    */
   private boolean approved;
 
   /**
-   * Never shared with the cluster. Since story 28b this one annotation also derives
+   * Never shared with the cluster. This one annotation also derives
    * the CLASS mode "share everything else" (opt-out) - which is what this aggregate
    * relies on.
    */

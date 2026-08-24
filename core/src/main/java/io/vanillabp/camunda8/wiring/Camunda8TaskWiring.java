@@ -92,7 +92,7 @@ public final class Camunda8TaskWiring {
 
   /**
    * The job-type prefix of the start execution listeners VanillaBP attaches to start
-   * events the cluster fires on its own (story 41): this prefix plus the scoped BPMN
+   * events the cluster fires on its own: this prefix plus the scoped BPMN
    * process id plus the start event's id. The job type has to be unique across the
    * tenant, hence the process id - and one worker serves exactly one start event.
    */
@@ -100,7 +100,7 @@ public final class Camunda8TaskWiring {
 
   /**
    * The job-type prefix of the end execution listener VanillaBP attaches to a
-   * process whose application wants to be told that a workflow ended (story 43):
+   * process whose application wants to be told that a workflow ended:
    * this prefix plus the scoped BPMN process id.
    */
   public static final String TASKDEFINITION_WORKFLOW_ENDED = "io.vanillabp.workflowEnd:";
@@ -119,7 +119,7 @@ public final class Camunda8TaskWiring {
   /**
    * The version tag the modeller gave the process
    * (<code>zeebe:versionTag</code>) - the name a
-   * <code>&#64;WorkflowTask(version = "release-2026")</code> refers to (story 48).
+   * <code>&#64;WorkflowTask(version = "release-2026")</code> refers to.
    *
    * @param model The BPMN model as deployed
    * @param bpmnProcessId The SCOPED BPMN process id
@@ -216,7 +216,7 @@ public final class Camunda8TaskWiring {
 
   /**
    * One start event the cluster fires on its own, to be served by a start
-   * execution-listener worker (story 41).
+   * execution-listener worker.
    *
    * @param bpmnProcessId The SCOPED BPMN process id (what the cluster knows)
    * @param startEventId The BPMN id of the start event
@@ -380,7 +380,7 @@ public final class Camunda8TaskWiring {
   }
 
   /**
-   * One user task to be served by listener-job workers (story 24).
+   * One user task to be served by listener-job workers.
    *
    * @param bpmnProcessId The BPMN process ID
    * @param activityId The BPMN activity ID
@@ -508,7 +508,7 @@ public final class Camunda8TaskWiring {
 
   /**
    * Wires the correlation keys of the given executable process' MESSAGE
-   * subscriptions (story 23): publishing with
+   * subscriptions: publishing with
    * <code>correlationKey = workflow-aggregate ID</code> only correlates if the
    * deployed model's message subscriptions carry a matching
    * <code>zeebe:subscription</code> correlation-key expression. For every message
@@ -582,7 +582,7 @@ public final class Camunda8TaskWiring {
 
   /**
    * The IDs of the elements of the given process which can put a SECOND token into a
-   * running workflow (story 59): a boundary event which does not cancel its activity,
+   * running workflow: a boundary event which does not cancel its activity,
    * a parallel or inclusive gateway forking into more than one sequence flow, an
    * activity marked as a PARALLEL multi-instance, and an event subprocess whose start
    * event does not interrupt the process. Two tokens are two branches writing the
