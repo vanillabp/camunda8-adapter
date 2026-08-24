@@ -27,6 +27,12 @@
       <artifactId>camunda8-adapter-quarkus</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- the augmentation half of the Netty extension the runtime module depends on:
+         what it registers for a native image is produced by ITS build steps -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-netty-deployment</artifactId>
+    </dependency>
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-junit-internal</artifactId>

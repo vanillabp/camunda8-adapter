@@ -38,6 +38,25 @@
       <groupId>io.vanillabp</groupId>
       <artifactId>vanillabp-quarkus-integration</artifactId>
     </dependency>
+    <!-- The Camunda client talks gRPC, which brings Netty, and Netty in a native image
+         needs a hand: its logger factory looks for backends nobody put on the classpath,
+         and the direct-buffer cleaner it uses on Java 24 and up cannot be analyzed by
+         the image builder. Quarkus' own Netty extension answers all of it, so the
+         adapter depends on it instead of maintaining a copy of those answers. An
+         application which brings a Quarkus extension using Netty anyway (a REST layer,
+         for instance) had it by accident before, and that is how this gap stayed
+         invisible - see the README, section "Native images". -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-netty</artifactId>
+    </dependency>
+    <!-- compile-time only: it carries the GraalVM substitution annotations, and a
+         substitution is read by the image builder, never by a JVM -->
+    <dependency>
+      <groupId>org.graalvm.sdk</groupId>
+      <artifactId>nativeimage</artifactId>
+      <scope>provided</scope>
+    </dependency>
   </dependencies>
 
   <build>
