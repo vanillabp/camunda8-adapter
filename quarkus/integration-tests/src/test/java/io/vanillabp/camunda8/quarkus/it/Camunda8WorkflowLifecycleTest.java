@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -91,6 +92,17 @@ public class Camunda8WorkflowLifecycleTest {
   private static final long QUERY_TIMEOUT_MS = 240_000;
 
   private static final Duration CONTAINER_STARTUP = Duration.ofMinutes(5);
+
+  /**
+   * The two tests carrying this tag wait for a notification of a user-task LISTENER job, and on
+   * the preview line such jobs never reach their worker: the REST gateway of
+   * camunda/camunda:8.10.0-alpha4 throws a NullPointerException while converting a TASK_LISTENER
+   * job and drops the whole activate-jobs batch (camunda/camunda#58193, open). Everything else of
+   * that line passes here, so its profile excludes this tag rather than letting two known timeouts
+   * hide whatever else might break. The Spring Boot suite carries the same tag for the same reason.
+   * Remove the tag and the exclusion in the 'line-8.10' profile once Camunda ships the fix.
+   */
+  private static final String USER_TASK_LISTENER_JOBS = "user-task-listener-jobs";
 
   // --- the cluster under test ---
 
@@ -658,6 +670,7 @@ public class Camunda8WorkflowLifecycleTest {
 
   // --- user tasks ---
 
+  @Tag(USER_TASK_LISTENER_JOBS)
   @Test
   @DisplayName("A user task notifies on creation and completeUserTask resumes the workflow")
   public void userTaskNotificationAndCompletion() throws Exception {
@@ -679,6 +692,7 @@ public class Camunda8WorkflowLifecycleTest {
 
   }
 
+  @Tag(USER_TASK_LISTENER_JOBS)
   @Test
   @DisplayName("Canceling the workflow delivers CANCELED through the canceling task listener")
   public void userTaskCanceledWhenTheWorkflowIsCanceled() throws Exception {
