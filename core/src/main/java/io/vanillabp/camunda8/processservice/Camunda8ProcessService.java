@@ -42,8 +42,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @RequiredArgsConstructor
-// no Lombok here: the accessors are the deliberate surface of this class,
-// and generating them would hide which of its fields are meant to be read
+// see decision 4 in the repository's README.md
 @SuppressWarnings("LombokSetterMayBeUsed")
 public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 

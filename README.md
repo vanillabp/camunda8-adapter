@@ -1179,6 +1179,16 @@ task probes read the job respectively the user task to learn its scope. That rea
 query-API call, which is why two ids on a cluster without secondary storage end the boot
 rather than misrouting silently.
 
+### 4. A class opens its fields one by one, not as a whole
+
+The process service, the deployment service and the client classes of this adapter hold dozens
+of fields, most of them collaborators nobody outside the class needs. Which of them a caller
+may read belongs to the surface of the class, so an accessor is declared per field, and
+`@Getter` on the class is refused even where an IDE offers it: it would publish the current
+field list and then keep publishing whatever field a later change adds.
+`@SuppressWarnings("LombokGetterMayBeUsed")` on such a class is what keeps that offer from
+coming back.
+
 ## Known deviations
 
 What this adapter does not deliver, mirrored in one sentence each on the wiki's
