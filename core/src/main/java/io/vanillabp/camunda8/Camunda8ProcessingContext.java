@@ -34,30 +34,35 @@ public class Camunda8ProcessingContext {
    * during wireBpmn - startWorkflowProcessing opens one worker per distinct task
    * definition.
    */
+  @Getter
   private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8TaskToWire> tasksToWire = new java.util.LinkedList<>();
 
   /**
    * The Camunda-managed user tasks collected during {@code wireBpmn} -
    * one listener-job worker is opened per distinct listener job type.
    */
+  @Getter
   private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8UserTaskToWire> userTasksToWire = new java.util.LinkedList<>();
 
   /**
    * The start events the cluster fires on its own, collected while wiring
    * and served by one worker each once workflow processing starts.
    */
+  @Getter
   private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8BpmsInitiatedStartToWire> bpmsInitiatedStartsToWire = new java.util.LinkedList<>();
 
   /**
    * The BPMN processes whose end has to be reported to the application,
    * as (scoped process id) - one worker each once workflow processing starts.
    */
+  @Getter
   private final java.util.List<String> workflowEndedProcessesToWire = new java.util.LinkedList<>();
 
   /**
    * The workers opened by startWorkflowProcessing, closed by
    * stopWorkflowProcessing (reverse order).
    */
+  @Getter
   private final java.util.List<io.camunda.client.api.worker.JobWorker> openWorkers = new java.util.LinkedList<>();
 
   public Camunda8ProcessingContext(
@@ -73,6 +78,7 @@ public class Camunda8ProcessingContext {
    * end up under the same prefixed identifier, see decision 2 in the repository's
    * README.md).
    */
+  @Getter
   private final java.util.List<String> deployedProcessIds = new java.util.LinkedList<>();
 
   /**
