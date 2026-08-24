@@ -295,7 +295,8 @@ public class C8E2eIntrospectionController {
    * only. The aggregate-id variable is what VanillaBP finds the aggregate again by.
    *
    * @param bpmnProcessId The BPMN process to start
-   * @param payload An additional variable no BPMN model mentions, or <code>null</code>
+   * @param payloadSize The size of an additional variable no BPMN model mentions, or
+   *          <code>null</code> for none
    * @return The aggregate's id and the instance key the cluster assigned
    */
   @POST

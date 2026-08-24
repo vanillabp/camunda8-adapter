@@ -40,6 +40,9 @@ import lombok.extern.slf4j.Slf4j;
  * (closed on {@code stopWorkflowProcessing}).
  */
 @Slf4j
+// no Lombok here: the accessors are the deliberate surface of this class,
+// and generating them would hide which of its fields are meant to be read
+@SuppressWarnings("LombokSetterMayBeUsed")
 public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnModelInstance, Camunda8ProcessingContext> {
 
   /**
@@ -397,15 +400,6 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final Camunda8ProcessVersions processVersions;
 
   /**
-   * The tenant a workflow module is deployed to, respectively its operations are
-   * executed in - decided by the name-clash-avoidance mode, with the
-   * adapter's configured <code>tenant-id</code> naming it under
-   * {@code by-adapter}.
-   *
-   * @param workflowModuleId The workflow module ID
-   * @return The tenant ID or <code>null</code> if no tenant is used
-   */
-  /**
    * The BPMN process id as the CLUSTER knows it - the model carries the
    * scoped ids after {@code prepareBpmn}, while the core is keyed by the plain ones.
    */
@@ -486,6 +480,15 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   }
 
+  /**
+   * The tenant a workflow module is deployed to, respectively its operations are
+   * executed in - decided by the name-clash-avoidance mode, with the
+   * adapter's configured <code>tenant-id</code> naming it under
+   * {@code by-adapter}.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @return The tenant ID or <code>null</code> if no tenant is used
+   */
   private String tenantIdOf(
       final String workflowModuleId) {
 

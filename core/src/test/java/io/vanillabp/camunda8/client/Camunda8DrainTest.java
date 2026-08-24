@@ -253,7 +253,7 @@ public class Camunda8DrainTest {
     final var events = eventsOf(
         () -> drain.report(Duration.ZERO, drain.awaitQuiet(Duration.ZERO, 1, () -> false)));
 
-    assertEquals(1, events.size(), () -> events.toString());
+    assertEquals(1, events.size(), events::toString);
     assertTrue(
         events.getFirst().getFormattedMessage().contains("still holding an activation request"),
         "the consequence is still said: "

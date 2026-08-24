@@ -66,11 +66,6 @@ public class Camunda8DeployedProcesses {
   }
 
   /**
-   * @param processDefinitionKey The Camunda 8 process definition key
-   * @return The deployed process or <code>null</code> if not deployed by this
-   *         application version
-   */
-  /**
    * Every process of a workflow module deployed by THIS application version - the
    * models the message-name check of {@code correlateMessage} reads. A
    * workflow module whose processes were deployed by a previous application version
@@ -105,6 +100,11 @@ public class Camunda8DeployedProcesses {
 
   }
 
+  /**
+   * @param processDefinitionKey The Camunda 8 process definition key
+   * @return The deployed process or <code>null</code> if not deployed by this
+   *         application version
+   */
   public DeployedProcess byDefinitionKey(
       final String processDefinitionKey) {
 

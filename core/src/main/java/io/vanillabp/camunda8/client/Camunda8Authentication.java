@@ -27,6 +27,9 @@ import io.camunda.client.CredentialsProvider;
  * Nothing logged here carries a secret, not even its length: the messages name property
  * keys, the method and the address.
  */
+// no Lombok here: the accessors are the deliberate surface of this class,
+// and generating them would hide which of its fields are meant to be read
+@SuppressWarnings("LombokGetterMayBeUsed")
 public final class Camunda8Authentication {
 
   /**

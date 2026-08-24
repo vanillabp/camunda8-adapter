@@ -35,13 +35,16 @@ import lombok.extern.slf4j.Slf4j;
  *       and thus the number of stale outbox entries. See the {@code
  *       vanillabp-bpms-characteristics} skill / later stories.)</li>
  *   <li>{@link #startWorkflowPhaseTwo} runs after the commit and creates the process
- *       instance via {@link #createProcessInstance(String, Object)}.</li>
+ *       instance via {@link #createProcessInstance(String, java.util.Map, Object)}.</li>
  * </ul>
  *
  * @param <A> The workflow-aggregate type
  */
 @Slf4j
 @RequiredArgsConstructor
+// no Lombok here: the accessors are the deliberate surface of this class,
+// and generating them would hide which of its fields are meant to be read
+@SuppressWarnings("LombokSetterMayBeUsed")
 public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   private final String adapterId;
@@ -65,7 +68,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   /**
    * The core's sync model: which aggregate attributes are shared with
    * the cluster. Camunda 8 is REMOTE, so its default is
-   * {@link AggregateSyncMode#FULL} - a BPMN expression can only see what VanillaBP
+   * {@link io.vanillabp.integration.adapter.spi.AggregateSyncMode#FULL} - a BPMN
+   * expression can only see what VanillaBP
    * pushed as a process variable. May be <code>null</code> (tests): only the
    * technical aggregate-ID variable is written then.
    */
@@ -115,16 +119,16 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
-   * The default of this adapter: everything is shared unless the application
-   * excludes it ({@code @NoSyncWithBPMS}).
-   */
-  /**
    * How deeply the scope hierarchy is walked when a task-scoped push looks for the
    * scope a task runs in. Ten levels of nested subprocesses are a model nobody reads
    * any more, and the bound keeps a broken answer of the query API from looping.
    */
   private static final int MAX_SCOPE_DEPTH = 10;
 
+  /**
+   * The default of this adapter: everything is shared unless the application
+   * excludes it ({@code @NoSyncWithBPMS}).
+   */
   public static final io.vanillabp.integration.adapter.spi.AggregateSyncMode SYNC_MODE = io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL;
 
   /**
@@ -699,7 +703,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   /**
    * The START re-dispatch mitigation probe - STRICTER contract than
-   * {@link #awarenessOfWorkflow(AggregatePersistenceAware, Object)}: the answer must NEVER be optimistic
+   * {@link #awarenessOfWorkflow}: the answer must NEVER be optimistic
    * (an optimistic ACTIVE would SKIP a recovered start = a lost workflow,
    * whereas a duplicate start is the accepted at-least-once residual).
    * Differences to the election probe:
@@ -961,7 +965,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * <p>
    * The check stays silent where this application version deployed no process of the
    * workflow module (a workflow still running on a definition of a previous version -
-   * see {@link Camunda8DeployedProcesses}), because then the declared names are
+   * see {@code Camunda8DeployedProcesses}), because then the declared names are
    * unknown rather than absent.
    */
   @Override
@@ -1270,7 +1274,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   /**
    * The key of the ACTIVE process instance carrying the aggregate's ID variable -
    * Camunda 8 has no business key, so the eventually-consistent query API answers
-   * (like {@link #awarenessOfWorkflow(AggregatePersistenceAware, Object)}).
+   * (like {@link #awarenessOfWorkflow}).
    *
    * @param workflowAggregateId The aggregate's ID
    * @return The process instance key or <code>null</code> if none is active

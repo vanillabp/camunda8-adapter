@@ -626,7 +626,7 @@ public class Camunda8DeploymentServiceTest {
       final var service = serviceOfAdapterId("myengine");
 
       final var byDefault = warningsOf(() -> service.warnAboutUnscopedIdentifiers(MODULE, true));
-      assertEquals(1, byDefault.size(), () -> byDefault.toString());
+      assertEquals(1, byDefault.size(), byDefault::toString);
       final var message = byDefault.getFirst();
       assertTrue(message.contains("'"
           + MODULE
@@ -643,11 +643,11 @@ public class Camunda8DeploymentServiceTest {
 
       // a configured 'none' is reported as the deliberate choice it is
       final var configured = warningsOf(() -> service.warnAboutUnscopedIdentifiers(MODULE, false));
-      assertTrue(!configured.getFirst().contains("nothing is configured"), () -> configured.toString());
+      assertTrue(!configured.getFirst().contains("nothing is configured"), configured::toString);
       // ... and the way out of the warning is part of it
       assertTrue(
           configured.getFirst().contains("vanillabp.adapters.myengine.accept-unscoped-identifiers: true"),
-          () -> configured.toString());
+          configured::toString);
 
     }
 

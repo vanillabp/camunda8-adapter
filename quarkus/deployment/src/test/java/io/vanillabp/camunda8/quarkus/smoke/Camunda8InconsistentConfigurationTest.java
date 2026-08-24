@@ -30,11 +30,13 @@ public class Camunda8InconsistentConfigurationTest {
           .addAsResource("workflow-module-descriptor/workflow-module", "META-INF/workflow-module"))
       .overrideConfigKey("vanillabp.adapters.c8.mode", "saas")
       .assertException(throwable -> {
-        var message = "";
+        final var causes = new StringBuilder();
         for (var cause = throwable; cause != null; cause = cause.getCause()) {
-          message += cause.getMessage()
-              + "\n";
+          causes
+              .append(cause.getMessage())
+              .append('\n');
         }
+        final var message = causes.toString();
         Assertions.assertTrue(
             message.contains("Camunda 8 adapter 'c8' is configured inconsistently"),
             "expected the guiding startup failure but got:\n"

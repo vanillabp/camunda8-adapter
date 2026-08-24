@@ -57,7 +57,6 @@ public class Camunda8AdapterDiscoveryTest {
 
     Assertions.assertInstanceOf(ProcessServiceBaseCdiBean.class, sampleProcessService);
 
-    @SuppressWarnings("unchecked")
     final var processServiceBaseBean = (ProcessServiceBaseCdiBean<Aggregate>) sampleProcessService;
 
     // the Camunda 8 adapter 'c8' is discovered and configured for the workflow module

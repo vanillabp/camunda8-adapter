@@ -25,6 +25,9 @@ import lombok.extern.slf4j.Slf4j;
  * properties (see {@link Camunda8AdapterConfiguration#validate(String)}).
  */
 @Slf4j
+// no Lombok here: the accessors are the deliberate surface of this class,
+// and generating them would hide which of its fields are meant to be read
+@SuppressWarnings("LombokGetterMayBeUsed")
 public class Camunda8ClientFactory implements AutoCloseable {
 
   @Getter

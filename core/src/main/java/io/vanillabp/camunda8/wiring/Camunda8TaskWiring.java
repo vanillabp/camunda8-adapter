@@ -566,7 +566,7 @@ public final class Camunda8TaskWiring {
       }
       final var extensionElements = message.getExtensionElements() != null
           ? message.getExtensionElements()
-          : (io.camunda.zeebe.model.bpmn.instance.ExtensionElements) message
+          : message
               .getModelInstance()
               .newInstance(io.camunda.zeebe.model.bpmn.instance.ExtensionElements.class);
       if (message.getExtensionElements() == null) {
