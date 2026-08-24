@@ -11,7 +11,7 @@ import io.quarkus.test.QuarkusExtensionTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Startup-validation boot test (story 26c) on Quarkus: an INCONSISTENTLY configured
+ * Startup-validation boot test on Quarkus: an INCONSISTENTLY configured
  * first-priority adapter (here <code>mode: saas</code> without any credential) fails
  * the boot with a message naming the missing property keys - the developer learns
  * about the defect at startup, not when the first workflow is started.
@@ -30,11 +30,13 @@ public class Camunda8InconsistentConfigurationTest {
           .addAsResource("workflow-module-descriptor/workflow-module", "META-INF/workflow-module"))
       .overrideConfigKey("vanillabp.adapters.c8.mode", "saas")
       .assertException(throwable -> {
-        var message = "";
+        final var causes = new StringBuilder();
         for (var cause = throwable; cause != null; cause = cause.getCause()) {
-          message += cause.getMessage()
-              + "\n";
+          causes
+              .append(cause.getMessage())
+              .append('\n');
         }
+        final var message = causes.toString();
         Assertions.assertTrue(
             message.contains("Camunda 8 adapter 'c8' is configured inconsistently"),
             "expected the guiding startup failure but got:\n"

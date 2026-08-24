@@ -4,7 +4,7 @@ name: Release lines
     # Early enough to be green or red before anybody starts working.
     - cron: "0 3 * * *"
   workflow_dispatch:
-  # so the release workflow of story 31 can run the matrix before it publishes
+  # so the release workflow can run the matrix before it publishes
   workflow_call:
 permissions:
   contents: read
@@ -57,7 +57,7 @@ jobs:
         # with nothing, and the revision is the version string this line would publish,
         # so the build proves the coordinates as well as the code. 'install' without
         # 'verify': install runs every phase verify has, and naming both compiled each
-        # module twice for nothing (story 111).
+        # module twice for nothing.
         run: mvn -s "$GITHUB_WORKSPACE/.github/workflows/github-packages-settings.xml"
           --batch-mode --no-transfer-progress --update-snapshots
           -Pline-${{ matrix.line }} -Drevision=2.0.0-${{ matrix.line }}-SNAPSHOT
@@ -67,7 +67,7 @@ jobs:
           cat spring-boot/target/test-classes/camunda8-cluster.properties
           cat core/target/classes/META-INF/vanillabp/adapter-camunda8.properties
 
-  # One name that never changes, so branch protection and story 31 have something to
+  # One name that never changes, so branch protection and the release workflow have something to
   # require while the matrix grows and shrinks with the lines.
   lines-verified:
     if: always()

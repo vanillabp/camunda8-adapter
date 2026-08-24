@@ -11,7 +11,7 @@ import io.vanillabp.spi.service.TaskEvent;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Consumes USER-task lifecycle listener jobs (story 24): the V1-compatible
+ * Consumes USER-task lifecycle listener jobs: the V1-compatible
  * <code>zeebe:taskListener</code>s added at deployment deliver <code>creating</code>
  * (→ {@link TaskEvent.Event#CREATED}) and <code>canceling</code>
  * (→ {@link TaskEvent.Event#CANCELED}) as NORMAL JOBS consumed by this handler.
@@ -25,14 +25,15 @@ import lombok.extern.slf4j.Slf4j;
  * including deliveries without a handler. A failing notification fails the
  * listener job; with the V1-compatible <code>retries="0"</code> this raises an
  * incident for the operator (notification defects must not be silently lost) - unless the
- * workflow module is SHUTTING DOWN (story 90), where the job is left to its lock instead:
+ * workflow module is SHUTTING DOWN, where the job is left to its lock instead:
  * a notification cut off by a restart is not a notification defect, and an incident would
  * be raised for something nobody did wrong. Both commands this handler sends back are
- * repeated where the cluster rejected them for backpressure (story 91), which matters here
+ * repeated where the cluster rejected them for backpressure, which matters here
  * more than anywhere else: with no retries left, a rejected failure would be an incident
  * the cluster's load produced.
  * <p>
- * <b>The listener completion carries NO variables (decided in story 28b).</b>
+ * <b>The listener completion carries NO variables</b> (see decision 1 in the
+ * repository's README.md).
  * Unlike a service-task job - whose completion is the moment the process advances
  * past the task, so a gateway right behind it needs the new values - a listener job
  * only gates a lifecycle transition of a user task that stays in the cluster:
@@ -59,20 +60,20 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
   private final WorkflowTaskInvoker workflowTaskInvoker;
 
   /**
-   * Translates the identifiers the cluster reports back into the plain ones (story
-   * 35) - a no-op unless the workflow module uses prefixes. May be
+   * Translates the identifiers the cluster reports back into the plain ones - a no-op
+   * unless the workflow module uses prefixes. May be
    * <code>null</code> (tests).
    */
   private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
 
   /**
-   * Which multi-instance elements enclose the user task (story 62) - a user task may
+   * Which multi-instance elements enclose the user task - a user task may
    * be multi-instance like any other activity. May be <code>null</code> (tests).
    */
   private final Camunda8MultiInstance.Registry multiInstanceRegistry;
 
   /**
-   * What the workflow module has in flight, and whether it is going down (story 90).
+   * What the workflow module has in flight, and whether it is going down.
    * Never <code>null</code> - a handler built without one (tests) gets a drain of its
    * own, which never shuts down.
    */
@@ -84,7 +85,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
   static final String KIND = "user-task listener";
 
   /**
-   * What this worker asked the cluster for (story 93) - a listener job carries these
+   * What this worker asked the cluster for - a listener job carries these
    * variables and no others. Never <code>null</code>; a handler built without one
    * (tests) sees every variable.
    */
@@ -172,7 +173,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
         ? String.valueOf(job.getUserTask().getUserTaskKey())
         : String.valueOf(job.getKey());
     // the listener job type is '<marker><external form reference>', and the form
-    // reference is the task definition - prefixed like any other one (story 35)
+    // reference is the task definition - prefixed like any other one
     final var scopedTaskDefinition = job
         .getType()
         .substring(Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE.length());
@@ -236,7 +237,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
               .send()
               .join());
     } catch (final Exception e) {
-      // story 90: a notification cut off by a shutdown is not a notification defect. This
+      // A notification cut off by a shutdown is not a notification defect. This
       // worker fails with retries(0), so reporting it would raise an incident for work
       // nobody ever asked the application to abandon - the job is left to its lock instead
       if (drain.leaveJobToItsLock(job.getKey(), KIND, taskDefinition, e)) {
@@ -340,7 +341,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     }
 
     /**
-     * What the cluster knows about the iteration this user task belongs to (story 62).
+     * What the cluster knows about the iteration this user task belongs to.
      */
     @Override
     public java.util.Map<String, io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue> getMultiInstances() {
@@ -372,7 +373,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     public String getProcessVersion() {
 
       // the version of the deployed process definition this job belongs to - the
-      // cluster ships it with every job, so nothing has to be queried (story 48)
+      // cluster ships it with every job, so nothing has to be queried
       return String.valueOf(job.getProcessDefinitionVersion());
 
     }
@@ -402,7 +403,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     public String getDeliveryId() {
 
       // the listener job's key: the notification of one user-task event is one job,
-      // redelivered under the same key until the cluster learns the result (story 51).
+      // redelivered under the same key until the cluster learns the result.
       // The user-task key would be the wrong choice - creation and cancellation of the
       // same user task share it, and they are two deliveries with two outcomes
       return String.valueOf(job.getKey());

@@ -9,7 +9,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 /**
- * The workflow service of the aggregateChanged tests (story 44): both processes park
+ * The workflow service of the aggregateChanged tests: both processes park
  * in an asynchronous task, so a changed aggregate can be pushed at the workflow's own
  * scope and into the scope of ONE iteration of a multi-instance subprocess.
  */

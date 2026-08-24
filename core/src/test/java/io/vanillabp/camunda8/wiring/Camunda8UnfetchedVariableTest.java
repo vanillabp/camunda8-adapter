@@ -29,8 +29,8 @@ import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * What happens when a delivery is asked for a variable its worker did not fetch (story
- * 93). The adapter cannot tell that case apart from a variable which is genuinely absent,
+ * What happens when a delivery is asked for a variable its worker did not fetch. The
+ * adapter cannot tell that case apart from a variable which is genuinely absent,
  * and both a <code>null</code> aggregate id and a <code>null</code>
  * <code>&#64;TaskParam</code> would be a loss nothing reports - so both name the fetch
  * list and the property which switches the restriction off.

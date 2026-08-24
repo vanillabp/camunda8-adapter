@@ -12,7 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * What one workflow module of one adapter instance does with the work it has in flight
- * while the application is going down (story 90).
+ * while the application is going down.
  * <p>
  * The Camunda client does not drain: {@code JobWorker#close()} returns without waiting
  * for the handlers of the jobs the worker already activated, and {@code
@@ -32,10 +32,10 @@ import lombok.extern.slf4j.Slf4j;
  * hands it out again when the lock expires, its retries untouched, and VanillaBP's
  * delivery record decides whether the work has to run again.
  * <p>
- * <b>Why the drain waits for the workers as well (story 102).</b>
+ * <b>Why the drain waits for the workers as well.</b>
  * {@code JobWorker#isClosed()} is the client's own answer and it means three things at
  * once: the worker was closed, no activation request of it is in flight, and no activated
- * job is left. Story 90 decided not to wait for it, because a worker long-polls with the
+ * job is left. This adapter does not wait for it, because a worker long-polls with the
  * request timeout (ten seconds by default) and closing it does not cancel the request in
  * flight, so a worker which runs nothing at all reports {@code false} for as long as that
  * request takes. What that costs was known; what it buys was not, and it turned out to be
@@ -59,6 +59,8 @@ import lombok.extern.slf4j.Slf4j;
  * on their lock.
  */
 @Slf4j
+// see decision 4 in the repository's README.md
+@SuppressWarnings("LombokGetterMayBeUsed")
 public class Camunda8Drain {
 
   /**
@@ -251,7 +253,7 @@ public class Camunda8Drain {
    * It can only report what this adapter knows: the workers it closed is a count it took
    * itself, and whether the cluster released them is the client's answer, asked after the
    * wait rather than during it. A line claiming the workers were not closed while the
-   * client is going down cannot be produced here, which is what story 102 is about.
+   * client is going down cannot be produced here.
    *
    * @param grace The grace period the shutdown was given
    * @param outcome What {@link #awaitQuiet} ended with

@@ -26,7 +26,7 @@ import io.vanillabp.spi.process.ProcessDefinitionNotFoundException;
 import io.vanillabp.spi.process.ProcessService;
 
 /**
- * The viewer/history API (story 26) against a real Camunda 8 cluster running
+ * The viewer/history API against a real Camunda 8 cluster running
  * <b>without secondary storage</b> (the standalone broker of all Camunda 8
  * integration tests) - the documented degradation:
  * <ul>
@@ -41,7 +41,7 @@ import io.vanillabp.spi.process.ProcessService;
  * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
  * awareness probe answers optimistically - what this test exercises is that fallback.
  * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
- * Elasticsearch (story 52).
+ * Elasticsearch.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput

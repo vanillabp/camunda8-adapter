@@ -299,8 +299,8 @@ public interface VanillaBpCamunda8Properties {
     Optional<java.time.Duration> shutdownGrace();
 
     /**
-     * How long the health check waits for the cluster to answer its topology request
-     * (story 92), <code>PT0S</code> switching the check off.
+     * How long the health check waits for the cluster to answer its topology request,
+     * <code>PT0S</code> switching the check off.
      *
      * @return The timeout
      */
@@ -417,7 +417,7 @@ public interface VanillaBpCamunda8Properties {
     Optional<String> overrideAuthority();
 
     /**
-     * How this adapter instance authenticates against its cluster (story 88).
+     * How this adapter instance authenticates against its cluster.
      *
      * @return The authentication block
      */

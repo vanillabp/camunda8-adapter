@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * The bounded retry around the command a job handler sends BACK to the cluster - the
  * completion, the BPMN error, the failure and the lock renewal of an open asynchronous
- * task (story 91).
+ * task.
  * <p>
  * <b>Why it exists.</b> A command the cluster rejects because it is busy arrives as
  * <code>RESOURCE_EXHAUSTED</code> on gRPC and as HTTP 503 on REST, and nothing in the
@@ -46,7 +46,7 @@ import lombok.extern.slf4j.Slf4j;
  * about what a repetition can change rather than two. A job which is gone and a request
  * the cluster rejects come back on the first attempt. And a shutdown ends the retry at
  * once: while the module is going down, the failure belongs to the shutdown and the job is
- * left to its lock (story 90) instead of being failed - a retry loop must not hold the
+ * left to its lock instead of being failed - a retry loop must not hold the
  * drain, and it must not turn into a failure the shutdown would have avoided.
  * <p>
  * When the bound is reached the original failure is rethrown, so the behaviour after the
@@ -97,7 +97,7 @@ public final class Camunda8CommandRetry {
    * @param taskName The task definition respectively job type, as the application knows it
    * @param lockDeadline When the job's lock expires (epoch milliseconds, i.e.
    *          {@code ActivatedJob#getDeadline()})
-   * @param shuttingDown Whether the workflow module is going down (story 90)
+   * @param shuttingDown Whether the workflow module is going down
    * @param send The command itself
    * @throws RuntimeException The original failure, once no further attempt is allowed
    */
@@ -185,7 +185,7 @@ public final class Camunda8CommandRetry {
       return new Stop("repeating it cannot change the answer", false);
     }
     if (shuttingDown.getAsBoolean()) {
-      // story 90: the adapter is going down, so this is the shutdown and not the cluster.
+      // The adapter is going down, so this is the shutdown and not the cluster.
       // The caller leaves the job to its lock, which is better than any retry
       return new Stop("the workflow module is shutting down", false);
     }

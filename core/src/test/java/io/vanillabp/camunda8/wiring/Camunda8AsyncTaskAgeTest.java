@@ -29,7 +29,7 @@ import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 89, the Camunda 8 half: what the job handler does with a task the core reports as
+ * What the job handler does with a task the core reports as
  * still open, and with one it reports as older than
  * <code>vanillabp.delivery.max-task-age</code> allows.
  * <ul>

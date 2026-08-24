@@ -20,7 +20,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Multi-instance against a REAL Camunda 8 broker (story 62): the element, the index
+ * Multi-instance against a REAL Camunda 8 broker: the element, the index
  * and the total of every iteration reach the {@code @WorkflowTask} method, including
  * the iteration of the multi-instance SUBPROCESS a nested task runs in.
  *

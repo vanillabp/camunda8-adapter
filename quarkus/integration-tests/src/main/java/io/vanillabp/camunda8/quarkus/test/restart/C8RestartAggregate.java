@@ -9,7 +9,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * The workflow aggregate of the restart-delivery test (story 102).
+ * The workflow aggregate of the restart-delivery test.
  */
 @Entity
 @Table(name = "C8_RESTART_AGGREGATE")

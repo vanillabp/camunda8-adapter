@@ -34,7 +34,7 @@ public class Camunda8ClientFactoryRegistry implements AutoCloseable {
   }
 
   /**
-   * Which adapter ids address the SAME cluster (story 103).
+   * Which adapter ids address the SAME cluster.
    * <p>
    * A job key, a user-task key and a process-instance key are unique per cluster, so two
    * ids sharing one are handed each other's keys and their awareness probes have to check

@@ -22,7 +22,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 public class Camunda8ProcessServiceTest {
 
   /**
-   * What a probe is asked about (story 107).
+   * What a probe is asked about.
    */
   private static final io.vanillabp.integration.adapter.spi.WorkflowScope SCOPE = io.vanillabp.integration.adapter.spi.WorkflowScope
       .of("test-module", "TestProcess");

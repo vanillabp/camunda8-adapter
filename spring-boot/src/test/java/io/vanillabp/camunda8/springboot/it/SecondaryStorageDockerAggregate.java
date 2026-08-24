@@ -9,9 +9,9 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * JPA workflow aggregate of the secondary-storage integration test (story 52).
+ * JPA workflow aggregate of the secondary-storage integration test.
  * <p>
- * Its ID attribute is deliberately NOT named <code>id</code> (story 54): the
+ * Its ID attribute is deliberately NOT named <code>id</code>: the
  * aggregate-ID process variable is named after it, so a probe deriving that name
  * from anywhere else searches for something the cluster does not have and reports
  * every workflow as unknown.

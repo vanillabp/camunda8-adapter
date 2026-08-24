@@ -14,7 +14,7 @@ import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
 /**
- * Workflow service of the task-processing integration test (story 21c): one
+ * Workflow service of the task-processing integration test: one
  * {@code @WorkflowTask} method per outcome variation, serving three BPMN processes
  * of one aggregate. Handlers record invocation counts so the test can prove
  * at-least-once redelivery convergence and async-task dormancy.
@@ -41,7 +41,7 @@ public class TaskDockerWorkflowService {
 
   /**
    * When each invocation happened, per (task definition + aggregate ID) - what the
-   * retry-backoff test of story 91 measures the distance between two deliveries with.
+   * retry-backoff test measures the distance between two deliveries with.
    */
   public static final Map<String, java.util.List<Long>> INVOCATION_TIMES = new ConcurrentHashMap<>();
 
@@ -254,7 +254,7 @@ public class TaskDockerWorkflowService {
 
   /**
    * The variables the cluster delivered to {@code syncApproved} - i.e. what the
-   * completion of {@code syncTask} pushed (story 28b).
+   * completion of {@code syncTask} pushed.
    */
   public static final Map<String, Object> OBSERVED_VARIABLES = new ConcurrentHashMap<>();
 
@@ -292,16 +292,15 @@ public class TaskDockerWorkflowService {
       final TaskDockerAggregate aggregate) {
 
     countInvocation("syncRejected", aggregate);
-    // reached only if the gateway evaluated STALE data (the defect story 28b fixes)
+    // reached only if the gateway evaluated STALE data
     aggregate.appendResult("sync-rejected");
 
   }
 
   /**
-   * The escape hatch at TASK level (story 93): this task is configured with
+   * The escape hatch at TASK level: this task is configured with
    * {@code fetch-variables: all}, so its worker asks the cluster for the complete
-   * variable scope. Since story 99 the derived list would answer this {@code @TaskParam}
-   * as well - what the task proves is that the property still reaches the worker and that
+   * variable scope. The derived list would answer this {@code @TaskParam} as well - what the task proves is that the property still reaches the worker and that
    * a worker asking for everything keeps working.
    */
   @WorkflowTask
@@ -318,7 +317,7 @@ public class TaskDockerWorkflowService {
   }
 
   /**
-   * Story 99, the default: nothing is configured for this task and {@code bigPayload}
+   * The default: nothing is configured for this task and {@code bigPayload}
    * appears in no BPMN model - it was handed to the workflow when it was started. Its
    * worker still asks the cluster for that variable, because the core reports the
    * {@code @TaskParam} names of the methods serving a task while the application wires

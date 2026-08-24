@@ -8,7 +8,7 @@ import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
 /**
- * The workflow service of the process-version integration test (story 48): one BPMN
+ * The workflow service of the process-version integration test: one BPMN
  * task served by two methods, told apart by the version of the deployed process
  * definition - the first version by its number, the second one by the
  * <code>zeebe:versionTag</code> its model carries.

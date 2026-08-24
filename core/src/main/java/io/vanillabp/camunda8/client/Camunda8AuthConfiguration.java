@@ -9,7 +9,7 @@ import lombok.Setter;
 
 /**
  * How one Camunda 8 adapter instance proves who it is - the block
- * <code>vanillabp.adapters.&lt;id&gt;.auth.*</code> (story 88).
+ * <code>vanillabp.adapters.&lt;id&gt;.auth.*</code>.
  * <p>
  * A credential belongs to the connection and not to a workflow, so this block lives at
  * the adapter level only; there is nothing to resolve per workflow module, workflow or

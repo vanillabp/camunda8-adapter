@@ -21,7 +21,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 89 against a real Camunda 8 cluster: a task nobody ever completes.
+ * A task nobody ever completes, against a real Camunda 8 cluster.
  * <p>
  * The renewal of an open job's lock is driven by the cluster's own redelivery, so nothing
  * in VanillaBP ever asks whether that task is still expected - except the age of its

@@ -11,7 +11,7 @@ import io.quarkus.test.QuarkusExtensionTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Startup-validation boot test (story 26c) on Quarkus: an adapter WITHOUT any
+ * Startup-validation boot test on Quarkus: an adapter WITHOUT any
  * connection configuration still boots - the {@code StartupEvent} observer forces
  * the validation which emits a guiding WARN naming the exact property keys to add.
  */

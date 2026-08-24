@@ -66,13 +66,8 @@ public class Camunda8DeployedProcesses {
   }
 
   /**
-   * @param processDefinitionKey The Camunda 8 process definition key
-   * @return The deployed process or <code>null</code> if not deployed by this
-   *         application version
-   */
-  /**
    * Every process of a workflow module deployed by THIS application version - the
-   * models the message-name check of {@code correlateMessage} reads (story 73). A
+   * models the message-name check of {@code correlateMessage} reads. A
    * workflow module whose processes were deployed by a previous application version
    * yields an empty collection, and the check then stays silent.
    *
@@ -94,7 +89,7 @@ public class Camunda8DeployedProcesses {
 
   /**
    * Every process this application version deployed through this adapter id - the set the
-   * awareness probes derive the adapter's SCOPE from (story 103).
+   * awareness probes derive the adapter's SCOPE from.
    *
    * @return The deployed processes, empty where nothing was deployed (a module whose
    *         deployment failed under the 'warn' policy, or a test)
@@ -105,6 +100,11 @@ public class Camunda8DeployedProcesses {
 
   }
 
+  /**
+   * @param processDefinitionKey The Camunda 8 process definition key
+   * @return The deployed process or <code>null</code> if not deployed by this
+   *         application version
+   */
   public DeployedProcess byDefinitionKey(
       final String processDefinitionKey) {
 

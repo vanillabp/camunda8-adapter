@@ -22,11 +22,11 @@ configuration, create beans, run the bean lifecycle).
   `newCloudClientBuilder()` for SaaS.
 - `Camunda8ClientFactoryRegistry` - map adapter ID &rarr; factory, registered as a managed
   bean so all clients are closed on shutdown. It is also the only place which sees every
-  configured id at once, so it answers which ids address the SAME cluster (story 103):
+  configured id at once, so it answers which ids address the SAME cluster:
   keys are unique per cluster, and where two ids share one, the awareness probes have to
   ask which scope a key belongs to before they claim it. The factory knows which workflow modules
   have workers open and closes the ones which never stopped themselves before it closes
-  the client (story 102), so the order holds on every shutdown path and not only on the
+  the client, so the order holds on every shutdown path and not only on the
   one each platform's lifecycle takes.
 
 ## What a worker sends back to the cluster
@@ -34,11 +34,11 @@ configuration, create beans, run the bean lifecycle).
 Four classes share the way back, so the rules live in one place rather than in four
 handlers:
 
-- `Camunda8Errors` classifies a failure. `permanentFailure` answers the outbox (story 73),
+- `Camunda8Errors` classifies a failure. `permanentFailure` answers the outbox,
   `repeatableJobCommandFailure` answers a job command and adds the one case which is
   permanent only there, a job which is gone. `incidentMessage` builds the text an operator
   reads in Operate, with the exception's type in front of its message.
-- `Camunda8CommandRetry` repeats a rejected command (story 91). It is bounded by the job's
+- `Camunda8CommandRetry` repeats a rejected command. It is bounded by the job's
   remaining lock (`ActivatedJob#getDeadline()`), by five attempts and by the shutdown, and
   its waits are the client's own activation backoff numbers. Nothing about the outcome
   changes once the bound is reached: the original failure is rethrown and the caller does
@@ -46,14 +46,14 @@ handlers:
 - `Camunda8RetryBackoffResolver` resolves `retry-backoff` over the four configuration
   levels, per command rather than per worker. It travels with every fail command which
   leaves the job retries.
-- `Camunda8Drain` decides whether a failure belongs to the shutdown (story 90), in which
+- `Camunda8Drain` decides whether a failure belongs to the shutdown, in which
   case no command is sent at all and the job is left to its lock. It also holds what a
-  shutdown waits for and the line it writes about it (story 102): the handlers of the
+  shutdown waits for and the line it writes about it: the handlers of the
   module, and the workers reporting themselves closed, because an activation request which
   is parked at the cluster when the client is closed stays parked and swallows the first
   job of the next application.
 
-## What a worker asks the cluster for (stories 93 and 99)
+## What a worker asks the cluster for
 
 `Camunda8FetchVariables` holds both halves of it: the list a worker names, and the two
 messages a delivery writes when it is asked for a variable outside that list.
@@ -66,13 +66,13 @@ user tasks of its listener job type, and the workflow-end worker one process. Th
 sources feed it, and all three are the core or this adapter's own bookkeeping:
 `resolveWorkflowAggregateIdName` per BPMN process, the multi-instance registry filled during
 `wireBpmn` and keyed by the process id the CLUSTER knows plus the element id, and
-`taskParameterNames` per served task definition (story 99).
+`taskParameterNames` per served task definition.
 
-That last one replaced a scan of the model. Story 93 collected the four constructs a Camunda
+That last one replaced a scan of the model. The scan collected the four constructs a Camunda
 8 model declares a variable with - the targets of `zeebe:ioMapping`, the result variable of
 an inline script, the result variable of a called decision, the output collection of a
-multi-instance element - because a `@TaskParam` might read one of them and the model was the
-only place this adapter could see such a name. The core had the names all along: it reads
+multi-instance element - because a `@TaskParam` might read one of them and the model looked
+like the only place this adapter could see such a name. The core had the names all along: it reads
 them off the annotations while it builds the parameter binders. Keeping both would have left
 two sources for one answer, and the model was the weaker of them in both directions, so
 `declaredVariablesOf` is gone.
@@ -87,12 +87,12 @@ may be missing exactly what its handler reads.
 The handlers carry the `Selection` because they need it in a message, not to decide
 anything: `Camunda8JobHandler` and `Camunda8UserTaskListenerHandler` name it when the
 aggregate-id variable is absent, and their invocation contexts throw when
-`getTaskParameter` is asked for a name outside it. Since story 99 that throw is practically
+`getTaskParameter` is asked for a name outside it. That throw is practically
 unreachable - a statically named `@TaskParam` is in the list by construction - and it stays
 for the name a handler computes at runtime, which the scanner cannot see. Its message says
 so, because the first thing a reader checks is the annotation.
 
-## What an operator gets to see (story 92)
+## What an operator gets to see
 
 The core measures every delivery on every BPMS. This adapter adds what only makes sense
 here, and the whole of it hangs on two seams.
@@ -105,7 +105,7 @@ is deliberately NOT used: it would publish `camunda.job.invocations` and friends
 
 `Camunda8Metrics` is plain Java with a no-op `NONE`, `MicrometerCamunda8Metrics`
 implements it plus `MeterBinder`, and Micrometer stays optional exactly as in the platform
-integration. The execution slots come from the virtual-thread executor of story 74, which
+integration. The execution slots come from the virtual-thread executor, which
 is the only place holding the bound; in the platform-thread mode the client owns its pool
 and reports nothing about it, so those gauges are absent instead of guessed.
 

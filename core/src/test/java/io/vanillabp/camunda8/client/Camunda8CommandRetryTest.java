@@ -17,7 +17,7 @@ import io.camunda.client.api.command.ProblemException;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 91, the retry loop itself: what makes it try again, what makes it stop and what the
+ * The retry loop itself: what makes it try again, what makes it stop and what the
  * waits between two attempts look like. The loop is a pure function of the failure, the
  * attempt count and the clock, so its boundaries belong here rather than into a test
  * against a cluster - real backpressure is not something a test can ask a broker for.
@@ -196,7 +196,7 @@ public class Camunda8CommandRetryTest {
   }
 
   @Test
-  @DisplayName("A shutdown ends the retry at once, so story 90 keeps the job")
+  @DisplayName("A shutdown ends the retry at once, so the job keeps its lock and retries")
   public void aShutdownEndsTheRetry() {
 
     final var attempts = new AtomicInteger();

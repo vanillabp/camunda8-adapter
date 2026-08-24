@@ -9,7 +9,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * JPA workflow aggregate of the shutdown-drain integration test (story 90).
+ * JPA workflow aggregate of the shutdown-drain integration test.
  */
 @Entity
 @Table(name = "C8_SHUTDOWN_AGGREGATE")

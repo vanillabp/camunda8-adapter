@@ -15,7 +15,7 @@ import io.camunda.client.api.worker.JobWorkerMetrics;
  * <ul>
  * <li>the client's own job counters, which sit BEFORE the execution slots: the
  * difference between activated and handled is the queue in front of the handlers;</li>
- * <li>the execution slots of the adapter (story 74): how many there are, how many are
+ * <li>the execution slots of the adapter: how many there are, how many are
  * busy and how many jobs wait for one. A cluster with work and an application with no
  * free slot is the situation probe P3 of the spike described, and this is where it
  * becomes visible.</li>

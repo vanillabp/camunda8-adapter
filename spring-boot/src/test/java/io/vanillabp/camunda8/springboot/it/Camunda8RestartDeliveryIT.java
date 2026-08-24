@@ -26,7 +26,7 @@ import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The acceptance test of story 102: a workflow started right after a restart gets its
+ * A workflow started right after a restart gets its
  * first job in milliseconds rather than in a job timeout.
  * <p>
  * Two application contexts run in one JVM against one cluster, which is what a restart
@@ -148,10 +148,10 @@ public class Camunda8RestartDeliveryIT {
       final TestReporter reporter,
       final String measurement) {
 
-    reporter.publishEntry("story-102-restart-delivery", measurement);
+    reporter.publishEntry("restart-delivery", measurement);
     try {
       Files.writeString(
-          Path.of("target", "story-102-restart-delivery.txt"),
+          Path.of("target", "restart-delivery.txt"),
           measurement + System.lineSeparator());
     } catch (final IOException e) {
       throw new UncheckedIOException("Cannot write down what was measured", e);
@@ -191,7 +191,7 @@ public class Camunda8RestartDeliveryIT {
     final var deliveredAfterMillis = (RestartDockerWorkflowService.SERVED_AT.get() - startedAt) / 1_000_000;
 
     // written down rather than printed: the output of a test which passes is suppressed,
-    // and this number is what the story asked for
+    // and this number is the whole point of the test
     report(
         reporter,
         "the first job of a workflow started %s after a restart was delivered after %d ms (job timeout %s, the shutdown of the first application took %d ms)"

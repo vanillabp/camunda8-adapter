@@ -17,8 +17,8 @@ import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * What travels to the cluster on behalf of a workflow (story 116, the Camunda 8 twin of
- * the Process-Engine-API adapter's {@code PeaSharedValuesTest}).
+ * What travels to the cluster on behalf of a workflow - the Camunda 8 twin of the
+ * Process-Engine-API adapter's {@code PeaSharedValuesTest}.
  * <p>
  * {@code WorkflowAggregateSync} promises two things which nothing held here: the
  * workflow-aggregate's ID is never one of the shared values, and the technical variable
@@ -30,7 +30,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * exercised.
  * <p>
  * The third case pins the sharing default: {@link AggregateSyncMode#FULL} for every
- * adapter since story 66, so a model reads the same attributes wherever it runs.
+ * adapter, so a model reads the same attributes wherever it runs.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8SharedValuesTest {
@@ -155,7 +155,7 @@ public class Camunda8SharedValuesTest {
   }
 
   @Test
-  @DisplayName("This adapter asks for everything - FULL is the default of every adapter since story 66")
+  @DisplayName("This adapter asks for everything - FULL is the default of every adapter")
   public void theAdapterAsksWithFull() {
 
     final var recording = new RecordingSync(Map.of());

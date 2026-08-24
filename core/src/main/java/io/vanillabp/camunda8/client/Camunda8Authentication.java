@@ -9,7 +9,7 @@ import io.camunda.client.CredentialsProvider;
 
 /**
  * The credentials one Camunda 8 adapter instance sends, and what it says when the
- * cluster refuses them (story 88).
+ * cluster refuses them.
  * <p>
  * Two things happen here. The first is building the client's own
  * {@link CredentialsProvider} from the adapter's <code>auth.*</code> block, reusing the
@@ -27,6 +27,8 @@ import io.camunda.client.CredentialsProvider;
  * Nothing logged here carries a secret, not even its length: the messages name property
  * keys, the method and the address.
  */
+// see decision 4 in the repository's README.md
+@SuppressWarnings("LombokGetterMayBeUsed")
 public final class Camunda8Authentication {
 
   /**

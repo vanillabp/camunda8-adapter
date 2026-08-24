@@ -16,7 +16,7 @@ import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 59: which elements of a model can put a SECOND token into a running workflow -
+ * Which elements of a model can put a SECOND token into a running workflow -
  * the finding this adapter reports to the core, which turns it into the hint about two
  * writers on one workflow aggregate.
  * <p>

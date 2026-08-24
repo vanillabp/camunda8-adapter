@@ -56,7 +56,7 @@ public class Camunda8AdapterDiscoveryTest {
   @Test
   public void anAdapterWithoutAConnectionIsNotUnhealthy() {
 
-    // story 92: this application configures the adapter but no cluster to talk to, which
+    // This application configures the adapter but no cluster to talk to, which
     // is a legitimate state of a setup in progress. The health endpoint has to say so
     // instead of reporting an outage on top of the guiding warning the boot already gave
     final var deploymentService = context.getBean(AdapterDeploymentService.class);

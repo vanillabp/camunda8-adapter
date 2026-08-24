@@ -6,8 +6,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 
 /**
  * A {@link PhaseTwoOutbox} stub for smoke tests booting WITHOUT a database: the
- * Camunda 8 adapter requires a two-phase commit for starting workflows, so since
- * story 26i of the platform an outbox has to be RESOLVABLE at startup. The smoke
+ * Camunda 8 adapter requires a two-phase commit for starting workflows, and the
+ * platform wants the outbox RESOLVABLE at startup. The smoke
  * tests never start workflows - any usage of the stub fails loudly.
  */
 @ApplicationScoped

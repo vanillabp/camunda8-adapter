@@ -18,8 +18,8 @@ import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The pre-commit shape of the phase-one existence check (story 22, the V1
- * refinement): {@code completeTaskPhaseOne}/{@code cancelTaskPhaseOne} do NOT
+ * The pre-commit shape of the phase-one existence check:
+ * {@code completeTaskPhaseOne}/{@code cancelTaskPhaseOne} do NOT
  * contact the cluster at method-call time - they only REGISTER the check, which
  * runs when the platform's transaction synchronization fires right before the
  * commit. This minimizes the window between check and phase-two dispatch (fewer
@@ -41,7 +41,7 @@ public class Camunda8PreCommitCheckTest {
         final Class<?> workflowAggregateClass,
         final Runnable check) {
 
-      // story 87: the platform resolves the runner of THIS aggregate, so the adapter has
+      // The platform resolves the runner of THIS aggregate, so the adapter has
       // to name it - the test keeps it to prove the adapter does
       aggregateClasses.add(workflowAggregateClass);
       registered.add(check);

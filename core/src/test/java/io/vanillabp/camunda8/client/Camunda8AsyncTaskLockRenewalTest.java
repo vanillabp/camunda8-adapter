@@ -14,7 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 89: the window an open asynchronous task's job lock is renewed in, and what the
+ * The window an open asynchronous task's job lock is renewed in, and what the
  * startup refuses about it.
  * <p>
  * Two configurations are silent at runtime and expensive in production, so both end the

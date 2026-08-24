@@ -12,7 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Consumes the END execution-listener jobs of a process whose application wants to
- * be told that a workflow ended (story 43). The job is activated after the last
+ * be told that a workflow ended. The job is activated after the last
  * element of the process completed and gates the disappearance of the instance,
  * which is the window VanillaBP uses to call the application.
  * <p>
@@ -22,11 +22,11 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * A failing notification fails the job with one retry less, the way the handler of a
  * service task does, so the cluster retries and finally raises an incident. While the
- * workflow module is shutting down (story 90) the job is left to its lock instead: a
+ * workflow module is shutting down the job is left to its lock instead: a
  * notification cut off by a restart is not a defect of the application, and the cluster
  * hands the job out again with its retries intact. Both commands this handler sends back
  * are repeated where the cluster rejected them for backpressure, and a job which is failed
- * after all gets a <code>retry-backoff</code> (story 91).
+ * after all gets a <code>retry-backoff</code>.
  */
 @Slf4j
 public class Camunda8WorkflowEndedHandler implements JobHandler {
@@ -48,7 +48,7 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
   private final WorkflowEndedInvoker workflowEndedInvoker;
 
   /**
-   * What the workflow module has in flight, and whether it is going down (story 90).
+   * What the workflow module has in flight, and whether it is going down.
    * Never <code>null</code> - a handler built without one (tests) gets a drain of its own,
    * which never shuts down.
    */
@@ -60,7 +60,7 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
   static final String KIND = "workflow-end listener";
 
   /**
-   * How long the cluster waits before it hands a failed job out again (story 91). May be
+   * How long the cluster waits before it hands a failed job out again. May be
    * <code>null</code> (tests) - then
    * {@link Camunda8RetryBackoffResolver#DEFAULT_RETRY_BACKOFF} applies.
    */
@@ -150,7 +150,7 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
               .join());
 
     } catch (final Exception e) {
-      // story 90: while the module is going down, the failure is the shutdown and not the
+      // While the module is going down, the failure is the shutdown and not the
       // application - the job keeps its lock and its retries
       if (drain.leaveJobToItsLock(job.getKey(), KIND, job.getType(), e)) {
         return;

@@ -11,7 +11,7 @@ import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
 /**
- * The workflow of the authentication integration test (story 88). Everything it does
+ * The workflow of the authentication integration test. Everything it does
  * travels the authenticated connection: the deployment at startup, the command starting
  * the workflow, the activation request of the worker and the completion of its job.
  */

@@ -10,7 +10,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * JPA workflow aggregate of the multi-instance integration test (story 62). The
+ * JPA workflow aggregate of the multi-instance integration test. The
  * iterations run one after another, so appending to one column is safe here - a
  * parallel multi-instance would need a row per iteration.
  */

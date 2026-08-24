@@ -20,7 +20,7 @@ import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListeners;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The V1-COMPATIBILITY contract of the user-task listener injection (story 24):
+ * The V1-COMPATIBILITY contract of the user-task listener injection:
  * listener job types keep the V1 prefix, retries stay "0" and the insertion order
  * is EXACTLY V1's (VanillaBP "creating" FIRST, custom listeners in between,
  * VanillaBP "canceling" LAST) - upgrading a V1 application must produce a

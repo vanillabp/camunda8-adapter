@@ -9,7 +9,7 @@ import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Boot tests of the Camunda 8 startup validation (story 26c): configuration is
+ * Boot tests of the Camunda 8 startup validation: configuration is
  * validated AT STARTUP, never first at runtime.
  * <ul>
  *   <li>entirely unconfigured connection → the application BOOTS and a guiding WARN
@@ -20,7 +20,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  *       application boots DEGRADED with a warning;</li>
  *   <li>fully configured → no warning, and the configured secret NEVER appears in
  *       the log (messages name keys, not values);</li>
- *   <li>story 88: an <code>auth</code> block binds through the Spring overlay and
+ *   <li>an <code>auth</code> block binds through the Spring overlay and
  *       reaches the client, an incomplete one fails the boot with the YAML which
  *       completes it, and no password reaches a log line.</li>
  * </ul>

@@ -16,13 +16,12 @@ import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 90: what the drain of one workflow module does while the application goes down.
+ * What the drain of one workflow module does while the application goes down.
  * The two halves are tested separately here - the waiting, and the rule which keeps a
  * failure of the shutdown from being reported as a failure of the application.
  * <p>
- * Story 102 added the second thing the shutdown waits for, the workers reporting
- * themselves closed, and the rule that the line the drain writes can only say what this
- * adapter knows.
+ * The shutdown waits for a second thing beside the handlers, the workers reporting
+ * themselves closed, and the line the drain writes can only say what this adapter knows.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8DrainTest {
@@ -215,7 +214,7 @@ public class Camunda8DrainTest {
             + logged);
     assertFalse(
         logged.contains("workers closed: false"),
-        "the line story 102 started from cannot be written any more: "
+        "a line claiming the workers were not closed cannot be written any more: "
             + logged);
 
   }
@@ -254,7 +253,7 @@ public class Camunda8DrainTest {
     final var events = eventsOf(
         () -> drain.report(Duration.ZERO, drain.awaitQuiet(Duration.ZERO, 1, () -> false)));
 
-    assertEquals(1, events.size(), () -> events.toString());
+    assertEquals(1, events.size(), events::toString);
     assertTrue(
         events.getFirst().getFormattedMessage().contains("still holding an activation request"),
         "the consequence is still said: "

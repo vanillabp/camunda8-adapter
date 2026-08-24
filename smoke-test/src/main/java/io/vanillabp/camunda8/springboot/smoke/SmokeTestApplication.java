@@ -12,13 +12,12 @@ import io.vanillabp.integration.utils.SpringDataUtil;
  * own, and so does its workflow module {@code smoke-app}: a workflow module is a
  * classpath entry carrying {@code META-INF/workflow-module}, so a scenario sharing that
  * entry with another one shares its workflow module - and every application is then asked
- * for the persistence of the other scenario's aggregates, which since story 114 of the
- * platform ends the startup (story 118). It provides a
+ * for the persistence of the other scenario's aggregates, which ends the startup. It provides a
  * {@link SpringDataUtil} stub so the test does not need a real database - no workflow is
  * ever started, so persistence is never actually used.
  * <p>
- * It also says who owns {@link Aggregate}. Since story 114 of the platform an aggregate
- * without a persistence ends the startup, because the fallback would look for a Spring
+ * It also says who owns {@link Aggregate}. An aggregate without a persistence ends
+ * the startup, because the fallback would look for a Spring
  * Data repository and this application has no reason to have one. The double below is
  * that answer, and every method of it fails loudly so a test which starts persisting for
  * real hears about it.

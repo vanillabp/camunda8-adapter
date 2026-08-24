@@ -57,7 +57,6 @@ public class Camunda8AdapterDiscoveryTest {
 
     Assertions.assertInstanceOf(ProcessServiceBaseCdiBean.class, sampleProcessService);
 
-    @SuppressWarnings("unchecked")
     final var processServiceBaseBean = (ProcessServiceBaseCdiBean<Aggregate>) sampleProcessService;
 
     // the Camunda 8 adapter 'c8' is discovered and configured for the workflow module
@@ -90,7 +89,7 @@ public class Camunda8AdapterDiscoveryTest {
   @Test
   public void anAdapterWithoutAConnectionIsNotUnhealthy() {
 
-    // story 92: this application configures the adapter but no cluster to talk to, which
+    // This application configures the adapter but no cluster to talk to, which
     // is a legitimate state of a setup in progress. The readiness check has to say so
     // instead of reporting an outage on top of the guiding warning the boot already gave
     final var health = deploymentServices

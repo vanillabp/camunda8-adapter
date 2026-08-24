@@ -14,7 +14,7 @@ import io.vanillabp.integration.test.utils.CoverageGate;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The gate of story 49: it breaks the build when a platform's aggregated coverage
+ * The coverage gate: it breaks the build when a platform's aggregated coverage
  * drops below the threshold, so a drop is noticed while it happens instead of a year
  * later.
  * <p>
@@ -23,7 +23,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * aggregated reports spanning many modules. So the gate reads exactly the report which
  * is published, and report and gate can never disagree.
  * <p>
- * The completeness test comes first for the reason story 76 documented: a threshold
+ * The completeness test comes first for a reason: a threshold
  * checked against an incomplete aggregate fails builds for coverage which exists and
  * is only not counted, and nobody can fix that by writing a test.
  */

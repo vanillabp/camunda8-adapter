@@ -17,7 +17,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * Two <code>camunda8</code> adapter ids only make sense if they address DIFFERENT
- * clusters - or one cluster with different credentials/tenants (story 34).
+ * clusters - or one cluster with different credentials/tenants.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8InstanceIdentityTest {
@@ -110,7 +110,7 @@ public class Camunda8InstanceIdentityTest {
   }
 
   @Test
-  @DisplayName("Story 35: two ids on ONE cluster are distinct if their name-clash-avoidance modes differ")
+  @DisplayName("Two ids on ONE cluster are distinct if their name-clash-avoidance modes differ")
   public void differingNameClashAvoidanceMakesIdsDistinct() {
 
     final var configurations = Map.of(

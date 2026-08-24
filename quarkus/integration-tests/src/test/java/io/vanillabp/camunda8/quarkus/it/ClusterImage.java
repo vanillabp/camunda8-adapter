@@ -12,7 +12,7 @@ import org.testcontainers.utility.DockerImageName;
  * It is filtered into {@code camunda8-cluster.properties} at build time from the Camunda
  * client the active release line pins ({@code camunda8.version}), the same mechanism the
  * Spring Boot module uses: activating another line moves the client and the cluster
- * together, so a line's tests meet the oldest cluster its artifacts accept (story 53).
+ * together, so a line's tests meet the oldest cluster its artifacts accept.
  */
 public final class ClusterImage {
 

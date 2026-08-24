@@ -12,7 +12,7 @@ import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
 /**
- * The workflow of the restart-delivery integration test (story 102): nothing but a task
+ * The workflow of the restart-delivery integration test: nothing but a task
  * which says when it was reached, so the test can measure how long the first job of a
  * workflow started right after a restart takes to arrive.
  */

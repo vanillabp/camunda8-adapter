@@ -14,7 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 103: which adapter ids address the same Camunda 8 cluster, and why that is a
+ * Which adapter ids address the same Camunda 8 cluster, and why that is a
  * coarser question than whether they are the same INSTANCE.
  * <p>
  * A job key, a user-task key and a process-instance key are unique per cluster and not
@@ -97,7 +97,7 @@ public class Camunda8SharedClusterTest {
         registry
             .getFactory("c8")
             .sharesItsCluster(),
-        "an application with one Camunda 8 adapter pays no probe of story 103");
+        "an application with one Camunda 8 adapter pays no scope probe");
 
   }
 

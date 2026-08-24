@@ -24,8 +24,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 51 against a real Camunda 8 cluster: a REDELIVERY of a task VanillaBP already
- * processed must not run the <code>&#64;WorkflowTask</code> method again.
+ * A REDELIVERY of a task VanillaBP already processed, against a real Camunda 8
+ * cluster: it must not run the <code>&#64;WorkflowTask</code> method again.
  * <p>
  * Forcing a redelivery of a task whose result the cluster already learned is impossible -
  * the cluster would have to lose a completion. What can be forced is the case of an
@@ -36,9 +36,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * exactly once, every further delivery being answered from the record VanillaBP wrote in
  * the handler's own transaction.
  * <p>
- * Story 89 added the second half of the arrangement: the retention of the delivery
- * records is set to ten seconds here, well below the runtime of this test and five renewal
- * windows wide. That is the relation the whole story is about - the window has to sit
+ * The second half of the arrangement is the retention of the delivery records, set
+ * to ten seconds here, well below the runtime of this test and five renewal
+ * windows wide. That is the relation which matters - the window has to sit
  * clearly below the retention, because the record is what answers the redelivery which
  * renews the lock. A configuration violating it does not even boot.
  */

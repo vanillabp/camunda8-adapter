@@ -27,16 +27,16 @@ import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The acceptance test of story 90 against a real Camunda 8 cluster: a restart must not
+ * The shutdown against a real Camunda 8 cluster: a restart must not
  * burn a job's retries.
  * <p>
- * Both halves of the story are measured here with the application shut down while a
- * handler is inside it:
+ * Both halves are measured here with the application shut down while a handler is
+ * inside it:
  * <ul>
  * <li>a handler which outlives the grace period is cut off by the closing client. Its job
  * is NOT failed, so the cluster hands it out again once its lock expires - with the three
- * retries it started with. Before this story the adapter answered the interrupt with
- * {@code newFailCommand(retries - 1)} and the same restart returned the job with two;</li>
+ * retries it started with. An adapter answering the interrupt with
+ * {@code newFailCommand(retries - 1)} would return the job with two instead;</li>
  * <li>a handler shorter than the grace period finishes, and its job is completed before
  * the client goes down, so the cluster has nothing left to hand out.</li>
  * </ul>
@@ -247,7 +247,7 @@ public class Camunda8ShutdownDrainIT {
         .jobType(jobType)
         .maxJobsToActivate(1)
         .timeout(Duration.ofSeconds(5))
-        .workerName("story-90-verification")
+        .workerName("shutdown-verification")
         .requestTimeout(Duration.ofSeconds(2))
         .send()
         .join()

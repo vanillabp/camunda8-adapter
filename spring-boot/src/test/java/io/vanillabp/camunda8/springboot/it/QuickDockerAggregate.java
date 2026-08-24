@@ -10,7 +10,7 @@ import lombok.Setter;
 
 /**
  * JPA workflow aggregate of the workflow whose job must not wait behind a blocking
- * handler of another worker (story 74).
+ * handler of another worker.
  */
 @Entity
 @Table(name = "C8_QUICK_AGGREGATE")

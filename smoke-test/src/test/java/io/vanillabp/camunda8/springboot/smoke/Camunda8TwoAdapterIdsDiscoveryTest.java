@@ -16,8 +16,8 @@ import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Discovery test of the per-adapter-id bean convention (adapter-config-model story
- * 26d): TWO adapter ids of type {@code camunda8} (e.g. an on-prem and a SaaS cluster
+ * Discovery test of the per-adapter-id bean convention (the adapter config model): TWO
+ * adapter ids of type {@code camunda8} (e.g. an on-prem and a SaaS cluster
  * side by side - the migration scenario) yield one {@code Camunda8ProcessService} and
  * one {@code Camunda8DeploymentService} element bean PER configured id, each with its
  * own client factory. No cluster or Docker involved (deployment lifecycle disabled,

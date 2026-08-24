@@ -16,7 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Story 90: the grace period an adapter instance grants its handlers while the
+ * The grace period an adapter instance grants its handlers while the
  * application goes down - its default, and what the boot says about a value which cannot
  * do what it promises.
  */

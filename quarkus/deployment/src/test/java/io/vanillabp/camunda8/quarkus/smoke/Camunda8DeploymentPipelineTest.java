@@ -11,7 +11,7 @@ import io.quarkus.test.QuarkusExtensionTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Proves the platform's runtime deployment pipeline (story 26b) drives the Camunda 8
+ * Proves the platform's runtime deployment pipeline drives the Camunda 8
  * adapter on Quarkus: a BPMN resource below the configured
  * <code>resources-location</code> is read and parsed
  * ({@code readBpmn}/{@code prepareBpmn}/{@code wireBpmn}) and its deployment is

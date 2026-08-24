@@ -10,7 +10,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 /**
- * The workflow of the restart-delivery test (story 102): nothing but a task which says
+ * The workflow of the restart-delivery test: nothing but a task which says
  * when it was reached, so the test can measure how long the first job of a workflow
  * started right after a restart takes to arrive.
  */

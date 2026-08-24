@@ -10,14 +10,14 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * JPA workflow aggregate of the aggregateChanged integration test (story 44). Every
+ * JPA workflow aggregate of the aggregateChanged integration test. Every
  * attribute is shared with Camunda 8 (this adapter's sync mode is FULL), so the
  * cluster holds {@link #note} as a process variable - which is what the test reads
  * back to see WHERE a push landed.
  * <p>
  * It carries a {@link Version} attribute because the multi-instance process of that test
- * runs two iterations which both append to {@link #taskIds}. Since story 74 an adapter
- * runs its handlers on four execution slots instead of one, so those two iterations
+ * runs two iterations which both append to {@link #taskIds}. An adapter runs its
+ * handlers on several execution slots, so those two iterations
  * really do run at the same time, and without the version attribute the one committing
  * last would put back what it read. With it the loser of the conflict fails, the cluster
  * redelivers its job and the retry appends to what the winner wrote - which is the path

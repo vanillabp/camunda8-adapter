@@ -14,7 +14,7 @@ import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
 /**
- * The two workflows of the worker-threads integration test (story 74): one handler
+ * The two workflows of the worker-threads integration test: one handler
  * blocks its execution slot for a while, the other one has to be served meanwhile by
  * another slot of the SAME adapter.
  */

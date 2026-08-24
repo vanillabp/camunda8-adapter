@@ -17,7 +17,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * The other half of story 103: two <code>camunda8</code> adapter ids on a cluster WITHOUT
+ * The other half: two <code>camunda8</code> adapter ids on a cluster WITHOUT
  * secondary storage do not boot.
  * <p>
  * On one cluster the two ids are told apart by the scope a workflow was deployed under,

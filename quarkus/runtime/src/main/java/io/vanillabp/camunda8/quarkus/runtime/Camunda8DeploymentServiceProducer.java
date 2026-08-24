@@ -75,7 +75,7 @@ public class Camunda8DeploymentServiceProducer {
                               bpmnProcessId,
                               taskDefinition) -> overlay.retryBackoffFor(
                                   workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
-          // story 93: what each worker asks the cluster for, resolvable down to task
+          // What each worker asks the cluster for, resolvable down to task
           // level
           deploymentService.setFetchVariablesResolver((
               workflowModuleId,
@@ -84,7 +84,7 @@ public class Camunda8DeploymentServiceProducer {
                   workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
           deploymentService.setBpmsInitiatedStartInvoker(workflowTaskRegistry);
           deploymentService.setWorkflowEndedInvoker(workflowTaskRegistry);
-          // story 92: the client's job counters and this adapter's execution slots,
+          // The client's job counters and this adapter's execution slots,
           // where the application uses the Micrometer extension
           deploymentService.setMetrics(
               metrics.isResolvable()

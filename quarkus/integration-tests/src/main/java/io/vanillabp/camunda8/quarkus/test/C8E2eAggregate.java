@@ -49,7 +49,7 @@ public class C8E2eAggregate {
   /**
    * What the exclusive gateway of {@code SyncProcess} branches on. It is set by the
    * {@code @WorkflowTask} method right in front of that gateway, so the cluster can
-   * only evaluate it if the job completion pushed it (story 28b).
+   * only evaluate it if the job completion pushed it.
    */
   private boolean approved;
 
@@ -62,7 +62,7 @@ public class C8E2eAggregate {
   private String secret;
 
   /**
-   * What the iterations of the flat multi-instance task were handed (story 62).
+   * What the iterations of the flat multi-instance task were handed.
    */
   @Column(length = 2000)
   private String flat;

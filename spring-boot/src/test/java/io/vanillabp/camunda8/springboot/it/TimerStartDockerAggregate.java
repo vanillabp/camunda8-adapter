@@ -7,7 +7,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * JPA workflow aggregate of the timer-start integration test (story 41). Its ID is a
+ * JPA workflow aggregate of the timer-start integration test. Its ID is a
  * String assigned by VanillaBP - nobody starts this workflow through the
  * {@code ProcessService}, so no application code could assign one.
  */
@@ -23,7 +23,7 @@ public class TimerStartDockerAggregate {
   private String processedBy;
 
   /**
-   * Set by the <code>@WorkflowEnded</code> method (story 43).
+   * Set by the <code>@WorkflowEnded</code> method.
    */
   private String endedAs;
 

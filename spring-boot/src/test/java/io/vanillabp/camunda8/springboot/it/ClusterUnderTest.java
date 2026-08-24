@@ -19,7 +19,7 @@ import org.testcontainers.utility.DockerImageName;
  * release line pins ({@code camunda8.version}), so activating another line moves the
  * client and the cluster together. That is what makes the supported cluster versions of
  * the README provable instead of claimed: a line's tests meet the oldest cluster its
- * artifacts accept (story 53).
+ * artifacts accept.
  * <p>
  * Override for a single run with {@code mvn verify -Dcamunda8.cluster.image=...}. The
  * property is resolved while the test resources are filtered, so a run from the IDE uses
@@ -108,7 +108,7 @@ public final class ClusterUnderTest {
 
   /**
    * The user the authenticated cluster is initialized with, and its password. Both are
-   * test values and deliberately visible: what the story is about is that they REACH the
+   * test values and deliberately visible: what matters here is that they REACH the
    * cluster, not that they are secret.
    */
   public static final String USERNAME = "demo";
@@ -120,8 +120,8 @@ public final class ClusterUnderTest {
 
   /**
    * A cluster with its authentication SWITCHED ON - what a self-managed installation
-   * normally looks like, and what every other cluster here deliberately is not (story
-   * 88). Secondary storage comes with it: the orchestration cluster refuses basic
+   * normally looks like, and what every other cluster here deliberately is not.
+   * Secondary storage comes with it: the orchestration cluster refuses basic
    * authentication without it ("Basic Authentication is not supported when secondary
    * storage is disabled"), so an authenticated cluster is an Elasticsearch cluster.
    *

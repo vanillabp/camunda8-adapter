@@ -29,7 +29,7 @@ import io.camunda.client.CamundaClient;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * End-to-end test of pushing a changed aggregate (story 44) against a real Camunda 8.
+ * End-to-end test of pushing a changed aggregate against a real Camunda 8.
  * <p>
  * Unlike the other Camunda 8 tests this cluster runs WITH secondary storage (an
  * Elasticsearch of its own): Camunda 8 has no business key and no command addressing

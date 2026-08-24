@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Consumes the START execution-listener jobs of start events the cluster fires on
- * its own (story 41). The listener gates the workflow: nothing of the process runs
+ * its own. The listener gates the workflow: nothing of the process runs
  * before this job is completed, which is exactly the window VanillaBP needs to build
  * the workflow aggregate and to write its ID into the instance.
  * <p>
@@ -24,11 +24,11 @@ import lombok.extern.slf4j.Slf4j;
  * handler of a service task does, so the cluster retries and finally raises an incident: a
  * workflow without an aggregate could never be processed.
  * <p>
- * While the workflow module is shutting down (story 90) the job is left to its lock
+ * While the workflow module is shutting down the job is left to its lock
  * instead: a listener cut off by a restart is not a defect of the application, and the
  * cluster hands the job out again with its retries intact. Both commands this handler sends
  * back are repeated where the cluster rejected them for backpressure, and a job which is
- * failed after all gets a <code>retry-backoff</code> (story 91).
+ * failed after all gets a <code>retry-backoff</code>.
  */
 @Slf4j
 public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
@@ -51,7 +51,7 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
   private final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker;
 
   /**
-   * What the workflow module has in flight, and whether it is going down (story 90).
+   * What the workflow module has in flight, and whether it is going down.
    * Never <code>null</code> - a handler built without one (tests) gets a drain of its own,
    * which never shuts down.
    */
@@ -63,7 +63,7 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
   static final String KIND = "start-event listener";
 
   /**
-   * How long the cluster waits before it hands a failed job out again (story 91). May be
+   * How long the cluster waits before it hands a failed job out again. May be
    * <code>null</code> (tests) - then
    * {@link Camunda8RetryBackoffResolver#DEFAULT_RETRY_BACKOFF} applies.
    */
@@ -161,7 +161,7 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
               .join());
 
     } catch (final Exception e) {
-      // story 90: while the module is going down, the failure is the shutdown and not the
+      // While the module is going down, the failure is the shutdown and not the
       // application - the job keeps its lock and its retries
       if (drain.leaveJobToItsLock(job.getKey(), KIND, startEventId, e)) {
         return;

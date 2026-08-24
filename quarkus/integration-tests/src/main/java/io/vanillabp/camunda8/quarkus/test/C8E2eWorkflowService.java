@@ -397,7 +397,7 @@ public class C8E2eWorkflowService {
   }
 
   /**
-   * The escape hatch at task level (story 93): this task is configured with
+   * The escape hatch at task level: this task is configured with
    * {@code fetch-variables: all}, so its worker asks the cluster for the complete
    * variable scope.
    *
@@ -419,7 +419,7 @@ public class C8E2eWorkflowService {
   }
 
   /**
-   * Story 99, the default: nothing is configured for this task and
+   * The default: nothing is configured for this task and
    * {@code bigPayload} appears in no BPMN model. Its worker still asks the cluster
    * for that variable, because the core reports the {@code @TaskParam} names of the
    * methods serving a task while the application wires itself.
@@ -480,7 +480,7 @@ public class C8E2eWorkflowService {
   }
 
   /**
-   * Story 48: which method serves the task is decided by the version of the deployed
+   * Which method serves the task is decided by the version of the deployed
    * process definition - this one by its number.
    *
    * @param aggregate The workflow aggregate
@@ -495,7 +495,7 @@ public class C8E2eWorkflowService {
   }
 
   /**
-   * Story 48: this one by the <code>zeebe:versionTag</code> of the second version,
+   * This one by the <code>zeebe:versionTag</code> of the second version,
    * which is deployed while the application runs - the way another node of a rolling
    * deployment does it. Which version carries which tag is a query-API question, so
    * this half of the feature needs a cluster with secondary storage.
