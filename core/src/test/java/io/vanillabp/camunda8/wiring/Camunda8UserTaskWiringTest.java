@@ -133,4 +133,74 @@ public class Camunda8UserTaskWiringTest {
 
   }
 
+  @Test
+  @DisplayName("A user task as VanillaBP 1 modelled it up to 1.6.3 is found, so it can be reported")
+  public void legacyUserTaskIsFound() {
+
+    final var bpmn = model("""
+        <zeebe:formDefinition formKey="camunda-forms:bpmn:approve" />""");
+
+    assertEquals(
+        List.of("ut"),
+        Camunda8TaskWiring.legacyUserTaskIdsOf(bpmn, "UTProcess"),
+        "a plain user task whose form definition names a formKey is version 1's construction");
+    assertEquals(
+        0,
+        Camunda8TaskWiring.userTasksOf(bpmn, "UTProcess", "mod", "x.bpmn").size(),
+        "and nothing else sees it, which is why it has to be reported on its own");
+
+  }
+
+  @Test
+  @DisplayName("A Camunda-managed user task is not version 1's construction, whatever else it carries")
+  public void camundaManagedUserTaskIsNotLegacy() {
+
+    final var bpmn = model("""
+        <zeebe:userTask />
+        <zeebe:formDefinition externalReference="approve" formKey="camunda-forms:bpmn:approve" />""");
+
+    assertEquals(
+        List.of(),
+        Camunda8TaskWiring.legacyUserTaskIdsOf(bpmn, "UTProcess"),
+        "the zeebe:userTask marker decides, and a leftover formKey next to it changes nothing");
+
+  }
+
+  @Test
+  @DisplayName("A user task served by an own job worker is not version 1's construction either")
+  public void ownJobWorkerUserTaskIsNotLegacy() {
+
+    final var bpmn = model("""
+        <zeebe:taskDefinition type="ownWorker" />
+        <zeebe:formDefinition formKey="camunda-forms:bpmn:approve" />""");
+
+    assertEquals(
+        List.of(),
+        Camunda8TaskWiring.legacyUserTaskIdsOf(bpmn, "UTProcess"),
+        "a task definition of its own says the application serves this itself");
+
+  }
+
+  @Test
+  @DisplayName("A user task without any form definition is nobody's business here")
+  public void userTaskWithoutFormDefinitionIsNotLegacy() {
+
+    final var bpmn = model("""
+        <zeebe:formDefinition formId="approve" />""");
+
+    assertEquals(List.of(), Camunda8TaskWiring.legacyUserTaskIdsOf(bpmn, "UTProcess"));
+
+  }
+
+  @Test
+  @DisplayName("A user task of ANOTHER process is not counted")
+  public void userTaskOfAnotherProcessIsNotCounted() {
+
+    final var bpmn = model("""
+        <zeebe:formDefinition formKey="camunda-forms:bpmn:approve" />""");
+
+    assertEquals(List.of(), Camunda8TaskWiring.legacyUserTaskIdsOf(bpmn, "SomeOtherProcess"));
+
+  }
+
 }
