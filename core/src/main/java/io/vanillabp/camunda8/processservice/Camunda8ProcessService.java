@@ -275,13 +275,16 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // task IS a job, and a Camunda-managed user task reaches the application through
     // its listener job
     try {
+      // the TOTAL rather than the page which came back, and one item fetched because
+      // only the number is wanted
       final var found = clientFactory
           .getClient()
           .newJobSearchRequest()
           .filter(filter -> filter.processDefinitionId(scopedProcessId(workflowModuleId, bpmnProcessId)))
+          .page(page -> page.limit(1))
           .send()
           .join();
-      return (long) found.items().size();
+      return found.page().totalItems();
     } catch (final Exception e) {
       if (isSecondaryStorageMissing(e)) {
         // a cluster without secondary storage cannot be asked what it is holding, and

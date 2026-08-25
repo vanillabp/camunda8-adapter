@@ -865,15 +865,18 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String scopedBpmnProcessId) {
 
     try {
+      // the TOTAL rather than the page which came back, and one item fetched because
+      // only the number is wanted
       final var found = clientFactory
           .getClient()
           .newJobSearchRequest()
           .filter(filter -> filter
               .processDefinitionId(scopedBpmnProcessId)
               .type(Camunda8TaskWiring.TASKDEFINITION_USERTASK_WORKER_V1))
+          .page(page -> page.limit(1))
           .send()
           .join();
-      return (long) found.items().size();
+      return found.page().totalItems();
     } catch (final RuntimeException e) {
       // a diagnostic never fails a deployment, and a cluster which cannot answer
       // says so in the message instead

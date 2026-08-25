@@ -124,15 +124,20 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
       return null;
     }
     try {
+      // the TOTAL, not the page: a search answers one page of items, so counting what
+      // came back would cap every answer at the page size and quietly turn "5000 still
+      // run on this version" into the page size. One item is fetched because the count
+      // is what is wanted, not the instances
       final var found = client
           .get()
           .newProcessInstanceSearchRequest()
           .filter(filter -> filter
               .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
               .processDefinitionKey(definitionKey))
+          .page(page -> page.limit(1))
           .send()
           .join();
-      return (long) found.items().size();
+      return found.page().totalItems();
     } catch (final RuntimeException e) {
       if (isSecondaryStorageMissing(e)) {
         return null;
