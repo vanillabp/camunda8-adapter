@@ -197,6 +197,12 @@ the current GA line alone: the Camunda 8 integration tests are the slowest thing
 workspace, and every change touching the adapter would otherwise pay for every line. What a
 pull request does run for all lines is the API identity check, which needs no cluster.
 
+One pull request pays for every line anyway: the one which moves a client pin. A build of
+line 8.9 never compiles the pin of 8.8, so the change nobody built is exactly the one being
+proposed. `checks.yaml` notices a pin in the diff and calls the matrix, and the result reports
+as `line-pins-verified`, which is green without a matrix run when no pin moved. This is what a
+client patch merging itself rests on.
+
 ### Release and CI plumbing
 
 A release of one line consists of:

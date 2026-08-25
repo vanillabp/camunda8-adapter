@@ -52,3 +52,48 @@ jobs:
           (cd target/preset && npx --no-install renovate-config-validator --strict)
       - name: A consumer of one line is never offered another
         run: node renovate/verify-line-gating.js
+
+  # A pull request builds the current GA line alone, which is enough for a story: the other
+  # lines are proven by the nightly matrix. It is not enough for a pin: the pin of line 8.8
+  # is not compiled by a build of line 8.9, so an update of it would be merged unbuilt and
+  # show up in the night. When a pull request touches one of the pins, the whole matrix runs
+  # here, and that is what makes an automerged client patch honest.
+  pin-change:
+    runs-on: ubuntu-latest
+    outputs:
+      pins: "${{ steps.diff.outputs.pins }}"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: diff
+        name: Does this pull request move a client pin
+        run: |
+          if git diff "origin/${{ github.base_ref }}...HEAD" -- pom.xml \
+            | grep -q 'camunda8\.version\.line-'; then
+            echo "pins=true" >> "$GITHUB_OUTPUT"
+            echo "A client pin moves, so every line is built."
+          else
+            echo "pins=false" >> "$GITHUB_OUTPUT"
+            echo "No client pin moves, so the nightly matrix keeps the other lines."
+          fi
+
+  lines:
+    needs: pin-change
+    if: needs.pin-change.outputs.pins == 'true'
+    uses: ./.github/workflows/line-matrix.yaml
+    secrets: inherit
+
+  # One name that reports on every pull request, whether the matrix ran or not, so branch
+  # protection can require it without blocking the pull requests which do not need it.
+  line-pins-verified:
+    if: always()
+    needs: [pin-change, lines]
+    runs-on: ubuntu-latest
+    steps:
+      - name: The lines a moved pin affects were built
+        run: |
+          echo "pins: ${{ needs.pin-change.outputs.pins }}, lines: ${{ needs.lines.result }}"
+          [ "${{ needs.pin-change.outputs.pins }}" = "true" ] \
+            || { echo "No pin moved."; exit 0; }
+          [ "${{ needs.lines.result }}" = "success" ]
