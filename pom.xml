@@ -61,6 +61,10 @@
          turned that into a red matrix every night over coverage nobody was able to write. -->
     <coverage.threshold.spring-boot>85</coverage.threshold.spring-boot>
     <coverage.threshold.quarkus>85</coverage.threshold.quarkus>
+    <!-- the rule, as a number the gate can print: it reports every run against both, so
+         the distance between a passing build and the rule is readable without opening
+         the report -->
+    <coverage.rule>90</coverage.rule>
     <lombok.version>1.18.46</lombok.version>
     <spi-for-java.version>1.2.0-SNAPSHOT</spi-for-java.version>
     <adapter-platform.version>2.0.0-SNAPSHOT</adapter-platform.version>

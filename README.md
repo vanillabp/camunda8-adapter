@@ -1367,6 +1367,14 @@ carry, which is why it is never edited to make a build pass. It also compares ev
 producing a `jacoco.exec` against the two aggregates, so a module added to the build without being
 added to its report cannot stay unnoticed.
 
+The gate reports what it measured on every run, green ones included, which is the one place in
+VanillaBP where a passing test prints:
+
+```
+coverage gate | Spring Boot: 90.50 % instructions (1400 of 14730 missed) | at the rule of 90 %
+coverage gate | Quarkus: 88.20 % instructions (1773 of 15025 missed) | 1.80 points below the rule of 90 %, build breaks below 85 %
+```
+
 Every release line is judged by that one number. Line 8.10 is the reason it is not the rule itself:
 that line excludes the tests of an open cluster bug it cannot pass, which costs it about a point and
 a quarter on either platform, and a gate standing at 90 turned the nightly matrix red over coverage
