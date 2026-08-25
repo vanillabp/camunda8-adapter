@@ -266,6 +266,40 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   @Override
+  public Long openTaskCount(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    // asked once per BPMN process at startup, so one search is affordable where the
+    // cluster can serve it at all. Both kinds VanillaBP delivers are jobs: a service
+    // task IS a job, and a Camunda-managed user task reaches the application through
+    // its listener job
+    try {
+      final var found = clientFactory
+          .getClient()
+          .newJobSearchRequest()
+          .filter(filter -> filter.processDefinitionId(scopedProcessId(workflowModuleId, bpmnProcessId)))
+          .send()
+          .join();
+      return (long) found.items().size();
+    } catch (final Exception e) {
+      if (isSecondaryStorageMissing(e)) {
+        // a cluster without secondary storage cannot be asked what it is holding, and
+        // a startup diagnosis is no reason to say so twice - the core stays silent
+        return null;
+      }
+      log
+          .debug(
+              "Camunda8[{}]: the cluster did not answer how many tasks of '{}' are open",
+              adapterId,
+              bpmnProcessId,
+              e);
+      return null;
+    }
+
+  }
+
+  @Override
   public WorkflowAwareness awarenessOfTask(
       final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
       final Object workflowAggregateId,
