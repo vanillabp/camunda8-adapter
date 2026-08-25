@@ -26,8 +26,11 @@ import io.camunda.client.CredentialsProvider;
  * <p>
  * Nothing logged here carries a secret, not even its length: the messages name property
  * keys, the method and the address.
+ * <p>
+ * Why the runtime message hangs on the credentials provider rather than on the error classification
+ * is decision 10 in the repository's DECISIONS.md.
  */
-// see decision 4 in the repository's README.md
+// see decision 4 in the repository's DECISIONS.md
 @SuppressWarnings("LombokGetterMayBeUsed")
 public final class Camunda8Authentication {
 

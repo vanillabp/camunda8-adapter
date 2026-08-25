@@ -68,6 +68,9 @@ import lombok.extern.slf4j.Slf4j;
  * there and the job is failed with a guiding message, so the cluster raises an
  * incident naming the workflow aggregate and the age.</li>
  * </ul>
+ * <p>
+ * Why a job is not reported as failed while the adapter is shutting down is decision 6 in the
+ * repository's DECISIONS.md; why the outcome command is retried is decision 9 in the repository's DECISIONS.md.
  */
 @Slf4j
 public class Camunda8JobHandler implements JobHandler {
@@ -499,7 +502,7 @@ public class Camunda8JobHandler implements JobHandler {
    * The variables the completion of a job carries: the values the workflow
    * aggregate shares with the cluster (the {@code @WorkflowTask} method just changed
    * it and a gateway right after this task has to see the NEW values; see decision 1
-   * in the repository's README.md)
+   * in the repository's DECISIONS.md)
    * plus - always, no matter what the sync model says - the technical variable
    * holding the aggregate's ID.
    *

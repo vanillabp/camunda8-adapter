@@ -55,6 +55,9 @@ import lombok.extern.slf4j.Slf4j;
  * collected while deploying and kept per process and element - a job carries the ID
  * of its own element only.
  * </p>
+ * <p>
+ * Why the adapter puts input mappings into the deployed model, why they are idempotent, and why
+ * that costs a new process version, is decision 5 in the repository's DECISIONS.md.
  */
 @Slf4j
 public final class Camunda8MultiInstance {

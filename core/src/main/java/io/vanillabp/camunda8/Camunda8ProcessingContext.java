@@ -76,7 +76,7 @@ public class Camunda8ProcessingContext {
    * The PLAIN BPMN process ids of the module's executable processes, collected in
    * {@code prepareBpmn} - the input of the collision check (two processes must not
    * end up under the same prefixed identifier, see decision 2 in the repository's
-   * README.md).
+   * DECISIONS.md).
    */
   @Getter
   private final java.util.List<String> deployedProcessIds = new java.util.LinkedList<>();

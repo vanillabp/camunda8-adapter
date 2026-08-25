@@ -22,6 +22,9 @@ import io.camunda.client.CamundaClientConfiguration;
  * against what the client reports, and every value an environment variable changed is named
  * with the variable, the configured value and the effective one. Credentials are not among
  * the compared values, so no message can carry a secret.
+ * <p>
+ * Why the adapter configures the client rather than each worker, which is what lets an environment
+ * variable win here, is decision 7 in the repository's DECISIONS.md.
  */
 public final class Camunda8EnvironmentOverrides {
 

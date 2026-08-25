@@ -23,9 +23,12 @@ import lombok.extern.slf4j.Slf4j;
  * (absent configuration, or the degraded 'warn' policy): no client is built then, and
  * {@link #getClient()} fails as a runtime BACKSTOP with a message naming the missing
  * properties (see {@link Camunda8AdapterConfiguration#validate(String)}).
+ * <p>
+ * Why the factory closes workers which never reached the module lifecycle before it closes the
+ * client is decision 6 in the repository's DECISIONS.md.
  */
 @Slf4j
-// see decision 4 in the repository's README.md
+// see decision 4 in the repository's DECISIONS.md
 @SuppressWarnings("LombokGetterMayBeUsed")
 public class Camunda8ClientFactory implements AutoCloseable {
 

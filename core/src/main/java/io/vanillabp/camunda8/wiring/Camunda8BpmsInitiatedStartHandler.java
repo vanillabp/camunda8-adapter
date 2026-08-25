@@ -29,6 +29,10 @@ import lombok.extern.slf4j.Slf4j;
  * cluster hands the job out again with its retries intact. Both commands this handler sends
  * back are repeated where the cluster rejected them for backpressure, and a job which is
  * failed after all gets a <code>retry-backoff</code>.
+ * <p>
+ * Why the start event carries a listener the adapter injected is decision 5 in the repository's
+ * DECISIONS.md; why this handler stays silent about a job during shutdown is decision 6 in the repository's
+ * DECISIONS.md.
  */
 @Slf4j
 public class Camunda8BpmsInitiatedStartHandler implements JobHandler {

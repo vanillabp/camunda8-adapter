@@ -69,6 +69,9 @@ import java.util.TreeSet;
  * with a message naming the property rather than quietly handing the method a
  * <code>null</code>.
  * </p>
+ * <p>
+ * Why the list is derived per worker, why it is sorted, and why a name outside it fails the
+ * delivery instead of arriving as null, is decision 8 in the repository's DECISIONS.md.
  */
 public final class Camunda8FetchVariables {
 

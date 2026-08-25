@@ -51,6 +51,9 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * When the bound is reached the original failure is rethrown, so the behaviour after the
  * retries are used up is what it was before this class existed.
+ * <p>
+ * What may be repeated, what bounds the repetition, and why a shutdown ends it at once is decision
+ * 9 in the repository's DECISIONS.md.
  */
 @Slf4j
 public final class Camunda8CommandRetry {
