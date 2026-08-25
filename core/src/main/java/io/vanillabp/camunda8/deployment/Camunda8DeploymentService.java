@@ -998,6 +998,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                             .valueOf(process.getProcessDefinitionKey()), process.getVersion(), model));
             // The version the cluster just assigned, together with the
             // version tag of the model deployed - no query needed for either
+            processVersions.recordDeployedScoped(process.getBpmnProcessId(), process.getVersion());
             processVersions
                 .recordDeployed(
                     workflowModuleId,
@@ -1513,7 +1514,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           .newWorker()
           .jobType(taskDefinition)
           .handler(new Camunda8JobHandler(
-              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction(), drain, retryBackoffResolver, taskFetch))
+              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction(), drain, retryBackoffResolver, taskFetch, processVersions::predatesDeployedVersion))
           .timeout(timeout)
           .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)), taskDefinition),
           workflowModuleId,

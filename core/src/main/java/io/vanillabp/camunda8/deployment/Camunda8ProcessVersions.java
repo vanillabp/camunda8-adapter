@@ -215,6 +215,50 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   }
 
+  /**
+   * The version this boot deployed, per process id as the CLUSTER knows it - which is
+   * the id an activated job carries, so a job worker can compare without translating
+   * anything.
+   */
+  private final java.util.Map<String, Integer> deployedVersionByScopedProcessId = new java.util.concurrent.ConcurrentHashMap<>();
+
+  /**
+   * Remembers which version this boot deployed for a process, under the id the cluster
+   * uses.
+   *
+   * @param scopedBpmnProcessId The process id as the cluster knows it
+   * @param version The version the cluster assigned
+   */
+  public void recordDeployedScoped(
+      final String scopedBpmnProcessId,
+      final int version) {
+
+    deployedVersionByScopedProcessId.put(scopedBpmnProcessId, version);
+
+  }
+
+  /**
+   * Whether a workflow running on the given version of the given process was started
+   * before the version this boot deployed.
+   * <p>
+   * Answers <code>false</code> where this boot deployed nothing for that process, which
+   * is the honest answer of a node that only opened workers: it cannot know where the
+   * boundary is, and a lower bound claimed without knowing would be worse than the exact
+   * number it replaces.
+   *
+   * @param scopedBpmnProcessId The process id as the cluster knows it
+   * @param version The version a job reported
+   * @return <code>true</code> where the version is older than the deployed one
+   */
+  public boolean predatesDeployedVersion(
+      final String scopedBpmnProcessId,
+      final int version) {
+
+    final var deployed = deployedVersionByScopedProcessId.get(scopedBpmnProcessId);
+    return (deployed != null) && (version < deployed);
+
+  }
+
   @Override
   protected List<DeployedProcessVersion> fetchDeployedVersions(
       final String workflowModuleId,
