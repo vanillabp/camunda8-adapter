@@ -33,6 +33,7 @@
     <module>quarkus/runtime</module>
     <module>quarkus/deployment</module>
     <module>quarkus/integration-tests</module>
+    <module>quarkus/native-image-tests</module>
     <module>test-coverage-report</module>
   </modules>
 
@@ -70,6 +71,12 @@
     <adapter-platform.version>2.0.0-SNAPSHOT</adapter-platform.version>
     <springboot.version>4.1.0</springboot.version>
     <quarkus.version>3.37.1</quarkus.version>
+    <!-- The Netty version the Quarkus platform manages, which is the one a Quarkus
+         application runs the adapter on. It is named here because this repository imports
+         the Spring Boot BOM first, so every module otherwise sees Spring Boot's newer
+         Netty - see quarkus/native-image-tests, which has to see what an application
+         sees. Raise it with the Quarkus version, never past it. -->
+    <netty.version.quarkus>4.1.135.Final</netty.version.quarkus>
     <!-- The version of every artifact, resolved into the published POMs by the
          flatten plugin. A plain 'mvn install' builds 2.0.0-SNAPSHOT of the current GA
          line, which is what a developer of this repository wants and needs to remember
