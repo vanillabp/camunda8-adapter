@@ -308,7 +308,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
     clientFactory
         .getClient()
-        .newUpdateTimeoutCommand(Long.parseLong(taskId))
+        .newUpdateTimeoutCommand(taskKeyOf(taskId))
         .timeout(asyncTaskLockRenewal)
         .send()
         .join();
@@ -431,7 +431,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // valid update - no task attribute changes, nothing advances
     clientFactory
         .getClient()
-        .newUpdateUserTaskCommand(Long.parseLong(taskId))
+        .newUpdateUserTaskCommand(taskKeyOf(taskId))
         .action("io.vanillabp:probe")
         .send()
         .join();
@@ -475,7 +475,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     try {
       clientFactory
           .getClient()
-          .newCompleteUserTaskCommand(Long.parseLong(taskId))
+          .newCompleteUserTaskCommand(taskKeyOf(taskId))
           .variables(variablesOf(aggregatePersistence, workflowAggregateId))
           .send()
           .join();
@@ -557,7 +557,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     try {
       clientFactory
           .getClient()
-          .newCompleteCommand(Long.parseLong(taskId))
+          .newCompleteCommand(taskKeyOf(taskId))
           // The aggregate changed before the task was completed - the
           // cluster only sees what VanillaBP pushes
           .variables(variablesOf(aggregatePersistence, workflowAggregateId))
@@ -595,7 +595,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     try {
       clientFactory
           .getClient()
-          .newThrowErrorCommand(Long.parseLong(taskId))
+          .newThrowErrorCommand(taskKeyOf(taskId))
           // the model's error codes are prefixed too
           .errorCode(scopedIdentifier(workflowModuleId, bpmnErrorCode))
           .errorMessage("canceled via ProcessService#cancelTask")
@@ -856,7 +856,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       if (userTask) {
         final var task = clientFactory
             .getClient()
-            .newUserTaskGetRequest(Long.parseLong(taskId))
+            .newUserTaskGetRequest(taskKeyOf(taskId))
             .send()
             .join();
         return isInScope(scope, task.getTenantId(), task.getBpmnProcessId());
@@ -1484,7 +1484,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final var found = clientFactory
           .getClient()
           .newJobSearchRequest()
-          .filter(filter -> filter.jobKey(Long.parseLong(taskId)))
+          .filter(filter -> filter.jobKey(taskKeyOf(taskId)))
           .send()
           .join();
       return found.items().isEmpty()
@@ -1734,6 +1734,78 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     return viewer().getWorkflowHistory(
         workflowModuleId, bpmnProcessId, aggregateIdVariableName(aggregatePersistence), workflowAggregateId,
         historyContext);
+
+  }
+
+  /**
+   * A VanillaBP task id turned into the key Camunda 8 commands expect - the job's key
+   * for a service task, the user task's key for a user task. Always a decimal number,
+   * which is why the failure is worth a message of its own.
+   *
+   * <h2>Why this exists</h2>
+   *
+   * VanillaBP 1 could hand out the same key in HEXADECIMAL
+   * (<code>task-id-as-hex-string</code>, off by default), and an application which
+   * switched it on stored those ids in its own data - a user task it is holding, a
+   * service task waiting for its <code>completeTask</code>. Those ids outlive the
+   * upgrade. Version 2 has no such setting and parses decimally everywhere, so what the
+   * developer got was a bare NumberFormatException naming neither the setting which
+   * produced the number nor the fact that the operation is not retried: a task key which
+   * is not a number is a PERMANENT phase-two failure, so the outbox entry is blocked
+   * after a single attempt.
+   * <p>
+   * The classification stays exactly as it was - the NumberFormatException travels as the
+   * cause, which is what {@code Camunda8Errors.permanentFailure} walks the chain for.
+   * Version 2 deliberately does NOT accept hexadecimal ids again: one representation of a
+   * task id is simpler than two, and an application which has them in its data has a
+   * migration of its own, which the message points at.
+   *
+   * <p>
+   * Package-private so the message can be asserted without a client.
+   *
+   * @param taskId The task id as the application knows it
+   * @return The key
+   */
+  static long taskKeyOf(
+      final String taskId) {
+
+    try {
+      return Long.parseLong(taskId);
+    } catch (final NumberFormatException e) {
+      throw new IllegalArgumentException(
+          ("The task id '%s' is not a Camunda 8 task key! A task key is the decimal key of a job "
+              + "respectively of a user task, and this operation is NOT retried, because the cluster "
+              + "would refuse it the same way every time.%s")
+              .formatted(taskId, looksHexadecimal(taskId)
+                  ? " It does read like a HEXADECIMAL number, which is how VanillaBP 1 handed "
+                      + "task ids out where 'task-id-as-hex-string' was switched on. Version 2 has no such "
+                      + "setting and there is no configuration which makes it read them: the ids your "
+                      + "application stored have to be converted to decimal."
+                  : ""), e);
+    }
+
+  }
+
+  /**
+   * Whether a task id reads like one of version 1's hexadecimal ids: not a decimal
+   * number, but a valid hexadecimal one. A hint rather than a claim, which is how the
+   * message states it.
+   *
+   * @param taskId The task id which failed to parse
+   * @return <code>true</code> where hexadecimal would have worked
+   */
+  private static boolean looksHexadecimal(
+      final String taskId) {
+
+    if (taskId == null) {
+      return false;
+    }
+    try {
+      Long.parseLong(taskId, 16);
+      return true;
+    } catch (final NumberFormatException e) {
+      return false;
+    }
 
   }
 

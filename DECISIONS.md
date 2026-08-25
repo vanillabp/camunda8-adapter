@@ -169,3 +169,16 @@ The adapter is therefore released once per Camunda minor, with the minor in the 
 profiles. A fix exists on every line with the same commit. Line-specific source folders exist for
 the rare real difference and stay empty otherwise, and the API identity check keeps the public
 surface identical across lines. See [Release lines](./README.md#release-lines).
+
+### 12. A task id is decimal, and version 1's hexadecimal ids are a data migration
+
+VanillaBP 1 could hand out a task key in hexadecimal (`task-id-as-hex-string`, off by default), and an
+application which switched it on stored those ids in its own data. They outlive an upgrade, while this
+version parses decimally everywhere and has no such setting.
+
+Offering the setting again was rejected. One representation of a task id is simpler than two, the second
+one would have to be carried forever because nobody can prove it unused, and an application which holds
+hexadecimal ids has a conversion to do either way - the ids are in ITS tables, not in ours. What the
+adapter owes such an application is the sentence which names the setting, and that is what the parse site
+says now. The failure stays a permanent one, so the outbox entry is still blocked after a single attempt
+rather than retried ten times against a key which will not become a number.
