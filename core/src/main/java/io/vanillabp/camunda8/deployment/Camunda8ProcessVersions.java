@@ -261,6 +261,22 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   }
 
+  @Override
+  public String whatOlderVersionsMiss(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    // this adapter brings VanillaBP's behaviour by writing into the model it deploys,
+    // and a running workflow stays on the version it was started on - so everything
+    // listed here reaches the version deployed now and no earlier one. Camunda 7
+    // answers nothing to the same question, because it attaches while the engine parses
+    // a definition, which reaches every version the engine holds
+    return "the end of a workflow is not reported to a @WorkflowEnded method, user-task lifecycle "
+        + "notifications do not arrive where the listeners were added by this deployment, and a "
+        + "message catch event correlates only by a correlation key its own model already carried";
+
+  }
+
   private static boolean isSecondaryStorageMissing(
       final Throwable throwable) {
 
