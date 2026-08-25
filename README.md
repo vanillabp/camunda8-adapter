@@ -1360,9 +1360,17 @@ the respective report.
 The build breaks below the line: `test-coverage-report/coverage-gate` is the last module of the
 reactor, reads both reports and fails whenever a platform is below its threshold in the root POM
 (`coverage.threshold.spring-boot`, `coverage.threshold.quarkus`, in percent of covered instructions -
-the number the badges above show). It also compares every module producing a `jacoco.exec` against
-the two aggregates, so a module added to the build without being added to its report cannot stay
-unnoticed.
+the number the badges above show). Both properties hold 85, the same number every VanillaBP
+repository gates on, and that is not the target: the rule is 90 per platform, so a report between
+85 and 90 passes the build and still names a gap. The gate is where the gap has grown too big to
+carry, which is why it is never edited to make a build pass. It also compares every module
+producing a `jacoco.exec` against the two aggregates, so a module added to the build without being
+added to its report cannot stay unnoticed.
+
+Every release line is judged by that one number. Line 8.10 is the reason it is not the rule itself:
+that line excludes the tests of an open cluster bug it cannot pass, which costs it about a point and
+a quarter on either platform, and a gate standing at 90 turned the nightly matrix red over coverage
+nobody was in a position to write.
 
 Both platforms run the documented features end to end against a real cluster: Spring Boot in the
 `spring-boot` module's `*IT` classes, Quarkus in `quarkus/integration-tests`. That duplication is
@@ -1370,9 +1378,9 @@ deliberate. The adapter core is platform-neutral, but a core being correct says 
 platform's glue ever calling it, so a core line one platform never reaches names a feature that
 platform never runs.
 
-The two thresholds still differ, by what one suite can produce and the other cannot. The startup
-check for old process versions needs several boots against one cluster, each deploying a
-different model, and a Quarkus prod-mode test boots its application once per test class - which is
+The two platforms still reach different numbers, by what one suite can produce and the other
+cannot. The startup check for old process versions needs several boots against one cluster, each
+deploying a different model, and a Quarkus prod-mode test boots its application once per test class - which is
 why `Camunda8ProcessVersions` stands at 27 % on Quarkus against 79 % on Spring Boot. The other half
 is the cluster itself: the Quarkus suite runs against one WITH secondary storage, so what the adapter
 answers optimistically without it is covered on Spring Boot only, and `cancelUserTask` is answered by

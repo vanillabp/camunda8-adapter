@@ -16,7 +16,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 /**
  * The coverage gate: it breaks the build when a platform's aggregated coverage
  * drops below the threshold, so a drop is noticed while it happens instead of a year
- * later.
+ * later. The threshold is 85 in every VanillaBP repository while the rule is 90, which
+ * keeps one repository's bad week from being answered by editing the number.
  * <p>
  * JaCoCo's own <code>check</code> goal cannot do this: it judges ONE module's classes
  * against ONE execution-data file, while both numbers of this repository come from
@@ -73,9 +74,10 @@ public class CoverageGateTest {
   }
 
   /**
-   * The threshold is read per platform, because a repository may hold a different line
-   * on each of them. Where they differ, the lower one is a floor against regression and
-   * the reason belongs into the root POM next to the property.
+   * The threshold is read per platform, because a report exists per platform. Both
+   * properties hold the same 85 in every VanillaBP repository, and that number is the
+   * floor against regression rather than the goal: the rule is 90, and a repository
+   * between the two has a gap somebody still owes a test for.
    */
   private void assertAboveThreshold(
       final String platform,
@@ -95,11 +97,12 @@ public class CoverageGateTest {
     assertTrue(
         coverage.percentage() >= threshold,
         () -> """
-            %s - below the %s %% VanillaBP measures per platform. Coverage is measured separately \
-            per platform, so this platform's own tests have to close the gap: sort the per-package \
-            numbers of the report's jacoco.csv by MISSED instructions, not by percentage, and put \
-            the test where the uncovered code belongs. Code nobody can reach is dead and gets \
-            deleted rather than covered."""
+            %s - below the %s %% at which every VanillaBP build stops. The rule is 90 per \
+            platform, so anything under that is already a gap, and this number is where the gap \
+            grew too big to carry. Coverage is measured separately per platform, so this platform's \
+            own tests have to close it: sort the per-package numbers of the report's jacoco.csv by \
+            MISSED instructions, not by percentage, and put the test where the uncovered code \
+            belongs. Code nobody can reach is dead and gets deleted rather than covered."""
             .formatted(coverage, threshold));
 
   }
