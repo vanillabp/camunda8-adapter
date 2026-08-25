@@ -1,7 +1,5 @@
 package io.vanillabp.camunda8.quarkus.nativeimage;
 
-import java.util.concurrent.CountDownLatch;
-
 import io.vanillabp.spi.process.ProcessService;
 import io.vanillabp.spi.service.BpmnProcess;
 import io.vanillabp.spi.service.WorkflowService;
@@ -21,10 +19,10 @@ import jakarta.inject.Inject;
 public class NativeImageWorkflowService {
 
   /**
-   * Counted down by the handler, awaited by the application's main: a job which never
-   * arrives must not end in a green run.
+   * What the handler writes into the aggregate, and what the application's main waits for:
+   * a job which never arrives must not end in a green run.
    */
-  public static final CountDownLatch SERVED = new CountDownLatch(1);
+  public static final String SERVED = "served";
 
   @Inject
   ProcessService<NativeImageAggregate> processService;
@@ -39,8 +37,7 @@ public class NativeImageWorkflowService {
   public void nativeTask(
       final NativeImageAggregate aggregate) {
 
-    aggregate.setStatus("served");
-    SERVED.countDown();
+    aggregate.setStatus(SERVED);
 
   }
 

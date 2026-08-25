@@ -2,10 +2,16 @@ package io.vanillabp.camunda8.quarkus.deployment;
 
 import java.util.List;
 
+import org.jboss.jandex.ClassInfo;
+import org.jboss.jandex.DotName;
+
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
+import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
+import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageResourceBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageResourceBundleBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedPackageBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ServiceProviderBuildItem;
@@ -117,6 +123,27 @@ class Camunda8NativeImageProcessor {
   private static final String CAMUNDA_CLIENT_IMPLEMENTATION = "io.camunda.client.impl";
 
   /**
+   * The package holding the request and response types of the cluster's REST API. Jackson
+   * builds them by reflection, and a native image reflects over nothing it was not told
+   * about, so the first answer of the cluster - a tenant lookup during the deployment -
+   * ended the boot with <code>Cannot construct instance of
+   * io.camunda.client.protocol.rest.ProblemDetail ... this appears to be a native
+   * image</code>. Every type of the package is registered rather than the handful the
+   * deployment happens to read: which of them an operation needs is the client's business,
+   * and the next release moves that line.
+   */
+  private static final String REST_PROTOCOL_PACKAGE = "io.camunda.client.protocol.rest";
+
+  /**
+   * The artifact the two names above live in. Its classes are only visible to a build step
+   * once they are in the Jandex index, which is what {@link IndexDependencyBuildItem} asks
+   * for.
+   */
+  private static final String CAMUNDA_CLIENT_GROUP_ID = "io.camunda";
+
+  private static final String CAMUNDA_CLIENT_ARTIFACT_ID = "camunda-client-java";
+
+  /**
    * Registers the message bundles and the schema of the BPMN parser.
    *
    * @param bundles Producer of the resource-bundle registrations
@@ -167,6 +194,53 @@ class Camunda8NativeImageProcessor {
 
     GRPC_PROVIDERS
         .forEach(provider -> services.produce(ServiceProviderBuildItem.allProvidersFromClassPath(provider)));
+
+  }
+
+  /**
+   * Indexes the Camunda client, so that the step below can ask for the types of its REST
+   * protocol.
+   *
+   * @return The index request for the Camunda client
+   */
+  @BuildStep
+  IndexDependencyBuildItem theCamundaClientIsIndexed() {
+
+    return new IndexDependencyBuildItem(CAMUNDA_CLIENT_GROUP_ID, CAMUNDA_CLIENT_ARTIFACT_ID);
+
+  }
+
+  /**
+   * Registers the types Jackson reads the cluster's answers into.
+   *
+   * @param index The combined Jandex index, which holds the Camunda client because of the
+   *          step above
+   * @param reflectiveClasses Producer of the reflection registrations
+   */
+  @BuildStep
+  void whatJacksonBuildsFromTheClustersAnswers(
+      final CombinedIndexBuildItem index,
+      final BuildProducer<ReflectiveClassBuildItem> reflectiveClasses) {
+
+    final var protocolTypes = index
+        .getIndex()
+        .getKnownClasses()
+        .stream()
+        .map(ClassInfo::name)
+        .map(DotName::toString)
+        .filter(className -> className.startsWith(REST_PROTOCOL_PACKAGE
+            + "."))
+        .sorted()
+        .toList();
+
+    reflectiveClasses
+        .produce(ReflectiveClassBuildItem
+            .builder(protocolTypes.toArray(String[]::new))
+            .constructors()
+            .methods()
+            .fields()
+            .reason("Jackson reads the Camunda 8 REST API into these types")
+            .build());
 
   }
 
