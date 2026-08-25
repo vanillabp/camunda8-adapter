@@ -67,14 +67,15 @@
       "separateMinorPatch": true
     },
     {
-      "description": "A patch of the client stays inside the line: the minimum cluster version does not move, so this is ordinary upkeep.",
+      "description": "A patch of the client stays inside the line: the minimum cluster version is the minor, and a patch does not move it. That makes this ordinary upkeep, and the build proves it against a real cluster of that line, so it merges itself once the checks passed.",
       "matchDepNames": [
         "camunda-client-java (line 8.8)",
         "camunda-client-java (line 8.9)",
         "camunda-client-java (line 8.10 preview)"
       ],
       "matchUpdateTypes": ["patch"],
-      "automerge": false
+      "automerge": true,
+      "platformAutomerge": true
     },
     {
       "description": "A minor of the client is a new line, not an update. The client a build was compiled against is the lowest cluster version that build accepts, so this bump raises the cluster requirement of everybody who consumes the line. It gets a branch of its own, waits for approval on the dependency dashboard and never merges itself. Rotating the lines is more than this pin: it also means a profile, the pin properties, the line table of the README and a release of the new line.",
