@@ -35,7 +35,8 @@ dump_api() {
   local classes="$work/classes"
   rm -rf "$classes"
   mkdir -p "$classes"
-  unzip -q -o "$jar" -d "$classes" '*.class'
+  # a JAR without classes has no API to compare, and unzip says so with exit code 11
+  unzip -q -o "$jar" -d "$classes" '*.class' || true
   # -public only, and sorted, so the dump depends on the API and on nothing else
   find "$classes" -name '*.class' -print0 \
     | sort -z \
@@ -53,10 +54,14 @@ for line in "${lines[@]}"; do
   mvn --batch-mode --no-transfer-progress -q \
     "-Pline-${line}" "-Drevision=0.0.0-${line}-api-identity" -DskipTests clean package
   mkdir -p "$work/$line"
+  # only the JARs a module builds itself, '/target/<name>.jar' and nothing nested below
+  # it: the Quarkus applications of the test modules put a runner and a copy of every
+  # dependency into target/quarkus-app, and none of that is an API of this repository
   while IFS= read -r jar; do
     module="$(basename "$(dirname "$(dirname "$jar")")")"
     dump_api "$jar" "$work/$line/$module.api"
   done < <(find . -path ./target -prune -o -name '*.jar' -path '*/target/*' -print \
+    | grep -E '/target/[^/]+\.jar$' \
     | grep -v -- '-sources\|-javadoc\|original-')
 done
 
