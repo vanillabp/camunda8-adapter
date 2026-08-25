@@ -29,6 +29,9 @@ import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
  * <code>type</code> IS the VanillaBP task definition (job type). Used during
  * <code>wireBpmn</code> for the wiring validation and to know which job workers to
  * open per workflow module.
+ * <p>
+ * Why user-task listeners and message correlation keys are injected into the model rather than
+ * expected from the application is decision 5 in the repository's DECISIONS.md.
  */
 public final class Camunda8TaskWiring {
 

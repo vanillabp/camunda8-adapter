@@ -33,7 +33,7 @@ import lombok.extern.slf4j.Slf4j;
  * the cluster's load produced.
  * <p>
  * <b>The listener completion carries NO variables</b> (see decision 1 in the
- * repository's README.md).
+ * repository's DECISIONS.md).
  * Unlike a service-task job - whose completion is the moment the process advances
  * past the task, so a gateway right behind it needs the new values - a listener job
  * only gates a lifecycle transition of a user task that stays in the cluster:

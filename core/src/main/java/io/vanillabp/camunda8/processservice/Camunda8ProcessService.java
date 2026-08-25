@@ -42,7 +42,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @RequiredArgsConstructor
-// see decision 4 in the repository's README.md
+// see decision 4 in the repository's DECISIONS.md
 @SuppressWarnings("LombokSetterMayBeUsed")
 public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
@@ -280,7 +280,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     //
     // A job key is unique per CLUSTER, so where another adapter id addresses
     // the same one the probe would answer for its job and extend its lock on the way
-    // (see decision 3 in the repository's README.md).
+    // (see decision 3 in the repository's DECISIONS.md).
     // Which scope the key belongs to is asked FIRST there, and nowhere else - the
     // question costs a query-API round trip.
     if (!belongsToThisAdapter(scope, taskId, false)) {

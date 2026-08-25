@@ -34,6 +34,10 @@ package io.vanillabp.camunda8.client;
  * platform mode would use, so switching the mode changes how threads are made, not how much
  * runs at once.
  *
+ * <p>
+ * Why this adapter picks its own execution model instead of inheriting the client's single thread,
+ * and why the default is four, is decision 7 in the repository's DECISIONS.md.
+ *
  * @param virtual Whether handlers run on virtual threads
  * @param slots How many handlers may run at the same time (platform threads, or the bound of
  *          the virtual-thread executor)

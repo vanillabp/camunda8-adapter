@@ -35,6 +35,10 @@ import lombok.extern.slf4j.Slf4j;
  * it - the wiring validation, the listener injection, the workers - therefore sees
  * the identifiers the cluster will see, while the core keeps working with the plain
  * ones (the adapter translates at every boundary).
+ * <p>
+ * Why the deployed bytes carry the scoped identifiers while the registries stay plain is decision 2
+ * in the repository's DECISIONS.md; that this rewrite is one of the model changes the adapter makes
+ * is decision 5 in the repository's DECISIONS.md.
  */
 @Slf4j
 public final class Camunda8Scoping {

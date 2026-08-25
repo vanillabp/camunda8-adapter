@@ -21,6 +21,9 @@ import java.util.Properties;
  * <code>META-INF/vanillabp/adapter-camunda8.properties</code> by the Maven build, from the
  * properties the active line profile selects. Where they cannot be read the answer is
  * <code>unknown</code>: this must never break an application, a custom build included.
+ * <p>
+ * Why this adapter is released once per Camunda minor, built from one source tree, is decision 11
+ * in the repository's DECISIONS.md.
  */
 public final class Camunda8ReleaseLine {
 

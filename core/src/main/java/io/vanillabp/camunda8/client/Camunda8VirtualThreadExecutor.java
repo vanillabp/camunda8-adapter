@@ -41,6 +41,9 @@ import java.util.concurrent.TimeoutException;
  * wraps whatever executor it was given in its own semaphore of <code>max-jobs-active</code>
  * permits whose acquire waits for the job timeout. That one is per worker and applies before
  * this one, so with streaming on the effective limit is the smaller of the two.
+ * <p>
+ * Why virtual threads are a regular mode rather than a caveat is decision 7 in the repository's
+ * DECISIONS.md.
  */
 public class Camunda8VirtualThreadExecutor implements ScheduledExecutorService {
 

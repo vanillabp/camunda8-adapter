@@ -22,6 +22,9 @@ import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
  * from the cluster instead ({@code ProcessDefinitionGetXmlRequest}), which needs the
  * query API. Without it, the viewer falls back to the version deployed now - see the
  * README.
+ * <p>
+ * Why the probes compare against what THIS adapter id deployed rather than trusting a cluster key
+ * is decision 3 in the repository's DECISIONS.md.
  */
 public class Camunda8DeployedProcesses {
 

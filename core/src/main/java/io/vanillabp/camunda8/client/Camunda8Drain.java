@@ -57,9 +57,12 @@ import lombok.extern.slf4j.Slf4j;
  * Jobs activated but never handed to a handler are covered by the same wait: they are
  * what {@code isClosed()} counts as remaining, so the grace is spent on them rather than
  * on their lock.
+ * <p>
+ * Why a shutdown waits for the handlers AND for the cluster releasing the workers, and why no
+ * worker reports a job as failed while it runs, is decision 6 in the repository's DECISIONS.md.
  */
 @Slf4j
-// see decision 4 in the repository's README.md
+// see decision 4 in the repository's DECISIONS.md
 @SuppressWarnings("LombokGetterMayBeUsed")
 public class Camunda8Drain {
 

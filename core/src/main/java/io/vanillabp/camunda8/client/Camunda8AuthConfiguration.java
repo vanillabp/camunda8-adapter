@@ -30,6 +30,9 @@ import lombok.Setter;
  * <p>
  * Messages built here name property KEYS and never values: no secret and no length of
  * one ever reaches a log line.
+ * <p>
+ * Why these keys exist only at adapter level, and why there is no mtls among them, is decision 10
+ * in the repository's DECISIONS.md.
  */
 @Getter
 @Setter

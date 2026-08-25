@@ -1141,53 +1141,10 @@ committing last puts back what it read, so an iteration should write a row of it
 
 ## Decision log
 
-Decisions this repository's code points at. A number is handed out once and never reused or
-renumbered, so a citation stays resolvable; a decision which gets overturned keeps its entry,
-marked as superseded and naming the entry which replaced it.
-
-### 1. A command carries the shared aggregate values and the aggregate-ID variable, nothing else
-
-Camunda 8 has no business key, so the variable named after the aggregate's ID attribute is
-the only way back from a process instance to the workflow, and it is written no matter what
-the sync model says. Beside it travel the values the aggregate shares, because a gateway right
-behind a service task decides on what the handler just computed. Nothing else does: a
-correlated message carries no content of its own.
-
-The one command which carries NO variables at all is the completion of a user-task listener
-job. It does not advance the process - the user task stays where it is - and writing there
-would overwrite what a form or a task list put into the instance.
-
-### 2. Workflow modules are kept apart by scoping the identifiers
-
-The cluster is always addressed with the SCOPED identifiers - process ids, message and signal
-names, error codes and task definitions - while the core's registries stay keyed by the plain
-ones, and everything coming back from the cluster is translated before the core sees it. Which
-shape scoping takes is the workflow module's configuration: a tenant, a prefix, or nothing at
-all, so no code may assume either. Two processes must not end up under the same scoped
-identifier, which is what the collision check while preparing a model is for.
-See [Keeping workflow modules apart](#keeping-workflow-modules-apart).
-
-### 3. A cluster key never says which scope it belongs to
-
-Job keys, user-task keys and process-instance keys are unique per CLUSTER and carry neither
-tenant nor prefix. Where two adapter ids address one cluster - the setup which migrates a
-workflow module from tenants to prefixes - a credential which is a member of both scopes gets
-an operation of the wrong adapter accepted without a word. Ownership is therefore decided by
-the scope a workflow was deployed under, never by a key: the awareness probes compare tenant
-and scoped process definition id against the scope of the CALL before they answer, and the two
-task probes read the job respectively the user task to learn its scope. That read is a
-query-API call, which is why two ids on a cluster without secondary storage end the boot
-rather than misrouting silently.
-
-### 4. A class opens its fields one by one, not as a whole
-
-The process service, the deployment service and the client classes of this adapter hold dozens
-of fields, most of them collaborators nobody outside the class needs. Which of them a caller
-may read belongs to the surface of the class, so an accessor is declared per field, and
-`@Getter` on the class is refused even where an IDE offers it: it would publish the current
-field list and then keep publishing whatever field a later change adds.
-`@SuppressWarnings("LombokGetterMayBeUsed")` on such a class is what keeps that offer from
-coming back.
+Decisions several places in this repository rely on live in [`DECISIONS.md`](./DECISIONS.md), the
+one thing the code is allowed to cite. A citation reads `see decision 3 in the repository's
+DECISIONS.md`, numbers are never reused, and an overturned entry stays and names its successor, so
+a citation written today still resolves in a year.
 
 ## Known deviations
 

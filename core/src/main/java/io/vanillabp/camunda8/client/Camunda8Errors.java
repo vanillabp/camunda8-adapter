@@ -12,6 +12,9 @@ import io.camunda.client.api.command.ProblemException;
  * or the workflow moved on) - the at-least-once residual tolerated by completions
  * and mapped to UNKNOWN_TO_BPMS by awareness probes. Everything else is treated as
  * an infrastructure failure.
+ * <p>
+ * Why a job which is gone is final even though the classification is otherwise generous is decision
+ * 9 in the repository's DECISIONS.md.
  */
 public final class Camunda8Errors {
 
