@@ -1333,6 +1333,64 @@ commit (`needsTwoPhaseCommitForStartingWorkflows() == true`): phase one only val
 the actual process-instance creation runs in phase two through the core phase-two
 outbox.
 
+## Native images
+
+The Quarkus extension builds into a native image, and an application needs no
+configuration of its own for it:
+
+```bash
+mvn package -Dquarkus.native.enabled=true -Dquarkus.native.container-build=true
+```
+
+What that costs is registrations, and they belong here rather than into every
+application, because the path they sit on is the DEPLOYMENT: every boot of every
+application reads each BPMN file through the Camunda model API, modifies it, serializes
+it back, sends it to the cluster and builds the Camunda client on the way.
+`Camunda8NativeImageProcessor` names them:
+
+- the message bundles of the JDK's XML parser, which the model API validates against.
+  The first thing that parser wanted to say - where it had looked for the schema - came
+  out as a `MissingResourceException`;
+- `BPMN20.xsd` and the four schemas it imports, resources of the model API's jar;
+- the model API's entry point, initialized at run time rather than at build time: it
+  builds its parser in a static initializer and keeps the URL the schema was found
+  under, which at build time points into the builder container;
+- the gRPC providers behind the service loader, and the client's implementation package,
+  whose job workers seed a `Random`;
+- the types of the cluster's REST API, which Jackson builds by reflection. Taken from the
+  Jandex index of the client rather than written down type by type.
+
+Netty and Apache HttpClient 5 come along with the client and needed the same kind of
+answer, one level lower:
+
+- the runtime module depends on Quarkus' own **Netty extension** instead of repeating what
+  it registers. An application which brings a Netty-using extension anyway - a REST layer,
+  for instance - had that by accident, which is why the gap stayed invisible for so long;
+- three GraalVM substitutions in `io.vanillabp.camunda8.quarkus.runtime.graal` answer the
+  HTTP client's questions for optional libraries nobody put on the classpath: Conscrypt,
+  zstd and brotli4j. Their absence is what a native build reports as `Discovered
+  unresolved type during parsing`, because it resolves every type a reachable method
+  names. The price is one line in the wiki's deviations: a native image accepts gzip and
+  deflate responses, and adding one of those libraries to the application does not change
+  that.
+
+Netty's version here is the Quarkus platform's, and that took a build to notice. This
+repository imports the Spring Boot BOM before the Quarkus one, so every module sees Spring
+Boot's newer Netty - right for the Spring Boot modules, wrong for a module reproducing what
+a Quarkus application sees, because Quarkus' Netty substitutions do not match it (`Could
+not find target method: Target_io_netty_handler_ssl_JdkSslClientContext`, before the
+analysis even starts). `quarkus/native-image-tests` pins `netty-bom` to
+`netty.version.quarkus` of the parent POM, which follows the Quarkus version and never
+leads it.
+
+Held by `quarkus/native-image-tests` and the `native-build` job of the publishing
+workflow: the module builds an image AND runs the binary against a real cluster, where it
+deploys its workflow module, starts a workflow through the phase-two outbox and has the
+job served in a handler of its own. Both halves are needed, and the demo which found all
+this is why: its image built in about a minute and then stopped at the first BPMN file it
+read. Measured on 2026-08-25 with Mandrel 25.0.4 on the 8.9 line: 1m30s for the image,
+101 MB of binary, on twelve cores.
+
 ## Building
 
 Prerequisites (built and installed into the local Maven repository first, in this
