@@ -52,6 +52,7 @@
             <coverage.repository.root>${project.basedir}/../..</coverage.repository.root>
             <coverage.threshold.spring-boot>${coverage.threshold.spring-boot}</coverage.threshold.spring-boot>
             <coverage.threshold.quarkus>${coverage.threshold.quarkus}</coverage.threshold.quarkus>
+            <coverage.rule>${coverage.rule}</coverage.rule>
           </systemPropertyVariables>
         </configuration>
       </plugin>
