@@ -236,6 +236,39 @@ public class Camunda8JobHandler implements JobHandler {
       final Camunda8RetryBackoffResolver retryBackoffResolver,
       final Camunda8FetchVariables.Selection fetchVariables) {
 
+    this(
+        adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction, drain, retryBackoffResolver, fetchVariables, null);
+
+  }
+
+  /**
+   * Answers whether a workflow of (scoped process id, version) was started before the
+   * version this boot deployed - see
+   * {@link io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext#predatesDeployedVersion()}.
+   * A predicate rather than the version catalog itself: the handler needs one answer, and
+   * a test needs to hand it in without building a catalog.
+   */
+  private final java.util.function.BiPredicate<String, Integer> predatesDeployedVersion;
+
+  public Camunda8JobHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final CamundaClient camundaClient,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final Duration asyncTaskLockRenewal,
+      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry,
+      final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
+      final io.vanillabp.camunda8.client.Camunda8Drain drain,
+      final Camunda8RetryBackoffResolver retryBackoffResolver,
+      final Camunda8FetchVariables.Selection fetchVariables,
+      final java.util.function.BiPredicate<String, Integer> predatesDeployedVersion) {
+
+    this.predatesDeployedVersion = predatesDeployedVersion == null
+        ? (
+            processId,
+            version) -> false
+        : predatesDeployedVersion;
     this.fetchVariables = fetchVariables == null
         ? Camunda8FetchVariables.Selection.everything()
         : fetchVariables;
@@ -318,7 +351,8 @@ public class Camunda8JobHandler implements JobHandler {
           workflowModuleId,
           bpmnProcessId,
           new Camunda8TaskInvocationContext(adapterId, taskDefinition, String
-              .valueOf(aggregateId), job, multiInstanceRegistry, fetchVariables));
+              .valueOf(aggregateId), job, multiInstanceRegistry, predatesDeployedVersion
+                  .test(job.getBpmnProcessId(), job.getProcessDefinitionVersion()), fetchVariables));
     } catch (final Exception e) {
       // While the module is going down, the failure is the shutdown and not the
       // application - the job keeps its lock and its retries
@@ -588,6 +622,12 @@ public class Camunda8JobHandler implements JobHandler {
 
     private final Camunda8FetchVariables.Selection fetchVariables;
 
+    /**
+     * Whether the workflow of this job was started before the version this boot
+     * deployed - computed by the handler, which is where the predicate lives.
+     */
+    private final boolean predatesDeployedVersion;
+
     Camunda8TaskInvocationContext(
         final String adapterId,
         final String taskDefinition,
@@ -605,7 +645,7 @@ public class Camunda8JobHandler implements JobHandler {
         final ActivatedJob job,
         final Camunda8MultiInstance.Registry multiInstanceRegistry) {
 
-      this(adapterId, taskDefinition, workflowAggregateId, job, multiInstanceRegistry, null);
+      this(adapterId, taskDefinition, workflowAggregateId, job, multiInstanceRegistry, false, null);
 
     }
 
@@ -615,6 +655,7 @@ public class Camunda8JobHandler implements JobHandler {
         final String workflowAggregateId,
         final ActivatedJob job,
         final Camunda8MultiInstance.Registry multiInstanceRegistry,
+        final boolean predatesDeployedVersion,
         final Camunda8FetchVariables.Selection fetchVariables) {
 
       this.adapterId = adapterId;
@@ -622,6 +663,7 @@ public class Camunda8JobHandler implements JobHandler {
       this.workflowAggregateId = workflowAggregateId;
       this.job = job;
       this.multiInstanceRegistry = multiInstanceRegistry;
+      this.predatesDeployedVersion = predatesDeployedVersion;
       this.fetchVariables = fetchVariables == null
           ? Camunda8FetchVariables.Selection.everything()
           : fetchVariables;
@@ -680,6 +722,15 @@ public class Camunda8JobHandler implements JobHandler {
 
       // the job key identifies the open job - used by ProcessService#completeTask
       return String.valueOf(job.getKey());
+
+    }
+
+    @Override
+    public boolean predatesDeployedVersion() {
+
+      // both halves come from what is already at hand: the job names its process and
+      // its version, and the adapter remembers what it deployed. No query, no cost
+      return predatesDeployedVersion;
 
     }
 

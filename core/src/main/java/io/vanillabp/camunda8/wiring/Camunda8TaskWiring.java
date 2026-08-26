@@ -413,6 +413,70 @@ public final class Camunda8TaskWiring {
   }
 
   /**
+   * The job type version 1 served its user tasks with up to release 1.6.3, when a user
+   * task was a job-worker user task rather than a Camunda-managed one. Version 2 opens
+   * no worker on it, which is what {@link #legacyUserTaskIdsOf} exists to report.
+   */
+  public static final String TASKDEFINITION_USERTASK_WORKER_V1 = "io.camunda.zeebe:userTask";
+
+  /**
+   * The user tasks of the given executable process which are still modelled the way
+   * VanillaBP 1 modelled them up to its release 1.6.3: a plain BPMN user task, served by
+   * a job worker on {@value #TASKDEFINITION_USERTASK_WORKER_V1}, whose task definition
+   * was the <code>zeebe:formDefinition</code> <strong>formKey</strong>. Release 1.7.0
+   * replaced that with a Camunda-managed user task carrying the lifecycle listeners this
+   * version wires, and it kept serving the old shape alongside; this version does not.
+   * <p>
+   * Such a user task falls through everything else silently, which is why it is looked
+   * for on purpose: {@link #tasksOf} reads service-like tasks only, and
+   * {@link #userTasksOf} skips anything without a <code>zeebe:userTask</code>. So it is
+   * neither wired nor reported, the model deploys, the workflow runs - and VanillaBP
+   * never learns that the task was created, while
+   * <code>ProcessService#completeUserTask</code> cannot complete it either, because the
+   * id such a task hands out is a job key and the cluster expects a user-task key.
+   *
+   * @param model The BPMN model of one file
+   * @param bpmnProcessId The process id as the CLUSTER will know it
+   * @return The element ids, empty where the model carries none
+   */
+  public static List<String> legacyUserTaskIdsOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    return model
+        .getModelElementsByType(UserTask.class)
+        .stream()
+        .filter(task -> bpmnProcessId.equals(owningProcessId(task)))
+        // a Camunda-managed user task is what this version serves, and a user task
+        // carrying a zeebe:taskDefinition is the application's own job worker rather
+        // than version 1's convention - neither is meant here
+        .filter(task -> task.getSingleExtensionElement(ZeebeUserTask.class) == null)
+        .filter(task -> task.getSingleExtensionElement(ZeebeTaskDefinition.class) == null)
+        .filter(task -> namesAFormKey(task.getSingleExtensionElement(ZeebeFormDefinition.class)))
+        .map(FlowElement::getId)
+        .toList();
+
+  }
+
+  /**
+   * Whether a form definition names version 1's formKey, which is what told that adapter
+   * the user task's task definition.
+   *
+   * @param formDefinition The element's form definition, may be <code>null</code>
+   * @return <code>true</code> where a non-blank formKey is set
+   */
+  private static boolean namesAFormKey(
+      final ZeebeFormDefinition formDefinition) {
+
+    if (formDefinition == null) {
+      return false;
+    }
+    final var formKey = formDefinition.getFormKey();
+    return (formKey != null) && !formKey.isBlank();
+
+  }
+
+  /**
    * The Camunda-managed user tasks (<code>zeebe:userTask</code>) of the given
    * executable process AND - for NEW models - adds the V1-compatible lifecycle
    * task listeners to the model: per user task a <code>creating</code> listener as
