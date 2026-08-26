@@ -50,6 +50,19 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   private final AtomicBoolean noQueryApiWarned = new AtomicBoolean();
 
   /**
+   * The cluster's process definition key per (workflow module, BPMN process, version).
+   * <p>
+   * The startup check for old versions asks two things about every version older than the
+   * one this boot deployed, its model and how many workflows still run on it, and both are
+   * addressed by this key. Searching for it per question meant three searches per version
+   * where one already held the answer: {@link #fetchDeployedVersions} reads the definitions
+   * and used to keep nothing but their version numbers. So it keeps the keys as well, and
+   * the search below runs only for a version deployed after that list was read - see
+   * decision 13 in the repository's DECISIONS.md.
+   */
+  private final java.util.Map<String, Long> definitionKeysByVersion = new java.util.concurrent.ConcurrentHashMap<>();
+
+  /**
    * Reads the tasks of a model the cluster holds - the deployment service' own
    * extraction.
    */
@@ -149,7 +162,8 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   /**
    * The cluster's process definition key of ONE version of a process - the handle both
-   * the model and the instance count are read by. Needs the query API.
+   * the model and the instance count are read by. From what the version list already
+   * brought back, and only otherwise from a search of its own, which needs the query API.
    */
   private Long definitionKeyOf(
       final String workflowModuleId,
@@ -159,6 +173,51 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
     if (!version.matches("\\d+")) {
       return null;
     }
+    final var known = definitionKeysByVersion.get(versionKey(workflowModuleId, bpmnProcessId, version));
+    if (known != null) {
+      return known;
+    }
+    return askTheClusterForTheDefinitionKey(workflowModuleId, bpmnProcessId, version);
+
+  }
+
+  private static String versionKey(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    return "%s|%s|%s".formatted(workflowModuleId, bpmnProcessId, version);
+
+  }
+
+  /**
+   * Keeps what a definition search brought back, so the next question about the same
+   * version is answered without searching again.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param definition What the cluster reported
+   * @return The definition key of that version
+   */
+  private Long remember(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final io.camunda.client.api.search.response.ProcessDefinition definition) {
+
+    final var definitionKey = definition.getProcessDefinitionKey();
+    definitionKeysByVersion
+        .put(
+            versionKey(workflowModuleId, bpmnProcessId, String.valueOf(definition.getVersion())),
+            definitionKey);
+    return definitionKey;
+
+  }
+
+  private Long askTheClusterForTheDefinitionKey(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
     final var scopedProcessId = scopedProcessIds.apply(workflowModuleId, bpmnProcessId);
     final var tenantId = tenants.apply(workflowModuleId);
     try {
@@ -177,7 +236,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
           .items()
           .stream()
           .findFirst()
-          .map(definition -> definition.getProcessDefinitionKey())
+          .map(definition -> remember(workflowModuleId, bpmnProcessId, definition))
           .orElse(null);
     } catch (final RuntimeException e) {
       if (isSecondaryStorageMissing(e)) {
@@ -272,7 +331,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
     final var scopedProcessId = scopedProcessIds.apply(workflowModuleId, bpmnProcessId);
     final var tenantId = tenants.apply(workflowModuleId);
     try {
-      return client
+      final var definitions = client
           .get()
           .newProcessDefinitionSearchRequest()
           .filter(filter -> {
@@ -284,7 +343,11 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
           .sort(sort -> sort.version().asc())
           .send()
           .join()
-          .items()
+          .items();
+      // this one search holds what every later question about an older version needs, and
+      // keeping the keys is what spares those questions a search each
+      definitions.forEach(definition -> remember(workflowModuleId, bpmnProcessId, definition));
+      return definitions
           .stream()
           .map(definition -> DeployedProcessVersion
               .of(String.valueOf(definition.getVersion()), definition.getVersionTag()))

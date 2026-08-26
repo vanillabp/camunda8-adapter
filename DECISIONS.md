@@ -182,3 +182,24 @@ hexadecimal ids has a conversion to do either way - the ids are in ITS tables, n
 adapter owes such an application is the sentence which names the setting, and that is what the parse site
 says now. The failure stays a permanent one, so the outbox entry is still blocked after a single attempt
 rather than retried ten times against a key which will not become a number.
+
+### 13. A start asks the cluster for numbers, and asks as many of them on the last day as on the first
+
+The questions this adapter answers while an application boots read from secondary storage, which
+grows for as long as the application is in production: how many workflows still run on an old
+version, how many jobs of version 1's user-task construction are still open, how many tasks the
+cluster is holding open for a process. A start of ten seconds must not become a start of two
+minutes because the application did its job for two years, and the platform states the rule for
+every adapter as decision 19 of its own DECISIONS.md.
+
+For Camunda 8 that means two things. A question about a quantity fetches one item and reads
+`page().totalItems()`; the page which came back is not the answer, and transferring it to count it
+would grow with the data while also capping the number at the page size. And a process definition
+is searched for once for the whole process: `fetchDeployedVersions` reads every version anyway, so
+it keeps the definition keys it saw, and the questions which follow are addressed with them rather
+than each searching again.
+
+What does grow is the number of versions the cluster holds, one per deployment which changed a
+model, and the questions about older versions grow with it. That is deliberate: those questions are
+what the check is for, and `outfaded-versions` is how an operator says which of them have stopped
+being interesting. `Camunda8StartupQuestionCostTest` counts what a start asks.
