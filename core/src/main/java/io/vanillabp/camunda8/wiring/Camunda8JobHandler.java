@@ -746,6 +746,18 @@ public class Camunda8JobHandler implements JobHandler {
     }
 
     @Override
+    public String getActivationId() {
+
+      // the ELEMENT instance, not the job: the two elements of a multi-instance
+      // activity are two element instances, while a job created a second time for ONE
+      // element must not read as a new element. That the job key would answer this
+      // question as well today is not a reason to give it - it answers the delivery
+      // question, and the two contracts are opposite
+      return String.valueOf(job.getElementInstanceKey());
+
+    }
+
+    @Override
     public Object getTaskParameter(
         final String name) {
 

@@ -411,6 +411,16 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     }
 
     @Override
+    public String getActivationId() {
+
+      // the element instance of the user task, which is what an activation means - and
+      // here the sharing the delivery id had to avoid is right: creation and
+      // cancellation happen within ONE activation of one element
+      return String.valueOf(job.getElementInstanceKey());
+
+    }
+
+    @Override
     public Object getTaskParameter(
         final String name) {
 
