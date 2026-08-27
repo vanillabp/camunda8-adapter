@@ -368,8 +368,28 @@ public class Camunda8AdapterConfiguration {
   private java.time.Duration streamTimeout;
 
   /**
-   * How long the cluster buffers a published message waiting for a subscription, which
-   * is also the window a message id deduplicates in. Default: the client's one hour.
+   * How long the cluster keeps a published message. The number does two jobs which pull in
+   * opposite directions, which is why it is resolvable per workflow module, workflow and
+   * MESSAGE and not only per adapter (see
+   * {@link io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver}):
+   * <ul>
+   * <li>it BUFFERS a message published before its subscription exists, which wants it
+   * large - a message correlated while the workflow is still two steps away from its catch
+   * event is only correlated because the cluster held it;</li>
+   * <li>it is the window a message id DEDUPLICATES in, which wants it small - for as long
+   * as the message lives, a second and entirely legitimate publication of the same id is
+   * dropped without a word.</li>
+   * </ul>
+   * Default: whatever the client uses, one hour at the time of writing. VanillaBP sets
+   * nothing on the command where nothing is configured.
+   * <p>
+   * <b>Shortening it does not buy a short deduplication window.</b> The cluster forgets an
+   * expired message id on a sweep of its own rather than at the moment it expires. Measured
+   * against camunda/camunda:8.9.16 on 2026-08-27, a two-second time-to-live was still
+   * deduplicating five seconds later and forgotten after 75
+   * (see {@code Camunda8TaskProcessingIT#theTimeToLiveDecidesHowLongTheClustersNetLasts}).
+   * What tells two legitimate correlations apart is what they carry - a correlation id
+   * which varies, or the activation VanillaBP puts into the message id.
    */
   private java.time.Duration messageTimeToLive;
 
@@ -596,6 +616,44 @@ public class Camunda8AdapterConfiguration {
     return fetchVariables != null
         ? fetchVariables
         : io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
+
+  }
+
+  /**
+   * Validates how long the cluster keeps a message this adapter publishes - AT STARTUP,
+   * because what it decides is silent at runtime in both directions: too short and a
+   * message published before its subscription exists is gone, too long and a second
+   * legitimate correlation of the same id is dropped without a word.
+   * <p>
+   * Only the ADAPTER level is checked here, the same bound {@link #validateRetryBackoff}
+   * has: the deeper levels live in the platform's configuration overlay and are not
+   * visible from this class. A typo there shows when that message is published, which is
+   * the price of not duplicating the overlay walk in two platform modules.
+   *
+   * @param adapterId The adapter id
+   * @throws IllegalStateException If the time-to-live is zero or negative
+   */
+  public void validateMessageTimeToLive(
+      final String adapterId) {
+
+    if ((messageTimeToLive == null) || (!messageTimeToLive.isZero() && !messageTimeToLive.isNegative())) {
+      return;
+    }
+    throw new IllegalStateException(
+        """
+            Camunda 8 adapter '%s' has '%s: %s'. That number is how long the cluster keeps a published \
+            message, so zero or less means every message this adapter publishes is dropped the moment \
+            it arrives - a workflow waiting for one would wait forever. Give it a duration, or remove \
+            the property to keep the client's own default of one hour. The number does two jobs which \
+            pull apart: it buffers a message whose subscription does not exist yet, which wants it \
+            large, and it is the window a message id deduplicates in, which wants it small. Where one \
+            number cannot serve both, set it per workflow module, workflow or message \
+            ('vanillabp.workflow-modules.<m>.workflows.<w>.messages.<message>.adapters.%s.message-time-to-live')."""
+            .formatted(
+                adapterId,
+                propertyKey(adapterId, "message-time-to-live"),
+                messageTimeToLive,
+                adapterId));
 
   }
 

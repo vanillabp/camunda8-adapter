@@ -153,6 +153,48 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
+   * Resolves how long the cluster keeps a message this adapter publishes, per adapter,
+   * workflow module, workflow and message. May be <code>null</code> (tests, and a platform
+   * written before this): the client's own default applies then and VanillaBP sets nothing
+   * on the command.
+   */
+  private io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver messageTimeToLiveResolver;
+
+  /**
+   * Injected by the platform module after construction, like the scoping next to it - an
+   * optional collaborator rather than a constructor argument, so a test building this
+   * service by hand does not have to know about it.
+   *
+   * @param messageTimeToLiveResolver The resolver, or <code>null</code>
+   */
+  public void setMessageTimeToLiveResolver(
+      final io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver messageTimeToLiveResolver) {
+
+    this.messageTimeToLiveResolver = messageTimeToLiveResolver;
+
+  }
+
+  /**
+   * The window the cluster keeps the given message in, or <code>null</code> where nothing
+   * configures one.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The BPMN process
+   * @param messageName The message name as the application wrote it
+   * @return The time-to-live or <code>null</code>
+   */
+  private java.time.Duration messageTimeToLiveFor(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String messageName) {
+
+    return messageTimeToLiveResolver == null
+        ? null
+        : messageTimeToLiveResolver.messageTimeToLiveFor(workflowModuleId, bpmnProcessId, messageName);
+
+  }
+
+  /**
    * The BPMN process id as the cluster knows it.
    */
   private String scopedProcessId(
@@ -1097,6 +1139,21 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final String messageName,
       final String correlationId) {
 
+    correlateMessagePhaseTwo(
+        workflowModuleId, bpmnProcessId, aggregatePersistence, workflowAggregateId, messageName, correlationId, null);
+
+  }
+
+  @Override
+  public void correlateMessagePhaseTwo(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String messageName,
+      final String correlationId,
+      final String activationId) {
+
     // correlationKey: the correlation id if given, the aggregate ID otherwise
     // (V1 semantics; the wired zeebe:subscription evaluates '=<idName>' - a
     // correlation id requires a model-side subscription on the matching variable).
@@ -1126,9 +1183,24 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       command = command.tenantId(correlationTenantId);
     }
     if (correlationId != null) {
-      command = command.messageId(
-          "%s|%s|%s|%s|%s".formatted(
-              workflowModuleId, bpmnProcessId, workflowAggregateId, messageName, correlationId));
+      // The ACTIVATION belongs in here for the same reason it belongs in VanillaBP's own
+      // idempotency key: three elements of a multi-instance call activity agree in every
+      // other part, because a called process is a secondary workflow of the SAME
+      // aggregate. Without it they are three operations for the outbox and ONE message
+      // for the cluster, and the two which lose are lost silently. Absent where the
+      // correlation was planned outside any activation, which keeps the id a REST
+      // endpoint produces exactly what it was
+      command = command
+          .messageId(
+              messageIdOf(workflowModuleId, bpmnProcessId, workflowAggregateId, messageName, correlationId,
+                  activationId));
+    }
+    final var timeToLive = messageTimeToLiveFor(workflowModuleId, bpmnProcessId, messageName);
+    if (timeToLive != null) {
+      // per message, because the number buffers AND deduplicates and those two want it
+      // to go in opposite directions. Nothing configured means nothing set: the client's
+      // own default then applies, as it always did
+      command = command.timeToLive(timeToLive);
     }
     try {
       command
@@ -1156,15 +1228,63 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               within the message time-to-live. Either this dispatch is a repetition of one which \
               reached the cluster already - then nothing is lost - or it is a second, legitimate \
               correlation of the same message name and correlation id for this aggregate, and the \
-              workflow will never see it. The entry counts as done in both cases. A repeating scope \
-              has to vary the correlation id, because this net is the cluster's and no VanillaBP \
-              setting shortens it.""",
+              workflow will never see it. The entry counts as done in both cases. This net is the \
+              cluster's own and lasts for the message time-to-live \
+              ('vanillabp.adapters.<id>.message-time-to-live', resolvable down to the single \
+              message); a scope which repeats within it has to vary the correlation id, unless the \
+              repetitions are separate activations of a BPMN element, which the message id already \
+              tells apart.""",
           adapterId,
           messageName,
           correlationKey,
           bpmnProcessId,
           workflowModuleId);
     }
+
+  }
+
+  /**
+   * The id this adapter hands the cluster for a correlated message, which is what the
+   * cluster deduplicates by for as long as the message lives.
+   *
+   * <h2>Why it looks like VanillaBP's own key and is not the same thing</h2>
+   *
+   * Both are derived from the same values, and they guard different windows: VanillaBP's
+   * key deduplicates the entries which have not been dispatched yet, this one deduplicates
+   * publications inside the message time-to-live. An operation can pass the first net and
+   * be dropped by the second, which is why the adapter says so when the cluster refuses a
+   * publication.
+   *
+   * <h2>Why the activation is part of it</h2>
+   *
+   * A called process is a secondary workflow of the SAME aggregate, so the three elements
+   * of a multi-instance call activity agree in module, process, aggregate, message name
+   * and - where it comes from business data - correlation id. Without the activation they
+   * are three operations for the outbox and ONE message for the cluster.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The BPMN process
+   * @param workflowAggregateId The workflow aggregate's id
+   * @param messageName The message name as the application wrote it
+   * @param correlationId The correlation id (never <code>null</code> here - without one
+   *          nothing is deduplicated and no id is sent)
+   * @param activationId The activation the correlation was planned in, or
+   *          <code>null</code> where it was planned outside any
+   * @return The message id
+   */
+  static String messageIdOf(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final Object workflowAggregateId,
+      final String messageName,
+      final String correlationId,
+      final String activationId) {
+
+    final var withoutActivation = "%s|%s|%s|%s|%s"
+        .formatted(workflowModuleId, bpmnProcessId, workflowAggregateId, messageName, correlationId);
+    return activationId == null
+        ? withoutActivation
+        : "%s|%s".formatted(withoutActivation, activationId);
 
   }
 
@@ -1605,6 +1725,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final var startTenantId = tenantIdOf(workflowModuleId);
       if (startTenantId != null) {
         startCommand = startCommand.tenantId(startTenantId);
+      }
+      // The ADAPTER level only, deliberately: this message starts a workflow, so its
+      // deduplication is wanted for as long as possible and the subscription of a message
+      // START event exists as long as the process is deployed - the buffering half of the
+      // number does not apply here at all. A per-message override meant for a repeating
+      // catch event must not shorten the protection against a double-started workflow
+      final var startTimeToLive = clientFactory.getConfiguration().getMessageTimeToLive();
+      if (startTimeToLive != null) {
+        startCommand = startCommand.timeToLive(startTimeToLive);
       }
       startCommand
           .send()

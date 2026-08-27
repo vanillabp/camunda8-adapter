@@ -107,6 +107,35 @@ public class Camunda8AsyncTaskLockRenewalTest {
 
   }
 
+  @Test
+  @DisplayName("A message time-to-live of zero or less ends the boot")
+  public void aNonPositiveMessageTimeToLiveEndsTheBoot() {
+
+    // zero means the cluster drops every message this adapter publishes the moment it
+    // arrives, and nothing at runtime says so - a workflow waiting for one waits forever
+    for (final var wrong : java.util.List.of(Duration.ZERO, Duration.ofSeconds(-1))) {
+      final var configuration = new Camunda8AdapterConfiguration();
+      configuration.setMessageTimeToLive(wrong);
+
+      final var message = assertThrows(
+          IllegalStateException.class,
+          () -> configuration.validateMessageTimeToLive("c8")).getMessage();
+
+      assertTrue(message.contains("vanillabp.adapters.c8.message-time-to-live"), message);
+      assertTrue(message.contains("dropped the moment"), message);
+      // and the way out, including the level a number which cannot serve everything goes to
+      assertTrue(message.contains("messages.<message>"), message);
+    }
+
+    // nothing configured is the normal case: the client's own default applies and
+    // VanillaBP sets nothing on the command
+    assertDoesNotThrow(() -> new Camunda8AdapterConfiguration().validateMessageTimeToLive("c8"));
+    final var configured = new Camunda8AdapterConfiguration();
+    configured.setMessageTimeToLive(Duration.ofMinutes(1));
+    assertDoesNotThrow(() -> configured.validateMessageTimeToLive("c8"));
+
+  }
+
   private static Camunda8AdapterConfiguration configuration(
       final Duration renewal) {
 
