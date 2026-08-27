@@ -71,6 +71,49 @@ public class Camunda8JobTimeoutOverlayTest {
   }
 
   @Test
+  public void messageTimeToLiveResolvesThroughAllFourLevels() {
+
+    final var overlay = overlay();
+
+    // message level (most specific) - a catch event whose message may legitimately repeat
+    // every minute, which is what a per-message override is for
+    Assertions.assertEquals(
+        Duration.ofMinutes(1),
+        overlay.messageTimeToLiveFor("test-app", "TaskProcess", "OfferRequested", "c8"));
+    // workflow level
+    Assertions.assertEquals(
+        Duration.ofHours(4),
+        overlay.messageTimeToLiveFor("test-app", "TaskProcess", "SomeOtherMessage", "c8"));
+    // workflow-module level
+    Assertions.assertEquals(
+        Duration.ofHours(5),
+        overlay.messageTimeToLiveFor("test-app", "OtherProcess", "SomeMessage", "c8"));
+    // adapter level (base)
+    Assertions.assertEquals(
+        Duration.ofHours(6),
+        overlay.messageTimeToLiveFor("unknown-module", "SomeProcess", "SomeMessage", "c8"));
+
+  }
+
+  @Test
+  public void aMessageOverrideDoesNotReachTasksAndTheOtherWayRound() {
+
+    final var overlay = overlay();
+
+    // the most specific level of the two resolutions is a different map on purpose: an
+    // override meant for a message must not apply to a task of the same name, and the
+    // task section of 'happyTask' must not answer a message question
+    Assertions.assertEquals(
+        Duration.ofSeconds(2),
+        overlay.jobTimeoutFor("test-app", "TaskProcess", "happyTask", "c8"));
+    Assertions.assertEquals(
+        Duration.ofHours(4),
+        overlay.messageTimeToLiveFor("test-app", "TaskProcess", "happyTask", "c8"),
+        "a task name is not a message name - this falls back to the workflow level");
+
+  }
+
+  @Test
   public void retryBackoffResolvesThroughAllFourLevels() {
 
     final var overlay = overlay();

@@ -471,13 +471,42 @@ the core does with it is put it into the idempotency key of a message correlatio
 handler runs, so the elements of a multi-instance activity stop sharing a key
 (`Camunda8ActivationIdentityTest` pins both contracts against each other).
 
-**The cluster's own net does not know about it.** `correlateMessagePhaseTwo` derives the `messageId`
-it hands to Zeebe from workflow module, BPMN process, aggregate id, message name and correlation id,
-and the cluster deduplicates by that for as long as the message time-to-live lasts. Three
-multi-instance siblings therefore reach the OUTBOX as three operations and the cluster as one
-message. An application which needs all three correlations on Camunda 8 still has to vary its
-correlation id; changing the derived message id is a question for the story about that time-to-live,
-not for this section.
+**The cluster's own net knows about it too.** `correlateMessagePhaseTwo` derives the `messageId` it
+hands to Zeebe from workflow module, BPMN process, aggregate id, message name, correlation id and the
+activation, and the cluster deduplicates by that for as long as the message lives. Without the last
+part the three siblings would reach the OUTBOX as three operations and the cluster as ONE message,
+which VanillaBP cannot see and cannot fix from its side. The activation reaches phase two with the
+outbox entry (`PhaseTwoCall.ARG_ACTIVATION_ID`), because the thread which knew it is long gone by
+then. A correlation planned outside any activation derives the id it always did.
+
+### How long the cluster keeps a message
+
+`message-time-to-live` decides it, and unlike the client default it applied before, it resolves per
+adapter, workflow module, workflow and MESSAGE - the same most-specific-wins machinery `job-timeout`
+uses, with a message as the most specific level instead of a task:
+
+```
+vanillabp.workflow-modules.<m>.workflows.<w>.messages.<messageName>.adapters.<id>.message-time-to-live
+```
+
+The number does two jobs which pull apart. It BUFFERS a message published before its subscription
+exists, which wants it large, and it is the window a message id DEDUPLICATES in, which wants it
+small. A catch event whose message may legitimately repeat every minute and one whose message is
+published long before the workflow reaches it are different messages in one application, so one
+number for the whole application has to be wrong for one of them. Nothing configured means nothing
+set: the client's own default applies, as it always did.
+
+**Shortening it does not buy a short deduplication window.** The cluster forgets an expired message
+id on a sweep of its own rather than at the moment it expires. Measured against
+`camunda/camunda:8.9.16` on 2026-08-27, a two-second time-to-live was still deduplicating five
+seconds later and forgotten after 75
+(`Camunda8TaskProcessingIT#theTimeToLiveDecidesHowLongTheClustersNetLasts` pins it). What tells two
+legitimate correlations apart is what they carry - a varying correlation id, or the activation.
+
+`startWorkflowByMessagePhaseTwo` deliberately reads the ADAPTER level only. That message starts a
+workflow, so its deduplication is wanted for as long as possible and the subscription of a message
+start event exists as long as the process is deployed; a per-message override meant for a repeating
+catch event must not shorten the protection against a double-started workflow.
 
 ### Which phase-two failures are repeated
 

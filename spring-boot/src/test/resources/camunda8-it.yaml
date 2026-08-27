@@ -12,6 +12,7 @@ vanillabp:
       job-timeout: PT30S
       retry-backoff: PT30S
       async-task-lock-renewal: PT2M
+      message-time-to-live: PT6H
   prioritized-adapters:
     - c8
   workflow-modules:
@@ -21,22 +22,35 @@ vanillabp:
           resources-location: classpath*:it
           job-timeout: PT20S
           retry-backoff: PT20S
+          message-time-to-live: PT5H
       workflows:
         FailProcess:
           adapters:
             c8:
               retry-backoff: PT5S
+        MessageProcess:
+          messages:
+            C8PaymentReceived:
+              adapters:
+                c8:
+                  message-time-to-live: PT2S
         TaskProcess:
           adapters:
             c8:
               job-timeout: PT10S
               retry-backoff: PT10S
+              message-time-to-live: PT4H
           tasks:
             happyTask:
               adapters:
                 c8:
                   job-timeout: PT2S
                   retry-backoff: PT2S
+          messages:
+            OfferRequested:
+              adapters:
+                c8:
+                  message-time-to-live: PT1M
         AsyncProcess:
           tasks:
             asyncTask:

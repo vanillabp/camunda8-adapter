@@ -64,6 +64,12 @@ public class Camunda8ProcessServiceProducer {
                   .getFactory(
                       adapterId), asyncTaskLockRenewal, preCommitRegistrar, aggregateSync, workflowVisibilityTimeout);
           processService.setScoping(scoping);
+          processService
+              .setMessageTimeToLiveResolver((
+                  workflowModuleId,
+                  bpmnProcessId,
+                  messageName) -> overlay
+                      .messageTimeToLiveFor(workflowModuleId, bpmnProcessId, messageName, adapterId));
           return processService;
         })
         .toList();

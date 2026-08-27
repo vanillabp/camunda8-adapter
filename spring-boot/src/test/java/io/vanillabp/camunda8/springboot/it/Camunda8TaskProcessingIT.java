@@ -184,6 +184,34 @@ public class Camunda8TaskProcessingIT {
   }
 
   @Test
+  @DisplayName("The message time-to-live resolves through all four levels, message first")
+  public void messageTimeToLiveResolvesThroughAllFourLevels() {
+
+    // message level (most specific) - a catch event whose message may legitimately repeat
+    // every minute, which is what a per-message override is for
+    assertEquals(
+        Duration.ofMinutes(1),
+        overlay.messageTimeToLiveFor("test-app", "TaskProcess", "OfferRequested", "c8"));
+    // workflow level
+    assertEquals(
+        Duration.ofHours(4),
+        overlay.messageTimeToLiveFor("test-app", "TaskProcess", "SomeOtherMessage", "c8"));
+    // workflow-module level
+    assertEquals(
+        Duration.ofHours(5),
+        overlay.messageTimeToLiveFor("test-app", "FailProcess", "SomeMessage", "c8"));
+    // adapter level (base)
+    assertEquals(
+        Duration.ofHours(6),
+        overlay.messageTimeToLiveFor("unknown-module", "SomeProcess", "SomeMessage", "c8"));
+    // a task name is not a message name: the two most specific levels are different maps
+    assertEquals(
+        Duration.ofHours(4),
+        overlay.messageTimeToLiveFor("test-app", "TaskProcess", "happyTask", "c8"));
+
+  }
+
+  @Test
   @DisplayName("The retry backoff resolves through all four configuration levels from real config")
   public void retryBackoffResolvesThroughAllFourLevels() {
 
@@ -728,6 +756,141 @@ public class Camunda8TaskProcessingIT {
         "the matching correlation to resume the instance");
     Thread.sleep(1500);
     assertEquals(1, invocations("c8MessageArrived", aggregateId), "no double-fire");
+
+  }
+
+  /**
+   * How long a test waits for the cluster to forget an expired message id. See the
+   * measurement where it is used: expiry is swept on the cluster's own interval, so this
+   * is not the time-to-live plus a margin.
+   */
+  private static final long SWEEP_TOLERANCE_MILLIS = 75_000;
+
+  /**
+   * Collects what the adapter logged while a test ran, which is where the cluster's
+   * refusal of a duplicated message id becomes visible - the publication itself is
+   * tolerated as a no-op, so nothing else about it is observable.
+   */
+  private ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> watchTheAdapter() {
+
+    final var watcher = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+    watcher.start();
+    ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
+        .getLogger(io.vanillabp.camunda8.processservice.Camunda8ProcessService.class)).addAppender(watcher);
+    return watcher;
+
+  }
+
+  private long refusals(
+      final ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> watcher) {
+
+    return watcher.list
+        .stream()
+        .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+        .filter(message -> message.contains("because a message of the same id was published before"))
+        .count();
+
+  }
+
+  @Test
+  @DisplayName("Two activations of one element publish two messages, one activation publishes one")
+  public void theActivationTellsSiblingsApartInTheClustersOwnNet() throws Exception {
+
+    // The cluster deduplicates by the message id this adapter derives, and for a
+    // multi-instance call activity everything else about the three correlations is equal:
+    // a called process is a secondary workflow of the SAME aggregate. Without the
+    // activation the cluster keeps one of them and drops the rest, which VanillaBP cannot
+    // see and cannot fix from its own side
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("MessageProcess", aggregateId);
+
+    @SuppressWarnings("unchecked")
+    final var c8ProcessService = (io.vanillabp.camunda8.processservice.Camunda8ProcessService<TaskDockerAggregate>) applicationContext
+        .getBean("Camunda8_ProcessService_c8");
+
+    final var watcher = watchTheAdapter();
+    try {
+      // two siblings: same message name, same correlation id, different activations
+      c8ProcessService
+          .correlateMessagePhaseTwo(
+              "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "partner-42", "element-1");
+      c8ProcessService
+          .correlateMessagePhaseTwo(
+              "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "partner-42", "element-2");
+      assertEquals(
+          0,
+          refusals(watcher),
+          "two activations are two messages for the cluster: "
+              + watcher.list);
+
+      // and the guarantee that must not cost: the same activation twice - an
+      // at-least-once redelivery of one entry - is still ONE message
+      c8ProcessService
+          .correlateMessagePhaseTwo(
+              "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "partner-42", "element-1");
+      assertEquals(
+          1,
+          refusals(watcher),
+          "the repetition of one activation is refused by the cluster, as it has to be: "
+              + watcher.list);
+    } finally {
+      ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
+          .getLogger(io.vanillabp.camunda8.processservice.Camunda8ProcessService.class)).detachAppender(watcher);
+    }
+
+  }
+
+  @Test
+  @DisplayName("Past the message time-to-live the cluster accepts the same message id again")
+  public void theTimeToLiveDecidesHowLongTheClustersNetLasts() throws Exception {
+
+    // The other half of what the number does: it is the window a message id deduplicates
+    // in, and this application shortens it to two seconds for THIS message
+    // ('vanillabp.workflow-modules.test-app.workflows.MessageProcess.messages.C8PaymentReceived').
+    // A repetition inside the window is refused, the same one after it is a new message
+    assertEquals(
+        java.time.Duration.ofSeconds(2),
+        overlay.messageTimeToLiveFor("test-app", "MessageProcess", "C8PaymentReceived", "c8"),
+        "the per-message override is what this test rests on");
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    startSecondaryProcess("MessageProcess", aggregateId);
+
+    @SuppressWarnings("unchecked")
+    final var c8ProcessService = (io.vanillabp.camunda8.processservice.Camunda8ProcessService<TaskDockerAggregate>) applicationContext
+        .getBean("Camunda8_ProcessService_c8");
+
+    final var watcher = watchTheAdapter();
+    try {
+      c8ProcessService
+          .correlateMessagePhaseTwo("test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "round-1");
+      c8ProcessService
+          .correlateMessagePhaseTwo("test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "round-1");
+      assertEquals(1, refusals(watcher), "inside the window the second one is refused: "
+          + watcher.list);
+
+      // Wait the window out. The number is not "the TTL plus a margin": the cluster
+      // sweeps expired message ids on an interval of its own rather than at the moment
+      // they expire, so a two-second TTL is NOT forgotten two seconds later. Measured on
+      // camunda/camunda:8.9.16 on 2026-08-27: still refused 5 s after the TTL, accepted
+      // 75 s after it. That floor is the reason the wiki tells nobody to shorten this
+      // number in order to get a short deduplication window - it does not work
+      Thread.sleep(SWEEP_TOLERANCE_MILLIS);
+      c8ProcessService
+          .correlateMessagePhaseTwo("test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "round-1");
+      assertEquals(
+          1,
+          refusals(watcher),
+          "past the window the very same message id is accepted again: "
+              + watcher.list);
+    } finally {
+      ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
+          .getLogger(io.vanillabp.camunda8.processservice.Camunda8ProcessService.class)).detachAppender(watcher);
+    }
 
   }
 

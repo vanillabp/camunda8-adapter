@@ -55,6 +55,13 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                             supplierContext.bean(VanillaBpCamunda8Properties.class), adapterId));
                 processService.setScoping(
                     supplierContext.bean(io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class));
+                final var overlay = supplierContext.bean(VanillaBpCamunda8Properties.class);
+                processService
+                    .setMessageTimeToLiveResolver((
+                        workflowModuleId,
+                        bpmnProcessId,
+                        messageName) -> overlay
+                            .messageTimeToLiveFor(workflowModuleId, bpmnProcessId, messageName, adapterId));
                 return processService;
               }));
 

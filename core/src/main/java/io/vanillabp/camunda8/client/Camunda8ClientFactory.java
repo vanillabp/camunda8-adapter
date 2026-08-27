@@ -39,6 +39,19 @@ public class Camunda8ClientFactory implements AutoCloseable {
   private final Camunda8AdapterConfiguration configuration;
 
   /**
+   * The bound configuration of this adapter instance - read by the process service where
+   * a command needs an adapter-level setting the four-level resolution deliberately does
+   * not apply to.
+   *
+   * @return The configuration
+   */
+  public Camunda8AdapterConfiguration getConfiguration() {
+
+    return configuration;
+
+  }
+
+  /**
    * The per-adapter-id record of what this application version deployed, which the
    * viewer API serves from. It lives here because the factory is the one object BOTH
    * the deployment service (which fills it) and the process service (which reads

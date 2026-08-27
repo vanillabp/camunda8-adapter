@@ -34,6 +34,7 @@ vanillabp:
           job-timeout: PT20S
           retry-backoff: PT20S
           fetch-variables: all
+          message-time-to-live: PT5H
       workflows:
         TaskProcess:
           adapters:
@@ -41,6 +42,7 @@ vanillabp:
               job-timeout: PT10S
               retry-backoff: PT10S
               fetch-variables: derived
+              message-time-to-live: PT4H
           tasks:
             happyTask:
               adapters:
@@ -48,3 +50,8 @@ vanillabp:
                   job-timeout: PT2S
                   retry-backoff: PT2S
                   fetch-variables: all
+          messages:
+            OfferRequested:
+              adapters:
+                c8:
+                  message-time-to-live: PT1M
