@@ -1100,9 +1100,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // correlationKey: the correlation id if given, the aggregate ID otherwise
     // (V1 semantics; the wired zeebe:subscription evaluates '=<idName>' - a
     // correlation id requires a model-side subscription on the matching variable).
-    // messageId: the idempotency key WHERE ONE EXISTS (with a correlation id) -
-    // the engine then deduplicates redeliveries within the message TTL; without
-    // one, an at-least-once redelivery may double-correlate (documented).
+    // messageId WHERE A CORRELATION ID EXISTS: the engine then deduplicates a second
+    // publication of the same message for as long as the message time-to-live lasts,
+    // which is a net of its own and a shorter one than VanillaBP's outbox - that one
+    // ends with the dispatch, while this one runs for the TTL (the client's default
+    // hour unless 'message-time-to-live' says otherwise). A repetition inside the TTL
+    // is therefore swallowed by the ENGINE, whatever VanillaBP does, so a repeating
+    // scope has to vary the correlation id. Without a correlation id there is no
+    // messageId either, and an at-least-once redelivery may double-correlate
+    // (documented).
     // PAYLOAD DOCTRINE: no message CONTENT travels - what does travel is the
     // aggregate state shared with the BPMS, because the cluster can
     // only evaluate BPMN expressions against variables it was given.
@@ -1140,13 +1146,24 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       if (!isMessageAlreadyPublished(e)) {
         throw e;
       }
-      // the engine deduplicated by messageId - a redelivered at-least-once
-      // dispatch, the entry is consumed
+      // the engine deduplicated by messageId. Which of the two it was cannot be told
+      // from here, and the entry counts as consumed either way - repeating the publish
+      // would be refused again
       log.warn(
-          "Camunda8[{}]: message '{}' (id-deduplicated) was already published - skipping the "
-              + "redelivered phase-two correlation",
+          """
+              Camunda8[{}]: the cluster refused message '{}' (correlation key '{}') for BPMN process \
+              '{}' of workflow module '{}' because a message of the same id was published before, \
+              within the message time-to-live. Either this dispatch is a repetition of one which \
+              reached the cluster already - then nothing is lost - or it is a second, legitimate \
+              correlation of the same message name and correlation id for this aggregate, and the \
+              workflow will never see it. The entry counts as done in both cases. A repeating scope \
+              has to vary the correlation id, because this net is the cluster's and no VanillaBP \
+              setting shortens it.""",
           adapterId,
-          messageName);
+          messageName,
+          correlationKey,
+          bpmnProcessId,
+          workflowModuleId);
     }
 
   }
@@ -1574,8 +1591,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
     // message START events ignore the correlation key; the aggregate-ID variable
     // is the ONLY variable published (the same technical field a regular start
-    // sets - not message content). messageId = the start's idempotency key so the
-    // engine deduplicates redelivered dispatches within the message TTL.
+    // sets - not message content). messageId is derived from the same values as the
+    // start's idempotency key, so the engine deduplicates a redelivered dispatch within
+    // the message TTL - a net of the cluster's, alongside the outbox' own.
     try {
       var startCommand = clientFactory
           .getClient()
@@ -1603,9 +1621,13 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       if (!isMessageAlreadyPublished(e)) {
         throw e;
       }
+      // a start is different from a correlation: a workflow is started at most once per
+      // aggregate anyway, so a refused start message says the start happened and this
+      // stays an INFO rather than a warning about something possibly lost
       log.info(
-          "Camunda8[{}]: start message '{}' for aggregate '{}' was already published - skipping "
-              + "the redelivered phase-two start",
+          "Camunda8[{}]: the cluster refused the start message '{}' for aggregate '{}' because a "
+              + "message of the same id was published before, within the message time-to-live - the "
+              + "workflow was started already and the entry counts as done",
           adapterId,
           messageName,
           workflowAggregateId);

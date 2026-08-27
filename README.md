@@ -1261,11 +1261,21 @@ so rather than offering a property which would silently do something else.
 
 ### Message deduplication lasts for the message TTL
 
-A correlation carrying a correlation id deduplicates engine-side, because the outbox
-idempotency key travels as the Zeebe message id, and the engine remembers a message id for
-the message TTL only. A redelivery after the TTL could correlate a second time. Without a
-correlation id there is no deduplication at all, on purpose: the same message may legitimately
-arrive several times over a workflow's lifetime.
+A correlation carrying a correlation id deduplicates engine-side, because a message id derived
+from the same values as the outbox' idempotency key travels to the cluster, and the engine
+remembers a message id for the message TTL only. A redelivery after the TTL could correlate a
+second time. Without a correlation id there is no deduplication at all, on purpose: the same
+message may legitimately arrive several times over a workflow's lifetime.
+
+This net is the cluster's and it is LONGER than the platform's: VanillaBP's outbox deduplicates
+the operations still waiting for their dispatch, which is over in seconds, while the cluster
+keeps the message id for the TTL — one hour unless the application sets `message-time-to-live`.
+So a second, legitimate correlation of the same message name and correlation id for one aggregate
+is refused by the CLUSTER within that hour, no matter what the platform does, and varying the
+correlation id per round or element is the only way around it. The adapter logs such a refusal
+naming both possibilities, because from here a repeated dispatch and a lost second correlation
+look the same; the entry counts as done either way, since repeating the publish would be refused
+again.
 
 ## What an operator gets to see
 
