@@ -148,7 +148,7 @@ public class Camunda8AdapterConfiguration {
    * application never notices it. Default: {@value #DEFAULT_ASYNC_TASK_LOCK_RENEWAL_ISO}.
    * <p>
    * <b>Why an hour.</b> The window has to sit clearly below
-   * <code>vanillabp.outbox.retention</code> (seven days by default), because the record
+   * <code>vanillabp.delivery.retention</code> (seven days by default), because the record
    * is what answers the redelivery: once it is cleaned up, the redelivery reaches the
    * application's method a second time. An hour is a factor of 168 below the default
    * retention, which survives a retention somebody lowered without thinking. The cost is
@@ -777,21 +777,24 @@ public class Camunda8AdapterConfiguration {
    * <li>the removed key <code>async-task-timeout</code> is still configured. It used to
    * be a horizon of days; it is a renewal window now, and a value meant as the one would
    * be a defect as the other;</li>
-   * <li>the window is not shorter than <code>vanillabp.outbox.retention</code>. The
+   * <li>the window is not shorter than <code>vanillabp.delivery.retention</code>. The
    * record of the delivery is what answers the redelivery which renews the lock, so a
    * window outliving the retention means the application's method runs a second time -
-   * exactly the defect this window exists to fix.</li>
+   * exactly the defect this window exists to fix. It is the DELIVERY retention and not the
+   * outbox one: those two were one property until they were told apart, and this check
+   * always argued about the delivery half.</li>
    * </ul>
    *
    * @param adapterId The adapter id
-   * @param outboxRetention How long a delivery record is kept
-   *          (<code>vanillabp.outbox.retention</code>)
+   * @param deliveryRetention How long a delivery record is kept
+   *          (<code>vanillabp.delivery.retention</code>, which follows
+   *          <code>vanillabp.outbox.retention</code> where it is not set)
    * @throws IllegalStateException If the removed key is configured or the window does not
    *           fit below the retention, naming both properties and both values
    */
   public void validateAsyncTaskLockRenewal(
       final String adapterId,
-      final java.time.Duration outboxRetention) {
+      final java.time.Duration deliveryRetention) {
 
     if (asyncTaskTimeout != null) {
       throw new IllegalStateException(
@@ -809,27 +812,28 @@ public class Camunda8AdapterConfiguration {
                   DEFAULT_ASYNC_TASK_LOCK_RENEWAL_ISO));
     }
 
-    if (outboxRetention == null) {
+    if (deliveryRetention == null) {
       return;
     }
     final var renewal = resolvedAsyncTaskLockRenewal();
-    if (renewal.compareTo(outboxRetention) < 0) {
+    if (renewal.compareTo(deliveryRetention) < 0) {
       return;
     }
     throw new IllegalStateException(
         """
-            Camunda 8 adapter '%s' has '%s: %s', which is not shorter than 'vanillabp.outbox.retention: %s'. \
-            The lock of a task left open by a @TaskId handler is renewed whenever the cluster hands the job \
-            out again, and the redelivery is answered from the record VanillaBP wrote when the handler ran. \
-            A record deleted before the next renewal therefore lets the @WorkflowTask method run a second \
-            time. Choose a window well below the retention - at most a tenth of it, %s or less here - or \
-            raise 'vanillabp.outbox.retention'."""
+            Camunda 8 adapter '%s' has '%s: %s', which is not shorter than \
+            'vanillabp.delivery.retention: %s'. The lock of a task left open by a @TaskId handler is renewed \
+            whenever the cluster hands the job out again, and the redelivery is answered from the record \
+            VanillaBP wrote when the handler ran. A record deleted before the next renewal therefore lets the \
+            @WorkflowTask method run a second time. Choose a window well below the retention - at most a \
+            tenth of it, %s or less here - or raise 'vanillabp.delivery.retention' (which follows \
+            'vanillabp.outbox.retention' where it is not set itself)."""
             .formatted(
                 adapterId,
                 propertyKey(adapterId, "async-task-lock-renewal"),
                 renewal,
-                outboxRetention,
-                outboxRetention.dividedBy(10)));
+                deliveryRetention,
+                deliveryRetention.dividedBy(10)));
 
   }
 
