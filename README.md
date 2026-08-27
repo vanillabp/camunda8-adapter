@@ -422,12 +422,12 @@ accounts they are two, which is the same reasoning that already made the SaaS cl
     aggregate ID, verifies the client is configured). It never contacts the cluster - a
     remote call here would reintroduce ghost workflows on rollback.
   - *Phase two* runs after the commit (through the core phase-two outbox) and creates the
-    process instance of the latest version with a single process variable holding the
-    workflow aggregate's ID (as a string). The variable is named after the aggregate's ID
-    property (`AggregatePersistenceAware.getAggregateIdName()`) - how the aggregate's ID
-    is stored in the BPMS is the adapter's decision, and Camunda 8 stores the aggregate
-    as process variables. No other variables are set (aggregate attribute sync is the
-    `@SyncWithBPMS` story).
+    process instance of the latest version. The create command carries the process
+    variable holding the workflow aggregate's ID (as a string), named after the
+    aggregate's ID property (`AggregatePersistenceAware.getAggregateIdName()`), plus the
+    values the aggregate shares through `@SyncWithBPMS` - see decision 1 in this
+    repository's `DECISIONS.md` for why both travel with every command sent on behalf of
+    a workflow.
 
 ### When a phase-one check runs
 
@@ -522,6 +522,8 @@ permanent when the chain of causes holds one of these:
 | HTTP `403`, gRPC `PERMISSION_DENIED`     | credentials or tenant are wrong, not late             |
 | HTTP `405` / `501`, gRPC `UNIMPLEMENTED` | this cluster version has no such endpoint             |
 | `NumberFormatException`                  | the task or instance key of the entry is not a number |
+
+`Camunda8ErrorsTest` holds the table, case by case, for both transports.
 
 Everything else is repeated, including three cases which look permanent at first glance.
 `404` is the signature of eventual consistency, and for job commands it never reaches the

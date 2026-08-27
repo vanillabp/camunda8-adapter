@@ -1813,9 +1813,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * <p>
    * <b>Idempotency limitation:</b> a crash between a successful create and the removal of
    * the phase-two outbox entry can create the instance twice (at-least-once, duplicates
-   * possible). Strict deduplication needs the core-side {@code WorkflowInstanceRegistry}
-   * {@code WorkflowInstanceRegistry}, which does not exist yet. No Camunda-8-side
-   * workaround is attempted here.
+   * possible). That residual is accepted rather than pending: a workflow is located by
+   * asking, not by a persistent registry (decision 25 of the platform's DECISIONS.md),
+   * and what narrows the window is the core probing
+   * {@code awarenessOfWorkflowForRedispatch} before it dispatches a start again. What is
+   * left of it is documented in this repository's README under "Idempotency limitation".
+   * No Camunda-8-side workaround is attempted here.
    *
    * @param bpmnProcessId The BPMN process ID of the workflow to start
    * @param variables The variables the instance is created with
