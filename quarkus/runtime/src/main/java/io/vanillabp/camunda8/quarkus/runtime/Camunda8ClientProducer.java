@@ -63,9 +63,7 @@ public class Camunda8ClientProducer {
               properties.isFirstPriorityAnywhere(adapterId),
               properties.getDeploymentFailureFor(
                   adapterId) == io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy.WARN,
-              properties.getOutbox() == null
-                  ? null
-                  : properties.getOutbox().getRetention(),
+              properties.resolvedDeliveryRetention(),
               log::warn);
           configurations.put(adapterId, configuration);
         });

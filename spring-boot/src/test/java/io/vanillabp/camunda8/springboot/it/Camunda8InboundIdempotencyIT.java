@@ -52,7 +52,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
         // the open job's lock expires after two seconds, so the cluster redelivers it
         "vanillabp.adapters.c8.async-task-lock-renewal=PT2S",
         // five renewal windows: the record has to answer every one of them
-        "vanillabp.outbox.retention=PT10S"
+        "vanillabp.delivery.retention=PT10S",
+        // deliberately far away from the number above: the delivery log has to read its
+        // own retention, and against a real cluster this is where reading the outbox one
+        // would show
+        "vanillabp.outbox.retention=P7D"
     })
 // closed when the class is done: every IT here has a context of its own (its own
 // container), Spring would keep them all until the JVM exits, and a context outliving

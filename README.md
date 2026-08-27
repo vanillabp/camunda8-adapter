@@ -656,7 +656,8 @@ branch extends the lock once more: the renewal is driven by the cluster's own
 redelivery and needs no timer of the adapter's. The worker's own job timeout stays
 SHORT - it is the crash-recovery horizon for synchronous handlers.
 
-The window has to sit clearly below `vanillabp.outbox.retention` (seven days), since
+The window has to sit clearly below `vanillabp.delivery.retention` (seven days, following
+`vanillabp.outbox.retention` where it is not set itself), since
 the delivery record is what answers the redelivery which renews the lock; a value
 which is not below it ends the boot naming both properties and both values. The key
 was called `async-task-timeout` once and meant a horizon of fourteen days

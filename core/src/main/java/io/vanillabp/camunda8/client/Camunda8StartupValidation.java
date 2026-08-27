@@ -35,8 +35,8 @@ public final class Camunda8StartupValidation {
    *          (see {@code MigrationAdapterProperties#isFirstPriorityAnywhere})
    * @param deploymentFailureWarn Whether the adapter's deployment-failure policy is
    *          <code>warn</code>
-   * @param outboxRetention How long a delivery record is kept
-   *          (<code>vanillabp.outbox.retention</code>) - the bound the renewal window of
+   * @param deliveryRetention How long a delivery record is kept
+   *          (<code>vanillabp.delivery.retention</code>) - the bound the renewal window of
    *          open asynchronous tasks has to stay below
    * @param warnLogger Sink for guiding warnings (the application keeps booting)
    * @throws IllegalStateException If the configuration is inconsistent and the
@@ -48,7 +48,7 @@ public final class Camunda8StartupValidation {
       final Camunda8AdapterConfiguration configuration,
       final boolean firstPriorityAnywhere,
       final boolean deploymentFailureWarn,
-      final java.time.Duration outboxRetention,
+      final java.time.Duration deliveryRetention,
       final Consumer<String> warnLogger) {
 
     // how the adapter runs its workers is independent of whether it can reach a cluster,
@@ -60,7 +60,7 @@ public final class Camunda8StartupValidation {
     configuration.validateAuthentication(adapterId);
     // and neither is how an open asynchronous task is kept alive: a window which cannot
     // work outlives the record answering its redelivery, which is silent at runtime
-    configuration.validateAsyncTaskLockRenewal(adapterId, outboxRetention);
+    configuration.validateAsyncTaskLockRenewal(adapterId, deliveryRetention);
     // and neither is how long a restart waits for the handlers in flight: a grace which
     // outlives the shutdown budget around it is never granted, and one nobody notices is
     // the reason a restart burns a retry per job

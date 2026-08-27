@@ -58,9 +58,7 @@ public class Camunda8ClientAutoConfiguration {
               coreProperties.isFirstPriorityAnywhere(adapterId),
               coreProperties.getDeploymentFailureFor(
                   adapterId) == io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy.WARN,
-              coreProperties.getOutbox() == null
-                  ? null
-                  : coreProperties.getOutbox().getRetention(),
+              coreProperties.resolvedDeliveryRetention(),
               log::warn);
           configurations.put(adapterId, configuration);
         });

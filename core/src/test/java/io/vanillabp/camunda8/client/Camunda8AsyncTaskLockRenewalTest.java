@@ -19,7 +19,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <p>
  * Two configurations are silent at runtime and expensive in production, so both end the
  * boot: the key which used to carry a horizon of fourteen days, and a window which does
- * not fit below the retention of the delivery records. The record is what answers the
+ * not fit below <code>vanillabp.delivery.retention</code>. It is that retention and not
+ * the outbox one: the two were one property until they were told apart, and this check
+ * always argued about the delivery half. The record is what answers the
  * redelivery which renews the lock, so a window outliving it lets the
  * <code>&#64;WorkflowTask</code> method run a second time - the very defect the window
  * exists to fix.
@@ -69,7 +71,10 @@ public class Camunda8AsyncTaskLockRenewalTest {
     final var message = exception.getMessage();
     assertTrue(message.contains("vanillabp.adapters.c8.async-task-lock-renewal"), "names the window");
     assertTrue(message.contains("PT336H"), "names the window's value");
-    assertTrue(message.contains("vanillabp.outbox.retention"), "names the retention");
+    assertTrue(message.contains("vanillabp.delivery.retention"), "names the retention it argues about");
+    assertTrue(
+        message.contains("vanillabp.outbox.retention"),
+        "and the one that retention follows where it is not set itself");
     assertTrue(message.contains("PT168H"), "names the retention's value");
     assertTrue(message.contains("PT16H48M"), "recommends at most a tenth of the retention");
 
