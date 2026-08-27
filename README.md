@@ -460,6 +460,25 @@ and every heuristic (comparing process definition keys, watching for keys which 
 misses cases or risks the opposite mistake, processing a task twice after a harmless redeployment. So it is
 documented here and in the wiki instead.
 
+### The activation identity is the ELEMENT instance key, not the job key
+
+Next to the delivery identity the core asks which activation of a BPMN element is running, and this
+adapter answers `ActivatedJob#getElementInstanceKey()`. The job key would answer it correctly today,
+which is precisely why it is not given: the two contracts are opposite, a delivery identity has to
+stay equal across redeliveries while an activation identity has to differ between two activations of
+one element, and a job created a second time for ONE element must not read as a new element. What
+the core does with it is put it into the idempotency key of a message correlation planned while the
+handler runs, so the elements of a multi-instance activity stop sharing a key
+(`Camunda8ActivationIdentityTest` pins both contracts against each other).
+
+**The cluster's own net does not know about it.** `correlateMessagePhaseTwo` derives the `messageId`
+it hands to Zeebe from workflow module, BPMN process, aggregate id, message name and correlation id,
+and the cluster deduplicates by that for as long as the message time-to-live lasts. Three
+multi-instance siblings therefore reach the OUTBOX as three operations and the cluster as one
+message. An application which needs all three correlations on Camunda 8 still has to vary its
+correlation id; changing the derived message id is a question for the story about that time-to-live,
+not for this section.
+
 ### Which phase-two failures are repeated
 
 The phase-two outbox repeats a failed operation until the entry is blocked. That is right for
