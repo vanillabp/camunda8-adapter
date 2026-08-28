@@ -147,10 +147,22 @@ public final class ClusterUnderTest {
         .withEnv("CAMUNDA_SECURITY_INITIALIZATION_USERS_0_NAME", "Demo")
         .withEnv("CAMUNDA_SECURITY_INITIALIZATION_USERS_0_EMAIL", "demo@example.org")
         .withEnv("CAMUNDA_SECURITY_INITIALIZATION_DEFAULTROLES_ADMIN_USERS_0", USERNAME)
-        .waitingFor(Wait
-            .forHttp("/actuator/health/readiness")
-            .forPort(9600)
-            .forStatusCode(200)
+        // a ready cluster is not yet a cluster which knows this user: the readiness probe
+        // answers before the initialization created it, and the first request of the
+        // application then gets a 401 it cannot do anything with. So the second condition
+        // asks an API which demands authentication, with the credentials the tests use
+        .waitingFor(new org.testcontainers.containers.wait.strategy.WaitAllStrategy()
+            .withStrategy(Wait
+                .forHttp("/actuator/health/readiness")
+                .forPort(9600)
+                .forStatusCode(200)
+                .withStartupTimeout(STARTUP_TIMEOUT))
+            .withStrategy(Wait
+                .forHttp("/v2/topology")
+                .forPort(8080)
+                .withBasicCredentials(USERNAME, PASSWORD)
+                .forStatusCode(200)
+                .withStartupTimeout(STARTUP_TIMEOUT))
             .withStartupTimeout(STARTUP_TIMEOUT));
 
   }
