@@ -1493,7 +1493,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * <p>
    * The query API is fed by an exporter, so the task this push belongs to may not be
    * reported yet - which is why the search is repeated for as long as
-   * {@link #workflowVisibilityDelay()} allows. A scope which stays unknown yields
+   * {@link #workflowVisibilityDelay()} allows. Repeating is allowed HERE because this
+   * runs in phase two, on the outbox dispatcher's thread: no application transaction is
+   * open, so the waiting costs the entry an attempt rather than a database connection
+   * (decision 27 of the platform's DECISIONS.md, which draws that line for the core's
+   * election as well). A scope which stays unknown yields
    * <code>null</code>: the process instance is NOT used as a substitute, because
    * writing there is exactly the lost update between the iterations of a
    * multi-instance subprocess this scoping exists to prevent.
