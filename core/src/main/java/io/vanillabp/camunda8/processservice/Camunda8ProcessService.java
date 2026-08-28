@@ -15,9 +15,8 @@ import lombok.extern.slf4j.Slf4j;
  * created per configured adapter ID (not per adapter type).
  * <p>
  * Camunda 8 is a <b>remote</b>, eventually consistent BPMS: the engine cannot join the
- * application's local database transaction, therefore
- * {@link #needsTwoPhaseCommitForStartingWorkflows()} returns {@code true} - starting a
- * workflow is routed through the core {@code PhaseTwoOutbox}:
+ * application's local database transaction, so starting a workflow is routed through the
+ * core {@code PhaseTwoOutbox} like every other operation which reaches the cluster:
  * <ul>
  *   <li>{@link #startWorkflowPhaseOne} runs inside the caller's transaction. It must
  *       never perform an action that <i>advances</i> the BPMN process (e.g. creating the
@@ -286,13 +285,6 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   public String getAdapterId() {
 
     return adapterId;
-
-  }
-
-  @Override
-  public boolean needsTwoPhaseCommitForStartingWorkflows() {
-
-    return true;
 
   }
 

@@ -151,9 +151,8 @@ warning has not failed.
   injected (user-task listeners, subscription correlation keys);
   `startWorkflowProcessing` opens one polling job worker per task definition plus one per
   user-task listener type, `stopWorkflowProcessing` closes them again.
-- `Camunda8ProcessService<A> implements MigratableProcessService<A>` -
-  `needsTwoPhaseCommitForStartingWorkflows()` returns `true`. Phase one validates only
-  (resolve aggregate ID, verify client configured; no cluster call). Phase two creates the
+- `Camunda8ProcessService<A> implements MigratableProcessService<A>` - phase one validates
+  only (resolve aggregate ID, verify client configured; no cluster call). Phase two creates the
   instance via `createProcessInstance(bpmnProcessId, variables, aggregateId)` (latest
   version), carrying the values the aggregate shares plus the technical variable named
   after the aggregate's ID property.

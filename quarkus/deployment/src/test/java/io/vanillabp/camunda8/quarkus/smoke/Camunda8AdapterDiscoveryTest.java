@@ -69,11 +69,10 @@ public class Camunda8AdapterDiscoveryTest {
     Assertions.assertEquals("camunda8", adaptersConfigured.get(adapterId));
 
     // the process service of the adapter is discovered (one instance per configured
-    // adapter id) and requires a two-phase commit (Camunda 8 is a remote engine)
+    // adapter id)
     Assertions.assertEquals(1, migratableProcessServices.size());
     final var migratableProcessService = migratableProcessServices.getFirst();
     Assertions.assertEquals("c8", migratableProcessService.getAdapterId());
-    Assertions.assertTrue(migratableProcessService.needsTwoPhaseCommitForStartingWorkflows());
 
     // the client-factory registry and the deployment service are produced (client and
     // deployment-service creation are covered here; a Docker-based start test is not
