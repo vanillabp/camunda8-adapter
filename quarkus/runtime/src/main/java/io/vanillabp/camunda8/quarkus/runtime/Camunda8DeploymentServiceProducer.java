@@ -63,7 +63,7 @@ public class Camunda8DeploymentServiceProducer {
                   .orElse(io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL)
               : io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
           final var deploymentService = new Camunda8DeploymentService(
-              adapterId, clientFactoryRegistry.getFactory(adapterId), workflowTaskRegistry, (
+              adapterId, clientFactoryRegistry.getFactory(adapterId), workflowTaskRegistry, workflowTaskRegistry, (
                   workflowModuleId,
                   bpmnProcessId,
                   taskDefinition) -> overlay.jobTimeoutFor(

@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.springboot.it;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -110,6 +111,24 @@ public class Camunda8TaskProcessingIT {
 
   @Autowired
   private VanillaBpCamunda8Properties overlay;
+
+  @Autowired
+  private java.util.List<io.vanillabp.integration.adapter.spi.MigratableProcessService<?>> processServices;
+
+  @Test
+  @DisplayName("Without secondary storage the adapter reports that it cannot locate workflows")
+  public void withoutSecondaryStorageWorkflowsCannotBeLocated() {
+
+    // the cluster of this test runs without secondary storage, so the awareness probe
+    // has nothing to search and answers optimistically. Saying so lets the platform
+    // refuse a migration setup built on that guess (decision 4 of the platform)
+    assertFalse(
+        processServices
+            .getFirst()
+            .canLocateWorkflows(),
+        "a cluster without a query API cannot be asked which workflows it holds");
+
+  }
 
   private Long start(
       final String bpmnProcessId) {

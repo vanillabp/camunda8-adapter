@@ -23,7 +23,7 @@ import java.util.TreeSet;
  * <ul>
  * <li>the <strong>workflow aggregate's ID</strong>, in the variable named after the
  * aggregate's ID attribute
- * ({@code WorkflowTaskInvoker#resolveWorkflowAggregateIdName}). Every one of the four
+ * ({@code WorkflowTaskWiring#resolveWorkflowAggregateIdName}). Every one of the four
  * worker kinds starts by reading it, and the name is a property of the BPMN process
  * rather than of the adapter, so a worker serving two processes which disagree carries
  * both names;</li>

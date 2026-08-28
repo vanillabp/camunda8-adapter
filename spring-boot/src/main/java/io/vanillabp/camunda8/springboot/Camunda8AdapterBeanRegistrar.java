@@ -9,7 +9,6 @@ import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
 import io.vanillabp.integration.adapter.AdapterBeanRegistrarSupport;
-import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
 
 /**
  * Registers the Camunda 8 adapter's per-adapter-id beans: for EACH configured adapter
@@ -75,21 +74,25 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                     adapterId, supplierContext
                         .bean(Camunda8ClientFactoryRegistry.class)
                         .getFactory(adapterId), supplierContext
-                            .bean(WorkflowTaskInvoker.class), (
-                                workflowModuleId,
-                                bpmnProcessId,
-                                taskDefinition) -> overlay.jobTimeoutFor(
-                                    workflowModuleId, bpmnProcessId, taskDefinition,
-                                    adapterId), asyncTaskLockRenewal, id -> supplierContext
-                                        .bean(Camunda8ClientFactoryRegistry.class)
-                                        .getFactory(id)
-                                        .getConfiguration(), supplierContext
-                                            .bean(
-                                                io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class), (
-                                                    workflowModuleId,
-                                                    bpmnProcessId,
-                                                    taskDefinition) -> overlay.retryBackoffFor(
-                                                        workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
+                            .bean(
+                                io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring.class), supplierContext
+                                    .bean(
+                                        io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker.class), (
+                                            workflowModuleId,
+                                            bpmnProcessId,
+                                            taskDefinition) -> overlay.jobTimeoutFor(
+                                                workflowModuleId, bpmnProcessId, taskDefinition,
+                                                adapterId), asyncTaskLockRenewal, id -> supplierContext
+                                                    .bean(Camunda8ClientFactoryRegistry.class)
+                                                    .getFactory(id)
+                                                    .getConfiguration(), supplierContext
+                                                        .bean(
+                                                            io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class), (
+                                                                workflowModuleId,
+                                                                bpmnProcessId,
+                                                                taskDefinition) -> overlay.retryBackoffFor(
+                                                                    workflowModuleId, bpmnProcessId, taskDefinition,
+                                                                    adapterId));
                 // What each worker asks the cluster for, resolvable down to
                 // task level
                 deploymentService.setFetchVariablesResolver((

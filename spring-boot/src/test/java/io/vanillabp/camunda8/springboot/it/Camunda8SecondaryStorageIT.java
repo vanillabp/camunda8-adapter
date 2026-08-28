@@ -2,6 +2,7 @@ package io.vanillabp.camunda8.springboot.it;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.function.Supplier;
@@ -105,6 +106,23 @@ public class Camunda8SecondaryStorageIT {
 
   @Autowired
   private io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry clientFactoryRegistry;
+
+  @Autowired
+  private java.util.List<io.vanillabp.integration.adapter.spi.MigratableProcessService<?>> processServices;
+
+  @Test
+  @DisplayName("With secondary storage the adapter reports that it can locate workflows")
+  public void withSecondaryStorageWorkflowsCanBeLocated() {
+
+    // this cluster has a query API, so the awareness probe asks instead of assuming -
+    // which is what makes this adapter usable next to a second one
+    assertTrue(
+        processServices
+            .getFirst()
+            .canLocateWorkflows(),
+        "a cluster with a query API can be asked which workflows it holds");
+
+  }
 
   private CamundaClient client() {
 

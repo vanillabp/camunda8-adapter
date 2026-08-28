@@ -21,7 +21,7 @@ import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.AdapterPlatformVersion;
 import io.vanillabp.integration.adapter.spi.BpmnParseException;
-import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
+import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -58,7 +58,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * The core's task-processing entry point: wiring validation during
    * {@link #wireBpmn} and job dispatch at runtime.
    */
-  private final WorkflowTaskInvoker workflowTaskInvoker;
+  private final WorkflowTaskWiring workflowTaskWiring;
+
+  /**
+   * The runtime half of the split SPI. This service does not only wire: it opens the job
+   * workers at {@code startWorkflowProcessing}, and those hand every delivery to the
+   * core - so it holds both halves and passes this one on.
+   */
+  private final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker workflowTaskInvoker;
 
   /**
    * What this adapter knows about the multi-instance elements of the processes it
@@ -318,11 +325,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final WorkflowTaskInvoker workflowTaskInvoker,
+      final WorkflowTaskWiring workflowTaskWiring,
+      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker workflowTaskInvoker,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal) {
 
-    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, null, null);
+    this(adapterId, clientFactory, workflowTaskWiring, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, null, null);
 
   }
 
@@ -332,32 +340,35 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final WorkflowTaskInvoker workflowTaskInvoker,
+      final WorkflowTaskWiring workflowTaskWiring,
+      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker workflowTaskInvoker,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal,
       final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations) {
 
-    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, configurations, null);
+    this(adapterId, clientFactory, workflowTaskWiring, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, configurations, null);
 
   }
 
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final WorkflowTaskInvoker workflowTaskInvoker,
+      final WorkflowTaskWiring workflowTaskWiring,
+      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker workflowTaskInvoker,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal,
       final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
-    this(adapterId, clientFactory, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, configurations, scoping, null);
+    this(adapterId, clientFactory, workflowTaskWiring, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, configurations, scoping, null);
 
   }
 
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final WorkflowTaskInvoker workflowTaskInvoker,
+      final WorkflowTaskWiring workflowTaskWiring,
+      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker workflowTaskInvoker,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal,
       final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
@@ -380,6 +391,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     this.adapterId = adapterId;
     this.clientFactory = clientFactory;
+    this.workflowTaskWiring = workflowTaskWiring;
     this.workflowTaskInvoker = workflowTaskInvoker;
     this.jobTimeoutResolver = jobTimeoutResolver;
     this.asyncTaskLockRenewal = asyncTaskLockRenewal;
@@ -716,20 +728,20 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             userTask.activityId(),
             plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
-    workflowTaskInvoker.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
+    workflowTaskWiring.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
     // The same extraction serves the models of OLDER versions the cluster
     // still holds, so both directions see a model the same way
     processVersions.setTasksOfModel(this::taskSpecsOf);
 
     // The cluster can be asked which versions of this process it has, which
     // is what a version specification naming a version TAG needs
-    workflowTaskInvoker
+    workflowTaskWiring
         .registerProcessVersions(adapterId, workflowModuleId, bpmnProcessId, processVersions);
 
     // Which elements can put a second token into a running workflow - two
     // tokens are two writers on the workflow aggregate, and the core knows whether
     // that aggregate can survive them
-    workflowTaskInvoker
+    workflowTaskWiring
         .reportConcurrentTokenElements(
             workflowModuleId,
             bpmnProcessId,
@@ -750,7 +762,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     Camunda8TaskWiring.wireMessageSubscriptions(
         model,
         scopedBpmnProcessId,
-        () -> workflowTaskInvoker.resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId));
+        () -> workflowTaskWiring.resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId));
     // multi-instance: the input mappings which make the element, the index
     // and the total of every iteration readable from a job are ADDED TO THE MODEL
     // here, and which iterations enclose which element is remembered for dispatch
@@ -1010,7 +1022,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                     Camunda8TaskWiring.versionTagOf(model, process.getBpmnProcessId()));
             // The border between the model this boot brought and the older
             // versions the cluster still holds
-            workflowTaskInvoker
+            workflowTaskWiring
                 .registerDeployedVersion(
                     adapterId, workflowModuleId, plainBpmnProcessId, String.valueOf(process.getVersion()));
           });
@@ -1031,11 +1043,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     // after ALL processes of the module were wired: methods matching no task of
     // any wired process are a defect (per-module check, honors the policy)
-    workflowTaskInvoker.validateNoUnwiredWorkflowTaskMethods(workflowModuleId);
 
     // The deployment is done, so the version tags the application's
     // annotations name can be resolved against what the cluster has now
-    workflowTaskInvoker.resolveProcessVersions(workflowModuleId);
 
     // Two adapter ids on one cluster are told apart by the scope a workflow
     // was deployed under, and asking a KEY for its scope needs the query API
@@ -1214,7 +1224,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String plainBpmnProcessId) {
 
     try {
-      return workflowTaskInvoker.resolveWorkflowAggregateIdName(workflowModuleId, plainBpmnProcessId);
+      return workflowTaskWiring.resolveWorkflowAggregateIdName(workflowModuleId, plainBpmnProcessId);
     } catch (final RuntimeException e) {
       log.debug(
           "Camunda8[{}]: the BPMN process '{}' of workflow module '{}' has no known workflow "
@@ -1272,7 +1282,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       // application asks for rather than what the model happens to mention
       variables
           .addAll(
-              workflowTaskInvoker
+              workflowTaskWiring
                   .taskParameterNames(workflowModuleId, plainBpmnProcessId, element.taskDefinition()));
     }
     return io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection.of(variables);
@@ -1484,7 +1494,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .newWorker()
               .jobType(Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId))
               .handler(new io.vanillabp.camunda8.wiring.Camunda8WorkflowEndedHandler(
-                  adapterId, workflowModuleId, plainProcessId, workflowTaskInvoker
+                  adapterId, workflowModuleId, plainProcessId, workflowTaskWiring
                       .resolveWorkflowAggregateIdName(workflowModuleId,
                           plainProcessId), workflowEndedInvoker, drain, retryBackoffResolver))
               .timeout(

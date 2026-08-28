@@ -113,7 +113,13 @@ public class Camunda8OldProcessVersionsIT {
   @Order(3)
   @DisplayName("Fading version 1 out makes the method kept for it dead, and says why")
   public void fadingVersionOneOutReportsTheMethodKeptForIt(
-      final CapturedOutput output) {
+      final CapturedOutput output) throws Exception {
+
+    // the reason is only written if the check LEARNS from the cluster that version 1 is
+    // still there, and that answer comes out of the secondary storage. The exporter is
+    // behind the deployment by an unknown amount, and a check running before it caught up
+    // knows the version it just deployed and nothing else - which is why this waits
+    awaitTheQueryApiKnowingBothVersions();
 
     final var before = output.getAll().length();
     boot("v2", "--vanillabp.workflow-modules.test-app.adapters.c8.outfaded-versions=<2").close();
@@ -122,6 +128,57 @@ public class Camunda8OldProcessVersionsIT {
     assertTrue(reported.contains("droppedInVersionTwo"), "the method serving the faded-out version is named");
     assertTrue(reported.contains("the method never runs"), "and what that means is said");
     assertTrue(reported.contains("faded out by"), "and why");
+
+  }
+
+  /**
+   * A client of the test's own: the application booted per case is gone between them, and
+   * this question is asked while none is running.
+   */
+  private static io.camunda.client.CamundaClient testClient() {
+
+    return io.camunda.client.CamundaClient
+        .newClientBuilder()
+        .preferRestOverGrpc(true)
+        .restAddress(java.net.URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(8080))))
+        .grpcAddress(java.net.URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(26500))))
+        .build();
+
+  }
+
+  private static void awaitTheQueryApiKnowingBothVersions() throws Exception {
+
+    try (var client = testClient()) {
+      // generous for the same reason the other cases are: the export pipeline is the
+      // slowest part of this class, and a loaded machine makes it slower still
+      final var deadline = System.currentTimeMillis() + 240_000;
+      while (versionsKnownToTheCluster(client) < 2) {
+        if (System.currentTimeMillis() > deadline) {
+          throw new AssertionError(
+              "the query API did not learn both versions of 'OldProcessVersionsProcess'");
+        }
+        Thread.sleep(500);
+      }
+    }
+
+  }
+
+  /**
+   * The versions of the test's process the cluster answers with - the process id carries
+   * the workflow module as a prefix (name-clash avoidance), so the search matches on the
+   * end of it.
+   */
+  private static long versionsKnownToTheCluster(
+      final io.camunda.client.CamundaClient client) {
+
+    return client
+        .newProcessDefinitionSearchRequest()
+        .send()
+        .join()
+        .items()
+        .stream()
+        .filter(definition -> definition.getProcessDefinitionId().endsWith("OldProcessVersionsProcess"))
+        .count();
 
   }
 
