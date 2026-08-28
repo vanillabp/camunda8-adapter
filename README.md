@@ -416,8 +416,7 @@ accounts they are two, which is the same reasoning that already made the SaaS cl
   name-clash-avoidance mode, see
   [Keeping workflow modules apart](#keeping-workflow-modules-apart).
 - **Starting a workflow (two-phase):** Camunda 8 is remote and eventually consistent and
-  cannot join the application's database transaction, so
-  `needsTwoPhaseCommitForStartingWorkflows()` is `true`.
+  cannot join the application's database transaction.
   - *Phase one* runs inside the caller's transaction and only **validates** (resolves the
     aggregate ID, verifies the client is configured). It never contacts the cluster - a
     remote call here would reintroduce ghost workflows on rollback.
@@ -1353,9 +1352,8 @@ itself, so a client that carries its own platform integration would conflict wit
 
 Camunda 8 is a remote, eventually consistent engine that cannot join the application's
 local database transaction. Starting a workflow therefore uses VanillaBP's two-phase
-commit (`needsTwoPhaseCommitForStartingWorkflows() == true`): phase one only validates,
-the actual process-instance creation runs in phase two through the core phase-two
-outbox.
+commit: phase one only validates, the actual process-instance creation runs in phase two
+through the core phase-two outbox.
 
 ## Native images
 

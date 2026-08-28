@@ -45,11 +45,9 @@ public class Camunda8AdapterDiscoveryTest {
     Assertions.assertEquals("c8", deploymentService.getAdapterId());
     Assertions.assertEquals("camunda8", deploymentService.getAdapterType());
 
-    // the process service of the adapter is discovered and requires a two-phase commit
-    // (Camunda 8 is a remote engine)
+    // the process service of the adapter is discovered
     Assertions.assertInstanceOf(Camunda8ProcessService.class, migratableProcessService);
     Assertions.assertEquals("c8", migratableProcessService.getAdapterId());
-    Assertions.assertTrue(migratableProcessService.needsTwoPhaseCommitForStartingWorkflows());
 
   }
 
