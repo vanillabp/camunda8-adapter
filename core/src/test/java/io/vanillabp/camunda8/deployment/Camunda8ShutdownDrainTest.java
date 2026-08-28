@@ -37,7 +37,7 @@ public class Camunda8ShutdownDrainTest {
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setShutdownGrace(grace);
     return new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", configuration), new Camunda8DeploymentServiceTest.NoOpInvoker(), (
+        "c8", new Camunda8ClientFactory("c8", configuration), new Camunda8DeploymentServiceTest.NoOpInvoker(), new Camunda8DeploymentServiceTest.NoOpInvoker(), (
             module,
             process,
             task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
@@ -55,7 +55,7 @@ public class Camunda8ShutdownDrainTest {
     configuration.setShutdownGrace(GRACE);
     configuration.setRestAddress("http://localhost:65535");
     return new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", configuration), new Camunda8DeploymentServiceTest.NoOpInvoker(), (
+        "c8", new Camunda8ClientFactory("c8", configuration), new Camunda8DeploymentServiceTest.NoOpInvoker(), new Camunda8DeploymentServiceTest.NoOpInvoker(), (
             module,
             process,
             task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
@@ -247,7 +247,7 @@ public class Camunda8ShutdownDrainTest {
     configuration.setRestAddress("http://localhost:65535");
     final var clientFactory = new Camunda8ClientFactory("c8", configuration);
     final var service = new Camunda8DeploymentService(
-        "c8", clientFactory, new Camunda8DeploymentServiceTest.NoOpInvoker(), (
+        "c8", clientFactory, new Camunda8DeploymentServiceTest.NoOpInvoker(), new Camunda8DeploymentServiceTest.NoOpInvoker(), (
             module,
             process,
             task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
@@ -284,7 +284,7 @@ public class Camunda8ShutdownDrainTest {
     configuration.setRestAddress("http://localhost:65535");
     final var clientFactory = new Camunda8ClientFactory("c8", configuration);
     final var service = new Camunda8DeploymentService(
-        "c8", clientFactory, new Camunda8DeploymentServiceTest.NoOpInvoker(), (
+        "c8", clientFactory, new Camunda8DeploymentServiceTest.NoOpInvoker(), new Camunda8DeploymentServiceTest.NoOpInvoker(), (
             module,
             process,
             task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration

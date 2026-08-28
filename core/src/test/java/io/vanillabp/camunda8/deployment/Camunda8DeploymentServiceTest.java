@@ -59,7 +59,7 @@ public class Camunda8DeploymentServiceTest {
   private Camunda8DeploymentService newDeploymentService() {
 
     // an unconfigured factory: getClient() would throw if ever called
-    return new Camunda8DeploymentService("c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), (
+    return new Camunda8DeploymentService("c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
         m2,
         p2,
         t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
@@ -183,7 +183,7 @@ public class Camunda8DeploymentServiceTest {
   public void listenerLockFollowsTheConfiguredJobTimeout() {
 
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), (
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
             workflowModuleId,
             bpmnProcessId,
             taskDefinition) -> "Process".equals(bpmnProcessId)
@@ -203,7 +203,7 @@ public class Camunda8DeploymentServiceTest {
   public void conflictingListenerLocksFailGuiding() {
 
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), (
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
             workflowModuleId,
             bpmnProcessId,
             taskDefinition) -> "Fast".equals(bpmnProcessId)
@@ -231,7 +231,7 @@ public class Camunda8DeploymentServiceTest {
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setStreamTimeout(java.time.Duration.ofMinutes(30));
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", configuration), new NoOpInvoker(), (
+        "c8", new Camunda8ClientFactory("c8", configuration), new NoOpInvoker(), new NoOpInvoker(), (
             m,
             p,
             t) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
@@ -275,7 +275,12 @@ public class Camunda8DeploymentServiceTest {
 
   }
 
-  static class NoOpInvoker implements io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker {
+  /**
+   * Plays both halves of the split task SPI: the deployment service wires through
+   * {@code WorkflowTaskWiring} and opens its job workers with
+   * {@code WorkflowTaskInvoker}, so a double standing in for the core answers both.
+   */
+  static class NoOpInvoker implements io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring, io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker {
 
     @Override
     public void validateTaskWiring(
@@ -469,7 +474,7 @@ public class Camunda8DeploymentServiceTest {
         final io.vanillabp.integration.adapter.spi.NameClashAvoidance mode) {
 
       final var service = new Camunda8DeploymentService(
-          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), (
+          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
               m2,
               p2,
               t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
@@ -534,7 +539,7 @@ public class Camunda8DeploymentServiceTest {
     public void multiProcessFileIsScopedOnlyOnce() {
 
       final var service = new Camunda8DeploymentService(
-          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), (
+          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
               m2,
               p2,
               t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
@@ -572,7 +577,7 @@ public class Camunda8DeploymentServiceTest {
         final String adapterId) {
 
       return new Camunda8DeploymentService(
-          adapterId, new Camunda8ClientFactory(adapterId, new Camunda8AdapterConfiguration()), new NoOpInvoker(), (
+          adapterId, new Camunda8ClientFactory(adapterId, new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
               m2,
               p2,
               t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
@@ -658,7 +663,7 @@ public class Camunda8DeploymentServiceTest {
       final var configuration = new Camunda8AdapterConfiguration();
       configuration.setAcceptUnscopedIdentifiers(true);
       final var service = new Camunda8DeploymentService(
-          "myengine", new Camunda8ClientFactory("myengine", configuration), new NoOpInvoker(), (
+          "myengine", new Camunda8ClientFactory("myengine", configuration), new NoOpInvoker(), new NoOpInvoker(), (
               m2,
               p2,
               t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration

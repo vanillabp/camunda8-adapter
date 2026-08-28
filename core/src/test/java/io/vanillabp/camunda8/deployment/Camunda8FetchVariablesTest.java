@@ -164,7 +164,7 @@ public class Camunda8FetchVariablesTest {
 
     };
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), invoker, (
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), invoker, invoker, (
             m,
             p,
             t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration.ofHours(1));

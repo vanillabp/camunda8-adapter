@@ -656,8 +656,10 @@ none.
 (the `zeebe:taskDefinition` type) found in the workflow module's BPMN files. Task
 wiring is validated during `wireBpmn` (every BPMN task needs a matching
 `@WorkflowTask` method - service, send, business-rule and script tasks are
-scanned), and unwired `@WorkflowTask` methods are reported at the end of
-`deployResources` (per module; classes whose processes are served by another
+scanned). The other direction is checked as well, and this adapter does not have to
+remember it: a `@WorkflowTask` method matching no task of any BPMN process of its
+workflow module ends the boot, and the core runs that check itself once every adapter of
+the module finished deploying (story 158; classes whose processes are served by another
 adapter are not reported - the migration policy).
 
 Execution model per delivered job (at-least-once ordering):
