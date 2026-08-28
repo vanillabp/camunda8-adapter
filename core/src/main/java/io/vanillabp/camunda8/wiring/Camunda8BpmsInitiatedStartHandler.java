@@ -229,7 +229,7 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
       }
 
       @Override
-      public Instant getTriggerTime() {
+      public Instant getStartInstant() {
         // the cluster does not report a timer's scheduled time to the listener job,
         // so this is the moment the job is processed - it is not what identifies the
         // start here, see getNaturalIdentity

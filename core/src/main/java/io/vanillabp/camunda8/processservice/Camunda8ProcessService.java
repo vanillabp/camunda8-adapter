@@ -700,6 +700,64 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    */
   private final java.util.concurrent.atomic.AtomicBoolean noSecondaryStorageWarned = new java.util.concurrent.atomic.AtomicBoolean();
 
+  /**
+   * What the cluster answered when it was asked whether it can be searched at all -
+   * <code>null</code> until somebody asked. The answer cannot change while the
+   * application runs: secondary storage is part of how the cluster was started.
+   */
+  private volatile Boolean queryApiAvailable;
+
+  /**
+   * Whether this cluster can be ASKED which workflows it holds.
+   * <p>
+   * Finding a workflow means searching the query API, which a cluster without secondary
+   * storage does not have - {@link #awarenessOfWorkflow} then answers optimistically,
+   * which is right while this is the only BPMS and a guess as soon as it is not. Saying
+   * so here is what lets the core refuse that combination while it boots.
+   * <p>
+   * The core asks after this adapter deployed, so one search settles it: an empty result
+   * is an answer like any other, and only the "no secondary storage" failure means the
+   * cluster cannot be asked. A cluster which is unreachable in that moment is not
+   * declared incapable - it is asked again the next time.
+   *
+   * @return Whether the query API answers
+   */
+  @Override
+  public boolean canLocateWorkflows() {
+
+    if (queryApiAvailable != null) {
+      return queryApiAvailable;
+    }
+    try {
+      // the same shape the real probe uses - a search FILTERED BY A VARIABLE is what
+      // needs the secondary storage, while a bare search is answered by the broker
+      // itself. The variable name matches nothing on purpose: an empty result is an
+      // answer, and only the missing query API is not
+      clientFactory
+          .getClient()
+          .newProcessInstanceSearchRequest()
+          .filter(filter -> filter
+              .variables(java.util.Map
+                  .of("vanillabp-query-api-probe", Camunda8VariableFilters.aggregateIdSearchValue("none"))))
+          .page(page -> page.limit(1))
+          .send()
+          .join();
+      queryApiAvailable = Boolean.TRUE;
+    } catch (final Exception e) {
+      if (!isSecondaryStorageMissing(e)) {
+        // the cluster could not be reached, which says nothing about its capabilities
+        log.debug(
+            "Camunda8[{}]: could not find out whether the query API answers - assuming it does",
+            adapterId,
+            e);
+        return true;
+      }
+      queryApiAvailable = Boolean.FALSE;
+    }
+    return queryApiAvailable;
+
+  }
+
   @Override
   public WorkflowAwareness awarenessOfWorkflow(
       final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
