@@ -3,6 +3,7 @@ package io.vanillabp.camunda8.springboot.it;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -120,6 +121,37 @@ public class Camunda8TaskProcessingIT {
       }
       throw new IllegalArgumentException(bpmnProcessId);
     });
+
+  }
+
+  @Test
+  @DisplayName("completeTask of a task this cluster never had fails at once, not after the visibility window")
+  public void completeUnknownTaskFailsWithoutWaiting() {
+
+    // the workflow was started through this adapter, so the election has a hint for it
+    // and the adapter reports a visibility window of ten seconds. That window is for a
+    // WORKFLOW the query API has not caught up with; a job key is asked of the engine
+    // itself (UpdateJobTimeout), which answers exactly - so this must not wait for it
+    // (decision 27 of the platform's DECISIONS.md)
+    final var aggregateId = start("TaskProcess");
+
+    final var startedAt = System.nanoTime();
+    final var exception = assertThrows(
+        io.vanillabp.spi.process.TaskNotFoundException.class,
+        () -> transactionTemplate.executeWithoutResult(status -> {
+          final var aggregate = repository.findById(aggregateId).orElseThrow();
+          workflowService.completeAsyncTask(aggregate, "2251799813685247");
+        }));
+    final var elapsed = java.time.Duration.ofNanos(System.nanoTime() - startedAt);
+
+    assertTrue(
+        exception.getMessage().contains("2251799813685247"),
+        "expected the unknown task to be named but got: "
+            + exception.getMessage());
+    assertTrue(
+        elapsed.toSeconds() < 5,
+        "an unknown task must fail without waiting out the visibility window, but took "
+            + elapsed);
 
   }
 
