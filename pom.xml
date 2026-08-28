@@ -76,7 +76,7 @@
          the Spring Boot BOM first, so every module otherwise sees Spring Boot's newer
          Netty - see quarkus/native-image-tests, which has to see what an application
          sees. Raise it with the Quarkus version, never past it. -->
-    <netty.version.quarkus>4.1.135.Final</netty.version.quarkus>
+    <netty.version.quarkus>4.2.17.Final</netty.version.quarkus>
     <!-- The version of every artifact, resolved into the published POMs by the
          flatten plugin. A plain 'mvn install' builds 2.0.0-SNAPSHOT of the current GA
          line, which is what a developer of this repository wants and needs to remember
