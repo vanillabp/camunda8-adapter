@@ -21,7 +21,7 @@ jobs:
     outputs:
       lines: "${{ steps.list.outputs.lines }}"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - id: list
         name: Collect the release lines
         run: |
@@ -46,7 +46,7 @@ jobs:
       matrix:
         line: "${{ fromJSON(needs.discover.outputs.lines) }}"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
         with:
           java-version: 21
