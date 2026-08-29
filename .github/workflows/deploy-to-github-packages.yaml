@@ -57,6 +57,21 @@ jobs:
           USER_TOKEN: "${{ secrets.VANILLABP_USER_TOKEN }}"
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           CI: false
+      # what a failing test printed is in these reports, and for the Quarkus tests
+      # booting their application in a forked JVM it is ONLY in that application's own
+      # log file. Surefire prints its last line, which is never the interesting one -
+      # a timeout waiting for a notification says nothing about why it never came.
+      - name: Upload the test reports of a failed build
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**
+            **/target/*application*.log
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Collect coverage reports
         if: "${{ github.event_name == 'push' }}"
         run: |
