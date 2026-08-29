@@ -75,7 +75,10 @@
          application runs the adapter on. It is named here because this repository imports
          the Spring Boot BOM first, so every module otherwise sees Spring Boot's newer
          Netty - see quarkus/native-image-tests, which has to see what an application
-         sees. Raise it with the Quarkus version, never past it. -->
+         sees. Raise it with the Quarkus version, never past it: Quarkus ships GraalVM
+         substitutions written against exactly this Netty, and a newer minor ends the
+         native build with "Could not find target method" while every JVM test stays
+         green. Renovate is turned off for io.netty for that reason. -->
     <netty.version.quarkus>4.1.135.Final</netty.version.quarkus>
     <!-- The version of every artifact, resolved into the published POMs by the
          flatten plugin. A plain 'mvn install' builds 2.0.0-SNAPSHOT of the current GA
@@ -113,9 +116,11 @@
            the Camunda client brings generated code: the 8.10 client needs 4.35.1, while
            the Spring Boot BOM manages 4.34.2 and would win, because an imported BOM beats
            a transitive version. This entry stands BEFORE that import, so it is what every
-           line gets, and it has to be at least the highest gencode version of the pinned
-           clients. Raising it is safe, holding it back is not: the failure is an
-           ExceptionInInitializerError on the first command that uses the protocol. -->
+           line gets, and it carries the gencode version of the pinned clients: the
+           protocol classes come with the Camunda client, and a mismatch is an
+           ExceptionInInitializerError on the first command that uses the protocol. It
+           moves when a client pin moves and at no other time, which is why Renovate is
+           turned off for com.google.protobuf. -->
       <dependency>
         <groupId>com.google.protobuf</groupId>
         <artifactId>protobuf-java</artifactId>
