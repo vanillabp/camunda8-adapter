@@ -63,7 +63,7 @@ jobs:
       # a timeout waiting for a notification says nothing about why it never came.
       - name: Upload the test reports of a failed build
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-reports
           path: |
@@ -130,7 +130,7 @@ jobs:
       # place it can be read afterwards
       - name: Upload the log of a failed run
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-image-application-log
           path: |
