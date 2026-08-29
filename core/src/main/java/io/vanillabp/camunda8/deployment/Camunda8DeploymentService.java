@@ -58,6 +58,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * The core's task-processing entry point: wiring validation during
    * {@link #wireBpmn} and job dispatch at runtime.
    */
+  /**
+   * Everything the platform hands over. An adapter which is registered incompletely does
+   * not come into existence (see
+   * {@link io.vanillabp.integration.adapter.spi.AdapterCollaborators}).
+   */
+  private final io.vanillabp.integration.adapter.spi.AdapterCollaborators collaborators;
+
   private final WorkflowTaskWiring workflowTaskWiring;
 
   /**
@@ -79,37 +86,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * the start events of a process are reported here while wiring, and the start
    * execution-listener workers dispatch through it. May be <code>null</code> (tests).
    */
-  private io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker;
+  private final io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker;
 
   /**
    * The core's entry point for workflows which ended. May be
    * <code>null</code> (tests) - no end listener is attached then.
    */
-  private io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker workflowEndedInvoker;
-
-  /**
-   * Hands over the core's entry point for workflows which ended.
-   *
-   * @param workflowEndedInvoker The core's invoker
-   */
-  public void setWorkflowEndedInvoker(
-      final io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker workflowEndedInvoker) {
-
-    this.workflowEndedInvoker = workflowEndedInvoker;
-
-  }
-
-  /**
-   * Hands over the core's entry point for workflows the cluster starts on its own.
-   *
-   * @param bpmsInitiatedStartInvoker The core's invoker
-   */
-  public void setBpmsInitiatedStartInvoker(
-      final io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker) {
-
-    this.bpmsInitiatedStartInvoker = bpmsInitiatedStartInvoker;
-
-  }
+  private final io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker workflowEndedInvoker;
 
   /**
    * Whether a worker asks the cluster for the variables this adapter derived or for all
@@ -325,12 +308,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final WorkflowTaskWiring workflowTaskWiring,
-      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker workflowTaskInvoker,
+      final io.vanillabp.integration.adapter.spi.AdapterCollaborators collaborators,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal) {
 
-    this(adapterId, clientFactory, workflowTaskWiring, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, null, null);
+    this(adapterId, clientFactory, collaborators, jobTimeoutResolver, asyncTaskLockRenewal, null, null);
 
   }
 
@@ -340,35 +322,32 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final WorkflowTaskWiring workflowTaskWiring,
-      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker workflowTaskInvoker,
+      final io.vanillabp.integration.adapter.spi.AdapterCollaborators collaborators,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal,
       final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations) {
 
-    this(adapterId, clientFactory, workflowTaskWiring, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, configurations, null);
+    this(adapterId, clientFactory, collaborators, jobTimeoutResolver, asyncTaskLockRenewal, configurations, null);
 
   }
 
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final WorkflowTaskWiring workflowTaskWiring,
-      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker workflowTaskInvoker,
+      final io.vanillabp.integration.adapter.spi.AdapterCollaborators collaborators,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal,
       final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
 
-    this(adapterId, clientFactory, workflowTaskWiring, workflowTaskInvoker, jobTimeoutResolver, asyncTaskLockRenewal, configurations, scoping, null);
+    this(adapterId, clientFactory, collaborators, jobTimeoutResolver, asyncTaskLockRenewal, configurations, scoping, null);
 
   }
 
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final WorkflowTaskWiring workflowTaskWiring,
-      final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker workflowTaskInvoker,
+      final io.vanillabp.integration.adapter.spi.AdapterCollaborators collaborators,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal,
       final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
@@ -391,8 +370,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     this.adapterId = adapterId;
     this.clientFactory = clientFactory;
-    this.workflowTaskWiring = workflowTaskWiring;
-    this.workflowTaskInvoker = workflowTaskInvoker;
+    this.collaborators = collaborators;
+    this.workflowTaskWiring = collaborators.workflowTaskWiring();
+    this.workflowTaskInvoker = collaborators.workflowTaskInvoker();
+    this.bpmsInitiatedStartInvoker = collaborators.bpmsInitiatedStartInvoker().orElse(null);
+    this.workflowEndedInvoker = collaborators.workflowEndedInvoker().orElse(null);
     this.jobTimeoutResolver = jobTimeoutResolver;
     this.asyncTaskLockRenewal = asyncTaskLockRenewal;
     this.configurations = configurations;

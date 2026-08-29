@@ -37,11 +37,12 @@ public class Camunda8ShutdownDrainTest {
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setShutdownGrace(grace);
     return new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", configuration), new Camunda8DeploymentServiceTest.NoOpInvoker(), new Camunda8DeploymentServiceTest.NoOpInvoker(), (
-            module,
-            process,
-            task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                .ofHours(1), adapterId -> configuration);
+        "c8", new Camunda8ClientFactory("c8", configuration), io.vanillabp.camunda8.TestCollaborators
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
+                module,
+                process,
+                task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
+                    .ofHours(1), adapterId -> configuration);
 
   }
 
@@ -55,11 +56,12 @@ public class Camunda8ShutdownDrainTest {
     configuration.setShutdownGrace(GRACE);
     configuration.setRestAddress("http://localhost:65535");
     return new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", configuration), new Camunda8DeploymentServiceTest.NoOpInvoker(), new Camunda8DeploymentServiceTest.NoOpInvoker(), (
-            module,
-            process,
-            task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                .ofHours(1), adapterId -> configuration);
+        "c8", new Camunda8ClientFactory("c8", configuration), io.vanillabp.camunda8.TestCollaborators
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
+                module,
+                process,
+                task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
+                    .ofHours(1), adapterId -> configuration);
 
   }
 
@@ -247,11 +249,12 @@ public class Camunda8ShutdownDrainTest {
     configuration.setRestAddress("http://localhost:65535");
     final var clientFactory = new Camunda8ClientFactory("c8", configuration);
     final var service = new Camunda8DeploymentService(
-        "c8", clientFactory, new Camunda8DeploymentServiceTest.NoOpInvoker(), new Camunda8DeploymentServiceTest.NoOpInvoker(), (
-            module,
-            process,
-            task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                .ofHours(1), adapterId -> configuration);
+        "c8", clientFactory, io.vanillabp.camunda8.TestCollaborators
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
+                module,
+                process,
+                task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
+                    .ofHours(1), adapterId -> configuration);
     final var context = new Camunda8ProcessingContext("test-module");
     service.startWorkflowProcessing("test-module", context);
     // a platform whose shutdown never reaches the adapter: the module is open, and the
@@ -284,11 +287,12 @@ public class Camunda8ShutdownDrainTest {
     configuration.setRestAddress("http://localhost:65535");
     final var clientFactory = new Camunda8ClientFactory("c8", configuration);
     final var service = new Camunda8DeploymentService(
-        "c8", clientFactory, new Camunda8DeploymentServiceTest.NoOpInvoker(), new Camunda8DeploymentServiceTest.NoOpInvoker(), (
-            module,
-            process,
-            task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                .ofHours(1), adapterId -> configuration);
+        "c8", clientFactory, io.vanillabp.camunda8.TestCollaborators
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
+                module,
+                process,
+                task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
+                    .ofHours(1), adapterId -> configuration);
     final var context = new Camunda8ProcessingContext("test-module");
     service.startWorkflowProcessing("test-module", context);
     service.stopWorkflowProcessing("test-module", context);

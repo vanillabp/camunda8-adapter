@@ -59,11 +59,12 @@ public class Camunda8DeploymentServiceTest {
   private Camunda8DeploymentService newDeploymentService() {
 
     // an unconfigured factory: getClient() would throw if ever called
-    return new Camunda8DeploymentService("c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
-        m2,
-        p2,
-        t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
-            .ofDays(14));
+    return new Camunda8DeploymentService("c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+        .of(new NoOpInvoker()), (
+            m2,
+            p2,
+            t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                .ofDays(14));
 
   }
 
@@ -183,13 +184,14 @@ public class Camunda8DeploymentServiceTest {
   public void listenerLockFollowsTheConfiguredJobTimeout() {
 
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
-            workflowModuleId,
-            bpmnProcessId,
-            taskDefinition) -> "Process".equals(bpmnProcessId)
-                ? java.time.Duration.ofMinutes(2)
-                : io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
-                    .ofDays(14));
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+            .of(new NoOpInvoker()), (
+                workflowModuleId,
+                bpmnProcessId,
+                taskDefinition) -> "Process".equals(bpmnProcessId)
+                    ? java.time.Duration.ofMinutes(2)
+                    : io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                        .ofDays(14));
 
     assertEquals(
         java.time.Duration.ofMinutes(2),
@@ -203,12 +205,13 @@ public class Camunda8DeploymentServiceTest {
   public void conflictingListenerLocksFailGuiding() {
 
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
-            workflowModuleId,
-            bpmnProcessId,
-            taskDefinition) -> "Fast".equals(bpmnProcessId)
-                ? java.time.Duration.ofSeconds(30)
-                : java.time.Duration.ofMinutes(10), java.time.Duration.ofDays(14));
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+            .of(new NoOpInvoker()), (
+                workflowModuleId,
+                bpmnProcessId,
+                taskDefinition) -> "Fast".equals(bpmnProcessId)
+                    ? java.time.Duration.ofSeconds(30)
+                    : java.time.Duration.ofMinutes(10), java.time.Duration.ofDays(14));
 
     final var exception = assertThrows(
         IllegalStateException.class,
@@ -231,11 +234,12 @@ public class Camunda8DeploymentServiceTest {
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setStreamTimeout(java.time.Duration.ofMinutes(30));
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", configuration), new NoOpInvoker(), new NoOpInvoker(), (
-            m,
-            p,
-            t) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
-                .ofDays(14));
+        "c8", new Camunda8ClientFactory("c8", configuration), io.vanillabp.camunda8.TestCollaborators
+            .of(new NoOpInvoker()), (
+                m,
+                p,
+                t) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                    .ofDays(14));
     final var builder = org.mockito.Mockito
         .mock(io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
     org.mockito.Mockito
@@ -474,11 +478,12 @@ public class Camunda8DeploymentServiceTest {
         final io.vanillabp.integration.adapter.spi.NameClashAvoidance mode) {
 
       final var service = new Camunda8DeploymentService(
-          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
-              m2,
-              p2,
-              t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
-                  .ofDays(14), null, scopingWith(mode));
+          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+              .of(new NoOpInvoker()), (
+                  m2,
+                  p2,
+                  t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                      .ofDays(14), null, scopingWith(mode));
       final var model = io.camunda.zeebe.model.bpmn.Bpmn
           .createExecutableProcess("RiskAssessment")
           .startEvent()
@@ -539,11 +544,13 @@ public class Camunda8DeploymentServiceTest {
     public void multiProcessFileIsScopedOnlyOnce() {
 
       final var service = new Camunda8DeploymentService(
-          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
-              m2,
-              p2,
-              t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
-                  .ofDays(14), null, scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.USE_PREFIX));
+          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+              .of(new NoOpInvoker()), (
+                  m2,
+                  p2,
+                  t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                      .ofDays(
+                          14), null, scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.USE_PREFIX));
       final var model = io.camunda.zeebe.model.bpmn.Bpmn
           .readModelFromStream(new ByteArrayInputStream(TWO_EXECUTABLE_PROCESSES.getBytes(UTF_8)));
 
@@ -577,11 +584,12 @@ public class Camunda8DeploymentServiceTest {
         final String adapterId) {
 
       return new Camunda8DeploymentService(
-          adapterId, new Camunda8ClientFactory(adapterId, new Camunda8AdapterConfiguration()), new NoOpInvoker(), new NoOpInvoker(), (
-              m2,
-              p2,
-              t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
-                  .ofDays(14), null, null);
+          adapterId, new Camunda8ClientFactory(adapterId, new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+              .of(new NoOpInvoker()), (
+                  m2,
+                  p2,
+                  t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                      .ofDays(14), null, null);
 
     }
 
@@ -663,11 +671,12 @@ public class Camunda8DeploymentServiceTest {
       final var configuration = new Camunda8AdapterConfiguration();
       configuration.setAcceptUnscopedIdentifiers(true);
       final var service = new Camunda8DeploymentService(
-          "myengine", new Camunda8ClientFactory("myengine", configuration), new NoOpInvoker(), new NoOpInvoker(), (
-              m2,
-              p2,
-              t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
-                  .ofDays(14), null, null);
+          "myengine", new Camunda8ClientFactory("myengine", configuration), io.vanillabp.camunda8.TestCollaborators
+              .of(new NoOpInvoker()), (
+                  m2,
+                  p2,
+                  t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                      .ofDays(14), null, null);
 
       assertEquals(
           java.util.List.of(),

@@ -73,26 +73,22 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                 final var deploymentService = new Camunda8DeploymentService(
                     adapterId, supplierContext
                         .bean(Camunda8ClientFactoryRegistry.class)
-                        .getFactory(adapterId), supplierContext
-                            .bean(
-                                io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring.class), supplierContext
-                                    .bean(
-                                        io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker.class), (
-                                            workflowModuleId,
-                                            bpmnProcessId,
-                                            taskDefinition) -> overlay.jobTimeoutFor(
-                                                workflowModuleId, bpmnProcessId, taskDefinition,
-                                                adapterId), asyncTaskLockRenewal, id -> supplierContext
-                                                    .bean(Camunda8ClientFactoryRegistry.class)
-                                                    .getFactory(id)
-                                                    .getConfiguration(), supplierContext
-                                                        .bean(
-                                                            io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class), (
-                                                                workflowModuleId,
-                                                                bpmnProcessId,
-                                                                taskDefinition) -> overlay.retryBackoffFor(
-                                                                    workflowModuleId, bpmnProcessId, taskDefinition,
-                                                                    adapterId));
+                        .getFactory(adapterId), AdapterBeanRegistrarSupport.collaborators(supplierContext, adapterId), (
+                            workflowModuleId,
+                            bpmnProcessId,
+                            taskDefinition) -> overlay.jobTimeoutFor(
+                                workflowModuleId, bpmnProcessId, taskDefinition,
+                                adapterId), asyncTaskLockRenewal, id -> supplierContext
+                                    .bean(Camunda8ClientFactoryRegistry.class)
+                                    .getFactory(id)
+                                    .getConfiguration(), supplierContext
+                                        .bean(
+                                            io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class), (
+                                                workflowModuleId,
+                                                bpmnProcessId,
+                                                taskDefinition) -> overlay.retryBackoffFor(
+                                                    workflowModuleId, bpmnProcessId, taskDefinition,
+                                                    adapterId));
                 // What each worker asks the cluster for, resolvable down to
                 // task level
                 deploymentService.setFetchVariablesResolver((
@@ -100,16 +96,6 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                     bpmnProcessId,
                     taskDefinition) -> overlay.fetchVariablesFor(
                         workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
-                deploymentService.setWorkflowEndedInvoker(
-                    supplierContext
-                        .beanProvider(
-                            io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker.class)
-                        .getIfAvailable());
-                deploymentService.setBpmsInitiatedStartInvoker(
-                    supplierContext
-                        .beanProvider(
-                            io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker.class)
-                        .getIfAvailable());
                 // The client's job counters and this adapter's execution slots,
                 // where the application brings Micrometer
                 deploymentService.setMetrics(
