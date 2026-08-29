@@ -1197,6 +1197,21 @@ committing last puts back what it read, so an iteration should write a row of it
   their own) and `cancelUserTask` (answered by the release line, so it belongs to a
   per-line test source).
 
+## Outbound operations: one handler per operation
+
+Everything this adapter sends to the cluster is a `PhaseOperationHandler`, contributed per
+operation in `Camunda8ProcessService.phaseOperations()`: `phaseOne` asks inside the caller's
+transaction, `phaseTwo` acts after the commit. The operation itself - its persisted name, what
+deduplicates it, which BPMS serves it, how a failure is worded - belongs to VanillaBP's
+`PhaseOperation`, so an operation added later costs this adapter one entry in that map.
+
+What phase one can ask of a remote cluster is little, and it is all here: a job timeout
+renewal, an empty user-task update, and the message names the deployed model declares. None of
+them advances anything, and all of them run as a pre-commit hook so the window to the phase-two
+dispatch stays small. Phase two carries the activation the correlation was planned in
+(`PhaseTwoRequest#activationId()`), which is what keeps three multi-instance siblings from
+becoming one message in the cluster's own deduplication net.
+
 ## Decision log
 
 Decisions several places in this repository rely on live in [`DECISIONS.md`](./DECISIONS.md), the

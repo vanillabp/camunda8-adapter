@@ -106,9 +106,10 @@ public class Camunda8MessageDeclarationTest {
     deploy(clientFactory, "module", modelWaitingFor("PaymentReceived"));
 
     assertDoesNotThrow(
-        () -> serviceOf(clientFactory)
-            .correlateMessagePhaseOne(
-                "module", "Process", persistence(), new Aggregate("agg-1"), "PaymentReceived", null));
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME,
+                "PaymentReceived", io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, null)));
 
   }
 
@@ -121,9 +122,10 @@ public class Camunda8MessageDeclarationTest {
 
     final var failure = assertThrows(
         IllegalArgumentException.class,
-        () -> serviceOf(clientFactory)
-            .correlateMessagePhaseOne(
-                "module", "Process", persistence(), new Aggregate("agg-1"), "PaymentRecieved", null));
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME,
+                "PaymentRecieved", io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, null)));
 
     assertTrue(failure.getMessage().contains("PaymentRecieved"), failure.getMessage());
     // the remedy: what IS declared
@@ -141,9 +143,10 @@ public class Camunda8MessageDeclarationTest {
     deploy(clientFactory, "another-module", modelWaitingFor("PaymentReceived"));
 
     assertDoesNotThrow(
-        () -> serviceOf(clientFactory)
-            .correlateMessagePhaseOne(
-                "module", "Process", persistence(), new Aggregate("agg-1"), "AnyMessage", null));
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME,
+                "AnyMessage", io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, null)));
 
   }
 
@@ -161,9 +164,10 @@ public class Camunda8MessageDeclarationTest {
 
     // the message waits in a called process - same aggregate, other BPMN process
     assertDoesNotThrow(
-        () -> serviceOf(clientFactory)
-            .correlateMessagePhaseOne(
-                "module", "Process", persistence(), new Aggregate("agg-1"), "DocumentsArrived", null));
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME,
+                "DocumentsArrived", io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, null)));
 
   }
 

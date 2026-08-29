@@ -68,10 +68,13 @@ public class Camunda8PreCommitCheckTest {
 
     final var service = service();
 
-    assertDoesNotThrow(() -> service.completeTaskPhaseOne(
-        "module", "Process", null, new Object(), "123"));
-    assertDoesNotThrow(() -> service.cancelTaskPhaseOne(
-        "module", "Process", null, new Object(), "124", "SOME_ERROR"));
+    assertDoesNotThrow(() -> PhaseOperations.phaseOne(service,
+        io.vanillabp.integration.spi.PhaseOperation.COMPLETE_TASK, "module", "Process", null, new Object(),
+        PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID, "123")));
+    assertDoesNotThrow(
+        () -> PhaseOperations.phaseOne(service, io.vanillabp.integration.spi.PhaseOperation.CANCEL_TASK, "module",
+            "Process", null, new Object(), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID,
+                "124", io.vanillabp.integration.spi.PhaseTwoCall.ARG_BPMN_ERROR_CODE, "SOME_ERROR")));
 
     assertEquals(2, registrar.registered.size(), "one registered check per operation");
 
@@ -82,7 +85,8 @@ public class Camunda8PreCommitCheckTest {
   public void checkContactsClusterWhenHookFires() {
 
     final var service = service();
-    service.completeTaskPhaseOne("module", "Process", null, new Object(), "123");
+    PhaseOperations.phaseOne(service, io.vanillabp.integration.spi.PhaseOperation.COMPLETE_TASK, "module", "Process",
+        null, new Object(), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID, "123"));
     final var check = registrar.registered.getFirst();
     assertNotNull(check);
 

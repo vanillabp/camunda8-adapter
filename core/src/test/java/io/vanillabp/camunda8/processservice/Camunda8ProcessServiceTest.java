@@ -74,8 +74,9 @@ public class Camunda8ProcessServiceTest {
 
     final var service = configuredService();
 
-    assertDoesNotThrow(() -> service.startWorkflowPhaseOne(
-        "module", "Process", persistence("agg-1"), new Aggregate("agg-1")));
+    assertDoesNotThrow(
+        () -> PhaseOperations.phaseOne(service, io.vanillabp.integration.spi.PhaseOperation.START_WORKFLOW, "module",
+            "Process", persistence("agg-1"), new Aggregate("agg-1"), java.util.Map.of()));
 
   }
 
@@ -91,7 +92,8 @@ public class Camunda8ProcessServiceTest {
 
     final var exception = assertThrows(
         IllegalStateException.class,
-        () -> service.startWorkflowPhaseOne("module", "Process", persistence("agg-1"), new Aggregate("agg-1")));
+        () -> PhaseOperations.phaseOne(service, io.vanillabp.integration.spi.PhaseOperation.START_WORKFLOW, "module",
+            "Process", persistence("agg-1"), new Aggregate("agg-1"), java.util.Map.of()));
     assertTrue(exception.getMessage().contains("vanillabp.adapters.c8.rest-address"));
 
   }

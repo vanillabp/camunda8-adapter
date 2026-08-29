@@ -1,12 +1,18 @@
 package io.vanillabp.camunda8.processservice;
 
+import java.util.Map;
+
 import io.camunda.client.api.response.ProcessInstanceEvent;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
+import io.vanillabp.integration.adapter.spi.PhaseOneRequest;
+import io.vanillabp.integration.adapter.spi.PhaseOperationHandler;
+import io.vanillabp.integration.adapter.spi.PhaseTwoRequest;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
+import io.vanillabp.integration.spi.PhaseOperation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -288,6 +294,59 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
+  /**
+   * What this adapter does for each operation, in both phases.
+   * <p>
+   * Phase one is what a REMOTE cluster can be asked without advancing anything: a job
+   * timeout renewal, an empty user-task update, the model's message names - and it runs
+   * as a pre-commit hook, so the window to the phase-two dispatch stays small. Phase two
+   * sends the command and tolerates what the at-least-once dispatch of the outbox
+   * implies, up to the message deduplication the cluster runs on its own.
+   */
+  @Override
+  public Map<PhaseOperation, PhaseOperationHandler<A>> phaseOperations() {
+
+    return Map
+        .ofEntries(
+            Map
+                .entry(
+                    PhaseOperation.START_WORKFLOW,
+                    PhaseOperationHandler.of(this::preflightStart, this::startWorkflow)),
+            Map
+                .entry(
+                    PhaseOperation.START_WORKFLOW_BY_MESSAGE,
+                    PhaseOperationHandler.of(this::preflightStartByMessage, this::startWorkflowByMessage)),
+            Map
+                .entry(
+                    PhaseOperation.COMPLETE_TASK,
+                    PhaseOperationHandler.of(this::preflightCompleteTask, this::completeTask)),
+            Map
+                .entry(
+                    PhaseOperation.CANCEL_TASK,
+                    PhaseOperationHandler.of(this::preflightCancelTask, this::cancelTask)),
+            Map
+                .entry(
+                    PhaseOperation.COMPLETE_USER_TASK,
+                    PhaseOperationHandler.of(this::preflightCompleteUserTask, this::completeUserTask)),
+            Map
+                .entry(
+                    PhaseOperation.CANCEL_USER_TASK,
+                    PhaseOperationHandler.of(this::preflightCancelUserTask, this::cancelUserTask)),
+            Map
+                .entry(
+                    PhaseOperation.CORRELATE_MESSAGE,
+                    PhaseOperationHandler.of(this::preflightCorrelateMessage, this::correlateMessage)),
+            Map
+                .entry(
+                    PhaseOperation.SEND_SIGNAL,
+                    PhaseOperationHandler.of(this::preflightSendSignal, this::sendSignal)),
+            Map
+                .entry(
+                    PhaseOperation.AGGREGATE_CHANGED,
+                    PhaseOperationHandler.of(this::preflightAggregateChanged, this::pushChangedAggregate)));
+
+  }
+
   @Override
   public boolean deliversTasksAtLeastOnce() {
 
@@ -386,28 +445,17 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
-  @Override
-  public void completeTaskPhaseOne(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final A workflowAggregate,
-      final String taskId) {
+  private void preflightCompleteTask(
+      final PhaseOneRequest<A> request) {
 
-    registerPreCommitExistenceCheck(aggregateClassOf(aggregatePersistence), taskId, "completing");
+    registerPreCommitExistenceCheck(aggregateClassOf(request.aggregatePersistence()), request.taskId(), "completing");
 
   }
 
-  @Override
-  public void cancelTaskPhaseOne(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final A workflowAggregate,
-      final String taskId,
-      final String bpmnErrorCode) {
+  private void preflightCancelTask(
+      final PhaseOneRequest<A> request) {
 
-    registerPreCommitExistenceCheck(aggregateClassOf(aggregatePersistence), taskId, "canceling");
+    registerPreCommitExistenceCheck(aggregateClassOf(request.aggregatePersistence()), request.taskId(), "canceling");
 
   }
 
@@ -509,25 +557,20 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
-  @Override
-  public void completeUserTaskPhaseOne(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final A workflowAggregate,
-      final String taskId) {
+  private void preflightCompleteUserTask(
+      final PhaseOneRequest<A> request) {
 
     // pre-commit existence check (non-advancing empty update) - same shape as
     // service tasks, see registerPreCommitExistenceCheck
-    preCommitRegistrar.beforeCommit(aggregateClassOf(aggregatePersistence), () -> {
+    preCommitRegistrar.beforeCommit(aggregateClassOf(request.aggregatePersistence()), () -> {
       try {
-        updateUserTask(taskId);
+        updateUserTask(request.taskId());
       } catch (final Exception e) {
         if (Camunda8Errors.jobAlreadyGone(e)) {
           throw new IllegalStateException(
               ("The user task '%s' is gone (completed or canceled meanwhile) - aborting the "
                   + "transaction completing it!")
-                  .formatted(taskId), e);
+                  .formatted(request.taskId()), e);
         }
         throw e;
       }
@@ -535,27 +578,22 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
-  @Override
-  public void completeUserTaskPhaseTwo(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final Object workflowAggregateId,
-      final String taskId) {
+  private void completeUserTask(
+      final PhaseTwoRequest<A> request) {
 
     try {
       clientFactory
           .getClient()
-          .newCompleteUserTaskCommand(taskKeyOf(taskId))
-          .variables(variablesOf(aggregatePersistence, workflowAggregateId))
+          .newCompleteUserTaskCommand(taskKeyOf(request.taskId()))
+          .variables(variablesOf(request.aggregatePersistence(), request.workflowAggregateId()))
           .send()
           .join();
       log.info(
           "Camunda8[{}]: completed user task '{}' of BPMN process '{}' of workflow module '{}'",
           adapterId,
-          taskId,
-          bpmnProcessId,
-          workflowModuleId);
+          request.taskId(),
+          request.bpmnProcessId(),
+          request.workflowModuleId());
     } catch (final Exception e) {
       if (!Camunda8Errors.jobAlreadyGone(e)) {
         throw e;
@@ -563,35 +601,23 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       log.warn(
           "Camunda8[{}]: user task '{}' is gone - skipping the redelivered phase-two completion",
           adapterId,
-          taskId);
+          request.taskId());
     }
 
   }
 
-  @Override
-  public void cancelUserTaskPhaseOne(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final A workflowAggregate,
-      final String taskId,
-      final String bpmnErrorCode) {
+  private void preflightCancelUserTask(
+      final PhaseOneRequest<A> request) {
 
     // fail EARLY inside the caller's transaction: see cancelUserTaskPhaseTwo
-    throw newCancelUserTaskUnsupported(taskId, bpmnProcessId);
+    throw newCancelUserTaskUnsupported(request.taskId(), request.bpmnProcessId());
 
   }
 
-  @Override
-  public void cancelUserTaskPhaseTwo(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final Object workflowAggregateId,
-      final String taskId,
-      final String bpmnErrorCode) {
+  private void cancelUserTask(
+      final PhaseTwoRequest<A> request) {
 
-    throw newCancelUserTaskUnsupported(taskId, bpmnProcessId);
+    throw newCancelUserTaskUnsupported(request.taskId(), request.bpmnProcessId());
 
   }
 
@@ -617,29 +643,24 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
-  @Override
-  public void completeTaskPhaseTwo(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final Object workflowAggregateId,
-      final String taskId) {
+  private void completeTask(
+      final PhaseTwoRequest<A> request) {
 
     try {
       clientFactory
           .getClient()
-          .newCompleteCommand(taskKeyOf(taskId))
+          .newCompleteCommand(taskKeyOf(request.taskId()))
           // The aggregate changed before the task was completed - the
           // cluster only sees what VanillaBP pushes
-          .variables(variablesOf(aggregatePersistence, workflowAggregateId))
+          .variables(variablesOf(request.aggregatePersistence(), request.workflowAggregateId()))
           .send()
           .join();
       log.info(
           "Camunda8[{}]: completed task '{}' of BPMN process '{}' of workflow module '{}'",
           adapterId,
-          taskId,
-          bpmnProcessId,
-          workflowModuleId);
+          request.taskId(),
+          request.bpmnProcessId(),
+          request.workflowModuleId());
     } catch (final Exception e) {
       if (!Camunda8Errors.jobAlreadyGone(e)) {
         throw e;
@@ -649,39 +670,33 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       log.warn(
           "Camunda8[{}]: task '{}' is gone - skipping the redelivered phase-two completion",
           adapterId,
-          taskId);
+          request.taskId());
     }
 
   }
 
-  @Override
-  public void cancelTaskPhaseTwo(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final Object workflowAggregateId,
-      final String taskId,
-      final String bpmnErrorCode) {
+  private void cancelTask(
+      final PhaseTwoRequest<A> request) {
 
     try {
       clientFactory
           .getClient()
-          .newThrowErrorCommand(taskKeyOf(taskId))
+          .newThrowErrorCommand(taskKeyOf(request.taskId()))
           // the model's error codes are prefixed too
-          .errorCode(scopedIdentifier(workflowModuleId, bpmnErrorCode))
+          .errorCode(scopedIdentifier(request.workflowModuleId(), request.bpmnErrorCode()))
           .errorMessage("canceled via ProcessService#cancelTask")
           // The error boundary's outgoing path may branch on the
           // aggregate, which the caller changed before canceling the task
-          .variables(variablesOf(aggregatePersistence, workflowAggregateId))
+          .variables(variablesOf(request.aggregatePersistence(), request.workflowAggregateId()))
           .send()
           .join();
       log.info(
           "Camunda8[{}]: canceled task '{}' (error code '{}') of BPMN process '{}' of workflow module '{}'",
           adapterId,
-          taskId,
-          bpmnErrorCode,
-          bpmnProcessId,
-          workflowModuleId);
+          request.taskId(),
+          request.bpmnErrorCode(),
+          request.bpmnProcessId(),
+          request.workflowModuleId());
     } catch (final Exception e) {
       if (!Camunda8Errors.jobAlreadyGone(e)) {
         throw e;
@@ -689,7 +704,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       log.warn(
           "Camunda8[{}]: task '{}' is gone - skipping the redelivered phase-two cancellation",
           adapterId,
-          taskId);
+          request.taskId());
     }
 
   }
@@ -1096,17 +1111,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * see {@code Camunda8DeployedProcesses}), because then the declared names are
    * unknown rather than absent.
    */
-  @Override
-  public void correlateMessagePhaseOne(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final A workflowAggregate,
-      final String messageName,
-      final String correlationId) {
+  private void preflightCorrelateMessage(
+      final PhaseOneRequest<A> request) {
 
     clientFactory.validateConfigured();
-    validateMessageIsDeclared(workflowModuleId, messageName);
+    validateMessageIsDeclared(request.workflowModuleId(), request.messageName());
 
   }
 
@@ -1180,29 +1189,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
-  @Override
-  public void correlateMessagePhaseTwo(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final Object workflowAggregateId,
-      final String messageName,
-      final String correlationId) {
-
-    correlateMessagePhaseTwo(
-        workflowModuleId, bpmnProcessId, aggregatePersistence, workflowAggregateId, messageName, correlationId, null);
-
-  }
-
-  @Override
-  public void correlateMessagePhaseTwo(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final Object workflowAggregateId,
-      final String messageName,
-      final String correlationId,
-      final String activationId) {
+  private void correlateMessage(
+      final PhaseTwoRequest<A> request) {
 
     // correlationKey: the correlation id if given, the aggregate ID otherwise
     // (V1 semantics; the wired zeebe:subscription evaluates '=<idName>' - a
@@ -1219,20 +1207,20 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // PAYLOAD DOCTRINE: no message CONTENT travels - what does travel is the
     // aggregate state shared with the BPMS, because the cluster can
     // only evaluate BPMN expressions against variables it was given.
-    final var correlationKey = correlationId != null
-        ? correlationId
-        : String.valueOf(workflowAggregateId);
+    final var correlationKey = request.correlationId() != null
+        ? request.correlationId()
+        : String.valueOf(request.workflowAggregateId());
     var command = clientFactory
         .getClient()
         .newPublishMessageCommand()
-        .messageName(scopedIdentifier(workflowModuleId, messageName))
+        .messageName(scopedIdentifier(request.workflowModuleId(), request.messageName()))
         .correlationKey(correlationKey)
-        .variables(variablesOf(aggregatePersistence, workflowAggregateId));
-    final var correlationTenantId = tenantIdOf(workflowModuleId);
+        .variables(variablesOf(request.aggregatePersistence(), request.workflowAggregateId()));
+    final var correlationTenantId = tenantIdOf(request.workflowModuleId());
     if (correlationTenantId != null) {
       command = command.tenantId(correlationTenantId);
     }
-    if (correlationId != null) {
+    if (request.correlationId() != null) {
       // The ACTIVATION belongs in here for the same reason it belongs in VanillaBP's own
       // idempotency key: three elements of a multi-instance call activity agree in every
       // other part, because a called process is a secondary workflow of the SAME
@@ -1242,10 +1230,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       // endpoint produces exactly what it was
       command = command
           .messageId(
-              messageIdOf(workflowModuleId, bpmnProcessId, workflowAggregateId, messageName, correlationId,
-                  activationId));
+              messageIdOf(request.workflowModuleId(), request.bpmnProcessId(), request.workflowAggregateId(),
+                  request.messageName(), request.correlationId(),
+                  request.activationId()));
     }
-    final var timeToLive = messageTimeToLiveFor(workflowModuleId, bpmnProcessId, messageName);
+    final var timeToLive = messageTimeToLiveFor(request.workflowModuleId(), request.bpmnProcessId(),
+        request.messageName());
     if (timeToLive != null) {
       // per message, because the number buffers AND deduplicates and those two want it
       // to go in opposite directions. Nothing configured means nothing set: the client's
@@ -1260,10 +1250,10 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           "Camunda8[{}]: published message '{}' (correlation key '{}') for BPMN process '{}' of "
               + "workflow module '{}'",
           adapterId,
-          messageName,
+          request.messageName(),
           correlationKey,
-          bpmnProcessId,
-          workflowModuleId);
+          request.bpmnProcessId(),
+          request.workflowModuleId());
     } catch (final Exception e) {
       if (!isMessageAlreadyPublished(e)) {
         throw e;
@@ -1285,10 +1275,10 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               repetitions are separate activations of a BPMN element, which the message id already \
               tells apart.""",
           adapterId,
-          messageName,
+          request.messageName(),
           correlationKey,
-          bpmnProcessId,
-          workflowModuleId);
+          request.bpmnProcessId(),
+          request.workflowModuleId());
     }
 
   }
@@ -1353,13 +1343,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
-  @Override
-  public void startWorkflowByMessagePhaseOne(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final A workflowAggregate,
-      final String messageName) {
+  private void preflightStartByMessage(
+      final PhaseOneRequest<A> request) {
 
     clientFactory.validateConfigured();
 
@@ -1369,19 +1354,13 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * A remote BPMS must not act before the caller's transaction committed: phase one
    * does nothing, the broadcast happens in phase two through the outbox.
    */
-  @Override
-  public void sendSignalPhaseOne(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final String signalName) {
+  private void preflightSendSignal(
+      final PhaseOneRequest<A> request) {
 
   }
 
-  @Override
-  public void sendSignalPhaseTwo(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final String signalName) {
+  private void sendSignal(
+      final PhaseTwoRequest<A> request) {
 
     // no variables travel with a signal, and there is nothing to deduplicate by:
     // unlike a message, a broadcast carries no correlation key the cluster could
@@ -1389,8 +1368,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     var command = clientFactory
         .getClient()
         .newBroadcastSignalCommand()
-        .signalName(scopedIdentifier(workflowModuleId, signalName));
-    final var signalTenantId = tenantIdOf(workflowModuleId);
+        .signalName(scopedIdentifier(request.workflowModuleId(), request.signalName()));
+    final var signalTenantId = tenantIdOf(request.workflowModuleId());
     if (signalTenantId != null) {
       command = command.tenantId(signalTenantId);
     }
@@ -1400,39 +1379,29 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     log.info(
         "Camunda8[{}]: broadcast signal '{}' of workflow module '{}'",
         adapterId,
-        signalName,
-        workflowModuleId);
+        request.signalName(),
+        request.workflowModuleId());
 
   }
 
-  @Override
-  public void aggregateChangedPhaseOne(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final A workflowAggregate,
-      final String taskId) {
+  private void preflightAggregateChanged(
+      final PhaseOneRequest<A> request) {
 
     // a remote BPMS: writing here would show the cluster values of a transaction
     // which may still roll back - the push happens in phase two
 
   }
 
-  @Override
-  public void aggregateChangedPhaseTwo(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final Object workflowAggregateId,
-      final String taskId) {
+  private void pushChangedAggregate(
+      final PhaseTwoRequest<A> request) {
 
-    final var variables = variablesOf(aggregatePersistence, workflowAggregateId);
+    final var variables = variablesOf(request.aggregatePersistence(), request.workflowAggregateId());
 
-    if (taskId == null) {
+    if (request.taskId() == null) {
       final var processInstanceKey = processInstanceKeyOf(
-          io.vanillabp.integration.adapter.spi.WorkflowScope.of(workflowModuleId, bpmnProcessId),
-          aggregatePersistence,
-          workflowAggregateId);
+          io.vanillabp.integration.adapter.spi.WorkflowScope.of(request.workflowModuleId(), request.bpmnProcessId()),
+          request.aggregatePersistence(),
+          request.workflowAggregateId());
       if (processInstanceKey == null) {
         // at-least-once residual: the workflow ended between the dispatch-time
         // election and now - there is nothing left to write to
@@ -1440,7 +1409,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
             "Camunda8[{}]: no active workflow found for aggregate '{}' - skipping the push of the "
                 + "changed aggregate",
             adapterId,
-            workflowAggregateId);
+            request.workflowAggregateId());
         return;
       }
       clientFactory
@@ -1455,12 +1424,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       log.info(
           "Camunda8[{}]: pushed the changed aggregate '{}' into process instance '{}'",
           adapterId,
-          workflowAggregateId,
+          request.workflowAggregateId(),
           processInstanceKey);
       return;
     }
 
-    final var elementInstanceKey = flowScopeKeyOf(taskId);
+    final var elementInstanceKey = flowScopeKeyOf(request.taskId());
     if (elementInstanceKey == null) {
       log.warn(
           "Camunda8[{}]: the scope of task '{}' of aggregate '{}' was not found within {} - skipping "
@@ -1470,8 +1439,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               + "regularly needs longer. The workflow's own scope is deliberately NOT written "
               + "instead - it is read by every branch, and the task asked for its own scope",
           adapterId,
-          taskId,
-          workflowAggregateId,
+          request.taskId(),
+          request.workflowAggregateId(),
           workflowVisibilityDelay().window(),
           adapterId);
       return;
@@ -1488,9 +1457,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     log.info(
         "Camunda8[{}]: pushed the changed aggregate '{}' into element instance '{}' (task '{}')",
         adapterId,
-        workflowAggregateId,
+        request.workflowAggregateId(),
         elementInstanceKey,
-        taskId);
+        request.taskId());
 
   }
 
@@ -1755,13 +1724,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
-  @Override
-  public void startWorkflowByMessagePhaseTwo(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final Object workflowAggregateId,
-      final String messageName) {
+  private void startWorkflowByMessage(
+      final PhaseTwoRequest<A> request) {
 
     // message START events ignore the correlation key; the aggregate-ID variable
     // is the ONLY variable published (the same technical field a regular start
@@ -1772,11 +1736,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       var startCommand = clientFactory
           .getClient()
           .newPublishMessageCommand()
-          .messageName(scopedIdentifier(workflowModuleId, messageName))
+          .messageName(scopedIdentifier(request.workflowModuleId(), request.messageName()))
           .correlationKey("")
-          .messageId("%s|%s|%s".formatted(workflowModuleId, bpmnProcessId, workflowAggregateId))
-          .variables(variablesOf(aggregatePersistence, workflowAggregateId));
-      final var startTenantId = tenantIdOf(workflowModuleId);
+          .messageId(
+              "%s|%s|%s".formatted(request.workflowModuleId(), request.bpmnProcessId(), request.workflowAggregateId()))
+          .variables(variablesOf(request.aggregatePersistence(), request.workflowAggregateId()));
+      final var startTenantId = tenantIdOf(request.workflowModuleId());
       if (startTenantId != null) {
         startCommand = startCommand.tenantId(startTenantId);
       }
@@ -1796,10 +1761,10 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           "Camunda8[{}]: published start message '{}' for BPMN process '{}' of workflow module "
               + "'{}' (aggregate '{}')",
           adapterId,
-          messageName,
-          bpmnProcessId,
-          workflowModuleId,
-          workflowAggregateId);
+          request.messageName(),
+          request.bpmnProcessId(),
+          request.workflowModuleId(),
+          request.workflowAggregateId());
     } catch (final Exception e) {
       if (!isMessageAlreadyPublished(e)) {
         throw e;
@@ -1812,18 +1777,14 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               + "message of the same id was published before, within the message time-to-live - the "
               + "workflow was started already and the entry counts as done",
           adapterId,
-          messageName,
-          workflowAggregateId);
+          request.messageName(),
+          request.workflowAggregateId());
     }
 
   }
 
-  @Override
-  public void startWorkflowPhaseOne(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final A workflowAggregate) {
+  private void preflightStart(
+      final PhaseOneRequest<A> request) {
 
     // the aggregate id was validated (non-null, non-blank) once in the core's
     // MigrationProcessService before phase one is invoked
@@ -1837,22 +1798,18 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     clientFactory.validateConfigured();
 
     log.debug("Validated phase one of starting Camunda 8 workflow '{}' of workflow module '{}' "
-        + "(adapter '{}')", bpmnProcessId, workflowModuleId, adapterId);
+        + "(adapter '{}')", request.bpmnProcessId(), request.workflowModuleId(), adapterId);
 
   }
 
-  @Override
-  public void startWorkflowPhaseTwo(
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final AggregatePersistenceAware<A> aggregatePersistence,
-      final Object workflowAggregateId) {
+  private void startWorkflow(
+      final PhaseTwoRequest<A> request) {
 
     createProcessInstance(
-        scopedProcessId(workflowModuleId, bpmnProcessId),
-        variablesOf(aggregatePersistence, workflowAggregateId),
-        workflowAggregateId,
-        tenantIdOf(workflowModuleId));
+        scopedProcessId(request.workflowModuleId(), request.bpmnProcessId()),
+        variablesOf(request.aggregatePersistence(), request.workflowAggregateId()),
+        request.workflowAggregateId(),
+        tenantIdOf(request.workflowModuleId()));
 
   }
 

@@ -726,15 +726,19 @@ public class Camunda8TaskProcessingIT {
         io.vanillabp.integration.adapter.spi.WorkflowAwareness.UNKNOWN_TO_BPMS,
         c8ProcessService.awarenessOfUserTask(SCOPE, silentAggregateId, "1"));
     org.junit.jupiter.api.Assertions.assertDoesNotThrow(
-        () -> c8ProcessService.completeUserTaskPhaseTwo("test-app", "SilentUserTaskProcess", null,
-            silentAggregateId, "1"));
+        () -> PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.COMPLETE_USER_TASK,
+            "test-app", "SilentUserTaskProcess", null, silentAggregateId,
+            PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID, "1")));
     // gone SERVICE task phase two is equally tolerated
     org.junit.jupiter.api.Assertions.assertDoesNotThrow(
-        () -> c8ProcessService.completeTaskPhaseTwo("test-app", "SilentUserTaskProcess", null,
-            silentAggregateId, "1"));
+        () -> PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.COMPLETE_TASK,
+            "test-app", "SilentUserTaskProcess", null, silentAggregateId,
+            PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID, "1")));
     org.junit.jupiter.api.Assertions.assertDoesNotThrow(
-        () -> c8ProcessService.cancelTaskPhaseTwo("test-app", "SilentUserTaskProcess", null,
-            silentAggregateId, "1", "ERR"));
+        () -> PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CANCEL_TASK,
+            "test-app", "SilentUserTaskProcess", null, silentAggregateId,
+            PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID, "1",
+                io.vanillabp.integration.spi.PhaseTwoCall.ARG_BPMN_ERROR_CODE, "ERR")));
 
     // the silent task exists (found via a real user-task handler on the OTHER
     // process is not necessary - completing the silent task by awareness probing
@@ -790,17 +794,23 @@ public class Camunda8TaskProcessingIT {
     // simulate an at-least-once redelivery of the SAME phase-two dispatch (same
     // correlation id -> same messageId): the second publish is rejected by the
     // engine and tolerated as the documented no-op
-    c8ProcessService.correlateMessagePhaseTwo(
-        "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "pay-1");
-    c8ProcessService.correlateMessagePhaseTwo(
-        "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "pay-1");
+    PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+        "test-app", "MessageProcess", null, aggregateId,
+        PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+            io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "pay-1"));
+    PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+        "test-app", "MessageProcess", null, aggregateId,
+        PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+            io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "pay-1"));
 
     // the correlation id 'pay-1' does not match the injected '=id' subscription -
     // nothing may fire; now correlate properly ONCE and prove single delivery
     Thread.sleep(1000);
     assertEquals(0, invocations("c8MessageArrived", aggregateId));
-    c8ProcessService.correlateMessagePhaseTwo(
-        "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", String.valueOf(aggregateId));
+    PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+        "test-app", "MessageProcess", null, aggregateId,
+        PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+            io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, String.valueOf(aggregateId)));
     awaitUntil(
         () -> invocations("c8MessageArrived", aggregateId) >= 1,
         60000,
@@ -864,12 +874,16 @@ public class Camunda8TaskProcessingIT {
     final var watcher = watchTheAdapter();
     try {
       // two siblings: same message name, same correlation id, different activations
-      c8ProcessService
-          .correlateMessagePhaseTwo(
-              "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "partner-42", "element-1");
-      c8ProcessService
-          .correlateMessagePhaseTwo(
-              "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "partner-42", "element-2");
+      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+          "test-app", "MessageProcess", null, aggregateId,
+          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "partner-42",
+              io.vanillabp.integration.spi.PhaseTwoCall.ARG_ACTIVATION_ID, "element-1"));
+      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+          "test-app", "MessageProcess", null, aggregateId,
+          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "partner-42",
+              io.vanillabp.integration.spi.PhaseTwoCall.ARG_ACTIVATION_ID, "element-2"));
       assertEquals(
           0,
           refusals(watcher),
@@ -878,9 +892,11 @@ public class Camunda8TaskProcessingIT {
 
       // and the guarantee that must not cost: the same activation twice - an
       // at-least-once redelivery of one entry - is still ONE message
-      c8ProcessService
-          .correlateMessagePhaseTwo(
-              "test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "partner-42", "element-1");
+      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+          "test-app", "MessageProcess", null, aggregateId,
+          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "partner-42",
+              io.vanillabp.integration.spi.PhaseTwoCall.ARG_ACTIVATION_ID, "element-1"));
       assertEquals(
           1,
           refusals(watcher),
@@ -917,10 +933,14 @@ public class Camunda8TaskProcessingIT {
 
     final var watcher = watchTheAdapter();
     try {
-      c8ProcessService
-          .correlateMessagePhaseTwo("test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "round-1");
-      c8ProcessService
-          .correlateMessagePhaseTwo("test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "round-1");
+      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+          "test-app", "MessageProcess", null, aggregateId,
+          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "round-1"));
+      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+          "test-app", "MessageProcess", null, aggregateId,
+          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "round-1"));
       assertEquals(1, refusals(watcher), "inside the window the second one is refused: "
           + watcher.list);
 
@@ -931,8 +951,10 @@ public class Camunda8TaskProcessingIT {
       // 75 s after it. That floor is the reason the wiki tells nobody to shorten this
       // number in order to get a short deduplication window - it does not work
       Thread.sleep(SWEEP_TOLERANCE_MILLIS);
-      c8ProcessService
-          .correlateMessagePhaseTwo("test-app", "MessageProcess", null, aggregateId, "C8PaymentReceived", "round-1");
+      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+          "test-app", "MessageProcess", null, aggregateId,
+          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "round-1"));
       assertEquals(
           1,
           refusals(watcher),

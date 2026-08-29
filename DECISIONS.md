@@ -203,3 +203,21 @@ What does grow is the number of versions the cluster holds, one per deployment w
 model, and the questions about older versions grow with it. That is deliberate: those questions are
 what the check is for, and `outfaded-versions` is how an operator says which of them have stopped
 being interesting. `Camunda8StartupQuestionCostTest` counts what a start asks.
+
+### 14. What this adapter does per operation is a handler, not a pair of methods
+
+VanillaBP's adapter SPI used to ask for two methods per outbound operation, and this adapter
+had nineteen of them - the eighteen halves plus the seven-argument correlation overload which
+carried the activation id past a default. It answers a map now: one `PhaseOperationHandler` per
+`PhaseOperation`, and the request of a phase carries the operation's arguments behind named
+accessors, the activation among them. The overload is gone with the pair it belonged to.
+
+What the handlers do is unchanged. The same preflight commands run as pre-commit hooks, the
+same job and user-task commands run after it, and the message id which lets the cluster
+deduplicate a correlation is derived from the same values as before, activation included. Only
+the shape moved.
+
+The map is what states which operations this adapter serves. Everything a Camunda 8 cluster
+cannot answer without a round trip - and there is more of that here than on an embedded engine -
+stays where it was: in the handler, not in the operation, because the operation is the same one
+every adapter serves.
