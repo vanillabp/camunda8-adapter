@@ -41,6 +41,10 @@ public class Camunda8DeploymentServiceProducer {
       final Camunda8ClientFactoryRegistry clientFactoryRegistry,
       final io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry workflowTaskRegistry,
       final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final io.vanillabp.integration.adapter.spi.WorkflowAggregateSync workflowAggregateSync,
+      final io.vanillabp.integration.adapter.spi.PreCommitRegistrar preCommitRegistrar,
+      @jakarta.enterprise.inject.Any final jakarta.enterprise.inject.Instance<io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker> workflowEndedInvoker,
+      @jakarta.enterprise.inject.Any final jakarta.enterprise.inject.Instance<io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker> bpmsInitiatedStartInvoker,
       final jakarta.enterprise.inject.Instance<io.vanillabp.camunda8.observability.Camunda8Metrics> metrics) {
 
     final var overlay = org.eclipse.microprofile.config.ConfigProvider
@@ -63,18 +67,22 @@ public class Camunda8DeploymentServiceProducer {
                   .orElse(io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL)
               : io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
           final var deploymentService = new Camunda8DeploymentService(
-              adapterId, clientFactoryRegistry.getFactory(adapterId), workflowTaskRegistry, workflowTaskRegistry, (
-                  workflowModuleId,
-                  bpmnProcessId,
-                  taskDefinition) -> overlay.jobTimeoutFor(
-                      workflowModuleId, bpmnProcessId, taskDefinition,
-                      adapterId), asyncTaskLockRenewal, id -> clientFactoryRegistry
-                          .getFactory(id)
-                          .getConfiguration(), scoping, (
+              adapterId, clientFactoryRegistry
+                  .getFactory(adapterId), io.vanillabp.integration.runtime.support.AdapterCollaboratorsSupport
+                      .collaborators(
+                          adapterId, workflowTaskRegistry, workflowTaskRegistry, scoping, workflowAggregateSync,
+                          preCommitRegistrar, workflowEndedInvoker, bpmsInitiatedStartInvoker), (
                               workflowModuleId,
                               bpmnProcessId,
-                              taskDefinition) -> overlay.retryBackoffFor(
-                                  workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
+                              taskDefinition) -> overlay.jobTimeoutFor(
+                                  workflowModuleId, bpmnProcessId, taskDefinition,
+                                  adapterId), asyncTaskLockRenewal, id -> clientFactoryRegistry
+                                      .getFactory(id)
+                                      .getConfiguration(), scoping, (
+                                          workflowModuleId,
+                                          bpmnProcessId,
+                                          taskDefinition) -> overlay.retryBackoffFor(
+                                              workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
           // What each worker asks the cluster for, resolvable down to task
           // level
           deploymentService.setFetchVariablesResolver((
@@ -82,8 +90,6 @@ public class Camunda8DeploymentServiceProducer {
               bpmnProcessId,
               taskDefinition) -> overlay.fetchVariablesFor(
                   workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
-          deploymentService.setBpmsInitiatedStartInvoker(workflowTaskRegistry);
-          deploymentService.setWorkflowEndedInvoker(workflowTaskRegistry);
           // The client's job counters and this adapter's execution slots,
           // where the application uses the Micrometer extension
           deploymentService.setMetrics(
