@@ -25,8 +25,20 @@ public class Camunda8ErrorsTest {
   private static ProblemException problem(
       final int status) {
 
+    return problem(status, "reason");
+  }
+
+  /**
+   * A cluster's REST answer, as the client hands it on: the status twice (the HTTP code
+   * and the problem detail's own field) and the rejection's name as the title.
+   */
+  private static ProblemException problem(
+      final int status,
+      final String title) {
+
     final var details = new ProblemDetail();
     details.setStatus(status);
+    details.setTitle(title);
     return new ProblemException(status, "reason", details);
   }
 
@@ -133,6 +145,64 @@ public class Camunda8ErrorsTest {
         Camunda8Errors.repeatableJobCommandFailure(
             new ClientStatusException(io.grpc.Status.RESOURCE_EXHAUSTED, null)));
     assertFalse(Camunda8Errors.repeatableJobCommandFailure(problem(400)));
+
+  }
+
+  @Test
+  @DisplayName("A job which is gone is recognised on both transports, by their codes")
+  public void aGoneJobIsRecognisedOnBothTransports() {
+
+    // what the cluster answers a command addressing a job key it does not hold:
+    // REST 404 with the title of the rejection, gRPC the status of the same name
+    assertTrue(Camunda8Errors.jobAlreadyGone(problem(404, "NOT_FOUND")));
+    assertTrue(
+        Camunda8Errors.jobAlreadyGone(
+            new ClientStatusException(io.grpc.Status.NOT_FOUND, null)));
+    // the words around the code are the cluster's to reword, so they decide nothing
+    assertFalse(Camunda8Errors.jobAlreadyGone(new IllegalStateException("no such job was NOT_FOUND")));
+    assertFalse(Camunda8Errors.jobAlreadyGone(problem(409, "ALREADY_EXISTS")));
+
+  }
+
+  @Test
+  @DisplayName("A message published twice is recognised on both transports, by their codes")
+  public void aRepeatedPublicationIsRecognisedOnBothTransports() {
+
+    // a publication carrying a message id the cluster still remembers is rejected as
+    // ALREADY_EXISTS - which reaches the REST client as HTTP 409 and the gRPC client as
+    // the status of that name. Both transports are in use: which one carries a command
+    // is what 'prefer-rest-over-grpc' decides
+    assertTrue(Camunda8Errors.messageAlreadyPublished(problem(409, "ALREADY_EXISTS")));
+    assertTrue(
+        Camunda8Errors.messageAlreadyPublished(
+            new ClientStatusException(io.grpc.Status.ALREADY_EXISTS, null)));
+    // and the words are not what says so: a reworded rejection keeps its code, while a
+    // failure carrying the word and no code is not a rejection of the cluster at all
+    assertFalse(
+        Camunda8Errors.messageAlreadyPublished(
+            new IllegalStateException("a message with that id has already been published")));
+    assertFalse(Camunda8Errors.messageAlreadyPublished(problem(400, "INVALID_ARGUMENT")));
+    assertFalse(Camunda8Errors.messageAlreadyPublished(null));
+
+  }
+
+  @Test
+  @DisplayName("A refused query-API request is recognised by its status, not by its wording")
+  public void aRefusedSearchIsRecognisedByItsStatus() {
+
+    // every query endpoint of a cluster which cannot be searched answers 403, and the
+    // problem detail says in prose only whether secondary storage is missing or the
+    // credentials fall short - which is why the probe treats both the same
+    assertTrue(Camunda8Errors.queryApiRefused(problem(403, "FORBIDDEN")));
+    assertTrue(
+        Camunda8Errors.queryApiRefused(
+            new IllegalStateException("searching", problem(403, "FORBIDDEN"))));
+    // a cluster which is merely unreachable says nothing about what it offers
+    assertFalse(Camunda8Errors.queryApiRefused(new java.io.IOException("connection refused")));
+    assertFalse(
+        Camunda8Errors.queryApiRefused(
+            new IllegalStateException("This endpoint requires a secondary storage, but none is set")));
+    assertFalse(Camunda8Errors.queryApiRefused(problem(503)));
 
   }
 

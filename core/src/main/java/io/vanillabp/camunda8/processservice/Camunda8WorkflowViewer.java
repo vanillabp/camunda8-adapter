@@ -32,11 +32,11 @@ import lombok.extern.slf4j.Slf4j;
  * <li><b>What this application version deployed</b>
  * ({@link Camunda8DeployedProcesses}) - definitions and BPMN XML are served from
  * the models VanillaBP's deployment pipeline reads at EVERY boot. No cluster
- * round trip, no eventual consistency, works without secondary storage.</li>
- * <li><b>The cluster's query API</b> (secondary storage) - which version a
+ * round trip, no eventual consistency, and no search.</li>
+ * <li><b>The cluster's query API</b> - which version a
  * RUNNING workflow actually uses, the workflow timeline, and definitions deployed
  * by PREVIOUS application versions (a long-running workflow surviving a
- * redeployment). Without secondary storage the adapter degrades honestly: the
+ * redeployment). Where the cluster refuses to be searched the adapter degrades honestly: the
  * definitions of the currently deployed version are reported and the element
  * history is <code>null</code> (the SPI's documented "not supported by the
  * underlying BPMS"), never an error.</li>
@@ -74,10 +74,9 @@ public class Camunda8WorkflowViewer {
   private final java.util.function.UnaryOperator<String> tenantIdOf;
 
   /**
-   * Logged once per adapter: the viewer needs the query API (secondary storage)
-   * for instance-related data.
+   * Logged once per adapter: the viewer needs the query API for instance-related data.
    */
-  private final AtomicBoolean noSecondaryStorageWarned = new AtomicBoolean();
+  private final AtomicBoolean cannotSearchWarned = new AtomicBoolean();
 
   /**
    * The process definitions of the addressed (sub-)workflow.
@@ -461,7 +460,7 @@ public class Camunda8WorkflowViewer {
           .findFirst()
           .orElse(null);
     } catch (final Exception e) {
-      warnNoSecondaryStorage(e, "process instances");
+      warnTheClusterCannotBeSearched(e, "process instances");
       return null;
     }
 
@@ -486,7 +485,7 @@ public class Camunda8WorkflowViewer {
           .join()
           .items();
     } catch (final Exception e) {
-      warnNoSecondaryStorage(e, "element instances");
+      warnTheClusterCannotBeSearched(e, "element instances");
       return null;
     }
 
@@ -539,19 +538,20 @@ public class Camunda8WorkflowViewer {
 
   }
 
-  private void warnNoSecondaryStorage(
+  private void warnTheClusterCannotBeSearched(
       final Exception exception,
       final String subject) {
 
-    if (noSecondaryStorageWarned.compareAndSet(false, true)) {
+    if (cannotSearchWarned.compareAndSet(false, true)) {
       log.warn(
-          "Camunda8[{}]: the viewer/history API could not query {} - if the cluster runs WITHOUT "
-              + "secondary storage, process definitions are served from what this application "
+          "Camunda8[{}]: the viewer/history API could not query {} - where the cluster refuses to "
+              + "be searched ({}), process definitions are served from what this application "
               + "version deployed and the element history stays unavailable (reported as 'no "
-              + "history', never as an error). Configure the query API (secondary storage) for "
-              + "the full viewer experience.",
+              + "history', never as an error). Make the query API answer for the full viewer "
+              + "experience.",
           adapterId,
           subject,
+          io.vanillabp.camunda8.client.Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED,
           exception);
     } else {
       log.debug(

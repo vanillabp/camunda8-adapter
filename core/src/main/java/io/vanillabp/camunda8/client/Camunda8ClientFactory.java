@@ -60,6 +60,15 @@ public class Camunda8ClientFactory implements AutoCloseable {
   @Getter
   private final io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses deployedProcesses = new io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses();
 
+  /**
+   * Whether this adapter's cluster can be searched, asked once and remembered - here for
+   * the same reason as the record above: deployment service, process service, version
+   * catalog and viewer all ask it, and all of them already receive the factory per
+   * adapter id.
+   */
+  @Getter
+  private final Camunda8QueryApi queryApi;
+
   private CamundaClient client;
 
   public Camunda8ClientFactory(
@@ -68,6 +77,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
     this.adapterId = adapterId;
     this.configuration = configuration;
+    this.queryApi = new Camunda8QueryApi(adapterId, this::getClient);
     // how this adapter runs what it delivers - resolved before anything is built, so an
     // unusable number fails the boot with a guiding message instead of being inherited
     this.executionModel = configuration.executionModel(adapterId);

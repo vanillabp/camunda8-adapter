@@ -192,7 +192,7 @@ public class Camunda8StartupQuestionCostTest {
     });
 
     versions = new Camunda8ProcessVersions(
-        "c8", () -> client, (
+        "c8", () -> client, new io.vanillabp.camunda8.client.Camunda8QueryApi("c8", () -> client), (
             workflowModuleId,
             bpmnProcessId) -> bpmnProcessId, workflowModuleId -> null);
     versions.setTasksOfModel((

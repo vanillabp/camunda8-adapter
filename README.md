@@ -884,9 +884,10 @@ default; a redelivery after the TTL could correlate again - the documented
 uniqueness window). WITHOUT one, deduplication is deliberately absent.
 `startWorkflowByMessage` publishes with an empty correlation key, the start's
 idempotency key as `messageId` and ONLY the aggregate-ID variable.
-`awarenessOfWorkflow` uses the process-instance search (query API): without
-secondary storage the adapter answers OPTIMISTICALLY (one-time guiding WARN) -
-fine for single-BPMS setups, configure secondary storage for migration scenarios.
+`awarenessOfWorkflow` uses the process-instance search (query API): where the
+cluster refuses to be searched the adapter answers OPTIMISTICALLY (one-time
+guiding WARN) - fine for single-BPMS setups, and a guess in migration scenarios,
+see [What needs a cluster which can be searched](#what-needs-a-cluster-which-can-be-searched).
 
 ### What a worker fetches
 
@@ -1241,11 +1242,12 @@ What this adapter does not deliver, mirrored in one sentence each on the wiki's
 page. The two-phase start and the at-least-once dispatch are not among them: that is what a
 remote BPMS looks like in VanillaBP, see [Behavior](#behavior).
 
-### What needs secondary storage
+### What needs a cluster which can be searched
 
 Finding a workflow by its aggregate's ID is a query-API search
-(`newProcessInstanceSearchRequest` filtered by the aggregate-ID variable), and the query API
-exists only on a cluster WITH secondary storage. Four capabilities depend on it:
+(`newProcessInstanceSearchRequest` filtered by the aggregate-ID variable), and a cluster
+refuses every query endpoint where it was started without secondary storage. Four
+capabilities depend on it:
 
 1. `awarenessOfWorkflow`, the BPMS-election probe, which also carries `completeTask`,
    `cancelTask`, the user-task operations, message correlation, `aggregateChanged` and the
@@ -1265,6 +1267,22 @@ The redispatch probe of a start (`awarenessOfWorkflowForRedispatch`) is the deli
 exception: it answers "unknown" rather than optimistically, because an optimistic answer
 would skip the start and thereby LOSE the workflow, see
 [Idempotency limitation](#idempotency-limitation).
+
+**How the adapter knows.** It asks once, in `startWorkflowProcessing`, with a search of one
+page holding one item, and remembers the answer per adapter id (`Camunda8QueryApi`). Every
+later failure of a search is read against that answer rather than examined itself: on a
+cluster which can be searched a failing search is an outage and the probe reports
+`BPMS_UNAVAILABLE`, on a cluster which refuses it is the missing capability and the four
+degradations above apply. A cluster which is merely unreachable while the probe runs is not
+declared incapable, so the answer stays open and the next question asks again.
+
+A refusal is an HTTP `403`, and that code covers two cases the cluster separates in prose
+only: no secondary storage, or credentials which are not allowed to read. Both are permanent
+and cost the adapter the same thing, so every message about this state names both instead of
+picking the likelier one. Reading the prose was how the adapter used to decide, and a
+reworded message would have turned "this cluster cannot tell" into "this cluster is down",
+after which every operation of the adapter fails after a second instead of proceeding, see
+decision 16 in [`DECISIONS.md`](./DECISIONS.md).
 
 ### Eventual consistency of the query API
 
@@ -1358,6 +1376,12 @@ correlation id per round or element is the only way around it. The adapter logs 
 naming both possibilities, because from here a repeated dispatch and a lost second correlation
 look the same; the entry counts as done either way, since repeating the publish would be refused
 again.
+
+A refusal is recognised by the code its transport carries, never by the sentence around it:
+HTTP `409` on REST, the gRPC status `ALREADY_EXISTS` on gRPC, and which of the two carries a
+publication is what `prefer-rest-over-grpc` decides per adapter id. No other conflict reaches
+a publication, so the code settles it on its own and a cluster rewording its rejection changes
+nothing, see decision 16 in [`DECISIONS.md`](./DECISIONS.md).
 
 ## What an operator gets to see
 

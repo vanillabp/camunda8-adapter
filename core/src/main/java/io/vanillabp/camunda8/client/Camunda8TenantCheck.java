@@ -135,6 +135,20 @@ public final class Camunda8TenantCheck {
 
   }
 
+  /**
+   * Whether the cluster refused BECAUSE multi-tenancy is switched off there.
+   * <p>
+   * The only place in this adapter where a cluster's wording decides anything, and it
+   * decides which of two guiding messages a developer reads rather than what the adapter
+   * does. No code separates the two cases: the cluster answers every rejected argument
+   * with the same HTTP 400, and a request naming a tenant on a cluster without
+   * multi-tenancy is a rejected argument like any other. A reworded message therefore
+   * costs the sharper of two sentences and nothing else - the caller has already made
+   * sure an RFC 7807 answer of the cluster is what is being read.
+   *
+   * @param throwable What the tenant request failed with
+   * @return Whether the cluster named multi-tenancy as the reason
+   */
   private static boolean mentionsMultiTenancy(
       final Throwable throwable) {
 

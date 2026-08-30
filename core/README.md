@@ -173,10 +173,13 @@ The ONE deliberate gap is `cancelUserTask`, which Camunda 8.8 offers no command 
 throws a guiding `UnsupportedOperationException` instead of pretending to work (expected
 to arrive with the 8.10 listener support). The election awareness probes are
 implemented: `awarenessOfTask` (job-timeout refresh), `awarenessOfUserTask` (empty
-user-task update), `awarenessOfWorkflow` (instance search; optimistic ACTIVE without
-secondary storage) and the stricter `awarenessOfWorkflowForRedispatch` (instance
-search without state filter; honest UNKNOWN without secondary storage - never
-optimistic, see the root README's idempotency section).
+user-task update), `awarenessOfWorkflow` (instance search; optimistic ACTIVE where the
+cluster refuses to be searched) and the stricter `awarenessOfWorkflowForRedispatch`
+(instance search without state filter; honest UNKNOWN on such a cluster - never
+optimistic, see the root README's idempotency section). Whether the cluster can be
+searched is asked once at `startWorkflowProcessing` and remembered per adapter id
+(`Camunda8QueryApi`), so a search failing later is an outage rather than a missing
+feature.
 
 ## BPMN model type
 

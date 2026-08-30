@@ -240,3 +240,36 @@ turning it off: a deleted definition is not a state anybody wants to hear about.
 The filter arrived in `camunda-client-java` 8.8.33, and by decision 11 the client an artifact was
 built against is the lowest cluster version it accepts, so every supported line has it. A fallback
 path for clusters without the filter would therefore be dead code and is not to be added.
+
+### 16. What the cluster did is read from its codes, not from the words around them
+
+Two answers of the cluster change what this adapter does with an operation: a publication
+refused because a message of that id still lives, and a query endpoint refused because this
+cluster cannot be searched. Both used to be recognised by looking for a phrase in the
+exception's message, and every one of those phrases is the cluster's to reword in any patch
+release. A rewording would have turned a harmless duplicate into an outbox entry which is
+repeated and then blocked, and it would have turned "this cluster cannot tell" into "this
+cluster is down", after which every operation of the adapter fails after a second instead of
+proceeding.
+
+Every classification therefore reads a code. A publication the cluster already knows is HTTP
+`409` on REST and the status `ALREADY_EXISTS` on gRPC, a job which is gone is `404`
+respectively `NOT_FOUND`, and both transports matter because `prefer-rest-over-grpc` decides
+per adapter id which one carries a command.
+
+The query API is the case where a code does not suffice: a cluster refuses a search with HTTP
+`403` whether it holds no secondary storage or whether the adapter's credentials are not
+allowed to read, and it separates the two in prose only. So the question is not asked per
+failure at all. The adapter asks it once, while it starts processing a workflow module, with a
+search whose only purpose is that answer, and remembers it per adapter id
+(`Camunda8QueryApi`). Every later failure of a search is read against the remembered answer:
+on a cluster which can be searched it is an outage and the probe reports `BPMS_UNAVAILABLE`,
+on a cluster which refuses it is the missing capability and the probe answers optimistically.
+Both reasons for a refusal are permanent and cost the adapter the same thing, so the messages
+naming this state name both rather than guessing which one it was.
+
+One place keeps reading a wording, and it decides nothing the adapter does: a tenant request
+which fails because the cluster has multi-tenancy switched off is answered with the same
+`400` as any other rejected argument, so `Camunda8TenantCheck` picks the sharper of two
+guiding messages by what the cluster wrote. A rewording costs the sharper sentence there and
+nothing else.
