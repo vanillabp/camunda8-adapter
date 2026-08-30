@@ -223,6 +223,25 @@ public class Camunda8SecondaryStorageIT {
   }
 
   @Test
+  @DisplayName("the viewer RIGHT AFTER the start works - a read waits out the query API's lag too")
+  public void theViewerRightAfterTheStartWorks() {
+
+    // again deliberately NO awaitUntil(queryApiKnows(...)): a viewer opened by the
+    // application which just started the workflow is as everyday as the correlation
+    // above, and unlike it there is no outbox entry behind the call which could ask
+    // again later - the read waits for the exporter or the application sees an error
+    final var aggregateId = transactionTemplate
+        .execute(status -> workflowService.startWorkflow().getLoanRequestId());
+    assertNotNull(aggregateId);
+
+    final var history = transactionTemplate.execute(status -> workflowService.historyOf(aggregateId));
+
+    assertNotNull(history, "the history of a workflow started moments ago is served, not refused");
+    assertNotNull(history.startTime(), "the workflow is running, so it has a start time");
+
+  }
+
+  @Test
   @DisplayName("an ENDED workflow is still served - it is completed, not unknown")
   public void anEndedWorkflowIsStillServed() throws Exception {
 
