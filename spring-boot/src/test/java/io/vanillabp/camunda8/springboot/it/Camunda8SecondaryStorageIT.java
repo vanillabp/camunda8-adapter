@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
@@ -24,6 +26,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import io.camunda.client.CamundaClient;
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -105,10 +109,10 @@ public class Camunda8SecondaryStorageIT {
   private TransactionTemplate transactionTemplate;
 
   @Autowired
-  private io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry clientFactoryRegistry;
+  private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   @Autowired
-  private java.util.List<io.vanillabp.integration.adapter.spi.MigratableProcessService<?>> processServices;
+  private List<MigratableProcessService<?>> processServices;
 
   @Test
   @DisplayName("With secondary storage the adapter reports that it can locate workflows")
@@ -159,7 +163,7 @@ public class Camunda8SecondaryStorageIT {
 
     return !client()
         .newProcessInstanceSearchRequest()
-        .filter(filter -> filter.variables(java.util.Map.of("loanRequestId", "\"%s\"".formatted(aggregateId))))
+        .filter(filter -> filter.variables(Map.of("loanRequestId", "\"%s\"".formatted(aggregateId))))
         .send()
         .join()
         .items()

@@ -3,24 +3,58 @@ package io.vanillabp.camunda8.deployment;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 import io.camunda.client.api.command.DeployResourceCommandStep1;
 import io.camunda.client.api.command.DeployResourceCommandStep1.DeployResourceCommandStep2;
+import io.camunda.client.api.worker.JobWorker;
+import io.camunda.client.api.worker.JobWorkerBuilderStep1;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.Process;
+import io.vanillabp.camunda8.Camunda8Adapter;
 import io.vanillabp.camunda8.Camunda8ProcessingContext;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.camunda8.client.Camunda8Drain;
+import io.vanillabp.camunda8.client.Camunda8InstanceIdentity;
+import io.vanillabp.camunda8.client.Camunda8QueryApi;
+import io.vanillabp.camunda8.client.Camunda8TenantCheck;
+import io.vanillabp.camunda8.health.Camunda8Health;
+import io.vanillabp.camunda8.observability.Camunda8Metrics;
+import io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler;
+import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
+import io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver;
 import io.vanillabp.camunda8.wiring.Camunda8JobHandler;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8MultiInstance;
+import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
+import io.vanillabp.camunda8.wiring.Camunda8Scoping;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
+import io.vanillabp.camunda8.wiring.Camunda8UserTaskListenerHandler;
+import io.vanillabp.camunda8.wiring.Camunda8WorkflowEndedHandler;
+import io.vanillabp.integration.adapter.spi.AdapterCollaborators;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.AdapterPlatformVersion;
 import io.vanillabp.integration.adapter.spi.BpmnParseException;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+import io.vanillabp.integration.adapter.spi.health.AdapterHealth;
+import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker;
+import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker;
+import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartSpec;
+import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
+import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring;
 import lombok.extern.slf4j.Slf4j;
 
@@ -48,7 +82,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * The adapter type of the Camunda 8 adapter. Constant across all instances; the
    * adapter ID (see {@link #getAdapterId()}) distinguishes instances.
    */
-  public static final String ADAPTER_TYPE = io.vanillabp.camunda8.Camunda8Adapter.ADAPTER_TYPE;
+  public static final String ADAPTER_TYPE = Camunda8Adapter.ADAPTER_TYPE;
 
   private final String adapterId;
 
@@ -60,10 +94,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    */
   /**
    * Everything the platform hands over. An adapter which is registered incompletely does
-   * not come into existence (see
-   * {@link io.vanillabp.integration.adapter.spi.AdapterCollaborators}).
+   * not come into existence (see {@link AdapterCollaborators}).
    */
-  private final io.vanillabp.integration.adapter.spi.AdapterCollaborators collaborators;
+  private final AdapterCollaborators collaborators;
 
   private final WorkflowTaskWiring workflowTaskWiring;
 
@@ -72,27 +105,27 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * workers at {@code startWorkflowProcessing}, and those hand every delivery to the
    * core - so it holds both halves and passes this one on.
    */
-  private final io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker workflowTaskInvoker;
+  private final WorkflowTaskInvoker workflowTaskInvoker;
 
   /**
    * What this adapter knows about the multi-instance elements of the processes it
    * deployed. Filled while wiring a model, read while dispatching a job - a job
    * carries the ID of its own element and nothing about the iterations enclosing it.
    */
-  private final io.vanillabp.camunda8.wiring.Camunda8MultiInstance.Registry multiInstanceRegistry = new io.vanillabp.camunda8.wiring.Camunda8MultiInstance.Registry();
+  private final Camunda8MultiInstance.Registry multiInstanceRegistry = new Camunda8MultiInstance.Registry();
 
   /**
    * The core's entry point for workflows the cluster starts on its own:
    * the start events of a process are reported here while wiring, and the start
    * execution-listener workers dispatch through it. May be <code>null</code> (tests).
    */
-  private final io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker;
+  private final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker;
 
   /**
    * The core's entry point for workflows which ended. May be
    * <code>null</code> (tests) - no end listener is attached then.
    */
-  private final io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker workflowEndedInvoker;
+  private final WorkflowEndedInvoker workflowEndedInvoker;
 
   /**
    * Whether a worker asks the cluster for the variables this adapter derived or for all
@@ -100,7 +133,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * through the constructor, whose parameter list is long enough; <code>null</code>
    * (tests) means the default, which is the derived list.
    */
-  private io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver fetchVariablesResolver;
+  private Camunda8FetchVariablesResolver fetchVariablesResolver;
 
   /**
    * Hands over how <code>fetch-variables</code> resolves for this adapter instance.
@@ -108,7 +141,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * @param fetchVariablesResolver The resolver, or <code>null</code> for the default
    */
   public void setFetchVariablesResolver(
-      final io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver fetchVariablesResolver) {
+      final Camunda8FetchVariablesResolver fetchVariablesResolver) {
 
     this.fetchVariablesResolver = fetchVariablesResolver;
 
@@ -118,10 +151,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * What this adapter instance measures on top of what the core measures.
    * Handed in by the platform module after construction, because it exists once per
    * application while deployment services exist per adapter id;
-   * {@link io.vanillabp.camunda8.observability.Camunda8Metrics#NONE} for an application
-   * without a metrics backend.
+   * {@link Camunda8Metrics#NONE} for an application without a metrics backend.
    */
-  private io.vanillabp.camunda8.observability.Camunda8Metrics metrics = io.vanillabp.camunda8.observability.Camunda8Metrics.NONE;
+  private Camunda8Metrics metrics = Camunda8Metrics.NONE;
 
   /**
    * Hands over what to measure into, and registers the execution slots of this adapter
@@ -131,10 +163,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * @param metrics What to measure into, never <code>null</code>
    */
   public void setMetrics(
-      final io.vanillabp.camunda8.observability.Camunda8Metrics metrics) {
+      final Camunda8Metrics metrics) {
 
     this.metrics = metrics == null
-        ? io.vanillabp.camunda8.observability.Camunda8Metrics.NONE
+        ? Camunda8Metrics.NONE
         : metrics;
     registerExecutionSlots();
 
@@ -166,9 +198,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   @Override
-  public io.vanillabp.integration.adapter.spi.health.AdapterHealth checkHealth() {
+  public AdapterHealth checkHealth() {
 
-    return io.vanillabp.camunda8.health.Camunda8Health.check(adapterId, clientFactory);
+    return Camunda8Health.check(adapterId, clientFactory);
 
   }
 
@@ -181,14 +213,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    *
    * @return The action, never <code>null</code>
    */
-  private io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction() {
+  private Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction() {
 
     if (configurations == null) {
-      return io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.REPORT;
+      return Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.REPORT;
     }
     final var configuration = configurations.apply(adapterId);
     return (configuration == null) || (configuration.getAsyncTaskMaxAgeAction() == null)
-        ? io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.REPORT
+        ? Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.REPORT
         : configuration.getAsyncTaskMaxAgeAction();
 
   }
@@ -204,11 +236,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private Duration shutdownGrace() {
 
     if (configurations == null) {
-      return io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_SHUTDOWN_GRACE;
+      return Camunda8AdapterConfiguration.DEFAULT_SHUTDOWN_GRACE;
     }
     final var configuration = configurations.apply(adapterId);
     return configuration == null
-        ? io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_SHUTDOWN_GRACE
+        ? Camunda8AdapterConfiguration.DEFAULT_SHUTDOWN_GRACE
         : configuration.resolvedShutdownGrace();
 
   }
@@ -218,18 +250,18 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * going down. One per workflow module: stopping one module must not make the
    * handlers of another one believe they were cut off.
    */
-  private final Map<String, io.vanillabp.camunda8.client.Camunda8Drain> drains = new java.util.concurrent.ConcurrentHashMap<>();
+  private final Map<String, Camunda8Drain> drains = new ConcurrentHashMap<>();
 
   /**
    * @param workflowModuleId The workflow module
    * @return The drain of that module, created on first use
    */
-  io.vanillabp.camunda8.client.Camunda8Drain drainOf(
+  Camunda8Drain drainOf(
       final String workflowModuleId) {
 
     return drains.computeIfAbsent(
         workflowModuleId,
-        moduleId -> new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, moduleId));
+        moduleId -> new Camunda8Drain(adapterId, moduleId));
 
   }
 
@@ -243,10 +275,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * @param workflowModuleId The workflow module
    * @return The fresh drain the new workers register their deliveries in
    */
-  private io.vanillabp.camunda8.client.Camunda8Drain freshDrainOf(
+  private Camunda8Drain freshDrainOf(
       final String workflowModuleId) {
 
-    final var drain = new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId);
+    final var drain = new Camunda8Drain(adapterId, workflowModuleId);
     drains.put(workflowModuleId, drain);
     return drain;
 
@@ -265,7 +297,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * the processes one worker serves. May be <code>null</code> (tests): the default of ten
    * seconds applies then.
    */
-  private final io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver retryBackoffResolver;
+  private final Camunda8RetryBackoffResolver retryBackoffResolver;
 
   /**
    * The window the lock of a job left open by a {@code @TaskId} handler is renewed in
@@ -278,7 +310,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * {@link #validateDistinctAdapterInstances(List)}. May be <code>null</code>
    * (tests): the check is skipped then.
    */
-  private final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations;
+  private final Function<String, Camunda8AdapterConfiguration> configurations;
 
   /**
    * The core's name-clash-avoidance model: decides whether a workflow
@@ -287,13 +319,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * tenant licenses avoidable) or not at all ({@code none}, this adapter's default).
    * May be <code>null</code> (tests): nothing is scoped then.
    */
-  private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
+  private final NameClashAvoidanceSupport scoping;
 
   /**
    * The tenants already verified against the cluster - asked once per tenant, not once
    * per workflow module (several modules may share a configured tenant).
    */
-  private final java.util.Set<String> verifiedTenants = java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private final Set<String> verifiedTenants = ConcurrentHashMap.newKeySet();
 
   /**
    * Whether the configured tenant was already checked against the mode (once per adapter
@@ -308,7 +340,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final io.vanillabp.integration.adapter.spi.AdapterCollaborators collaborators,
+      final AdapterCollaborators collaborators,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal) {
 
@@ -322,10 +354,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final io.vanillabp.integration.adapter.spi.AdapterCollaborators collaborators,
+      final AdapterCollaborators collaborators,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal,
-      final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations) {
+      final Function<String, Camunda8AdapterConfiguration> configurations) {
 
     this(adapterId, clientFactory, collaborators, jobTimeoutResolver, asyncTaskLockRenewal, configurations, null);
 
@@ -334,11 +366,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final io.vanillabp.integration.adapter.spi.AdapterCollaborators collaborators,
+      final AdapterCollaborators collaborators,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal,
-      final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+      final Function<String, Camunda8AdapterConfiguration> configurations,
+      final NameClashAvoidanceSupport scoping) {
 
     this(adapterId, clientFactory, collaborators, jobTimeoutResolver, asyncTaskLockRenewal, configurations, scoping, null);
 
@@ -347,12 +379,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   public Camunda8DeploymentService(
       final String adapterId,
       final Camunda8ClientFactory clientFactory,
-      final io.vanillabp.integration.adapter.spi.AdapterCollaborators collaborators,
+      final AdapterCollaborators collaborators,
       final Camunda8JobTimeoutResolver jobTimeoutResolver,
       final Duration asyncTaskLockRenewal,
-      final java.util.function.Function<String, io.vanillabp.camunda8.client.Camunda8AdapterConfiguration> configurations,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
-      final io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver retryBackoffResolver) {
+      final Function<String, Camunda8AdapterConfiguration> configurations,
+      final NameClashAvoidanceSupport scoping,
+      final Camunda8RetryBackoffResolver retryBackoffResolver) {
 
     this.retryBackoffResolver = retryBackoffResolver;
 
@@ -469,7 +501,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     }
     scoping.validateNoneNameClashStrategy(
         adapterId,
-        io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.propertyKey(adapterId, "tenant-id"));
+        Camunda8AdapterConfiguration.propertyKey(adapterId, "tenant-id"));
 
   }
 
@@ -485,7 +517,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private String tenantIdOf(
       final String workflowModuleId) {
 
-    return io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
+    return Camunda8Scoping.tenantIdFor(
         scoping, workflowModuleId, adapterId, clientFactory
             .getConfiguration()
             .getTenantId());
@@ -495,13 +527,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   /**
    * Two <code>camunda8</code> adapter ids are only distinct if they address
    * different clusters - or one cluster with different credentials/tenants (see
-   * {@link io.vanillabp.camunda8.client.Camunda8InstanceIdentity}).
+   * {@link Camunda8InstanceIdentity}).
    */
   @Override
   public void validateDistinctAdapterInstances(
       final List<String> adapterIdsOfThisType) {
 
-    io.vanillabp.camunda8.client.Camunda8InstanceIdentity
+    Camunda8InstanceIdentity
         .validateDistinct(adapterIdsOfThisType, configurations, scoping);
 
   }
@@ -516,7 +548,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * <b>What it asks of the cluster.</b> A tenant id other than {@code <default>} needs
    * multi-tenancy enabled, and the tenant has to exist: a cluster started from the
    * stock image answers a deploy command carrying one with "multi-tenancy is
-   * disabled". {@link io.vanillabp.camunda8.client.Camunda8TenantCheck} turns that into
+   * disabled". {@link Camunda8TenantCheck} turns that into
    * a boot failure naming the properties leading out, which is the point: the
    * alternative would be a default which quietly deploys every workflow module into
    * the {@code <default>} tenant, and that is not a weaker isolation but none at all -
@@ -529,9 +561,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * which was the defect; {@code Camunda8DeploymentServiceTest} holds it now.
    */
   @Override
-  public io.vanillabp.integration.adapter.spi.NameClashAvoidance defaultNameClashAvoidance() {
+  public NameClashAvoidance defaultNameClashAvoidance() {
 
-    return io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER;
+    return NameClashAvoidance.BY_ADAPTER;
 
   }
 
@@ -557,7 +589,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               + "'{}'",
           adapterId,
           workflowModuleId,
-          io.vanillabp.camunda8.client.Camunda8AdapterConfiguration
+          Camunda8AdapterConfiguration
               .propertyKey(adapterId, "accept-unscoped-identifiers"));
       return;
     }
@@ -669,7 +701,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .getResources()
         .containsKey(filename);
     if (!modelAlreadyScoped) {
-      io.vanillabp.camunda8.wiring.Camunda8Scoping.apply(model, workflowModuleId, adapterId, scoping);
+      Camunda8Scoping.apply(model, workflowModuleId, adapterId, scoping);
     }
     context.addResource(filename, model);
     context.recordDeployedProcess(bpmnProcessId);
@@ -698,15 +730,15 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // listeners are ADDED TO THE MODEL here (wireBpmn is the BPMN-modification
     // stage of the pipeline) - the modified model is what deployResources deploys
     final var userTasks = Camunda8TaskWiring.userTasksOf(model, scopedBpmnProcessId, workflowModuleId, filename);
-    final var specs = new java.util.ArrayList<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec>();
+    final var specs = new ArrayList<BpmnTaskSpec>();
     tasks
         .stream()
-        .map(task -> new io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec(
+        .map(task -> new BpmnTaskSpec(
             task.activityId(), plainTaskDefinition(workflowModuleId, bpmnProcessId, task.taskDefinition())))
         .forEach(specs::add);
     userTasks
         .stream()
-        .map(userTask -> io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec.userTask(
+        .map(userTask -> BpmnTaskSpec.userTask(
             userTask.activityId(),
             plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
@@ -735,7 +767,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         workflowModuleId,
         bpmnProcessId,
         scopedBpmnProcessId,
-        io.vanillabp.camunda8.wiring.Camunda8TaskWiring.legacyUserTaskIdsOf(model, scopedBpmnProcessId));
+        Camunda8TaskWiring.legacyUserTaskIdsOf(model, scopedBpmnProcessId));
 
     // message correlation: inject the correlation-key expression
     // '=<aggregate-ID variable>' into message subscriptions lacking one - the V2
@@ -748,7 +780,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // multi-instance: the input mappings which make the element, the index
     // and the total of every iteration readable from a job are ADDED TO THE MODEL
     // here, and which iterations enclose which element is remembered for dispatch
-    io.vanillabp.camunda8.wiring.Camunda8MultiInstance
+    Camunda8MultiInstance
         .wire(model, scopedBpmnProcessId, multiInstanceRegistry);
     context.getTasksToWire().addAll(tasks);
     context.getUserTasksToWire().addAll(userTasks);
@@ -767,7 +799,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               bpmnProcessId,
               bpmsInitiatedStarts
                   .stream()
-                  .map(startEvent -> new io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartSpec(
+                  .map(startEvent -> new BpmsInitiatedStartSpec(
                       startEvent.startEventId(), startEvent.kind(), startEvent.signalName(), null))
                   .toList());
       context.getBpmsInitiatedStartsToWire().addAll(bpmsInitiatedStarts);
@@ -816,7 +848,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final String bpmnProcessId,
       final String scopedBpmnProcessId,
-      final java.util.List<String> elementIds) {
+      final List<String> elementIds) {
 
     if (elementIds.isEmpty()) {
       return;
@@ -894,24 +926,24 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * @param model The model of that version
    * @return The tasks of that model
    */
-  private java.util.Collection<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec> taskSpecsOf(
+  private Collection<BpmnTaskSpec> taskSpecsOf(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String version,
       final BpmnModelInstance model) {
 
     final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
-    final var specs = new java.util.ArrayList<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec>();
+    final var specs = new ArrayList<BpmnTaskSpec>();
     Camunda8TaskWiring
         .tasksOf(model, scopedBpmnProcessId)
         .stream()
-        .map(task -> new io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec(
+        .map(task -> new BpmnTaskSpec(
             task.activityId(), plainTaskDefinition(workflowModuleId, bpmnProcessId, task.taskDefinition())))
         .forEach(specs::add);
     Camunda8TaskWiring
         .userTasksOf(model, scopedBpmnProcessId, workflowModuleId, "version %s".formatted(version))
         .stream()
-        .map(userTask -> io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec.userTask(
+        .map(userTask -> BpmnTaskSpec.userTask(
             userTask.activityId(),
             plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
@@ -956,7 +988,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       // asking beforehand turns the cluster's "multi-tenancy is disabled" respectively an
       // unknown tenant into a message naming the property to change (GAPS G2)
       if (verifiedTenants.add(tenantId)) {
-        io.vanillabp.camunda8.client.Camunda8TenantCheck
+        Camunda8TenantCheck
             .requireUsableTenant(adapterId, workflowModuleId, tenantId, client);
       }
       command = command.tenantId(tenantId);
@@ -968,7 +1000,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           bpmsProcessingContext
               .getDeployedProcessIds()
               .stream()
-              .map(processId -> new io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.DeployedProcess(
+              .map(processId -> new NameClashAvoidanceSupport.DeployedProcess(
                   workflowModuleId, processId))
               .toList());
     }
@@ -1045,7 +1077,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   /**
    * Whether the check below already ran for this adapter id.
    */
-  private final java.util.concurrent.atomic.AtomicBoolean sharedClusterChecked = new java.util.concurrent.atomic.AtomicBoolean();
+  private final AtomicBoolean sharedClusterChecked = new AtomicBoolean();
 
   /**
    * Ends the boot where two <code>camunda8</code> adapter ids address one cluster whose
@@ -1083,7 +1115,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             .formatted(
                 adapterId,
                 String.join("', '", clientFactory.getAdapterIdsSharingTheCluster()),
-                io.vanillabp.camunda8.client.Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED));
+                Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED));
 
   }
 
@@ -1097,8 +1129,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * @param builder The worker builder
    * @return The same builder
    */
-  io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 applyWorkerOptions(
-      final io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder,
+  JobWorkerBuilderStep1.JobWorkerBuilderStep3 applyWorkerOptions(
+      final JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder,
       final String jobType) {
 
     // the client's own counters: it activates and hands over jobs long before
@@ -1210,32 +1242,32 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    *          element id, plain task definition or <code>null</code>)
    * @return The selection, never <code>null</code>
    */
-  io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection fetchVariablesOf(
+  Camunda8FetchVariables.Selection fetchVariablesOf(
       final String workflowModuleId,
       final List<ServedElement> served) {
 
-    final var variables = new java.util.TreeSet<String>();
+    final var variables = new TreeSet<String>();
     for (final var element : served) {
       final var plainBpmnProcessId = plainProcessId(workflowModuleId, element.scopedBpmnProcessId());
-      final var mode = io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver
+      final var mode = Camunda8FetchVariablesResolver
           .resolve(fetchVariablesResolver, workflowModuleId, plainBpmnProcessId, element.taskDefinition());
-      if (mode == io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.ALL) {
+      if (mode == Camunda8FetchVariables.Mode.ALL) {
         // one worker serves a job type, so the two values cannot both apply - and
         // fetching more than derived is never wrong, only more expensive
-        return io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection.everything();
+        return Camunda8FetchVariables.Selection.everything();
       }
       final var aggregateIdName = aggregateIdNameOf(workflowModuleId, plainBpmnProcessId);
       if (aggregateIdName == null) {
-        return io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection.everything();
+        return Camunda8FetchVariables.Selection.everything();
       }
       if (element.elementId() == null) {
         // the workflow-end listener: it reports a process rather than an element, and a
         // @WorkflowEnded method cannot declare a @TaskParam at all (the core rejects one),
         // so the aggregate's id is the complete answer here
-        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.collect(variables, aggregateIdName, List.of());
+        Camunda8FetchVariables.collect(variables, aggregateIdName, List.of());
         continue;
       }
-      io.vanillabp.camunda8.wiring.Camunda8FetchVariables.collect(
+      Camunda8FetchVariables.collect(
           variables,
           aggregateIdName,
           multiInstanceRegistry.chainOf(element.scopedBpmnProcessId(), element.elementId()));
@@ -1247,7 +1279,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               workflowTaskWiring
                   .taskParameterNames(workflowModuleId, plainBpmnProcessId, element.taskDefinition()));
     }
-    return io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection.of(variables);
+    return Camunda8FetchVariables.Selection.of(variables);
 
   }
 
@@ -1279,12 +1311,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * @param selection What the worker asks for
    * @return The same builder
    */
-  io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 applyFetchVariables(
-      final io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder,
+  JobWorkerBuilderStep1.JobWorkerBuilderStep3 applyFetchVariables(
+      final JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder,
       final String workflowModuleId,
       final String kind,
       final String jobType,
-      final io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection selection) {
+      final Camunda8FetchVariables.Selection selection) {
 
     log.debug(
         "Camunda8[{}]: the {} worker '{}' of workflow module '{}' fetches {}",
@@ -1340,7 +1372,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               plainBpmnProcessId,
               task.taskDefinition());
           servedByJobType
-              .computeIfAbsent(task.taskDefinition(), key -> new java.util.LinkedList<>())
+              .computeIfAbsent(task.taskDefinition(), key -> new LinkedList<>())
               .add(new ServedElement(task.bpmnProcessId(), task.activityId(), plainTaskDefinition));
           final var timeout = jobTimeoutResolver.jobTimeoutFor(
               workflowModuleId,
@@ -1366,16 +1398,16 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         });
     // user-task lifecycle listeners: one worker per distinct listener
     // job type; listener jobs are consumed like normal jobs
-    final var userTasksByListenerJobType = new LinkedHashMap<String, java.util.List<String>>();
+    final var userTasksByListenerJobType = new LinkedHashMap<String, List<String>>();
     bpmsProcessingContext
         .getUserTasksToWire()
         .forEach(userTask -> {
           userTasksByListenerJobType
-              .computeIfAbsent(userTask.listenerJobType(), key -> new java.util.LinkedList<>())
+              .computeIfAbsent(userTask.listenerJobType(), key -> new LinkedList<>())
               .add(userTask.bpmnProcessId());
           final var plainBpmnProcessId = plainProcessId(workflowModuleId, userTask.bpmnProcessId());
           servedByJobType
-              .computeIfAbsent(userTask.listenerJobType(), key -> new java.util.LinkedList<>())
+              .computeIfAbsent(userTask.listenerJobType(), key -> new LinkedList<>())
               .add(new ServedElement(userTask.bpmnProcessId(), userTask.activityId(), plainTaskDefinition(
                   workflowModuleId,
                   plainBpmnProcessId,
@@ -1388,8 +1420,16 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       var listenerWorkerBuilder = applyFetchVariables(applyWorkerOptions(client
           .newWorker()
           .jobType(listenerJobType)
-          .handler(new io.vanillabp.camunda8.wiring.Camunda8UserTaskListenerHandler(
-              adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry, drain, listenerFetch))
+          .handler(Camunda8UserTaskListenerHandler
+              .builder()
+              .adapterId(adapterId)
+              .workflowModuleId(workflowModuleId)
+              .workflowTaskInvoker(workflowTaskInvoker)
+              .scoping(scoping)
+              .multiInstanceRegistry(multiInstanceRegistry)
+              .drain(drain)
+              .fetchVariables(listenerFetch)
+              .build())
           .timeout(
               listenerLockOf(workflowModuleId, bpmnProcessIds, "user-task listener", listenerJobType))
           .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType)), listenerJobType),
@@ -1421,7 +1461,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           var startWorkerBuilder = applyFetchVariables(applyWorkerOptions(client
               .newWorker()
               .jobType(startEvent.listenerJobType())
-              .handler(new io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler(
+              .handler(new Camunda8BpmsInitiatedStartHandler(
                   adapterId, workflowModuleId, plainProcessId, startEvent.startEventId(), startEvent.kind(), startEvent
                       .signalName(), bpmsInitiatedStartInvoker, drain, retryBackoffResolver))
               .timeout(
@@ -1436,7 +1476,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               // nothing to derive here: VanillaBP copies every variable such a start
               // carries into the workflow aggregate it builds, so a list would decide
               // which of the application's own values survive
-              io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Selection.everything());
+              Camunda8FetchVariables.Selection.everything());
           final var startTenantId = tenantIdOf(workflowModuleId);
           if (startTenantId != null) {
             startWorkerBuilder = startWorkerBuilder.tenantId(startTenantId);
@@ -1460,7 +1500,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           var endWorkerBuilder = applyFetchVariables(applyWorkerOptions(client
               .newWorker()
               .jobType(Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId))
-              .handler(new io.vanillabp.camunda8.wiring.Camunda8WorkflowEndedHandler(
+              .handler(new Camunda8WorkflowEndedHandler(
                   adapterId, workflowModuleId, plainProcessId, workflowTaskWiring
                       .resolveWorkflowAggregateIdName(workflowModuleId,
                           plainProcessId), workflowEndedInvoker, drain, retryBackoffResolver))
@@ -1493,8 +1533,21 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       var workerBuilder = applyFetchVariables(applyWorkerOptions(client
           .newWorker()
           .jobType(taskDefinition)
-          .handler(new Camunda8JobHandler(
-              adapterId, workflowModuleId, client, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction(), drain, retryBackoffResolver, taskFetch, processVersions::predatesDeployedVersion))
+          .handler(Camunda8JobHandler
+              .builder()
+              .adapterId(adapterId)
+              .workflowModuleId(workflowModuleId)
+              .camundaClient(client)
+              .workflowTaskInvoker(workflowTaskInvoker)
+              .asyncTaskLockRenewal(asyncTaskLockRenewal)
+              .scoping(scoping)
+              .multiInstanceRegistry(multiInstanceRegistry)
+              .asyncTaskMaxAgeAction(asyncTaskMaxAgeAction())
+              .drain(drain)
+              .retryBackoffResolver(retryBackoffResolver)
+              .fetchVariables(taskFetch)
+              .predatesDeployedVersion(processVersions::predatesDeployedVersion)
+              .build())
           .timeout(timeout)
           .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)), taskDefinition),
           workflowModuleId,
@@ -1545,7 +1598,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     final var outcome = drain.awaitQuiet(
         grace,
         closedWorkers,
-        () -> workers.stream().allMatch(io.camunda.client.api.worker.JobWorker::isClosed));
+        () -> workers.stream().allMatch(JobWorker::isClosed));
     drain.report(grace, outcome);
 
     workers.clear();

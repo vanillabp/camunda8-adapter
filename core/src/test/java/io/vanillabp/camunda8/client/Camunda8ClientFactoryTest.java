@@ -10,10 +10,16 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 
+import io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -121,12 +127,12 @@ public class Camunda8ClientFactoryTest {
     configuration.setRestAddress("http://localhost:8080");
     configuration.setWorkerThreads("3");
     configuration.setMaxJobsActive(9);
-    configuration.setPollInterval(java.time.Duration.ofMillis(250));
-    configuration.setRequestTimeout(java.time.Duration.ofSeconds(20));
+    configuration.setPollInterval(Duration.ofMillis(250));
+    configuration.setRequestTimeout(Duration.ofSeconds(20));
     configuration.setStreamEnabled(true);
-    configuration.setMessageTimeToLive(java.time.Duration.ofHours(6));
+    configuration.setMessageTimeToLive(Duration.ofHours(6));
     configuration.setMaxMessageSize(8 * 1024 * 1024);
-    configuration.setKeepAlive(java.time.Duration.ofSeconds(30));
+    configuration.setKeepAlive(Duration.ofSeconds(30));
     configuration.setMaxHttpConnections(64);
     configuration.setOverrideAuthority("gateway.internal");
     try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
@@ -134,12 +140,12 @@ public class Camunda8ClientFactoryTest {
       final var clientConfiguration = factory.getClient().getConfiguration();
       assertEquals(3, clientConfiguration.getNumJobWorkerExecutionThreads());
       assertEquals(9, clientConfiguration.getDefaultJobWorkerMaxJobsActive());
-      assertEquals(java.time.Duration.ofMillis(250), clientConfiguration.getDefaultJobPollInterval());
-      assertEquals(java.time.Duration.ofSeconds(20), clientConfiguration.getDefaultRequestTimeout());
+      assertEquals(Duration.ofMillis(250), clientConfiguration.getDefaultJobPollInterval());
+      assertEquals(Duration.ofSeconds(20), clientConfiguration.getDefaultRequestTimeout());
       assertTrue(clientConfiguration.getDefaultJobWorkerStreamEnabled());
-      assertEquals(java.time.Duration.ofHours(6), clientConfiguration.getDefaultMessageTimeToLive());
+      assertEquals(Duration.ofHours(6), clientConfiguration.getDefaultMessageTimeToLive());
       assertEquals(8 * 1024 * 1024, clientConfiguration.getMaxMessageSize());
-      assertEquals(java.time.Duration.ofSeconds(30), clientConfiguration.getKeepAlive());
+      assertEquals(Duration.ofSeconds(30), clientConfiguration.getKeepAlive());
       assertEquals(64, clientConfiguration.getMaxHttpConnections());
       assertEquals("gateway.internal", clientConfiguration.getOverrideAuthority());
     }
@@ -153,7 +159,7 @@ public class Camunda8ClientFactoryTest {
 
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setRestAddress("http://localhost:8080");
-    configuration.setJobTimeout(java.time.Duration.ofMinutes(2));
+    configuration.setJobTimeout(Duration.ofMinutes(2));
     try (final var factory = new Camunda8ClientFactory("sizing", configuration)) {
 
       assertNotNull(factory.getClient());
@@ -179,7 +185,7 @@ public class Camunda8ClientFactoryTest {
       assertInstanceOf(Camunda8Authentication.Observing.class, provider,
           "the adapter wraps the provider to report a refused request");
       assertInstanceOf(
-          io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider.class,
+          BasicAuthCredentialsProvider.class,
           Camunda8Authentication.unwrap(provider));
     }
 
@@ -188,9 +194,9 @@ public class Camunda8ClientFactoryTest {
   @Test
   @DisplayName("the CA certificate of the cluster connection reaches the client")
   public void caCertificateReachesTheClient(
-      @org.junit.jupiter.api.io.TempDir final java.nio.file.Path directory) throws Exception {
+      @TempDir final Path directory) throws Exception {
 
-    final var certificate = java.nio.file.Files
+    final var certificate = Files
         .writeString(directory.resolve("ca.pem"), "-----BEGIN CERTIFICATE-----");
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setRestAddress("http://localhost:8080");

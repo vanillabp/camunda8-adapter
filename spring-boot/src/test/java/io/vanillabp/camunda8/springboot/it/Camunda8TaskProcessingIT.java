@@ -10,14 +10,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -26,9 +30,18 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.camunda.client.CamundaClient;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
+import io.vanillabp.integration.adapter.spi.MigratableProcessService;
+import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
+import io.vanillabp.integration.adapter.spi.WorkflowScope;
+import io.vanillabp.integration.spi.PhaseOperation;
+import io.vanillabp.integration.spi.PhaseTwoCall;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
+import io.vanillabp.spi.process.TaskNotFoundException;
 
 /**
  * Task processing against a REAL Camunda 8 broker (Testcontainers):
@@ -71,7 +84,7 @@ public class Camunda8TaskProcessingIT {
   /**
    * What a probe is asked about.
    */
-  private static final io.vanillabp.integration.adapter.spi.WorkflowScope SCOPE = io.vanillabp.integration.adapter.spi.WorkflowScope
+  private static final WorkflowScope SCOPE = WorkflowScope
       .of("test-module", "TestProcess");
 
   /**
@@ -117,7 +130,7 @@ public class Camunda8TaskProcessingIT {
   private VanillaBpCamunda8Properties overlay;
 
   @Autowired
-  private List<io.vanillabp.integration.adapter.spi.MigratableProcessService<?>> processServices;
+  private List<MigratableProcessService<?>> processServices;
 
   @Test
   @DisplayName("Without secondary storage the adapter reports that it cannot locate workflows")
@@ -160,12 +173,12 @@ public class Camunda8TaskProcessingIT {
 
     final var startedAt = System.nanoTime();
     final var exception = assertThrows(
-        io.vanillabp.spi.process.TaskNotFoundException.class,
+        TaskNotFoundException.class,
         () -> transactionTemplate.executeWithoutResult(status -> {
           final var aggregate = repository.findById(aggregateId).orElseThrow();
           workflowService.completeAsyncTask(aggregate, "2251799813685247");
         }));
-    final var elapsed = java.time.Duration.ofNanos(System.nanoTime() - startedAt);
+    final var elapsed = Duration.ofNanos(System.nanoTime() - startedAt);
 
     assertTrue(
         exception.getMessage().contains("2251799813685247"),
@@ -417,7 +430,7 @@ public class Camunda8TaskProcessingIT {
         .newCreateInstanceCommand()
         .bpmnProcessId("test-app__FetchProcess")
         .latestVersion()
-        .variables(java.util.Map.of("id", String.valueOf(aggregateId), "bigPayload", bigPayload))
+        .variables(Map.of("id", String.valueOf(aggregateId), "bigPayload", bigPayload))
         .send()
         .join()
         .getProcessInstanceKey();
@@ -662,7 +675,7 @@ public class Camunda8TaskProcessingIT {
               workflowService.completeAsyncTask(aggregate, taskId);
             });
             return false; // job still there - phase two has not run yet
-          } catch (final io.vanillabp.spi.process.TaskNotFoundException e) {
+          } catch (final TaskNotFoundException e) {
             return true; // job gone: the outbox-dispatched completion succeeded
           } catch (final IllegalStateException e) {
             // the job disappeared BETWEEN the awareness probe and the pre-commit
@@ -733,8 +746,8 @@ public class Camunda8TaskProcessingIT {
 
     // the probe answers UNKNOWN for the gone job - completeTask converges as the
     // documented TaskNotFoundException (no adapter knows the task anymore)
-    org.junit.jupiter.api.Assertions.assertThrows(
-        io.vanillabp.spi.process.TaskNotFoundException.class,
+    Assertions.assertThrows(
+        TaskNotFoundException.class,
         () -> transactionTemplate.executeWithoutResult(status -> {
           final var aggregate = repository.findById(aggregateId).orElseThrow();
           workflowService.completeAsyncTask(aggregate, taskId);
@@ -780,7 +793,7 @@ public class Camunda8TaskProcessingIT {
               workflowService.completeUserTask(aggregate, taskId);
             });
             return false;
-          } catch (final io.vanillabp.spi.process.TaskNotFoundException e) {
+          } catch (final TaskNotFoundException e) {
             return true;
           } catch (final IllegalStateException e) {
             return (e.getMessage() != null) && e.getMessage().contains("is gone");
@@ -848,7 +861,7 @@ public class Camunda8TaskProcessingIT {
         () -> userTaskNotificationState(aggregateId));
     final var taskId = repository.findById(aggregateId).orElseThrow().getTaskId();
 
-    final var exception = org.junit.jupiter.api.Assertions.assertThrows(
+    final var exception = Assertions.assertThrows(
         UnsupportedOperationException.class,
         () -> transactionTemplate.executeWithoutResult(status -> {
           final var aggregate = repository.findById(aggregateId).orElseThrow();
@@ -876,27 +889,27 @@ public class Camunda8TaskProcessingIT {
     startSecondaryProcess("SilentUserTaskProcess", silentAggregateId);
 
     @SuppressWarnings("unchecked")
-    final var c8ProcessService = (io.vanillabp.camunda8.processservice.Camunda8ProcessService<TaskDockerAggregate>) applicationContext
+    final var c8ProcessService = (Camunda8ProcessService<TaskDockerAggregate>) applicationContext
         .getBean("Camunda8_ProcessService_c8");
 
     // gone user task: awareness UNKNOWN, phase two tolerated as warned no-op
     assertEquals(
-        io.vanillabp.integration.adapter.spi.WorkflowAwareness.UNKNOWN_TO_BPMS,
+        WorkflowAwareness.UNKNOWN_TO_BPMS,
         c8ProcessService.awarenessOfUserTask(SCOPE, silentAggregateId, "1"));
-    org.junit.jupiter.api.Assertions.assertDoesNotThrow(
-        () -> PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.COMPLETE_USER_TASK,
+    Assertions.assertDoesNotThrow(
+        () -> PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.COMPLETE_USER_TASK,
             "test-app", "SilentUserTaskProcess", null, silentAggregateId,
-            PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID, "1")));
+            PhaseOperations.args(PhaseTwoCall.ARG_TASK_ID, "1")));
     // gone SERVICE task phase two is equally tolerated
-    org.junit.jupiter.api.Assertions.assertDoesNotThrow(
-        () -> PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.COMPLETE_TASK,
+    Assertions.assertDoesNotThrow(
+        () -> PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.COMPLETE_TASK,
             "test-app", "SilentUserTaskProcess", null, silentAggregateId,
-            PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID, "1")));
-    org.junit.jupiter.api.Assertions.assertDoesNotThrow(
-        () -> PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CANCEL_TASK,
+            PhaseOperations.args(PhaseTwoCall.ARG_TASK_ID, "1")));
+    Assertions.assertDoesNotThrow(
+        () -> PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CANCEL_TASK,
             "test-app", "SilentUserTaskProcess", null, silentAggregateId,
-            PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID, "1",
-                io.vanillabp.integration.spi.PhaseTwoCall.ARG_BPMN_ERROR_CODE, "ERR")));
+            PhaseOperations.args(PhaseTwoCall.ARG_TASK_ID, "1",
+                PhaseTwoCall.ARG_BPMN_ERROR_CODE, "ERR")));
 
     // the silent task exists (found via a real user-task handler on the OTHER
     // process is not necessary - completing the silent task by awareness probing
@@ -946,29 +959,29 @@ public class Camunda8TaskProcessingIT {
     Thread.sleep(2000);
 
     @SuppressWarnings("unchecked")
-    final var c8ProcessService = (io.vanillabp.camunda8.processservice.Camunda8ProcessService<TaskDockerAggregate>) applicationContext
+    final var c8ProcessService = (Camunda8ProcessService<TaskDockerAggregate>) applicationContext
         .getBean("Camunda8_ProcessService_c8");
 
     // simulate an at-least-once redelivery of the SAME phase-two dispatch (same
     // correlation id -> same messageId): the second publish is rejected by the
     // engine and tolerated as the documented no-op
-    PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+    PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CORRELATE_MESSAGE,
         "test-app", "MessageProcess", null, aggregateId,
-        PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
-            io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "pay-1"));
-    PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+        PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+            PhaseTwoCall.ARG_CORRELATION_ID, "pay-1"));
+    PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CORRELATE_MESSAGE,
         "test-app", "MessageProcess", null, aggregateId,
-        PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
-            io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "pay-1"));
+        PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+            PhaseTwoCall.ARG_CORRELATION_ID, "pay-1"));
 
     // the correlation id 'pay-1' does not match the injected '=id' subscription -
     // nothing may fire; now correlate properly ONCE and prove single delivery
     Thread.sleep(1000);
     assertEquals(0, invocations("c8MessageArrived", aggregateId));
-    PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+    PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CORRELATE_MESSAGE,
         "test-app", "MessageProcess", null, aggregateId,
-        PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
-            io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, String.valueOf(aggregateId)));
+        PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+            PhaseTwoCall.ARG_CORRELATION_ID, String.valueOf(aggregateId)));
     awaitUntil(
         () -> invocations("c8MessageArrived", aggregateId) >= 1,
         60000,
@@ -994,8 +1007,8 @@ public class Camunda8TaskProcessingIT {
 
     final var watcher = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
     watcher.start();
-    ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
-        .getLogger(io.vanillabp.camunda8.processservice.Camunda8ProcessService.class)).addAppender(watcher);
+    ((ch.qos.logback.classic.Logger) LoggerFactory
+        .getLogger(Camunda8ProcessService.class)).addAppender(watcher);
     return watcher;
 
   }
@@ -1026,22 +1039,22 @@ public class Camunda8TaskProcessingIT {
     startSecondaryProcess("MessageProcess", aggregateId);
 
     @SuppressWarnings("unchecked")
-    final var c8ProcessService = (io.vanillabp.camunda8.processservice.Camunda8ProcessService<TaskDockerAggregate>) applicationContext
+    final var c8ProcessService = (Camunda8ProcessService<TaskDockerAggregate>) applicationContext
         .getBean("Camunda8_ProcessService_c8");
 
     final var watcher = watchTheAdapter();
     try {
       // two siblings: same message name, same correlation id, different activations
-      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+      PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CORRELATE_MESSAGE,
           "test-app", "MessageProcess", null, aggregateId,
-          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
-              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "partner-42",
-              io.vanillabp.integration.spi.PhaseTwoCall.ARG_ACTIVATION_ID, "element-1"));
-      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+          PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              PhaseTwoCall.ARG_CORRELATION_ID, "partner-42",
+              PhaseTwoCall.ARG_ACTIVATION_ID, "element-1"));
+      PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CORRELATE_MESSAGE,
           "test-app", "MessageProcess", null, aggregateId,
-          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
-              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "partner-42",
-              io.vanillabp.integration.spi.PhaseTwoCall.ARG_ACTIVATION_ID, "element-2"));
+          PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              PhaseTwoCall.ARG_CORRELATION_ID, "partner-42",
+              PhaseTwoCall.ARG_ACTIVATION_ID, "element-2"));
       assertEquals(
           0,
           refusals(watcher),
@@ -1050,19 +1063,19 @@ public class Camunda8TaskProcessingIT {
 
       // and the guarantee that must not cost: the same activation twice - an
       // at-least-once redelivery of one entry - is still ONE message
-      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+      PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CORRELATE_MESSAGE,
           "test-app", "MessageProcess", null, aggregateId,
-          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
-              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "partner-42",
-              io.vanillabp.integration.spi.PhaseTwoCall.ARG_ACTIVATION_ID, "element-1"));
+          PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              PhaseTwoCall.ARG_CORRELATION_ID, "partner-42",
+              PhaseTwoCall.ARG_ACTIVATION_ID, "element-1"));
       assertEquals(
           1,
           refusals(watcher),
           "the repetition of one activation is refused by the cluster, as it has to be: "
               + watcher.list);
     } finally {
-      ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
-          .getLogger(io.vanillabp.camunda8.processservice.Camunda8ProcessService.class)).detachAppender(watcher);
+      ((ch.qos.logback.classic.Logger) LoggerFactory
+          .getLogger(Camunda8ProcessService.class)).detachAppender(watcher);
     }
 
   }
@@ -1076,7 +1089,7 @@ public class Camunda8TaskProcessingIT {
     // ('vanillabp.workflow-modules.test-app.workflows.MessageProcess.messages.C8PaymentReceived').
     // A repetition inside the window is refused, the same one after it is a new message
     assertEquals(
-        java.time.Duration.ofSeconds(2),
+        Duration.ofSeconds(2),
         overlay.messageTimeToLiveFor("test-app", "MessageProcess", "C8PaymentReceived", "c8"),
         "the per-message override is what this test rests on");
 
@@ -1086,19 +1099,19 @@ public class Camunda8TaskProcessingIT {
     startSecondaryProcess("MessageProcess", aggregateId);
 
     @SuppressWarnings("unchecked")
-    final var c8ProcessService = (io.vanillabp.camunda8.processservice.Camunda8ProcessService<TaskDockerAggregate>) applicationContext
+    final var c8ProcessService = (Camunda8ProcessService<TaskDockerAggregate>) applicationContext
         .getBean("Camunda8_ProcessService_c8");
 
     final var watcher = watchTheAdapter();
     try {
-      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+      PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CORRELATE_MESSAGE,
           "test-app", "MessageProcess", null, aggregateId,
-          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
-              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "round-1"));
-      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+          PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              PhaseTwoCall.ARG_CORRELATION_ID, "round-1"));
+      PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CORRELATE_MESSAGE,
           "test-app", "MessageProcess", null, aggregateId,
-          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
-              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "round-1"));
+          PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              PhaseTwoCall.ARG_CORRELATION_ID, "round-1"));
       assertEquals(1, refusals(watcher), "inside the window the second one is refused: "
           + watcher.list);
 
@@ -1109,18 +1122,18 @@ public class Camunda8TaskProcessingIT {
       // 75 s after it. That floor is the reason the wiki tells nobody to shorten this
       // number in order to get a short deduplication window - it does not work
       Thread.sleep(SWEEP_TOLERANCE_MILLIS);
-      PhaseOperations.phaseTwo(c8ProcessService, io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE,
+      PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CORRELATE_MESSAGE,
           "test-app", "MessageProcess", null, aggregateId,
-          PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
-              io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, "round-1"));
+          PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
+              PhaseTwoCall.ARG_CORRELATION_ID, "round-1"));
       assertEquals(
           1,
           refusals(watcher),
           "past the window the very same message id is accepted again: "
               + watcher.list);
     } finally {
-      ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
-          .getLogger(io.vanillabp.camunda8.processservice.Camunda8ProcessService.class)).detachAppender(watcher);
+      ((ch.qos.logback.classic.Logger) LoggerFactory
+          .getLogger(Camunda8ProcessService.class)).detachAppender(watcher);
     }
 
   }
@@ -1147,7 +1160,7 @@ public class Camunda8TaskProcessingIT {
   }
 
   @Autowired
-  private org.springframework.context.ApplicationContext applicationContext;
+  private ApplicationContext applicationContext;
 
   private long lastStartedInstanceKey;
 
@@ -1208,9 +1221,9 @@ public class Camunda8TaskProcessingIT {
   }
 
   @Autowired
-  private io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry clientFactoryRegistry;
+  private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
-  private io.camunda.client.CamundaClient workflowServiceClient() {
+  private CamundaClient workflowServiceClient() {
 
     return clientFactoryRegistry
         .getFactory("c8")

@@ -11,6 +11,7 @@ import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
+import io.vanillabp.integration.adapter.spi.health.AdapterHealth;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -62,7 +63,7 @@ public class Camunda8AdapterDiscoveryTest {
 
     Assertions.assertNotNull(health, "an adapter which can check something has to answer");
     Assertions.assertEquals(
-        io.vanillabp.integration.adapter.spi.health.AdapterHealth.Status.UNKNOWN,
+        AdapterHealth.Status.UNKNOWN,
         health.status());
     Assertions.assertEquals("c8", health.adapterId());
     Assertions.assertTrue(

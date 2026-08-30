@@ -1,14 +1,20 @@
 package io.vanillabp.camunda8.springboot;
 
+import java.time.Duration;
+
 import org.springframework.beans.factory.BeanRegistrar;
 import org.springframework.beans.factory.BeanRegistry;
 import org.springframework.core.env.Environment;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
+import io.vanillabp.camunda8.observability.Camunda8Metrics;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
 import io.vanillabp.integration.adapter.AdapterBeanRegistrarSupport;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+import io.vanillabp.integration.adapter.spi.PreCommitRegistrar;
+import io.vanillabp.integration.adapter.spi.WorkflowAggregateSync;
 
 /**
  * Registers the Camunda 8 adapter's per-adapter-id beans: for EACH configured adapter
@@ -48,12 +54,12 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                         .getFactory(adapterId), asyncTaskLockRenewalOf(
                             supplierContext.bean(VanillaBpCamunda8Properties.class),
                             adapterId), supplierContext
-                                .bean(io.vanillabp.integration.adapter.spi.PreCommitRegistrar.class), supplierContext
+                                .bean(PreCommitRegistrar.class), supplierContext
                                     .bean(
-                                        io.vanillabp.integration.adapter.spi.WorkflowAggregateSync.class), workflowVisibilityTimeoutOf(
+                                        WorkflowAggregateSync.class), workflowVisibilityTimeoutOf(
                                             supplierContext.bean(VanillaBpCamunda8Properties.class), adapterId));
                 processService.setScoping(
-                    supplierContext.bean(io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class));
+                    supplierContext.bean(NameClashAvoidanceSupport.class));
                 final var overlay = supplierContext.bean(VanillaBpCamunda8Properties.class);
                 processService
                     .setMessageTimeToLiveResolver((
@@ -83,7 +89,7 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                     .getFactory(id)
                                     .getConfiguration(), supplierContext
                                         .bean(
-                                            io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class), (
+                                            NameClashAvoidanceSupport.class), (
                                                 workflowModuleId,
                                                 bpmnProcessId,
                                                 taskDefinition) -> overlay.configuredRetryBackoffFor(
@@ -100,8 +106,8 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                 // where the application brings Micrometer
                 deploymentService.setMetrics(
                     supplierContext
-                        .beanProvider(io.vanillabp.camunda8.observability.Camunda8Metrics.class)
-                        .getIfAvailable(() -> io.vanillabp.camunda8.observability.Camunda8Metrics.NONE));
+                        .beanProvider(Camunda8Metrics.class)
+                        .getIfAvailable(() -> Camunda8Metrics.NONE));
                 return deploymentService;
               }));
 
@@ -113,14 +119,14 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
    * The adapter-level window the core waits for a workflow of this cluster to
    * become findable by the awareness probe (default 10 seconds).
    */
-  private static java.time.Duration workflowVisibilityTimeoutOf(
+  private static Duration workflowVisibilityTimeoutOf(
       final VanillaBpCamunda8Properties overlay,
       final String adapterId) {
 
     final var adapterKeys = overlay.getAdapters().get(adapterId);
     return (adapterKeys != null) && (adapterKeys.getWorkflowVisibilityTimeout() != null)
         ? adapterKeys.getWorkflowVisibilityTimeout()
-        : io.vanillabp.camunda8.processservice.Camunda8ProcessService.DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT;
+        : Camunda8ProcessService.DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT;
 
   }
 
@@ -128,13 +134,15 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
    * The adapter-level window an open asynchronous task's job lock is renewed in
    * (default one hour) - the window the awareness probe grants as well.
    */
-  private static java.time.Duration asyncTaskLockRenewalOf(
+  private static Duration asyncTaskLockRenewalOf(
       final VanillaBpCamunda8Properties overlay,
       final String adapterId) {
 
     final var adapterKeys = overlay.getAdapters().get(adapterId);
     return adapterKeys != null
         ? adapterKeys.resolvedAsyncTaskLockRenewal()
+        // spelled out because this package has a Camunda8AdapterConfiguration of its own,
+        // the Spring configuration class, and it wins over any import of the same name
         : io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
 
   }

@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -90,11 +91,19 @@ public class Camunda8RetryBackoffHeaderTest {
       final Duration configured,
       final boolean perTask) {
 
-    return new Camunda8JobHandler(
-        "c8", "test-module", camundaClient, failingInvoker(), Duration.ofHours(1), null, null, null, drain, (
+    return Camunda8JobHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .camundaClient(camundaClient)
+        .workflowTaskInvoker(failingInvoker())
+        .asyncTaskLockRenewal(Duration.ofHours(1))
+        .drain(drain)
+        .retryBackoffResolver((
             workflowModuleId,
             bpmnProcessId,
-            taskDefinition) -> new Camunda8RetryBackoffResolver.Configured(configured, perTask));
+            taskDefinition) -> new Camunda8RetryBackoffResolver.Configured(configured, perTask))
+        .build();
 
   }
 
@@ -105,7 +114,7 @@ public class Camunda8RetryBackoffHeaderTest {
       final CapturedOutput output,
       final String what) {
 
-    return (output.getOut() + output.getErr()).split(java.util.regex.Pattern.quote(what), -1).length - 1;
+    return (output.getOut() + output.getErr()).split(Pattern.quote(what), -1).length - 1;
 
   }
 

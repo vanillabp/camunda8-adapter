@@ -20,6 +20,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
+import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
+import io.vanillabp.integration.adapter.spi.WorkflowScope;
+import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.process.ProcessService;
 
@@ -63,7 +67,7 @@ public class Camunda8DeploymentAndStartIT {
   /**
    * What a probe is asked about.
    */
-  private static final io.vanillabp.integration.adapter.spi.WorkflowScope SCOPE = io.vanillabp.integration.adapter.spi.WorkflowScope
+  private static final WorkflowScope SCOPE = WorkflowScope
       .of("test-module", "TestProcess");
 
   private static final String JOB_TYPE = "test-job";
@@ -104,14 +108,14 @@ public class Camunda8DeploymentAndStartIT {
   private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   @Autowired
-  private io.vanillabp.camunda8.processservice.Camunda8ProcessService<DockerAggregate> camunda8ProcessService;
+  private Camunda8ProcessService<DockerAggregate> camunda8ProcessService;
 
   /**
    * The probes take the aggregate's persistence because the aggregate-ID VARIABLE
    * is named after its ID attribute - this cluster runs without secondary storage,
    * so nothing is searched here, but the name has to be answerable.
    */
-  private static final io.vanillabp.integration.spi.AggregatePersistenceAware<DockerAggregate> AGGREGATE_PERSISTENCE = new io.vanillabp.integration.spi.AggregatePersistenceAware<>() {
+  private static final AggregatePersistenceAware<DockerAggregate> AGGREGATE_PERSISTENCE = new AggregatePersistenceAware<>() {
 
     @Override
     public Class<DockerAggregate> getAggregateClass() {
@@ -216,14 +220,14 @@ public class Camunda8DeploymentAndStartIT {
     // the ELECTION probe answers optimistically, so message correlation keeps
     // working on a plain broker (documented as unsafe for multi-BPMS setups)
     assertEquals(
-        io.vanillabp.integration.adapter.spi.WorkflowAwareness.ACTIVE,
+        WorkflowAwareness.ACTIVE,
         camunda8ProcessService.awarenessOfWorkflow(SCOPE, AGGREGATE_PERSISTENCE, neverStartedAggregateId));
 
     // the START RE-DISPATCH probe must never do that: an optimistic "known" would
     // skip a recovered start and thereby LOSE the workflow, whereas proceeding
     // only risks the documented at-least-once duplicate
     assertEquals(
-        io.vanillabp.integration.adapter.spi.WorkflowAwareness.UNKNOWN_TO_BPMS,
+        WorkflowAwareness.UNKNOWN_TO_BPMS,
         camunda8ProcessService.awarenessOfWorkflowForRedispatch(SCOPE, AGGREGATE_PERSISTENCE, neverStartedAggregateId));
 
   }

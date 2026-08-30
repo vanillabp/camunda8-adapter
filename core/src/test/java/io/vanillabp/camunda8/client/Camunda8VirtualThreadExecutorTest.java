@@ -5,10 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,7 +35,7 @@ public class Camunda8VirtualThreadExecutorTest {
     final var executor = new Camunda8VirtualThreadExecutor("c8", 4);
     try {
       final var virtual = new AtomicBoolean();
-      final var name = new java.util.concurrent.atomic.AtomicReference<String>();
+      final var name = new AtomicReference<String>();
       final var ran = new CountDownLatch(1);
 
       executor.execute(() -> {
@@ -167,7 +170,7 @@ public class Camunda8VirtualThreadExecutorTest {
 
     final var executor = new Camunda8VirtualThreadExecutor("c8", 4);
     try {
-      final java.util.concurrent.Callable<Boolean> virtual = () -> Thread.currentThread().isVirtual();
+      final Callable<Boolean> virtual = () -> Thread.currentThread().isVirtual();
 
       assertTrue(executor.submit(virtual).get(5, TimeUnit.SECONDS), "submit(Callable)");
       assertTrue(executor.submit(() -> {
@@ -176,7 +179,7 @@ public class Camunda8VirtualThreadExecutorTest {
       }).get(5, TimeUnit.SECONDS), "submit(Runnable)");
       assertTrue(
           executor
-              .invokeAll(java.util.List.of(virtual, virtual))
+              .invokeAll(List.of(virtual, virtual))
               .stream()
               .allMatch(future -> {
                 try {
@@ -187,10 +190,10 @@ public class Camunda8VirtualThreadExecutorTest {
               }),
           "invokeAll");
       assertTrue(
-          executor.invokeAll(java.util.List.of(virtual), 5, TimeUnit.SECONDS).getFirst().get(),
+          executor.invokeAll(List.of(virtual), 5, TimeUnit.SECONDS).getFirst().get(),
           "invokeAll with a timeout");
-      assertTrue(executor.invokeAny(java.util.List.of(virtual)), "invokeAny");
-      assertTrue(executor.invokeAny(java.util.List.of(virtual), 5, TimeUnit.SECONDS), "invokeAny with a timeout");
+      assertTrue(executor.invokeAny(List.of(virtual)), "invokeAny");
+      assertTrue(executor.invokeAny(List.of(virtual), 5, TimeUnit.SECONDS), "invokeAny with a timeout");
 
       // the timing half: a scheduled task never runs on a virtual thread, whichever
       // way the client asks for it

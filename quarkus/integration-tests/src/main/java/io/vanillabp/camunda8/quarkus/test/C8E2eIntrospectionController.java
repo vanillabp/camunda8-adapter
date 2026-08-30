@@ -31,7 +31,7 @@ import jakarta.ws.rs.core.MediaType;
  * A prod-mode test runs the application in a forked JVM, so nothing of it can be
  * injected into the test - everything travels through these endpoints. The ones
  * driving VanillaBP open their transaction themselves
- * ({@link jakarta.transaction.UserTransaction}), because what happens inside the
+ * ({@link UserTransaction}), because what happens inside the
  * caller's transaction and what only after its commit is half of what the tests are
  * about.
  */

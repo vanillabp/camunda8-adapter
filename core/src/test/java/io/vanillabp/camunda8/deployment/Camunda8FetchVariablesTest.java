@@ -6,12 +6,21 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
+import java.time.Duration;
+import java.util.Collection;
 import java.util.List;
+import java.util.function.Function;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
+import org.slf4j.LoggerFactory;
 
+import io.camunda.client.api.worker.JobWorkerBuilderStep1;
+import io.vanillabp.camunda8.Camunda8ProcessingContext;
+import io.vanillabp.camunda8.TestCollaborators;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
@@ -120,7 +129,7 @@ public class Camunda8FetchVariablesTest {
    * <code>&#64;TaskParam</code> anywhere.
    */
   private Camunda8DeploymentService deploymentService(
-      final java.util.function.Function<String, String> aggregateIdNames,
+      final Function<String, String> aggregateIdNames,
       final Camunda8FetchVariablesResolver fetchVariables) {
 
     return deploymentService(aggregateIdNames, fetchVariables, taskDefinition -> List.of());
@@ -133,9 +142,9 @@ public class Camunda8FetchVariablesTest {
    * questions the derivation asks it.
    */
   private Camunda8DeploymentService deploymentService(
-      final java.util.function.Function<String, String> aggregateIdNames,
+      final Function<String, String> aggregateIdNames,
       final Camunda8FetchVariablesResolver fetchVariables,
-      final java.util.function.Function<String, List<String>> taskParameters) {
+      final Function<String, List<String>> taskParameters) {
 
     final var invoker = new Camunda8DeploymentServiceTest.NoOpInvoker() {
 
@@ -153,7 +162,7 @@ public class Camunda8FetchVariablesTest {
       }
 
       @Override
-      public java.util.Collection<String> taskParameterNames(
+      public Collection<String> taskParameterNames(
           final String workflowModuleId,
           final String bpmnProcessId,
           final String taskDefinitionOrActivityId) {
@@ -164,11 +173,11 @@ public class Camunda8FetchVariablesTest {
 
     };
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
             .of(invoker), (
                 m,
                 p,
-                t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration.ofHours(1));
+                t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration.ofHours(1));
     deploymentService.setFetchVariablesResolver(fetchVariables);
     return deploymentService;
 
@@ -184,7 +193,7 @@ public class Camunda8FetchVariablesTest {
 
     final var models = deploymentService
         .readBpmn(MODULE, "test.bpmn", new ByteArrayInputStream(xml.getBytes(UTF_8)), true);
-    io.vanillabp.camunda8.Camunda8ProcessingContext context = null;
+    Camunda8ProcessingContext context = null;
     for (final var model : models) {
       context = deploymentService.prepareBpmn(MODULE, context, "test.bpmn", model.getKey(), model.getValue());
     }
@@ -465,10 +474,10 @@ public class Camunda8FetchVariablesTest {
   public void theListReachesTheWorkerBuilder() {
 
     final var deploymentService = deploymentService(bpmnProcessId -> "id", null);
-    final var builder = org.mockito.Mockito
-        .mock(io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
-    org.mockito.Mockito
-        .when(builder.fetchVariables(org.mockito.ArgumentMatchers.anyList()))
+    final var builder = Mockito
+        .mock(JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
+    Mockito
+        .when(builder.fetchVariables(ArgumentMatchers.anyList()))
         .thenReturn(builder);
 
     deploymentService.applyFetchVariables(
@@ -477,7 +486,7 @@ public class Camunda8FetchVariablesTest {
         "task",
         "approve",
         Camunda8FetchVariables.Selection.of(List.of("id")));
-    org.mockito.Mockito.verify(builder).fetchVariables(List.of("id"));
+    Mockito.verify(builder).fetchVariables(List.of("id"));
 
     deploymentService.applyFetchVariables(
         builder,
@@ -487,7 +496,7 @@ public class Camunda8FetchVariablesTest {
         Camunda8FetchVariables.Selection.everything());
     // a worker naming no list is what a Camunda 8 worker does by default, so 'all' has
     // nothing to say to the builder
-    org.mockito.Mockito.verifyNoMoreInteractions(builder);
+    Mockito.verifyNoMoreInteractions(builder);
 
   }
 
@@ -496,14 +505,14 @@ public class Camunda8FetchVariablesTest {
   public void theStartupLineNamesTheList() {
 
     final var deploymentService = deploymentService(bpmnProcessId -> "id", null);
-    final var builder = org.mockito.Mockito
-        .mock(io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
-    org.mockito.Mockito
-        .when(builder.fetchVariables(org.mockito.ArgumentMatchers.anyList()))
+    final var builder = Mockito
+        .mock(JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
+    Mockito
+        .when(builder.fetchVariables(ArgumentMatchers.anyList()))
         .thenReturn(builder);
     final var logWatcher = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
     logWatcher.start();
-    final var adapterLog = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
+    final var adapterLog = (ch.qos.logback.classic.Logger) LoggerFactory
         .getLogger(Camunda8DeploymentService.class);
     final var previousLevel = adapterLog.getLevel();
     adapterLog.setLevel(ch.qos.logback.classic.Level.DEBUG);

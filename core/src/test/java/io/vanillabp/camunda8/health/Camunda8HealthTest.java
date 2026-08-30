@@ -7,10 +7,14 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.CamundaFuture;
@@ -75,7 +79,7 @@ public class Camunda8HealthTest {
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setHealthTimeout(Duration.ofSeconds(-1));
 
-    final var e = org.junit.jupiter.api.Assertions
+    final var e = Assertions
         .assertThrows(
             IllegalStateException.class,
             () -> configuration.validateHealthTimeout("c8"));
@@ -147,7 +151,7 @@ public class Camunda8HealthTest {
     final var health = Camunda8Health
         .check(
             "c8",
-            factoryWith(configured(), clientAnswering(null, new java.util.concurrent.TimeoutException())));
+            factoryWith(configured(), clientAnswering(null, new TimeoutException())));
 
     assertEquals(AdapterHealth.Status.DOWN, health.status());
     assertEquals(ADDRESS, health.details().get("address"));
@@ -170,7 +174,7 @@ public class Camunda8HealthTest {
                 configured(),
                 clientAnswering(
                     null,
-                    new java.util.concurrent.ExecutionException(
+                    new ExecutionException(
                         new IllegalStateException("Connection refused")))));
 
     assertEquals(AdapterHealth.Status.DOWN, health.status());
@@ -229,7 +233,7 @@ public class Camunda8HealthTest {
             "c8",
             factoryWith(
                 configured(),
-                clientAnswering(null, new java.util.concurrent.ExecutionException(new IllegalStateException()))));
+                clientAnswering(null, new ExecutionException(new IllegalStateException()))));
 
     assertEquals(AdapterHealth.Status.DOWN, health.status());
     // an exception without a message would leave the endpoint with an empty reason
@@ -248,14 +252,14 @@ public class Camunda8HealthTest {
 
     final var future = (CamundaFuture<Topology>) mock(CamundaFuture.class);
     if (failure == null) {
-      when(future.get(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+      when(future.get(ArgumentMatchers.anyLong(), ArgumentMatchers.any()))
           .thenReturn(topology);
     } else {
-      when(future.get(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+      when(future.get(ArgumentMatchers.anyLong(), ArgumentMatchers.any()))
           .thenThrow(failure);
     }
     final var request = mock(TopologyRequestStep1.class);
-    when(request.requestTimeout(org.mockito.ArgumentMatchers.any())).thenReturn(request);
+    when(request.requestTimeout(ArgumentMatchers.any())).thenReturn(request);
     when(request.send()).thenReturn(future);
     final var client = mock(CamundaClient.class);
     when(client.newTopologyRequest()).thenReturn(request);

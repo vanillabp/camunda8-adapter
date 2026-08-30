@@ -4,13 +4,19 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
+import java.util.Map;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
+import io.vanillabp.integration.adapter.spi.WorkflowScope;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
+import io.vanillabp.integration.spi.PhaseOperation;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -24,7 +30,7 @@ public class Camunda8ProcessServiceTest {
   /**
    * What a probe is asked about.
    */
-  private static final io.vanillabp.integration.adapter.spi.WorkflowScope SCOPE = io.vanillabp.integration.adapter.spi.WorkflowScope
+  private static final WorkflowScope SCOPE = WorkflowScope
       .of("test-module", "TestProcess");
 
   /** A minimal aggregate whose ID is configurable (including {@code null}). */
@@ -61,10 +67,10 @@ public class Camunda8ProcessServiceTest {
     // a bogus address that is never contacted in phase one
     configuration.setRestAddress("http://localhost:1");
     return new Camunda8ProcessService<>(
-        "c8", new Camunda8ClientFactory("c8", configuration), java.time.Duration
+        "c8", new Camunda8ClientFactory("c8", configuration), Duration
             .ofDays(14), (
                 aggregateClass,
-                check) -> check.run(), null, java.time.Duration.ZERO);
+                check) -> check.run(), null, Duration.ZERO);
 
   }
 
@@ -75,8 +81,8 @@ public class Camunda8ProcessServiceTest {
     final var service = configuredService();
 
     assertDoesNotThrow(
-        () -> PhaseOperations.phaseOne(service, io.vanillabp.integration.spi.PhaseOperation.START_WORKFLOW, "module",
-            "Process", persistence("agg-1"), new Aggregate("agg-1"), java.util.Map.of()));
+        () -> PhaseOperations.phaseOne(service, PhaseOperation.START_WORKFLOW, "module",
+            "Process", persistence("agg-1"), new Aggregate("agg-1"), Map.of()));
 
   }
 
@@ -85,15 +91,15 @@ public class Camunda8ProcessServiceTest {
   public void phaseOneFailsIfNotConfigured() {
 
     final var service = new Camunda8ProcessService<Aggregate>(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), java.time.Duration
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), Duration
             .ofDays(14), (
                 aggregateClass,
-                check) -> check.run(), null, java.time.Duration.ZERO);
+                check) -> check.run(), null, Duration.ZERO);
 
     final var exception = assertThrows(
         IllegalStateException.class,
-        () -> PhaseOperations.phaseOne(service, io.vanillabp.integration.spi.PhaseOperation.START_WORKFLOW, "module",
-            "Process", persistence("agg-1"), new Aggregate("agg-1"), java.util.Map.of()));
+        () -> PhaseOperations.phaseOne(service, PhaseOperation.START_WORKFLOW, "module",
+            "Process", persistence("agg-1"), new Aggregate("agg-1"), Map.of()));
     assertTrue(exception.getMessage().contains("vanillabp.adapters.c8.rest-address"));
 
   }
@@ -110,7 +116,7 @@ public class Camunda8ProcessServiceTest {
     final var awareness = configuredService().awarenessOfWorkflowForRedispatch(SCOPE, persistence("agg-1"), "agg-1");
 
     assertTrue(
-        awareness == io.vanillabp.integration.adapter.spi.WorkflowAwareness.BPMS_UNAVAILABLE,
+        awareness == WorkflowAwareness.BPMS_UNAVAILABLE,
         "expected BPMS_UNAVAILABLE but got "
             + awareness);
 

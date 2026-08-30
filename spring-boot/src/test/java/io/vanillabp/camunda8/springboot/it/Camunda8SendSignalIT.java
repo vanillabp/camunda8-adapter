@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import java.util.List;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -133,7 +135,7 @@ public class Camunda8SendSignalIT {
       final Long first,
       final Long second) {
 
-    return java.util.List
+    return List
         .of(first, second)
         .stream()
         .allMatch(aggregateId -> "recordSignal".equals(

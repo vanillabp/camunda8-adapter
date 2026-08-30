@@ -1,8 +1,12 @@
 package io.vanillabp.camunda8.springboot.it;
 
+import java.util.List;
+
 import org.springframework.stereotype.Service;
 
+import io.vanillabp.spi.process.ProcessDefinition;
 import io.vanillabp.spi.process.ProcessService;
+import io.vanillabp.spi.process.WorkflowHistory;
 import io.vanillabp.spi.service.BpmnProcess;
 import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
@@ -44,14 +48,14 @@ public class SecondaryStorageDockerWorkflowService {
 
   }
 
-  public java.util.List<io.vanillabp.spi.process.ProcessDefinition> definitionsOf(
+  public List<ProcessDefinition> definitionsOf(
       final Long aggregateId) {
 
     return processService.getProcessDefinitions(repository.findById(aggregateId).orElseThrow(), null);
 
   }
 
-  public io.vanillabp.spi.process.WorkflowHistory historyOf(
+  public WorkflowHistory historyOf(
       final Long aggregateId) {
 
     return processService.getWorkflowHistory(repository.findById(aggregateId).orElseThrow(), null);

@@ -1,5 +1,7 @@
 package io.vanillabp.camunda8.deployment;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -77,7 +79,7 @@ public class Camunda8DeployedProcesses {
    * @param workflowModuleId The workflow module
    * @return The processes deployed by this application version
    */
-  public java.util.Collection<DeployedProcess> ofWorkflowModule(
+  public Collection<DeployedProcess> ofWorkflowModule(
       final String workflowModuleId) {
 
     return byProcess
@@ -97,9 +99,9 @@ public class Camunda8DeployedProcesses {
    * @return The deployed processes, empty where nothing was deployed (a module whose
    *         deployment failed under the 'warn' policy, or a test)
    */
-  public java.util.Collection<DeployedProcess> all() {
+  public Collection<DeployedProcess> all() {
 
-    return java.util.List.copyOf(byProcess.values());
+    return List.copyOf(byProcess.values());
 
   }
 

@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.client;
 
 import java.time.Duration;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BooleanSupplier;
 
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +30,7 @@ import lombok.extern.slf4j.Slf4j;
  * much of it is left;</li>
  * <li><b>{@value #MAX_ATTEMPTS} attempts.</b> A handler waiting for a cluster to calm down
  * occupies an execution slot (see
- * {@link io.vanillabp.camunda8.client.Camunda8ExecutionModel}), and a slot which waits
+ * {@link Camunda8ExecutionModel}), and a slot which waits
  * delivers nothing. Five attempts spread over less than half a second are a hiccup; more
  * than that is a cluster problem an operator has to see rather than one a worker should
  * sit out.</li>
@@ -232,7 +233,7 @@ public final class Camunda8CommandRetry {
       final int attempt) {
 
     final var nominal = backoffMillis(attempt);
-    final var spread = nominal * JITTER_FACTOR * ((java.util.concurrent.ThreadLocalRandom.current()
+    final var spread = nominal * JITTER_FACTOR * ((ThreadLocalRandom.current()
         .nextDouble() * 2) - 1);
     return Duration.ofMillis(Math.max(1, Math.round(nominal + spread)));
 

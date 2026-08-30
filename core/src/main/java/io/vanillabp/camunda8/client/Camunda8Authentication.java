@@ -1,11 +1,13 @@
 package io.vanillabp.camunda8.client;
 
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 import io.camunda.client.CredentialsProvider;
+import io.camunda.client.impl.NoopCredentialsProvider;
 
 /**
  * The credentials one Camunda 8 adapter instance sends, and what it says when the
@@ -280,7 +282,7 @@ public final class Camunda8Authentication {
 
     final var auth = configuration.getAuth();
     return switch (method) {
-      case NONE -> new io.camunda.client.impl.NoopCredentialsProvider();
+      case NONE -> new NoopCredentialsProvider();
       case BASIC -> CredentialsProvider
           .newBasicAuthCredentialsProviderBuilder()
           .username(auth.getUsername())
@@ -325,12 +327,12 @@ public final class Camunda8Authentication {
       builder.readTimeout(auth.getReadTimeout());
     }
     if (hasText(auth.getKeystorePath())) {
-      builder.keystorePath(java.nio.file.Paths.get(auth.getKeystorePath()));
+      builder.keystorePath(Paths.get(auth.getKeystorePath()));
       builder.keystorePassword(auth.getKeystorePassword());
       builder.keystoreKeyPassword(auth.getKeystoreKeyPassword());
     }
     if (hasText(auth.getTruststorePath())) {
-      builder.truststorePath(java.nio.file.Paths.get(auth.getTruststorePath()));
+      builder.truststorePath(Paths.get(auth.getTruststorePath()));
       builder.truststorePassword(auth.getTruststorePassword());
     }
     return builder.build();

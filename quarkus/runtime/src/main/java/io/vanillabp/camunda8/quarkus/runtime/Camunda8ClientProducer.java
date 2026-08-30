@@ -4,12 +4,15 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.eclipse.microprofile.config.ConfigProvider;
+import org.jboss.logging.Logger;
 
 import io.smallrye.config.SmallRyeConfig;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
+import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8StartupValidation;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
+import io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Disposes;
@@ -36,7 +39,7 @@ import jakarta.inject.Singleton;
 @ApplicationScoped
 public class Camunda8ClientProducer {
 
-  private static final org.jboss.logging.Logger log = org.jboss.logging.Logger.getLogger(Camunda8ClientProducer.class);
+  private static final Logger log = Logger.getLogger(Camunda8ClientProducer.class);
 
   @Produces
   @Singleton
@@ -62,7 +65,7 @@ public class Camunda8ClientProducer {
               configuration,
               properties.isFirstPriorityAnywhere(adapterId),
               properties.getDeploymentFailureFor(
-                  adapterId) == io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy.WARN,
+                  adapterId) == DeploymentFailurePolicy.WARN,
               properties.resolvedDeliveryRetention(),
               log::warn);
           configurations.put(adapterId, configuration);
@@ -120,7 +123,7 @@ public class Camunda8ClientProducer {
 
   private static void toAuthConfiguration(
       final VanillaBpCamunda8Properties.AuthKeys keys,
-      final io.vanillabp.camunda8.client.Camunda8AuthConfiguration auth) {
+      final Camunda8AuthConfiguration auth) {
 
     if (keys == null) {
       return;

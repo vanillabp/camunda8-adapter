@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.client;
 
 import io.camunda.client.CamundaClient;
+import io.camunda.client.api.ProblemDetail;
 import io.camunda.client.api.command.ProblemException;
 
 /**
@@ -121,7 +122,7 @@ public final class Camunda8TenantCheck {
    * The cluster's problem detail of the given failure, or <code>null</code> if the
    * failure carries none (then the cluster did not answer).
    */
-  private static io.camunda.client.api.ProblemDetail problemOf(
+  private static ProblemDetail problemOf(
       final Throwable throwable) {
 
     var current = throwable;

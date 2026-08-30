@@ -1,18 +1,44 @@
 package io.vanillabp.camunda8.processservice;
 
+import java.io.InputStream;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import io.camunda.client.api.response.ProcessInstanceEvent;
+import io.camunda.client.api.search.enums.ElementInstanceType;
+import io.camunda.client.api.search.enums.ProcessInstanceState;
+import io.camunda.client.api.search.response.Job;
+import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
+import io.camunda.zeebe.model.bpmn.instance.Message;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.camunda8.client.Camunda8QueryApi;
+import io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver;
+import io.vanillabp.camunda8.wiring.Camunda8Scoping;
+import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.adapter.spi.PhaseOneRequest;
 import io.vanillabp.integration.adapter.spi.PhaseOperationHandler;
 import io.vanillabp.integration.adapter.spi.PhaseTwoRequest;
+import io.vanillabp.integration.adapter.spi.PreCommitRegistrar;
+import io.vanillabp.integration.adapter.spi.WorkflowAggregateSync;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
+import io.vanillabp.integration.adapter.spi.WorkflowScope;
+import io.vanillabp.integration.adapter.spi.WorkflowVisibilityDelay;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import io.vanillabp.integration.spi.PhaseOperation;
+import io.vanillabp.spi.process.ProcessDefinition;
+import io.vanillabp.spi.process.WorkflowHistory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -59,7 +85,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * The one-time job-lock extension applied by awareness probes and phase-one
    * checks (the same duration the job worker grants a dormant async task).
    */
-  private final java.time.Duration asyncTaskLockRenewal;
+  private final Duration asyncTaskLockRenewal;
 
   /**
    * Runs phase-one existence checks right before the commit of the workflow aggregate's
@@ -67,17 +93,16 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * phase two. The platform resolves the runner of the aggregate, so a unit of work the
    * APPLICATION brought is the one hooked into.
    */
-  private final io.vanillabp.integration.adapter.spi.PreCommitRegistrar preCommitRegistrar;
+  private final PreCommitRegistrar preCommitRegistrar;
 
   /**
    * The core's sync model: which aggregate attributes are shared with
-   * the cluster. Camunda 8 is REMOTE, so its default is
-   * {@link io.vanillabp.integration.adapter.spi.AggregateSyncMode#FULL} - a BPMN
-   * expression can only see what VanillaBP
-   * pushed as a process variable. May be <code>null</code> (tests): only the
+   * the cluster. Camunda 8 is REMOTE, so its default is {@link AggregateSyncMode#FULL} - a
+   * BPMN expression can only see what VanillaBP pushed as a process variable. May be
+   * <code>null</code> (tests): only the
    * technical aggregate-ID variable is written then.
    */
-  private final io.vanillabp.integration.adapter.spi.WorkflowAggregateSync aggregateSync;
+  private final WorkflowAggregateSync aggregateSync;
 
   /**
    * How long a workflow of this cluster may stay invisible to the query API the
@@ -85,21 +110,21 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * {@link #DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT}). May be <code>null</code>
    * (tests): the default applies then.
    */
-  private final java.time.Duration workflowVisibilityTimeout;
+  private final Duration workflowVisibilityTimeout;
 
   /**
    * How long VanillaBP waits for a workflow this cluster holds to become findable.
    * Ten seconds is generous for a healthy exporter and still short enough to stay
    * inside the caller's transaction, which the waiting keeps open.
    */
-  public static final java.time.Duration DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT = java.time.Duration
+  public static final Duration DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT = Duration
       .ofSeconds(10);
 
   /**
    * How often the probe is repeated while waiting - deliberately not configurable:
    * the window is what an operator may have to raise, the sampling rate is not.
    */
-  private static final java.time.Duration WORKFLOW_VISIBILITY_PROBE_INTERVAL = java.time.Duration
+  private static final Duration WORKFLOW_VISIBILITY_PROBE_INTERVAL = Duration
       .ofMillis(250);
 
   /**
@@ -110,14 +135,14 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * message which lets it continue" works without the application retrying.
    */
   @Override
-  public io.vanillabp.integration.adapter.spi.WorkflowVisibilityDelay workflowVisibilityDelay() {
+  public WorkflowVisibilityDelay workflowVisibilityDelay() {
 
     final var window = workflowVisibilityTimeout == null
         ? DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT
         : workflowVisibilityTimeout;
     return window.isZero() || window.isNegative()
-        ? io.vanillabp.integration.adapter.spi.WorkflowVisibilityDelay.none()
-        : new io.vanillabp.integration.adapter.spi.WorkflowVisibilityDelay(
+        ? WorkflowVisibilityDelay.none()
+        : new WorkflowVisibilityDelay(
             window, WORKFLOW_VISIBILITY_PROBE_INTERVAL);
 
   }
@@ -133,7 +158,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * The default of this adapter: everything is shared unless the application
    * excludes it ({@code @NoSyncWithBPMS}).
    */
-  public static final io.vanillabp.integration.adapter.spi.AggregateSyncMode SYNC_MODE = io.vanillabp.integration.adapter.spi.AggregateSyncMode.FULL;
+  public static final AggregateSyncMode SYNC_MODE = AggregateSyncMode.FULL;
 
   /**
    * The core's name-clash-avoidance model: translates BPMN process ids,
@@ -141,7 +166,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * tenant an operation runs in. May be <code>null</code> (tests): identifiers are
    * passed through and the configured tenant is used, as before.
    */
-  private io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
+  private NameClashAvoidanceSupport scoping;
 
   /**
    * Sets the name-clash-avoidance support (constructor injection is not possible -
@@ -151,7 +176,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @param scoping The name-clash-avoidance support
    */
   public void setScoping(
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+      final NameClashAvoidanceSupport scoping) {
 
     this.scoping = scoping;
 
@@ -163,7 +188,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * written before this): the client's own default applies then and VanillaBP sets nothing
    * on the command.
    */
-  private io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver messageTimeToLiveResolver;
+  private Camunda8MessageTimeToLiveResolver messageTimeToLiveResolver;
 
   /**
    * Injected by the platform module after construction, like the scoping next to it - an
@@ -173,7 +198,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @param messageTimeToLiveResolver The resolver, or <code>null</code>
    */
   public void setMessageTimeToLiveResolver(
-      final io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver messageTimeToLiveResolver) {
+      final Camunda8MessageTimeToLiveResolver messageTimeToLiveResolver) {
 
     this.messageTimeToLiveResolver = messageTimeToLiveResolver;
 
@@ -188,7 +213,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @param messageName The message name as the application wrote it
    * @return The time-to-live or <code>null</code>
    */
-  private java.time.Duration messageTimeToLiveFor(
+  private Duration messageTimeToLiveFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String messageName) {
@@ -232,7 +257,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   private String tenantIdOf(
       final String workflowModuleId) {
 
-    return io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
+    return Camunda8Scoping.tenantIdFor(
         scoping, workflowModuleId, adapterId, clientFactory
             .getConfiguration()
             .getTenantId());
@@ -256,11 +281,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @param workflowAggregateId The aggregate's ID
    * @return The variables (never <code>null</code>)
    */
-  java.util.Map<String, Object> variablesOf(
+  Map<String, Object> variablesOf(
       final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
-    final var variables = new java.util.LinkedHashMap<String, Object>();
+    final var variables = new LinkedHashMap<String, Object>();
     if (aggregatePersistence == null) {
       // no persistence at hand (e.g. a test driving the SPI directly): neither the
       // shared attributes nor the technical ID variable can be determined
@@ -397,7 +422,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   @Override
   public WorkflowAwareness awarenessOfTask(
-      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
+      final WorkflowScope scope,
       final Object workflowAggregateId,
       final String taskId) {
 
@@ -512,7 +537,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   @Override
   public WorkflowAwareness awarenessOfUserTask(
-      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
+      final WorkflowScope scope,
       final Object workflowAggregateId,
       final String taskId) {
 
@@ -713,7 +738,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * Logged once per adapter: probing workflow awareness needs a cluster which can be
    * searched - without one the adapter answers OPTIMISTICALLY.
    */
-  private final java.util.concurrent.atomic.AtomicBoolean cannotSearchWarned = new java.util.concurrent.atomic.AtomicBoolean();
+  private final AtomicBoolean cannotSearchWarned = new AtomicBoolean();
 
   /**
    * Whether this cluster can be ASKED which workflows it holds.
@@ -736,7 +761,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   @Override
   public WorkflowAwareness awarenessOfWorkflow(
-      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
+      final WorkflowScope scope,
       final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
@@ -757,7 +782,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .getClient()
           .newProcessInstanceSearchRequest()
           .filter(filter -> filter
-              .variables(java.util.Map
+              .variables(Map
                   .of(aggregateIdVariableName(aggregatePersistence),
                       Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
@@ -774,7 +799,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       }
       return mine
           .stream()
-          .anyMatch(instance -> instance.getState() == io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
+          .anyMatch(instance -> instance.getState() == ProcessInstanceState.ACTIVE)
               ? WorkflowAwareness.ACTIVE
               : WorkflowAwareness.COMPLETED;
     } catch (final Exception e) {
@@ -792,7 +817,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
                   + "probed and is answered OPTIMISTICALLY (ACTIVE). Fine for single-BPMS setups; "
                   + "for BPMS migration scenarios the query API has to answer - {}.",
               adapterId,
-              io.vanillabp.camunda8.client.Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED);
+              Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED);
         }
         return WorkflowAwareness.ACTIVE;
       }
@@ -824,7 +849,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    */
   @Override
   public WorkflowAwareness awarenessOfWorkflowForRedispatch(
-      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
+      final WorkflowScope scope,
       final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
@@ -833,7 +858,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .getClient()
           .newProcessInstanceSearchRequest()
           .filter(filter -> filter
-              .variables(java.util.Map
+              .variables(Map
                   .of(aggregateIdVariableName(aggregatePersistence),
                       Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
@@ -886,7 +911,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @return Whether it belongs to the scope of the call
    */
   private boolean isInScope(
-      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
+      final WorkflowScope scope,
       final String tenantId,
       final String processDefinitionId) {
 
@@ -898,8 +923,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @param scope What the probe was asked about
    * @return The (tenant, scoped process definition id) pairs that scope stands for
    */
-  private java.util.Set<String> scopeKeysOf(
-      final io.vanillabp.integration.adapter.spi.WorkflowScope scope) {
+  private Set<String> scopeKeysOf(
+      final WorkflowScope scope) {
 
     final var tenantId = tenantIdOf(scope.workflowModuleId());
     return scope
@@ -908,7 +933,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
         .map(bpmnProcessId -> scopeKey(
             tenantId,
             scopedProcessId(scope.workflowModuleId(), bpmnProcessId)))
-        .collect(java.util.stream.Collectors.toSet());
+        .collect(Collectors.toSet());
 
   }
 
@@ -937,7 +962,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @return Whether the probe may claim the task
    */
   private boolean belongsToThisAdapter(
-      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
+      final WorkflowScope scope,
       final String taskId,
       final boolean userTask) {
 
@@ -1089,7 +1114,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     final var declared = deployed
         .stream()
         .flatMap(process -> declaredMessageNames(process.model()).stream())
-        .collect(java.util.stream.Collectors.toCollection(java.util.TreeSet::new));
+        .collect(Collectors.toCollection(TreeSet::new));
     if (declared.contains(scopedMessageName)) {
       return;
     }
@@ -1121,19 +1146,19 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @param model The model as deployed
    * @return The declared message names
    */
-  private static java.util.Set<String> declaredMessageNames(
-      final io.camunda.zeebe.model.bpmn.BpmnModelInstance model) {
+  private static Set<String> declaredMessageNames(
+      final BpmnModelInstance model) {
 
     return model
         .getModelElementsByType(model
             .getModel()
-            .getType(io.camunda.zeebe.model.bpmn.instance.Message.class))
+            .getType(Message.class))
         .stream()
-        .map(io.camunda.zeebe.model.bpmn.instance.Message.class::cast)
-        .map(io.camunda.zeebe.model.bpmn.instance.Message::getName)
-        .filter(java.util.Objects::nonNull)
+        .map(Message.class::cast)
+        .map(Message::getName)
+        .filter(Objects::nonNull)
         .filter(name -> !name.isBlank())
-        .collect(java.util.stream.Collectors.toSet());
+        .collect(Collectors.toSet());
 
   }
 
@@ -1332,7 +1357,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
     if (request.taskId() == null) {
       final var processInstanceKey = processInstanceKeyOf(
-          io.vanillabp.integration.adapter.spi.WorkflowScope.of(request.workflowModuleId(), request.bpmnProcessId()),
+          WorkflowScope.of(request.workflowModuleId(), request.bpmnProcessId()),
           request.aggregatePersistence(),
           request.workflowAggregateId());
       if (processInstanceKey == null) {
@@ -1405,7 +1430,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @return The process instance key or <code>null</code> if none is active
    */
   private Long processInstanceKeyOf(
-      final io.vanillabp.integration.adapter.spi.WorkflowScope scope,
+      final WorkflowScope scope,
       final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
@@ -1414,8 +1439,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .getClient()
           .newProcessInstanceSearchRequest()
           .filter(filter -> filter
-              .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
-              .variables(java.util.Map
+              .state(ProcessInstanceState.ACTIVE)
+              .variables(Map
                   .of(aggregateIdVariableName(aggregatePersistence),
                       Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
           .send()
@@ -1508,7 +1533,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     final var scopes = scopePathOf(job.getProcessInstanceKey(), job.getElementInstanceKey());
     // innermost first: the scope holding the task, then its own scopes
     for (final var scope : scopes) {
-      if (scope.type() != io.camunda.client.api.search.enums.ElementInstanceType.MULTI_INSTANCE_BODY) {
+      if (scope.type() != ElementInstanceType.MULTI_INSTANCE_BODY) {
         return scope.key();
       }
     }
@@ -1522,7 +1547,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @param key The element instance key of the scope
    * @param type What kind of element it is
    */
-  private record Scope(Long key, io.camunda.client.api.search.enums.ElementInstanceType type) {
+  private record Scope(Long key, ElementInstanceType type) {
   }
 
   /**
@@ -1535,16 +1560,16 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @return The containing scopes, innermost first (empty if the element instance was
    *         not found below the process instance)
    */
-  private java.util.List<Scope> scopePathOf(
+  private List<Scope> scopePathOf(
       final Long processInstanceKey,
       final Long elementInstanceKey) {
 
-    final var path = new java.util.LinkedList<Scope>();
+    final var path = new LinkedList<Scope>();
     if ((processInstanceKey == null) || (elementInstanceKey == null)) {
       return path;
     }
     if (findScopePath(
-        new Scope(processInstanceKey, io.camunda.client.api.search.enums.ElementInstanceType.PROCESS),
+        new Scope(processInstanceKey, ElementInstanceType.PROCESS),
         elementInstanceKey,
         path,
         0)) {
@@ -1567,7 +1592,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   private boolean findScopePath(
       final Scope scope,
       final Long elementInstanceKey,
-      final java.util.LinkedList<Scope> path,
+      final LinkedList<Scope> path,
       final int depth) {
 
     if (depth > MAX_SCOPE_DEPTH) {
@@ -1607,7 +1632,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @param taskId The task ID reported to the application
    * @return The job or <code>null</code> if the query API does not know it
    */
-  private io.camunda.client.api.search.response.Job jobOf(
+  private Job jobOf(
       final String taskId) {
 
     try {
@@ -1649,7 +1674,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               + "translates the aggregate's ID into them: make the query API answer, or push the "
               + "aggregate by completing a task instead.")
               .formatted(adapterId, subject,
-                  io.vanillabp.camunda8.client.Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED), cause);
+                  Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED), cause);
     }
     if (cause instanceof RuntimeException runtimeException) {
       return runtimeException;
@@ -1772,7 +1797,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    */
   public ProcessInstanceEvent createProcessInstance(
       final String bpmnProcessId,
-      final java.util.Map<String, Object> variables,
+      final Map<String, Object> variables,
       final Object workflowAggregateId) {
 
     return createProcessInstance(bpmnProcessId, variables, workflowAggregateId, tenantIdOf(null));
@@ -1792,7 +1817,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    */
   public ProcessInstanceEvent createProcessInstance(
       final String bpmnProcessId,
-      final java.util.Map<String, Object> variables,
+      final Map<String, Object> variables,
       final Object workflowAggregateId,
       final String tenantId) {
 
@@ -1836,7 +1861,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   @Override
-  public java.util.List<io.vanillabp.spi.process.ProcessDefinition> getProcessDefinitions(
+  public List<ProcessDefinition> getProcessDefinitions(
       final String workflowModuleId,
       final String bpmnProcessId,
       final AggregatePersistenceAware<A> aggregatePersistence,
@@ -1850,7 +1875,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   @Override
-  public java.io.InputStream getBpmnXml(
+  public InputStream getBpmnXml(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String processDefinitionId) {
@@ -1860,7 +1885,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   @Override
-  public io.vanillabp.spi.process.WorkflowHistory getWorkflowHistory(
+  public WorkflowHistory getWorkflowHistory(
       final String workflowModuleId,
       final String bpmnProcessId,
       final AggregatePersistenceAware<A> aggregatePersistence,

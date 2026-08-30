@@ -22,6 +22,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import io.camunda.client.CamundaClient;
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -110,7 +111,7 @@ public class Camunda8ProcessVersionIT {
   private TransactionTemplate transactionTemplate;
 
   @Autowired
-  private io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry clientFactoryRegistry;
+  private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   private CamundaClient client() {
 

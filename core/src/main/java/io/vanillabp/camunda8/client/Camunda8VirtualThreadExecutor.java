@@ -1,5 +1,6 @@
 package io.vanillabp.camunda8.client;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -277,7 +278,7 @@ public class Camunda8VirtualThreadExecutor implements ScheduledExecutorService {
   @Override
   public List<Runnable> shutdownNow() {
 
-    final var pending = new java.util.ArrayList<>(scheduling.shutdownNow());
+    final var pending = new ArrayList<>(scheduling.shutdownNow());
     pending.addAll(handling.shutdownNow());
     return pending;
 

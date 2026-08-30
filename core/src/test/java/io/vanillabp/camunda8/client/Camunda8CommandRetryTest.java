@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.SocketTimeoutException;
 import java.time.Duration;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
@@ -14,6 +16,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import io.camunda.client.api.ProblemDetail;
 import io.camunda.client.api.command.ClientStatusException;
 import io.camunda.client.api.command.ProblemException;
+import io.grpc.Status;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -42,7 +47,7 @@ public class Camunda8CommandRetryTest {
    */
   private static ClientStatusException grpcBackpressure() {
 
-    return new ClientStatusException(io.grpc.Status.RESOURCE_EXHAUSTED, null);
+    return new ClientStatusException(Status.RESOURCE_EXHAUSTED, null);
 
   }
 
@@ -112,8 +117,8 @@ public class Camunda8CommandRetryTest {
 
     send(lockOf(Duration.ofMinutes(5)), false, () -> {
       if (attempts.incrementAndGet() < 2) {
-        throw new java.util.concurrent.CompletionException(
-            new java.net.SocketTimeoutException("Read timed out"));
+        throw new CompletionException(
+            new SocketTimeoutException("Read timed out"));
       }
     });
 
@@ -130,7 +135,7 @@ public class Camunda8CommandRetryTest {
     // and a command which ran out of time consumed request-timeout of it before it
     // failed. What is left has to outlast the first backoff, or the retry would be
     // formally responsible for timeouts and practically never run.
-    final var lockLeftAfterATimeout = io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT
+    final var lockLeftAfterATimeout = Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT
         .minus(Camunda8AdapterConfiguration.DEFAULT_REQUEST_TIMEOUT);
     assertTrue(
         lockLeftAfterATimeout.toMillis() > Camunda8CommandRetry.backoffMillis(1),
@@ -139,8 +144,8 @@ public class Camunda8CommandRetryTest {
     final var attempts = new AtomicInteger();
     send(lockOf(lockLeftAfterATimeout), false, () -> {
       if (attempts.incrementAndGet() < 2) {
-        throw new java.util.concurrent.CompletionException(
-            new java.net.SocketTimeoutException("Read timed out"));
+        throw new CompletionException(
+            new SocketTimeoutException("Read timed out"));
       }
     });
     assertEquals(2, attempts.get(), "so the retry really does run");
@@ -152,8 +157,8 @@ public class Camunda8CommandRetryTest {
         RuntimeException.class,
         () -> send(lockOf(Duration.ZERO), false, () -> {
           tooShort.incrementAndGet();
-          throw new java.util.concurrent.CompletionException(
-              new java.net.SocketTimeoutException("Read timed out"));
+          throw new CompletionException(
+              new SocketTimeoutException("Read timed out"));
         }));
     assertEquals(1, tooShort.get(), "one attempt, because there is no lock left to spend");
 
@@ -313,7 +318,7 @@ public class Camunda8CommandRetryTest {
             + "retries are done deciding within half a minute");
     assertEquals(
         Duration.ofSeconds(10),
-        io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
+        Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
         "and the constant says the same as the ISO notation the messages use");
 
     final var configuration = new Camunda8AdapterConfiguration();
@@ -343,13 +348,13 @@ public class Camunda8CommandRetryTest {
   public void aMissingResolverIsTheDefault() {
 
     assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
-        io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver
+        Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
+        Camunda8RetryBackoffResolver
             .resolve(null, "m", "P", "t")
             .duration());
     assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
-        io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.resolve((
+        Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
+        Camunda8RetryBackoffResolver.resolve((
             module,
             process,
             task) -> null, "m", "P", "t")

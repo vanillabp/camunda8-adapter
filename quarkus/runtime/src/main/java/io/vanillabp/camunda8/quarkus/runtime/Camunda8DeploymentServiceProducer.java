@@ -3,11 +3,25 @@ package io.vanillabp.camunda8.quarkus.runtime;
 import java.util.List;
 import java.util.Map;
 
+import org.eclipse.microprofile.config.ConfigProvider;
+
+import io.smallrye.config.SmallRyeConfig;
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
+import io.vanillabp.camunda8.observability.Camunda8Metrics;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
+import io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+import io.vanillabp.integration.adapter.spi.PreCommitRegistrar;
+import io.vanillabp.integration.adapter.spi.WorkflowAggregateSync;
+import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker;
+import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker;
+import io.vanillabp.integration.runtime.support.AdapterCollaboratorsSupport;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
 
@@ -39,17 +53,17 @@ public class Camunda8DeploymentServiceProducer {
   public List<AdapterDeploymentService<Object, Object>> camunda8DeploymentServices(
       final MigrationAdapterProperties properties,
       final Camunda8ClientFactoryRegistry clientFactoryRegistry,
-      final io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry workflowTaskRegistry,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
-      final io.vanillabp.integration.adapter.spi.WorkflowAggregateSync workflowAggregateSync,
-      final io.vanillabp.integration.adapter.spi.PreCommitRegistrar preCommitRegistrar,
-      @jakarta.enterprise.inject.Any final jakarta.enterprise.inject.Instance<io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker> workflowEndedInvoker,
-      @jakarta.enterprise.inject.Any final jakarta.enterprise.inject.Instance<io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker> bpmsInitiatedStartInvoker,
-      final jakarta.enterprise.inject.Instance<io.vanillabp.camunda8.observability.Camunda8Metrics> metrics) {
+      final WorkflowTaskRegistry workflowTaskRegistry,
+      final NameClashAvoidanceSupport scoping,
+      final WorkflowAggregateSync workflowAggregateSync,
+      final PreCommitRegistrar preCommitRegistrar,
+      @Any final Instance<WorkflowEndedInvoker> workflowEndedInvoker,
+      @Any final Instance<BpmsInitiatedStartInvoker> bpmsInitiatedStartInvoker,
+      final Instance<Camunda8Metrics> metrics) {
 
-    final var overlay = org.eclipse.microprofile.config.ConfigProvider
+    final var overlay = ConfigProvider
         .getConfig()
-        .unwrap(io.smallrye.config.SmallRyeConfig.class)
+        .unwrap(SmallRyeConfig.class)
         .getConfigMapping(VanillaBpCamunda8Properties.class);
 
     return (List) properties
@@ -64,11 +78,11 @@ public class Camunda8DeploymentServiceProducer {
           final var asyncTaskLockRenewal = adapterKeys != null
               ? adapterKeys
                   .asyncTaskLockRenewal()
-                  .orElse(io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL)
-              : io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
+                  .orElse(Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL)
+              : Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
           final var deploymentService = new Camunda8DeploymentService(
               adapterId, clientFactoryRegistry
-                  .getFactory(adapterId), io.vanillabp.integration.runtime.support.AdapterCollaboratorsSupport
+                  .getFactory(adapterId), AdapterCollaboratorsSupport
                       .collaborators(
                           adapterId, workflowTaskRegistry, workflowTaskRegistry, scoping, workflowAggregateSync,
                           preCommitRegistrar, workflowEndedInvoker, bpmsInitiatedStartInvoker), (
@@ -95,7 +109,7 @@ public class Camunda8DeploymentServiceProducer {
           deploymentService.setMetrics(
               metrics.isResolvable()
                   ? metrics.get()
-                  : io.vanillabp.camunda8.observability.Camunda8Metrics.NONE);
+                  : Camunda8Metrics.NONE);
           return deploymentService;
         })
         .toList();

@@ -3,6 +3,7 @@ package io.vanillabp.camunda8.processservice;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -71,7 +72,7 @@ public class Camunda8TaskKeyTest {
   @DisplayName("A decimal task key parses, which is the whole point")
   public void aDecimalTaskKeyParses() {
 
-    org.junit.jupiter.api.Assertions.assertEquals(2251799813685248L,
+    Assertions.assertEquals(2251799813685248L,
         Camunda8ProcessService.taskKeyOf("2251799813685248"));
 
   }

@@ -5,6 +5,7 @@ import java.util.Set;
 import io.camunda.client.api.command.ClientHttpException;
 import io.camunda.client.api.command.ClientStatusException;
 import io.camunda.client.api.command.ProblemException;
+import io.grpc.Status;
 
 /**
  * Shared classification of Camunda 8 client errors: whether a job-based command
@@ -41,7 +42,7 @@ public final class Camunda8Errors {
         return true;
       }
       if ((current instanceof ClientStatusException status) && (status
-          .getStatusCode() == io.grpc.Status.Code.NOT_FOUND)) {
+          .getStatusCode() == Status.Code.NOT_FOUND)) {
         return true;
       }
       current = current.getCause() == current
@@ -77,7 +78,7 @@ public final class Camunda8Errors {
         return true;
       }
       if ((current instanceof ClientStatusException status) && (status
-          .getStatusCode() == io.grpc.Status.Code.ALREADY_EXISTS)) {
+          .getStatusCode() == Status.Code.ALREADY_EXISTS)) {
         return true;
       }
       current = current.getCause() == current
@@ -138,11 +139,11 @@ public final class Camunda8Errors {
    * <code>ABORTED</code>, <code>RESOURCE_EXHAUSTED</code> and
    * <code>UNAVAILABLE</code> stay repeatable for the reasons given there.
    */
-  private static final Set<io.grpc.Status.Code> PERMANENT_GRPC_CODES = Set
+  private static final Set<Status.Code> PERMANENT_GRPC_CODES = Set
       .of(
-          io.grpc.Status.Code.INVALID_ARGUMENT,
-          io.grpc.Status.Code.PERMISSION_DENIED,
-          io.grpc.Status.Code.UNIMPLEMENTED);
+          Status.Code.INVALID_ARGUMENT,
+          Status.Code.PERMISSION_DENIED,
+          Status.Code.UNIMPLEMENTED);
 
   /**
    * Whether repeating a phase-two operation which failed like this cannot help,

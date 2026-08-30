@@ -4,12 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 import javax.sql.DataSource;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -21,6 +23,8 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -95,10 +99,10 @@ public class Camunda8InboundIdempotencyIT {
   private DataSource dataSource;
 
   @Autowired
-  private io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry clientFactoryRegistry;
+  private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   private void awaitUntil(
-      final java.util.function.Supplier<Boolean> condition,
+      final Supplier<Boolean> condition,
       final long timeoutMillis,
       final String description) throws InterruptedException {
 
@@ -134,8 +138,8 @@ public class Camunda8InboundIdempotencyIT {
     // the same on the aggregate)
     final var skippedDeliveries = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
     skippedDeliveries.start();
-    final var coreLogger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
-        .getLogger(io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService.class);
+    final var coreLogger = (ch.qos.logback.classic.Logger) LoggerFactory
+        .getLogger(MigrationProcessService.class);
     coreLogger.addAppender(skippedDeliveries);
 
     try {

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -134,7 +136,7 @@ public class Camunda8ShutdownDrainIT {
       final String bpmnProcessId,
       final String taskDefinition) {
 
-    return bean(io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class)
+    return bean(NameClashAvoidanceSupport.class)
         .scopedTaskDefinition("test-app", bpmnProcessId, taskDefinition, "c8");
 
   }
@@ -232,8 +234,8 @@ public class Camunda8ShutdownDrainIT {
     return CamundaClient
         .newClientBuilder()
         .preferRestOverGrpc(true)
-        .restAddress(java.net.URI.create(restAddress()))
-        .grpcAddress(java.net.URI.create(grpcAddress()))
+        .restAddress(URI.create(restAddress()))
+        .grpcAddress(URI.create(grpcAddress()))
         .build();
 
   }

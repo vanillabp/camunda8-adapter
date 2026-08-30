@@ -2,8 +2,11 @@ package io.vanillabp.camunda8.wiring;
 
 import java.time.Duration;
 import java.time.format.DateTimeParseException;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import io.camunda.client.api.response.ActivatedJob;
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -48,7 +51,7 @@ public class Camunda8RetryBackoffHeader {
    * rather than one per failing job. Concurrent because the handlers of one worker run on
    * as many threads as the adapter has execution slots.
    */
-  private final java.util.Set<String> alreadyReported = java.util.concurrent.ConcurrentHashMap.newKeySet();
+  private final Set<String> alreadyReported = ConcurrentHashMap.newKeySet();
 
   public Camunda8RetryBackoffHeader(
       final String adapterId,
@@ -100,7 +103,7 @@ public class Camunda8RetryBackoffHeader {
               header,
               Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF_ISO,
               configuredInstead,
-              io.vanillabp.camunda8.client.Camunda8AdapterConfiguration
+              Camunda8AdapterConfiguration
                   .propertyKey(adapterId, "retry-backoff")));
       return null;
     }

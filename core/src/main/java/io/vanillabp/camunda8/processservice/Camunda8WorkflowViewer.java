@@ -4,11 +4,19 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BinaryOperator;
+import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 
+import io.camunda.client.api.search.enums.ElementInstanceState;
 import io.camunda.client.api.search.enums.ElementInstanceType;
+import io.camunda.client.api.search.enums.IncidentState;
+import io.camunda.client.api.search.filter.ProcessInstanceFilter;
 import io.camunda.client.api.search.response.ElementInstance;
 import io.camunda.client.api.search.response.ProcessInstance;
 import io.camunda.zeebe.model.bpmn.Bpmn;
@@ -16,6 +24,7 @@ import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.CallActivity;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledElement;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.camunda8.client.Camunda8QueryApi;
 import io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses;
 import io.vanillabp.spi.process.ProcessDefinition;
 import io.vanillabp.spi.process.WorkflowElementHistory;
@@ -64,14 +73,14 @@ public class Camunda8WorkflowViewer {
    * against the cluster have to use the scoped id, while everything served from the
    * deployment record stays plain.
    */
-  private final java.util.function.BinaryOperator<String> scopedProcessId;
+  private final BinaryOperator<String> scopedProcessId;
 
   /**
    * The tenant a workflow module's instances live in, or <code>null</code> if the mode
    * uses none. Queries have to be restricted to it: without a tenant filter another
    * module deploying the same BPMN process id could be reported.
    */
-  private final java.util.function.UnaryOperator<String> tenantIdOf;
+  private final UnaryOperator<String> tenantIdOf;
 
   /**
    * Logged once per adapter: the viewer needs the query API for instance-related data.
@@ -211,7 +220,7 @@ public class Camunda8WorkflowViewer {
         .map(elementInstance -> new WorkflowElementHistory(
             elementInstance.getStartDate(), elementInstance.getEndDate(), elementInstance.getElementId(), elementTypeOf(
                 elementInstance.getType()), incidentMessages.get(elementInstance.getElementId()), elementInstance
-                    .getState() == io.camunda.client.api.search.enums.ElementInstanceState.TERMINATED, calledInstanceKeyOf(
+                    .getState() == ElementInstanceState.TERMINATED, calledInstanceKeyOf(
                         elementInstance)))
         .toList();
 
@@ -379,7 +388,7 @@ public class Camunda8WorkflowViewer {
               .processDefinitionId(scopedProcessId.apply(workflowModuleId, bpmnProcessId))
               // the cluster compares the variable's JSON, so the ID travels quoted
               .variables(
-                  java.util.Map
+                  Map
                       .of(
                           aggregateIdName,
                           Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId)));
@@ -446,7 +455,7 @@ public class Camunda8WorkflowViewer {
   }
 
   private ProcessInstance searchOne(
-      final java.util.function.Consumer<io.camunda.client.api.search.filter.ProcessInstanceFilter> filter) {
+      final Consumer<ProcessInstanceFilter> filter) {
 
     try {
       return clientFactory
@@ -491,10 +500,10 @@ public class Camunda8WorkflowViewer {
 
   }
 
-  private java.util.Map<String, String> openIncidentMessagesByElement(
+  private Map<String, String> openIncidentMessagesByElement(
       final Long processInstanceKey) {
 
-    final var messages = new java.util.HashMap<String, String>();
+    final var messages = new HashMap<String, String>();
     try {
       clientFactory
           .getClient()
@@ -503,7 +512,7 @@ public class Camunda8WorkflowViewer {
           .join()
           .items()
           .forEach(incident -> {
-            if (incident.getState() == io.camunda.client.api.search.enums.IncidentState.ACTIVE) {
+            if (incident.getState() == IncidentState.ACTIVE) {
               messages.putIfAbsent(incident.getElementId(), incident.getErrorMessage());
             }
           });
@@ -551,7 +560,7 @@ public class Camunda8WorkflowViewer {
               + "experience.",
           adapterId,
           subject,
-          io.vanillabp.camunda8.client.Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED,
+          Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED,
           exception);
     } else {
       log.debug(

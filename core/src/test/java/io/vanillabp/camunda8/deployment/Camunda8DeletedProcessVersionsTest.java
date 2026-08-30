@@ -22,6 +22,7 @@ import io.camunda.client.api.search.request.ProcessDefinitionSearchRequest;
 import io.camunda.client.api.search.response.ProcessDefinition;
 import io.camunda.client.api.search.response.SearchResponse;
 import io.camunda.client.api.search.response.SearchResponsePage;
+import io.vanillabp.camunda8.client.Camunda8QueryApi;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -113,7 +114,7 @@ public class Camunda8DeletedProcessVersionsTest {
     when(client.newProcessDefinitionSearchRequest()).thenReturn(search);
 
     final var versions = new Camunda8ProcessVersions(
-        "c8", () -> client, new io.vanillabp.camunda8.client.Camunda8QueryApi("c8", () -> client), (
+        "c8", () -> client, new Camunda8QueryApi("c8", () -> client), (
             workflowModuleId,
             bpmnProcessId) -> bpmnProcessId, workflowModuleId -> null);
     // a model this adapter could read would answer with tasks, so an empty answer below

@@ -1,10 +1,17 @@
 package io.vanillabp.camunda8.springboot.smoke;
 
+import java.util.stream.Stream;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.ConfigurableApplicationContext;
 
+import io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider;
+import io.vanillabp.camunda8.client.Camunda8Authentication;
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -30,18 +37,18 @@ public class Camunda8StartupValidationBootTest {
 
   private static final String DEPLOYMENT_EXCLUDE = "spring.autoconfigure.exclude=io.vanillabp.integration.deployment.DeploymentAutoConfiguration";
 
-  private org.springframework.context.ConfigurableApplicationContext run(
+  private ConfigurableApplicationContext run(
       final String... properties) {
 
     // command-line arguments (highest precedence) so the scenarios override the
     // application.yaml defaults
-    final var args = java.util.stream.Stream
+    final var args = Stream
         .concat(
-            java.util.stream.Stream.of(DEPLOYMENT_EXCLUDE), java.util.stream.Stream.of(properties))
+            Stream.of(DEPLOYMENT_EXCLUDE), Stream.of(properties))
         .map("--%s"::formatted)
         .toArray(String[]::new);
     return new SpringApplicationBuilder(SmokeTestApplication.class)
-        .web(org.springframework.boot.WebApplicationType.NONE)
+        .web(WebApplicationType.NONE)
         .run(args);
 
   }
@@ -166,15 +173,15 @@ public class Camunda8StartupValidationBootTest {
 
       Assertions.assertTrue(context.isActive());
       final var provider = context
-          .getBean(io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry.class)
+          .getBean(Camunda8ClientFactoryRegistry.class)
           .getFactory("c8")
           .getClient()
           .getConfiguration()
           .getCredentialsProvider();
       Assertions
           .assertInstanceOf(
-              io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider.class,
-              io.vanillabp.camunda8.client.Camunda8Authentication.unwrap(provider),
+              BasicAuthCredentialsProvider.class,
+              Camunda8Authentication.unwrap(provider),
               "the auth block of the Spring overlay reaches the client");
     }
 

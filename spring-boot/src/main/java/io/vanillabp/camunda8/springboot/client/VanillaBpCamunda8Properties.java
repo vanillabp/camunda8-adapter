@@ -1,10 +1,19 @@
 package io.vanillabp.camunda8.springboot.client;
 
+import java.time.Duration;
+import java.util.LinkedList;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Stream;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
+import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
+import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
+import io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -16,9 +25,8 @@ import lombok.Setter;
  * <code>grpc-address</code>, <code>prefer-rest-over-grpc</code>, <code>tenant-id</code>,
  * <code>cluster-id</code>, <code>region</code>, <code>client-id</code>,
  * <code>client-secret</code>, and the <code>auth.*</code> block of
- * {@link io.vanillabp.camunda8.client.Camunda8AuthConfiguration}). A second
- * {@code @ConfigurationProperties} class over the
- * same prefix coexists with the platform's binding of the core model; keys unknown to
+ * {@link Camunda8AuthConfiguration}). A second {@code @ConfigurationProperties} class over
+ * the same prefix coexists with the platform's binding of the core model; keys unknown to
  * either view are ignored by the JavaBean binding.
  * <p>
  * The adapter-id set is NEVER derived from this overlay map - it always comes from the
@@ -53,7 +61,7 @@ public class VanillaBpCamunda8Properties {
    * the four levels; falls back to the adapter-level value and finally the
    * default.
    */
-  public java.time.Duration jobTimeoutFor(
+  public Duration jobTimeoutFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -61,7 +69,7 @@ public class VanillaBpCamunda8Properties {
 
     final var scoped = scopedKeysMostSpecificFirst(workflowModuleId, bpmnProcessId, taskDefinition, adapterId)
         .map(Camunda8ScopedKeys::getJobTimeout)
-        .filter(java.util.Objects::nonNull)
+        .filter(Objects::nonNull)
         .findFirst();
     if (scoped.isPresent()) {
       return scoped.get();
@@ -69,7 +77,7 @@ public class VanillaBpCamunda8Properties {
     final var adapter = adapters.get(adapterId);
     return (adapter != null) && (adapter.getJobTimeout() != null)
         ? adapter.getJobTimeout()
-        : io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT;
+        : Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT;
 
   }
 
@@ -77,7 +85,7 @@ public class VanillaBpCamunda8Properties {
    * Resolves the backoff of a FAILED job with the same most-specific-wins semantics;
    * falls back to the adapter-level value and finally the default of ten seconds.
    */
-  public java.time.Duration retryBackoffFor(
+  public Duration retryBackoffFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -100,7 +108,7 @@ public class VanillaBpCamunda8Properties {
    * @param adapterId The adapter ID
    * @return The most specific configured backoff and the level it was found at
    */
-  public io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured configuredRetryBackoffFor(
+  public Camunda8RetryBackoffResolver.Configured configuredRetryBackoffFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -108,21 +116,21 @@ public class VanillaBpCamunda8Properties {
 
     final var perTask = taskLevelKeys(workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
     if ((perTask != null) && (perTask.getRetryBackoff() != null)) {
-      return new io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured(
+      return new Camunda8RetryBackoffResolver.Configured(
           perTask.getRetryBackoff(), true);
     }
     final var scoped = scopedKeysMostSpecificFirst(workflowModuleId, bpmnProcessId, taskDefinition, adapterId)
         .map(Camunda8ScopedKeys::getRetryBackoff)
-        .filter(java.util.Objects::nonNull)
+        .filter(Objects::nonNull)
         .findFirst();
     if (scoped.isPresent()) {
-      return new io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured(scoped.get(), false);
+      return new Camunda8RetryBackoffResolver.Configured(scoped.get(), false);
     }
     final var adapter = adapters.get(adapterId);
-    return new io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured(
+    return new Camunda8RetryBackoffResolver.Configured(
         adapter != null
             ? adapter.resolvedRetryBackoff()
-            : io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF, false);
+            : Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF, false);
 
   }
 
@@ -163,7 +171,7 @@ public class VanillaBpCamunda8Properties {
    * @param adapterId The adapter ID
    * @return The most specific configured time-to-live or <code>null</code>
    */
-  public java.time.Duration messageTimeToLiveFor(
+  public Duration messageTimeToLiveFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String messageName,
@@ -172,7 +180,7 @@ public class VanillaBpCamunda8Properties {
     final var scoped = messageScopedKeysMostSpecificFirst(
         workflowModuleId, bpmnProcessId, messageName, adapterId)
         .map(Camunda8ScopedKeys::getMessageTimeToLive)
-        .filter(java.util.Objects::nonNull)
+        .filter(Objects::nonNull)
         .findFirst();
     if (scoped.isPresent()) {
       return scoped.get();
@@ -191,7 +199,7 @@ public class VanillaBpCamunda8Properties {
    * map: a message is not a task, and giving it the task level would make an override
    * meant for one apply to the other.
    */
-  private java.util.stream.Stream<Camunda8ScopedKeys> messageScopedKeysMostSpecificFirst(
+  private Stream<Camunda8ScopedKeys> messageScopedKeysMostSpecificFirst(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String messageName,
@@ -207,7 +215,7 @@ public class VanillaBpCamunda8Properties {
         ? workflow.getMessages().get(messageName)
         : null;
 
-    final var levelsMostSpecificFirst = new java.util.LinkedList<Map<String, Camunda8ScopedKeys>>();
+    final var levelsMostSpecificFirst = new LinkedList<Map<String, Camunda8ScopedKeys>>();
     if (message != null) {
       levelsMostSpecificFirst.add(message.getAdapters());
     }
@@ -220,7 +228,7 @@ public class VanillaBpCamunda8Properties {
     return levelsMostSpecificFirst
         .stream()
         .map(level -> level.get(adapterId))
-        .filter(java.util.Objects::nonNull);
+        .filter(Objects::nonNull);
 
   }
 
@@ -235,7 +243,7 @@ public class VanillaBpCamunda8Properties {
    * @param adapterId The adapter ID
    * @return The most specific configured mode or the default
    */
-  public io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode fetchVariablesFor(
+  public Camunda8FetchVariables.Mode fetchVariablesFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -243,7 +251,7 @@ public class VanillaBpCamunda8Properties {
 
     final var scoped = scopedKeysMostSpecificFirst(workflowModuleId, bpmnProcessId, taskDefinition, adapterId)
         .map(Camunda8ScopedKeys::getFetchVariables)
-        .filter(java.util.Objects::nonNull)
+        .filter(Objects::nonNull)
         .findFirst();
     if (scoped.isPresent()) {
       return scoped.get();
@@ -251,7 +259,7 @@ public class VanillaBpCamunda8Properties {
     final var adapter = adapters.get(adapterId);
     return adapter != null
         ? adapter.resolvedFetchVariables()
-        : io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
+        : Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
 
   }
 
@@ -259,7 +267,7 @@ public class VanillaBpCamunda8Properties {
    * The <code>adapters.&lt;id&gt;</code> sections of the three levels below the adapter,
    * most specific first - what every scope-specific key is resolved through.
    */
-  private java.util.stream.Stream<Camunda8ScopedKeys> scopedKeysMostSpecificFirst(
+  private Stream<Camunda8ScopedKeys> scopedKeysMostSpecificFirst(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -275,7 +283,7 @@ public class VanillaBpCamunda8Properties {
         ? workflow.getTasks().get(taskDefinition)
         : null;
 
-    final var levelsMostSpecificFirst = new java.util.LinkedList<Map<String, Camunda8ScopedKeys>>();
+    final var levelsMostSpecificFirst = new LinkedList<Map<String, Camunda8ScopedKeys>>();
     if (task != null) {
       levelsMostSpecificFirst.add(task.getAdapters());
     }
@@ -288,7 +296,7 @@ public class VanillaBpCamunda8Properties {
     return levelsMostSpecificFirst
         .stream()
         .map(level -> level.get(adapterId))
-        .filter(java.util.Objects::nonNull);
+        .filter(Objects::nonNull);
 
   }
 
@@ -300,13 +308,13 @@ public class VanillaBpCamunda8Properties {
   @Setter
   public static class Camunda8ScopedKeys {
 
-    private java.time.Duration jobTimeout;
+    private Duration jobTimeout;
 
-    private java.time.Duration retryBackoff;
+    private Duration retryBackoff;
 
-    private io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode fetchVariables;
+    private Camunda8FetchVariables.Mode fetchVariables;
 
-    private java.time.Duration messageTimeToLive;
+    private Duration messageTimeToLive;
 
   }
 

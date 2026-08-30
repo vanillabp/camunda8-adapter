@@ -10,9 +10,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider;
+import io.quarkus.arc.Arc;
 import io.quarkus.test.QuarkusExtensionTest;
 import io.smallrye.config.SmallRyeConfig;
+import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
+import io.vanillabp.camunda8.client.Camunda8Authentication;
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.client.Camunda8VirtualThreadExecutor;
 import io.vanillabp.camunda8.quarkus.runtime.VanillaBpCamunda8Properties;
+import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -133,7 +142,7 @@ public class Camunda8JobTimeoutOverlayTest {
         overlay.retryBackoffFor("unknown-module", "SomeProcess", "someTask", "c8"));
     // and an adapter id which configures none gets the default of ten seconds
     Assertions.assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
+        Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
         overlay.retryBackoffFor("test-app", "TaskProcess", "happyTask", "unknown-adapter"));
 
   }
@@ -165,26 +174,26 @@ public class Camunda8JobTimeoutOverlayTest {
     // The escape hatch is resolved from the same four levels, and the task
     // level is its point - the case which needs everything is one task
     Assertions.assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.ALL,
+        Camunda8FetchVariables.Mode.ALL,
         overlay.fetchVariablesFor("test-app", "TaskProcess", "happyTask", "c8"));
     Assertions.assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.DERIVED,
+        Camunda8FetchVariables.Mode.DERIVED,
         overlay.fetchVariablesFor("test-app", "TaskProcess", "otherTask", "c8"));
     Assertions.assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.ALL,
+        Camunda8FetchVariables.Mode.ALL,
         overlay.fetchVariablesFor("test-app", "OtherProcess", "someTask", "c8"));
     Assertions.assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.DERIVED,
+        Camunda8FetchVariables.Mode.DERIVED,
         overlay.fetchVariablesFor("unknown-module", "SomeProcess", "someTask", "c8"));
     Assertions.assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.DERIVED,
+        Camunda8FetchVariables.Mode.DERIVED,
         overlay.fetchVariablesFor("test-app", "TaskProcess", "happyTask", "unknown-adapter"),
         "an adapter id which configures nothing derives, which is the default");
     Assertions.assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode.DERIVED,
-        io.quarkus.arc.Arc
+        Camunda8FetchVariables.Mode.DERIVED,
+        Arc
             .container()
-            .instance(io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry.class)
+            .instance(Camunda8ClientFactoryRegistry.class)
             .get()
             .getFactory("c8")
             .getConfiguration()
@@ -200,7 +209,7 @@ public class Camunda8JobTimeoutOverlayTest {
 
     // an adapter id without any configured job-timeout falls back to the default
     Assertions.assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
         overlay.jobTimeoutFor("test-app", "TaskProcess", "happyTask", "unknown-adapter"));
     // the async-task-lock-renewal is an adapter-level key
     Assertions.assertEquals(
@@ -220,9 +229,9 @@ public class Camunda8JobTimeoutOverlayTest {
             .orElseThrow());
     Assertions.assertEquals(
         Duration.ofSeconds(5),
-        io.quarkus.arc.Arc
+        Arc
             .container()
-            .instance(io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry.class)
+            .instance(Camunda8ClientFactoryRegistry.class)
             .get()
             .getFactory("c8")
             .getConfiguration()
@@ -238,9 +247,9 @@ public class Camunda8JobTimeoutOverlayTest {
             .orElseThrow());
     Assertions.assertEquals(
         Duration.ofSeconds(30),
-        io.quarkus.arc.Arc
+        Arc
             .container()
-            .instance(io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry.class)
+            .instance(Camunda8ClientFactoryRegistry.class)
             .get()
             .getFactory("c8")
             .getConfiguration()
@@ -269,14 +278,14 @@ public class Camunda8JobTimeoutOverlayTest {
     Assertions.assertEquals("gateway.internal", keys.overrideAuthority().orElseThrow());
     Assertions
         .assertEquals(
-            io.vanillabp.camunda8.client.Camunda8AuthConfiguration.Method.BASIC,
+            Camunda8AuthConfiguration.Method.BASIC,
             keys.auth().method().orElseThrow());
     Assertions.assertEquals("demo", keys.auth().username().orElseThrow());
 
     // and the values really arrive at the client this adapter id built
-    final var clientConfiguration = io.quarkus.arc.Arc
+    final var clientConfiguration = Arc
         .container()
-        .instance(io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry.class)
+        .instance(Camunda8ClientFactoryRegistry.class)
         .get()
         .getFactory("c8")
         .getClient()
@@ -292,13 +301,13 @@ public class Camunda8JobTimeoutOverlayTest {
     Assertions.assertEquals("gateway.internal", clientConfiguration.getOverrideAuthority());
     Assertions
         .assertInstanceOf(
-            io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider.class,
-            io.vanillabp.camunda8.client.Camunda8Authentication
+            BasicAuthCredentialsProvider.class,
+            Camunda8Authentication
                 .unwrap(clientConfiguration.getCredentialsProvider()),
             "the auth block of the overlay reaches the client this adapter id built");
     Assertions.assertEquals(6,
         clientConfiguration
-            .jobWorkerExecutor() instanceof io.vanillabp.camunda8.client.Camunda8VirtualThreadExecutor executor
+            .jobWorkerExecutor() instanceof Camunda8VirtualThreadExecutor executor
                 ? executor.getBound()
                 : -1,
         "the virtual mode hands the client the adapter's bounded executor");

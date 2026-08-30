@@ -1,5 +1,8 @@
 package io.vanillabp.camunda8.springboot.it;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -8,8 +11,10 @@ import org.springframework.stereotype.Service;
 
 import io.vanillabp.spi.process.ProcessService;
 import io.vanillabp.spi.service.BpmnProcess;
+import io.vanillabp.spi.service.TaskEvent;
 import io.vanillabp.spi.service.TaskException;
 import io.vanillabp.spi.service.TaskId;
+import io.vanillabp.spi.service.TaskParam;
 import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
@@ -45,7 +50,7 @@ public class TaskDockerWorkflowService {
    * When each invocation happened, per (task definition + aggregate ID) - what the
    * retry-backoff test measures the distance between two deliveries with.
    */
-  public static final Map<String, java.util.List<Long>> INVOCATION_TIMES = new ConcurrentHashMap<>();
+  public static final Map<String, List<Long>> INVOCATION_TIMES = new ConcurrentHashMap<>();
 
   private final ProcessService<TaskDockerAggregate> processService;
 
@@ -71,7 +76,7 @@ public class TaskDockerWorkflowService {
         + ":"
         + aggregate.getId();
     INVOCATION_TIMES
-        .computeIfAbsent(key, k -> java.util.Collections.synchronizedList(new java.util.ArrayList<>()))
+        .computeIfAbsent(key, k -> Collections.synchronizedList(new ArrayList<>()))
         .add(System.currentTimeMillis());
     return INVOCATIONS
         .computeIfAbsent(key, k -> new AtomicInteger())
@@ -209,10 +214,10 @@ public class TaskDockerWorkflowService {
   public void approveUserNotification(
       final TaskDockerAggregate aggregate,
       @TaskId final String taskId,
-      @io.vanillabp.spi.service.TaskEvent final io.vanillabp.spi.service.TaskEvent.Event event) {
+      @TaskEvent final TaskEvent.Event event) {
 
     countInvocation("approveUser", aggregate);
-    if (event == io.vanillabp.spi.service.TaskEvent.Event.CREATED) {
+    if (event == TaskEvent.Event.CREATED) {
       aggregate.setTaskId(taskId);
       aggregate.appendResult("usertask-created");
     } else {
@@ -287,9 +292,9 @@ public class TaskDockerWorkflowService {
   @WorkflowTask
   public void syncApproved(
       final TaskDockerAggregate aggregate,
-      @io.vanillabp.spi.service.TaskParam("approved") final Object approved,
-      @io.vanillabp.spi.service.TaskParam("results") final Object results,
-      @io.vanillabp.spi.service.TaskParam("secret") final Object secret) {
+      @TaskParam("approved") final Object approved,
+      @TaskParam("results") final Object results,
+      @TaskParam("secret") final Object secret) {
 
     countInvocation("syncApproved", aggregate);
     // @TaskParam reads the variables of the delivered job: the cluster's view
@@ -319,7 +324,7 @@ public class TaskDockerWorkflowService {
   @WorkflowTask
   public void fetchAllTask(
       final TaskDockerAggregate aggregate,
-      @io.vanillabp.spi.service.TaskParam("bigPayload") final String bigPayload) {
+      @TaskParam("bigPayload") final String bigPayload) {
 
     countInvocation("fetchAllTask", aggregate);
     OBSERVED_VARIABLES.put("bigPayloadLength", bigPayload == null
@@ -339,7 +344,7 @@ public class TaskDockerWorkflowService {
   @WorkflowTask
   public void fetchDerivedTask(
       final TaskDockerAggregate aggregate,
-      @io.vanillabp.spi.service.TaskParam("bigPayload") final String bigPayload) {
+      @TaskParam("bigPayload") final String bigPayload) {
 
     countInvocation("fetchDerivedTask", aggregate);
     OBSERVED_VARIABLES.put("derivedPayloadLength", bigPayload == null

@@ -3,14 +3,17 @@ package io.vanillabp.camunda8.springboot.it;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.health.contributor.Status;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -20,7 +23,12 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.observability.Camunda8Metrics;
+import io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics;
+import io.vanillabp.integration.health.VanillaBpHealthIndicator;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -83,10 +91,10 @@ public class Camunda8WorkerThreadsIT {
   private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   @Autowired
-  private io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics metrics;
+  private MicrometerCamunda8Metrics metrics;
 
   @Autowired
-  private io.vanillabp.integration.health.VanillaBpHealthIndicator healthIndicator;
+  private VanillaBpHealthIndicator healthIndicator;
 
   @BeforeEach
   public void resetObservations() {
@@ -108,9 +116,9 @@ public class Camunda8WorkerThreadsIT {
 
     final var factory = clientFactoryRegistry.getFactory("c8");
 
-    org.junit.jupiter.api.Assertions.assertEquals(4, factory.getExecutionModel().slots(),
+    Assertions.assertEquals(4, factory.getExecutionModel().slots(),
         "nothing is configured here, so the adapter's default applies");
-    org.junit.jupiter.api.Assertions.assertEquals(4,
+    Assertions.assertEquals(4,
         factory.getClient().getConfiguration().getNumJobWorkerExecutionThreads(),
         "and it reaches the client, which would otherwise use one");
 
@@ -156,16 +164,16 @@ public class Camunda8WorkerThreadsIT {
 
     // the meters of this adapter, bound by hand: this application has no Actuator, which
     // is what applies MeterBinder beans in a real one
-    final var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+    final var registry = new SimpleMeterRegistry();
     metrics.bindTo(registry);
 
     // the slot gauges are there as soon as the client exists - four platform threads,
     // and no gauge for what the client does with its own pool
-    org.junit.jupiter.api.Assertions.assertEquals(
+    Assertions.assertEquals(
         4.0,
         registry
-            .get(io.vanillabp.camunda8.observability.Camunda8Metrics.EXECUTION_SLOTS_CONFIGURED)
-            .tag(io.vanillabp.camunda8.observability.Camunda8Metrics.TAG_ADAPTER, "c8")
+            .get(Camunda8Metrics.EXECUTION_SLOTS_CONFIGURED)
+            .tag(Camunda8Metrics.TAG_ADAPTER, "c8")
             .gauge()
             .value());
 
@@ -182,14 +190,14 @@ public class Camunda8WorkerThreadsIT {
     // the tag carries the job type the WORKER subscribes to, which is the scoped one
     // wherever name-clash avoidance prefixes it (here 'test-app__QuickProcess__quickTask')
     final var activated = registry
-        .find(io.vanillabp.camunda8.observability.Camunda8Metrics.JOBS_ACTIVATED)
+        .find(Camunda8Metrics.JOBS_ACTIVATED)
         .counters()
         .stream()
         .filter(counter -> counter
             .getId()
-            .getTag(io.vanillabp.camunda8.observability.Camunda8Metrics.TAG_JOB_TYPE)
+            .getTag(Camunda8Metrics.TAG_JOB_TYPE)
             .endsWith("quickTask"))
-        .mapToDouble(io.micrometer.core.instrument.Counter::count)
+        .mapToDouble(Counter::count)
         .sum();
     assertTrue(
         activated >= 1.0,
@@ -197,11 +205,11 @@ public class Camunda8WorkerThreadsIT {
 
     // and the cluster which just served that job answers the health question
     final var health = healthIndicator.health();
-    org.junit.jupiter.api.Assertions.assertEquals(
-        org.springframework.boot.health.contributor.Status.UP,
+    Assertions.assertEquals(
+        Status.UP,
         health.getStatus());
     @SuppressWarnings("unchecked")
-    final var detail = (java.util.Map<String, Object>) health
+    final var detail = (Map<String, Object>) health
         .getDetails()
         .get("c8");
     assertNotNull(detail.get("gatewayVersion"), "a cluster which answered says which version it is");

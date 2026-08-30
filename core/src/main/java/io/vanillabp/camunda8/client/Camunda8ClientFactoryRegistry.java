@@ -1,5 +1,8 @@
 package io.vanillabp.camunda8.client;
 
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -47,13 +50,13 @@ public class Camunda8ClientFactoryRegistry implements AutoCloseable {
   private void tellEachFactoryWhoSharesItsCluster(
       final Map<String, Camunda8AdapterConfiguration> configurationsByAdapterId) {
 
-    final Map<String, java.util.List<String>> idsByCluster = new java.util.LinkedHashMap<>();
+    final Map<String, List<String>> idsByCluster = new LinkedHashMap<>();
     configurationsByAdapterId.forEach((
         adapterId,
         configuration) -> idsByCluster
             .computeIfAbsent(
                 Camunda8InstanceIdentity.clusterIdentityOf(configuration),
-                cluster -> new java.util.LinkedList<>())
+                cluster -> new LinkedList<>())
             .add(adapterId));
     idsByCluster
         .values()

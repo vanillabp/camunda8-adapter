@@ -1,5 +1,7 @@
 package io.vanillabp.camunda8.quarkus.smoke;
 
+import java.util.logging.Level;
+
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.jupiter.api.Assertions;
@@ -27,7 +29,7 @@ public class Camunda8StartupValidationTest {
           .addClass(TestPhaseTwoOutbox.class)
           .addAsResource("application.yaml")
           .addAsResource("workflow-module-descriptor/workflow-module", "META-INF/workflow-module"))
-      .setLogRecordPredicate(record -> record.getLevel().intValue() >= java.util.logging.Level.WARNING.intValue())
+      .setLogRecordPredicate(record -> record.getLevel().intValue() >= Level.WARNING.intValue())
       .assertLogRecords(records -> {
         final var messages = records
             .stream()

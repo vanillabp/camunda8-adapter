@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,6 +16,8 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
+import io.vanillabp.integration.spi.PhaseOperation;
+import io.vanillabp.integration.spi.PhaseTwoCall;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -79,9 +83,9 @@ public class Camunda8MessageDeclarationTest {
       final Camunda8ClientFactory clientFactory) {
 
     return new Camunda8ProcessService<>(
-        "c8", clientFactory, java.time.Duration.ofDays(14), (
+        "c8", clientFactory, Duration.ofDays(14), (
             aggregateClass,
-            check) -> check.run(), null, java.time.Duration.ZERO);
+            check) -> check.run(), null, Duration.ZERO);
 
   }
 
@@ -107,9 +111,9 @@ public class Camunda8MessageDeclarationTest {
 
     assertDoesNotThrow(
         () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
-            io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
-            new Aggregate("agg-1"), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME,
-                "PaymentReceived", io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, null)));
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "PaymentReceived", PhaseTwoCall.ARG_CORRELATION_ID, null)));
 
   }
 
@@ -123,9 +127,9 @@ public class Camunda8MessageDeclarationTest {
     final var failure = assertThrows(
         IllegalArgumentException.class,
         () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
-            io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
-            new Aggregate("agg-1"), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME,
-                "PaymentRecieved", io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, null)));
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "PaymentRecieved", PhaseTwoCall.ARG_CORRELATION_ID, null)));
 
     assertTrue(failure.getMessage().contains("PaymentRecieved"), failure.getMessage());
     // the remedy: what IS declared
@@ -144,9 +148,9 @@ public class Camunda8MessageDeclarationTest {
 
     assertDoesNotThrow(
         () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
-            io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
-            new Aggregate("agg-1"), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME,
-                "AnyMessage", io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, null)));
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "AnyMessage", PhaseTwoCall.ARG_CORRELATION_ID, null)));
 
   }
 
@@ -165,9 +169,9 @@ public class Camunda8MessageDeclarationTest {
     // the message waits in a called process - same aggregate, other BPMN process
     assertDoesNotThrow(
         () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
-            io.vanillabp.integration.spi.PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
-            new Aggregate("agg-1"), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_MESSAGE_NAME,
-                "DocumentsArrived", io.vanillabp.integration.spi.PhaseTwoCall.ARG_CORRELATION_ID, null)));
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "DocumentsArrived", PhaseTwoCall.ARG_CORRELATION_ID, null)));
 
   }
 

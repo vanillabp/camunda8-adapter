@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +27,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import io.camunda.client.CamundaClient;
+import io.camunda.client.api.search.response.Variable;
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -102,7 +105,7 @@ public class Camunda8AggregateChangedIT {
   private TransactionTemplate transactionTemplate;
 
   @Autowired
-  private io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry clientFactoryRegistry;
+  private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   private CamundaClient client() {
 
@@ -133,7 +136,7 @@ public class Camunda8AggregateChangedIT {
    * The variables named 'note' of the workflow of the given aggregate, as the query
    * API reports them (with the scope they belong to).
    */
-  private List<io.camunda.client.api.search.response.Variable> notesOf(
+  private List<Variable> notesOf(
       final Long processInstanceKey) {
 
     return client()
@@ -153,7 +156,7 @@ public class Camunda8AggregateChangedIT {
     final var found = client()
         .newProcessInstanceSearchRequest()
         // variable values are stored as JSON: a String value is searched WITH its quotes
-        .filter(filter -> filter.variables(java.util.Map.of("id", "\"%s\"".formatted(aggregateId))))
+        .filter(filter -> filter.variables(Map.of("id", "\"%s\"".formatted(aggregateId))))
         .send()
         .join()
         .items();
@@ -233,7 +236,7 @@ public class Camunda8AggregateChangedIT {
         .bpmnProcessId("test-app__AggregateChangedMultiInstanceProcess")
         .latestVersion()
         // one call: the client's variable() replaces what a previous call set
-        .variables(java.util.Map.of("id", String.valueOf(aggregateId), "note", "before"))
+        .variables(Map.of("id", String.valueOf(aggregateId), "note", "before"))
         .send()
         .join();
 

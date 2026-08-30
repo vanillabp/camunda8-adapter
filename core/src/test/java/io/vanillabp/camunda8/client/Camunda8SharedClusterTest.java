@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
@@ -59,13 +60,13 @@ public class Camunda8SharedClusterTest {
             .sharesItsCluster(),
         "a tenant does not make a second cluster - the keys stay global");
     assertEquals(
-        java.util.List.of("c8-tenant"),
+        List.of("c8-tenant"),
         registry
             .getFactory("c8-prefix")
             .getAdapterIdsSharingTheCluster(),
         "and each id knows who it shares with, which is what the boot check names");
     assertEquals(
-        java.util.List.of("c8-prefix"),
+        List.of("c8-prefix"),
         registry
             .getFactory("c8-tenant")
             .getAdapterIdsSharingTheCluster());

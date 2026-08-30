@@ -6,6 +6,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.function.Consumer;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -16,11 +20,13 @@ import org.mockito.Mockito;
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.CamundaFuture;
 import io.camunda.client.api.fetch.ProcessDefinitionGetXmlRequest;
+import io.camunda.client.api.search.filter.ProcessDefinitionFilter;
 import io.camunda.client.api.search.request.ProcessDefinitionSearchRequest;
 import io.camunda.client.api.search.request.ProcessInstanceSearchRequest;
 import io.camunda.client.api.search.response.ProcessDefinition;
 import io.camunda.client.api.search.response.SearchResponse;
 import io.camunda.client.api.search.response.SearchResponsePage;
+import io.vanillabp.camunda8.client.Camunda8QueryApi;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -68,7 +74,7 @@ public class Camunda8StartupQuestionCostTest {
   /**
    * Every request the cluster answered, by kind.
    */
-  private final java.util.Map<String, Integer> requests = new java.util.TreeMap<>();
+  private final Map<String, Integer> requests = new TreeMap<>();
 
   private static ProcessDefinition definition(
       final int version) {
@@ -125,7 +131,7 @@ public class Camunda8StartupQuestionCostTest {
   @BeforeEach
   public void setUp() {
 
-    final var held = java.util.stream.IntStream
+    final var held = IntStream
         .rangeClosed(1, VERSIONS)
         .mapToObj(Camunda8StartupQuestionCostTest::definition)
         .toList();
@@ -140,13 +146,13 @@ public class Camunda8StartupQuestionCostTest {
     Mockito
         .lenient()
         .when(definitionSearch.filter(
-            Mockito.<java.util.function.Consumer<io.camunda.client.api.search.filter.ProcessDefinitionFilter>>any()))
+            Mockito.<Consumer<ProcessDefinitionFilter>>any()))
         .thenAnswer(invocation -> {
           askedFor[0] = 0;
-          final java.util.function.Consumer<io.camunda.client.api.search.filter.ProcessDefinitionFilter> filter = invocation
+          final Consumer<ProcessDefinitionFilter> filter = invocation
               .getArgument(0);
           final var recording = mock(
-              io.camunda.client.api.search.filter.ProcessDefinitionFilter.class,
+              ProcessDefinitionFilter.class,
               RETURNS_SELF);
           Mockito
               .lenient()
@@ -192,7 +198,7 @@ public class Camunda8StartupQuestionCostTest {
     });
 
     versions = new Camunda8ProcessVersions(
-        "c8", () -> client, new io.vanillabp.camunda8.client.Camunda8QueryApi("c8", () -> client), (
+        "c8", () -> client, new Camunda8QueryApi("c8", () -> client), (
             workflowModuleId,
             bpmnProcessId) -> bpmnProcessId, workflowModuleId -> null);
     versions.setTasksOfModel((

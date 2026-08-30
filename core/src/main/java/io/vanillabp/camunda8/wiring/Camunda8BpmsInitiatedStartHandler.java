@@ -6,6 +6,9 @@ import java.util.Map;
 import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.client.api.worker.JobClient;
 import io.camunda.client.api.worker.JobHandler;
+import io.vanillabp.camunda8.client.Camunda8CommandRetry;
+import io.vanillabp.camunda8.client.Camunda8Drain;
+import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
 import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartContext;
 import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker;
@@ -59,7 +62,7 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
    * Never <code>null</code> - a handler built without one (tests) gets a drain of its own,
    * which never shuts down.
    */
-  private final io.vanillabp.camunda8.client.Camunda8Drain drain;
+  private final Camunda8Drain drain;
 
   /**
    * What kind of worker this is, in the messages about a shutdown.
@@ -94,7 +97,7 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
       final BpmsStartTrigger.Kind kind,
       final String signalName,
       final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker,
-      final io.vanillabp.camunda8.client.Camunda8Drain drain) {
+      final Camunda8Drain drain) {
 
     this(
         adapterId, workflowModuleId, bpmnProcessId, startEventId, kind, signalName, bpmsInitiatedStartInvoker, drain, null);
@@ -109,12 +112,12 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
       final BpmsStartTrigger.Kind kind,
       final String signalName,
       final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker,
-      final io.vanillabp.camunda8.client.Camunda8Drain drain,
+      final Camunda8Drain drain,
       final Camunda8RetryBackoffResolver retryBackoffResolver) {
 
     this.retryBackoffResolver = retryBackoffResolver;
     this.drain = drain == null
-        ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
+        ? new Camunda8Drain(adapterId, workflowModuleId)
         : drain;
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
@@ -151,7 +154,7 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
                   : "existed already");
 
       final var variables = result.variables();
-      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+      Camunda8CommandRetry.send(
           adapterId,
           "completion",
           job.getKey(),
@@ -185,7 +188,7 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
           job.getRetries() - 1,
           retryBackoff,
           e);
-      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+      Camunda8CommandRetry.send(
           adapterId,
           "failure",
           job.getKey(),
@@ -196,7 +199,7 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
               .newFailCommand(job.getKey())
               .retries(job.getRetries() - 1)
               .retryBackoff(retryBackoff)
-              .errorMessage(io.vanillabp.camunda8.client.Camunda8Errors.incidentMessage(e))
+              .errorMessage(Camunda8Errors.incidentMessage(e))
               .send()
               .join());
     } finally {

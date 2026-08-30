@@ -1,13 +1,22 @@
 package io.vanillabp.camunda8.wiring;
 
 
+import java.util.Map;
+
 import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.camunda.client.api.worker.JobHandler;
+import io.vanillabp.camunda8.client.Camunda8CommandRetry;
+import io.vanillabp.camunda8.client.Camunda8Drain;
+import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
 import io.vanillabp.spi.service.TaskEvent;
+import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -64,7 +73,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
    * unless the workflow module uses prefixes. May be
    * <code>null</code> (tests).
    */
-  private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
+  private final NameClashAvoidanceSupport scoping;
 
   /**
    * Which multi-instance elements enclose the user task - a user task may
@@ -77,7 +86,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
    * Never <code>null</code> - a handler built without one (tests) gets a drain of its
    * own, which never shuts down.
    */
-  private final io.vanillabp.camunda8.client.Camunda8Drain drain;
+  private final Camunda8Drain drain;
 
   /**
    * What kind of worker this is, in the messages about a shutdown.
@@ -91,62 +100,36 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
    */
   private final Camunda8FetchVariables.Selection fetchVariables;
 
-  public Camunda8UserTaskListenerHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final WorkflowTaskInvoker workflowTaskInvoker) {
-
-    this(adapterId, workflowModuleId, workflowTaskInvoker, null);
-
-  }
-
-  public Camunda8UserTaskListenerHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final WorkflowTaskInvoker workflowTaskInvoker,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
-
-    this(adapterId, workflowModuleId, workflowTaskInvoker, scoping, null);
-
-  }
-
-  public Camunda8UserTaskListenerHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final WorkflowTaskInvoker workflowTaskInvoker,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
-      final Camunda8MultiInstance.Registry multiInstanceRegistry) {
-
-    this(adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry, null);
-
-  }
-
+  /**
+   * The user-task listener worker this handler serves. Built through the generated
+   * <code>Camunda8UserTaskListenerHandler.builder()</code>: four of these seven values may
+   * be left out, and a positional list of that length no longer says which is which.
+   *
+   * @param adapterId The adapter whose worker delivers here
+   * @param workflowModuleId The workflow module the subscribed user tasks belong to
+   * @param workflowTaskInvoker The core's runtime entry point
+   * @param scoping Translates the cluster's identifiers back, or <code>null</code>
+   * @param multiInstanceRegistry Which multi-instance elements enclose the user task, or
+   *          <code>null</code> for no iteration
+   * @param drain What the workflow module has in flight, or <code>null</code> for a drain of
+   *          this handler's own which never shuts down
+   * @param fetchVariables What the worker asked for, or <code>null</code> for every variable
+   */
+  @Builder
   public Camunda8UserTaskListenerHandler(
       final String adapterId,
       final String workflowModuleId,
       final WorkflowTaskInvoker workflowTaskInvoker,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final NameClashAvoidanceSupport scoping,
       final Camunda8MultiInstance.Registry multiInstanceRegistry,
-      final io.vanillabp.camunda8.client.Camunda8Drain drain) {
-
-    this(adapterId, workflowModuleId, workflowTaskInvoker, scoping, multiInstanceRegistry, drain, null);
-
-  }
-
-  public Camunda8UserTaskListenerHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final WorkflowTaskInvoker workflowTaskInvoker,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
-      final Camunda8MultiInstance.Registry multiInstanceRegistry,
-      final io.vanillabp.camunda8.client.Camunda8Drain drain,
+      final Camunda8Drain drain,
       final Camunda8FetchVariables.Selection fetchVariables) {
 
     this.fetchVariables = fetchVariables == null
         ? Camunda8FetchVariables.Selection.everything()
         : fetchVariables;
     this.drain = drain == null
-        ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
+        ? new Camunda8Drain(adapterId, workflowModuleId)
         : drain;
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
@@ -164,7 +147,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     final var bpmnProcessId = scoping == null
         ? job.getBpmnProcessId()
         : scoping.plainProcessId(workflowModuleId, job.getBpmnProcessId(), adapterId);
-    final var event = job.getListenerEventType() == io.camunda.client.api.search.enums.ListenerEventType.CANCELING
+    final var event = job.getListenerEventType() == ListenerEventType.CANCELING
         ? TaskEvent.Event.CANCELED
         : TaskEvent.Event.CREATED;
     // the USER-TASK KEY is the @TaskId - it completes the task later via
@@ -225,7 +208,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
       // listener jobs gate the task lifecycle - ALWAYS complete them; the
       // user-task result keeps the lifecycle moving (denying is not VanillaBP's
       // business)
-      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+      Camunda8CommandRetry.send(
           adapterId,
           "completion",
           job.getKey(),
@@ -252,7 +235,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
           event,
           e);
       // no retry backoff: with no retries left there is no next attempt to delay
-      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+      Camunda8CommandRetry.send(
           adapterId,
           "failure",
           job.getKey(),
@@ -262,7 +245,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
           () -> client
               .newFailCommand(job.getKey())
               .retries(0)
-              .errorMessage(io.vanillabp.camunda8.client.Camunda8Errors.incidentMessage(e))
+              .errorMessage(Camunda8Errors.incidentMessage(e))
               .send()
               .join());
     } finally {
@@ -298,31 +281,6 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
         final String workflowAggregateId,
         final String userTaskKey,
         final TaskEvent.Event event,
-        final ActivatedJob job) {
-
-      this(adapterId, taskDefinition, workflowAggregateId, userTaskKey, event, job, null);
-
-    }
-
-    Camunda8UserTaskInvocationContext(
-        final String adapterId,
-        final String taskDefinition,
-        final String workflowAggregateId,
-        final String userTaskKey,
-        final TaskEvent.Event event,
-        final ActivatedJob job,
-        final Camunda8MultiInstance.Registry multiInstanceRegistry) {
-
-      this(adapterId, taskDefinition, workflowAggregateId, userTaskKey, event, job, multiInstanceRegistry, null);
-
-    }
-
-    Camunda8UserTaskInvocationContext(
-        final String adapterId,
-        final String taskDefinition,
-        final String workflowAggregateId,
-        final String userTaskKey,
-        final TaskEvent.Event event,
         final ActivatedJob job,
         final Camunda8MultiInstance.Registry multiInstanceRegistry,
         final Camunda8FetchVariables.Selection fetchVariables) {
@@ -344,10 +302,10 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
      * What the cluster knows about the iteration this user task belongs to.
      */
     @Override
-    public java.util.Map<String, io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue> getMultiInstances() {
+    public Map<String, MultiInstanceValue> getMultiInstances() {
 
       if (multiInstanceRegistry == null) {
-        return java.util.Map.of();
+        return Map.of();
       }
       return Camunda8MultiInstance.valuesOf(
           multiInstanceRegistry.chainOf(job.getBpmnProcessId(), job.getElementId()),

@@ -15,6 +15,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.integration.adapter.spi.PreCommitRegistrar;
+import io.vanillabp.integration.spi.PhaseOperation;
+import io.vanillabp.integration.spi.PhaseTwoCall;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -30,7 +33,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8PreCommitCheckTest {
 
-  static class RecordingRegistrar implements io.vanillabp.integration.adapter.spi.PreCommitRegistrar {
+  static class RecordingRegistrar implements PreCommitRegistrar {
 
     final List<Runnable> registered = new ArrayList<>();
 
@@ -69,12 +72,12 @@ public class Camunda8PreCommitCheckTest {
     final var service = service();
 
     assertDoesNotThrow(() -> PhaseOperations.phaseOne(service,
-        io.vanillabp.integration.spi.PhaseOperation.COMPLETE_TASK, "module", "Process", null, new Object(),
-        PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID, "123")));
+        PhaseOperation.COMPLETE_TASK, "module", "Process", null, new Object(),
+        PhaseOperations.args(PhaseTwoCall.ARG_TASK_ID, "123")));
     assertDoesNotThrow(
-        () -> PhaseOperations.phaseOne(service, io.vanillabp.integration.spi.PhaseOperation.CANCEL_TASK, "module",
-            "Process", null, new Object(), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID,
-                "124", io.vanillabp.integration.spi.PhaseTwoCall.ARG_BPMN_ERROR_CODE, "SOME_ERROR")));
+        () -> PhaseOperations.phaseOne(service, PhaseOperation.CANCEL_TASK, "module",
+            "Process", null, new Object(), PhaseOperations.args(PhaseTwoCall.ARG_TASK_ID,
+                "124", PhaseTwoCall.ARG_BPMN_ERROR_CODE, "SOME_ERROR")));
 
     assertEquals(2, registrar.registered.size(), "one registered check per operation");
 
@@ -85,8 +88,8 @@ public class Camunda8PreCommitCheckTest {
   public void checkContactsClusterWhenHookFires() {
 
     final var service = service();
-    PhaseOperations.phaseOne(service, io.vanillabp.integration.spi.PhaseOperation.COMPLETE_TASK, "module", "Process",
-        null, new Object(), PhaseOperations.args(io.vanillabp.integration.spi.PhaseTwoCall.ARG_TASK_ID, "123"));
+    PhaseOperations.phaseOne(service, PhaseOperation.COMPLETE_TASK, "module", "Process",
+        null, new Object(), PhaseOperations.args(PhaseTwoCall.ARG_TASK_ID, "123"));
     final var check = registrar.registered.getFirst();
     assertNotNull(check);
 

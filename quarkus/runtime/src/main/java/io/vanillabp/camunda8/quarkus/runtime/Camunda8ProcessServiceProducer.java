@@ -3,11 +3,18 @@ package io.vanillabp.camunda8.quarkus.runtime;
 import java.util.List;
 import java.util.Map;
 
+import org.eclipse.microprofile.config.ConfigProvider;
+
+import io.smallrye.config.SmallRyeConfig;
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+import io.vanillabp.integration.adapter.spi.PreCommitRegistrar;
+import io.vanillabp.integration.adapter.spi.WorkflowAggregateSync;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 
@@ -31,13 +38,13 @@ public class Camunda8ProcessServiceProducer {
   public List<MigratableProcessService<Object>> camunda8MigratableProcessServices(
       final MigrationAdapterProperties properties,
       final Camunda8ClientFactoryRegistry clientFactoryRegistry,
-      final io.vanillabp.integration.adapter.spi.PreCommitRegistrar preCommitRegistrar,
-      final io.vanillabp.integration.adapter.spi.WorkflowAggregateSync aggregateSync,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+      final PreCommitRegistrar preCommitRegistrar,
+      final WorkflowAggregateSync aggregateSync,
+      final NameClashAvoidanceSupport scoping) {
 
-    final var overlay = org.eclipse.microprofile.config.ConfigProvider
+    final var overlay = ConfigProvider
         .getConfig()
-        .unwrap(io.smallrye.config.SmallRyeConfig.class)
+        .unwrap(SmallRyeConfig.class)
         .getConfigMapping(VanillaBpCamunda8Properties.class);
 
     return properties
@@ -52,8 +59,8 @@ public class Camunda8ProcessServiceProducer {
           final var asyncTaskLockRenewal = adapterKeys != null
               ? adapterKeys
                   .asyncTaskLockRenewal()
-                  .orElse(io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL)
-              : io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
+                  .orElse(Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL)
+              : Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
           final var workflowVisibilityTimeout = adapterKeys != null
               ? adapterKeys
                   .workflowVisibilityTimeout()

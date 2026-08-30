@@ -1,12 +1,16 @@
 package io.vanillabp.camunda8.quarkus.test;
 
+import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import io.vanillabp.spi.process.ProcessDefinition;
 import io.vanillabp.spi.process.ProcessService;
+import io.vanillabp.spi.process.WorkflowHistory;
 import io.vanillabp.spi.service.BpmnProcess;
 import io.vanillabp.spi.service.MultiInstanceElement;
 import io.vanillabp.spi.service.MultiInstanceIndex;
@@ -79,7 +83,7 @@ public class C8E2eWorkflowService {
         + ":"
         + aggregate.getId();
     INVOCATION_TIMES
-        .computeIfAbsent(key, ignored -> Collections.synchronizedList(new java.util.ArrayList<>()))
+        .computeIfAbsent(key, ignored -> Collections.synchronizedList(new ArrayList<>()))
         .add(System.currentTimeMillis());
     return INVOCATIONS
         .computeIfAbsent(key, ignored -> new AtomicInteger())
@@ -209,21 +213,21 @@ public class C8E2eWorkflowService {
   /**
    * @return The viewer's process definitions of the given aggregate's workflow
    */
-  public List<io.vanillabp.spi.process.ProcessDefinition> processDefinitions(
+  public List<ProcessDefinition> processDefinitions(
       final C8E2eAggregate aggregate) {
 
     return processService.getProcessDefinitions(aggregate, null);
 
   }
 
-  public java.io.InputStream bpmnXml(
+  public InputStream bpmnXml(
       final String processDefinitionId) {
 
     return processService.getBpmnXml(processDefinitionId);
 
   }
 
-  public io.vanillabp.spi.process.WorkflowHistory workflowHistory(
+  public WorkflowHistory workflowHistory(
       final C8E2eAggregate aggregate) {
 
     return processService.getWorkflowHistory(aggregate, null);

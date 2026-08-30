@@ -1,6 +1,8 @@
 package io.vanillabp.camunda8.quarkus.deployment;
 
 import java.util.List;
+import java.util.Random;
+import java.util.ServiceLoader;
 
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
@@ -63,7 +65,7 @@ class Camunda8NativeImageProcessor {
 
   /**
    * The gRPC extension points the Camunda client reaches through the
-   * {@link java.util.ServiceLoader}. A native image has no service loader unless the
+   * {@link ServiceLoader}. A native image has no service loader unless the
    * providers are registered, and the client builds a gRPC channel while it is built -
    * unconditionally, also for an application which configured
    * <code>rest-address</code> only, see {@code Camunda8ClientFactory} and
@@ -109,7 +111,7 @@ class Camunda8NativeImageProcessor {
    * The implementation of the Camunda client, none of which may be initialized while the
    * image is built.
    * <p>
-   * A job worker backs off with a {@link java.util.Random}, and the worker, its builder
+   * A job worker backs off with a {@link Random}, and the worker, its builder
    * and the backoff itself each keep a default of the next one in a static field. A random
    * seeded while the image is built carries the same seed into every process started from
    * that image, so GraalVM refuses it: <code>Detected an instance of

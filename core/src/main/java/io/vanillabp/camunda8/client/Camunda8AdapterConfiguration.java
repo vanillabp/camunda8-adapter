@@ -1,5 +1,15 @@
 package io.vanillabp.camunda8.client;
 
+import java.time.Duration;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+
+import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
+import io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver;
+import io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver;
+import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -40,7 +50,7 @@ import lombok.Setter;
  *   <li>{@code .fetch-variables} (optional, default {@code derived}, resolvable per
  *       workflow module, workflow and task) - whether a worker asks the cluster for the
  *       variables VanillaBP reads or for the complete variable scope, see
- *       {@link io.vanillabp.camunda8.wiring.Camunda8FetchVariables}</li>
+ *       {@link Camunda8FetchVariables}</li>
  *   <li>{@code .health-timeout} (optional, default {@value #DEFAULT_HEALTH_TIMEOUT_ISO}) -
  *       how long the health check waits for the cluster's topology, see
  *       {@link #healthTimeout}</li>
@@ -130,7 +140,7 @@ public class Camunda8AdapterConfiguration {
    * most-specific-wins resolution (task &gt; workflow &gt; workflow-module &gt;
    * adapter). Default: 5 minutes.
    */
-  private java.time.Duration jobTimeout;
+  private Duration jobTimeout;
 
   /**
    * Whether the application states that its identifiers are unique across all of its
@@ -170,26 +180,26 @@ public class Camunda8AdapterConfiguration {
    * the task has been open (<code>vanillabp.delivery.max-task-age</code>) and let this
    * adapter react to it, see {@link #asyncTaskMaxAgeAction}.
    */
-  private java.time.Duration asyncTaskLockRenewal;
+  private Duration asyncTaskLockRenewal;
 
   /**
    * How long the cluster waits before it hands a FAILED job out again - adapter-level base
    * of the most-specific-wins resolution (task &gt; workflow &gt; workflow-module &gt;
    * adapter), see
-   * {@link io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver} for the reasoning
+   * {@link Camunda8RetryBackoffResolver} for the reasoning
    * behind the default of ten seconds.
    */
-  private java.time.Duration retryBackoff;
+  private Duration retryBackoff;
 
   /**
    * Whether the workers of this adapter instance ask the cluster for the variables the
    * adapter derived from the deployed models or for all of them - adapter-level base of
    * the most-specific-wins resolution (task &gt; workflow &gt; workflow-module &gt;
    * adapter). Default {@code derived}, see
-   * {@link io.vanillabp.camunda8.wiring.Camunda8FetchVariables} for what is derived and
+   * {@link Camunda8FetchVariables} for what is derived and
    * why.
    */
-  private io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode fetchVariables;
+  private Camunda8FetchVariables.Mode fetchVariables;
 
   /**
    * The default of {@link #asyncTaskLockRenewal} in ISO-8601 notation, for javadoc and
@@ -200,7 +210,7 @@ public class Camunda8AdapterConfiguration {
   /**
    * The default of {@link #asyncTaskLockRenewal}: one hour.
    */
-  public static final java.time.Duration DEFAULT_ASYNC_TASK_LOCK_RENEWAL = java.time.Duration
+  public static final Duration DEFAULT_ASYNC_TASK_LOCK_RENEWAL = Duration
       .parse(DEFAULT_ASYNC_TASK_LOCK_RENEWAL_ISO);
 
   /**
@@ -210,7 +220,7 @@ public class Camunda8AdapterConfiguration {
    * longer than that run the application's method a second time. VanillaBP 2 is not
    * released, so a loud rename is better than a silent one.
    */
-  private java.time.Duration asyncTaskTimeout;
+  private Duration asyncTaskTimeout;
 
   /**
    * What this adapter does with a task the core reports as older than
@@ -265,7 +275,7 @@ public class Camunda8AdapterConfiguration {
    * its job left to its lock rather than failed - but the work it did up to the interrupt is
    * repeated on the redelivery.
    */
-  private java.time.Duration shutdownGrace;
+  private Duration shutdownGrace;
 
   /**
    * How long the health check of this adapter instance waits for the cluster to answer its
@@ -283,7 +293,7 @@ public class Camunda8AdapterConfiguration {
    * <code>PT0S</code> switches the check off: the adapter then reports UNKNOWN with a note
    * saying so, and the endpoint stops talking to the cluster at all.
    */
-  private java.time.Duration healthTimeout;
+  private Duration healthTimeout;
 
   /**
    * How long the start of this adapter instance waits for its cluster to answer before it
@@ -303,7 +313,7 @@ public class Camunda8AdapterConfiguration {
    * Adapter level only: what is waited for is the cluster, and a cluster does not belong to
    * a workflow module.
    */
-  private java.time.Duration startupWait;
+  private Duration startupWait;
 
   /**
    * The default of {@link #startupWait} in ISO-8601 notation, for javadoc and messages.
@@ -313,7 +323,7 @@ public class Camunda8AdapterConfiguration {
   /**
    * The default of {@link #startupWait}: ten minutes.
    */
-  public static final java.time.Duration DEFAULT_STARTUP_WAIT = java.time.Duration
+  public static final Duration DEFAULT_STARTUP_WAIT = Duration
       .parse(DEFAULT_STARTUP_WAIT_ISO);
 
   /**
@@ -324,7 +334,7 @@ public class Camunda8AdapterConfiguration {
   /**
    * The default of {@link #healthTimeout}: two seconds.
    */
-  public static final java.time.Duration DEFAULT_HEALTH_TIMEOUT = java.time.Duration
+  public static final Duration DEFAULT_HEALTH_TIMEOUT = Duration
       .parse(DEFAULT_HEALTH_TIMEOUT_ISO);
 
   /**
@@ -335,14 +345,14 @@ public class Camunda8AdapterConfiguration {
   /**
    * The default of {@link #shutdownGrace}: twenty seconds.
    */
-  public static final java.time.Duration DEFAULT_SHUTDOWN_GRACE = java.time.Duration
+  public static final Duration DEFAULT_SHUTDOWN_GRACE = Duration
       .parse(DEFAULT_SHUTDOWN_GRACE_ISO);
 
   /**
    * The shutdown budget both Spring Boot and Kubernetes default to, which
    * {@link #shutdownGrace} has to stay below.
    */
-  public static final java.time.Duration PLATFORM_SHUTDOWN_BUDGET = java.time.Duration.ofSeconds(30);
+  public static final Duration PLATFORM_SHUTDOWN_BUDGET = Duration.ofSeconds(30);
 
   /**
    * How this adapter instance runs what it delivers: a positive number of platform
@@ -379,13 +389,13 @@ public class Camunda8AdapterConfiguration {
    * How long a worker waits between two activation requests. Default: the client's 100
    * milliseconds.
    */
-  private java.time.Duration pollInterval;
+  private Duration pollInterval;
 
   /**
    * How long a request to the cluster may take, which for an activation request is also
    * the long-polling window. Default: the client's 10 seconds.
    */
-  private java.time.Duration requestTimeout;
+  private Duration requestTimeout;
 
   /**
    * Whether the cluster PUSHES jobs to the workers instead of only answering their
@@ -399,13 +409,12 @@ public class Camunda8AdapterConfiguration {
    * How long a job stream stays open before the client re-opens it. Default: the
    * client's. Only relevant with {@link #streamEnabled}.
    */
-  private java.time.Duration streamTimeout;
+  private Duration streamTimeout;
 
   /**
    * How long the cluster keeps a published message. The number does two jobs which pull in
    * opposite directions, which is why it is resolvable per workflow module, workflow and
-   * MESSAGE and not only per adapter (see
-   * {@link io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver}):
+   * MESSAGE and not only per adapter (see {@link Camunda8MessageTimeToLiveResolver}):
    * <ul>
    * <li>it BUFFERS a message published before its subscription exists, which wants it
    * large - a message correlated while the workflow is still two steps away from its catch
@@ -425,7 +434,7 @@ public class Camunda8AdapterConfiguration {
    * What tells two legitimate correlations apart is what they carry - a correlation id
    * which varies, or the activation VanillaBP puts into the message id.
    */
-  private java.time.Duration messageTimeToLive;
+  private Duration messageTimeToLive;
 
   /**
    * The client's maximum inbound message size in bytes. Default: the client's.
@@ -435,7 +444,7 @@ public class Camunda8AdapterConfiguration {
   /**
    * The keep-alive interval of the client's connections. Default: the client's.
    */
-  private java.time.Duration keepAlive;
+  private Duration keepAlive;
 
   /**
    * How many HTTP connections the REST transport may open. Default: the client's.
@@ -458,7 +467,7 @@ public class Camunda8AdapterConfiguration {
    * for a workflow nobody ever heard of. Raise it for a slow exporter, set it to
    * zero to switch the waiting off. Default: 10 seconds.
    */
-  private java.time.Duration workflowVisibilityTimeout;
+  private Duration workflowVisibilityTimeout;
 
   /**
    * Whether NO connection property is set at all - the "not configured yet" state:
@@ -485,9 +494,9 @@ public class Camunda8AdapterConfiguration {
    *
    * @return The missing property keys
    */
-  public java.util.List<String> missingConnectionProperties() {
+  public List<String> missingConnectionProperties() {
 
-    final var missing = new java.util.LinkedList<String>();
+    final var missing = new LinkedList<String>();
     if (mode == Mode.SAAS) {
       if (isBlank(clusterId)) {
         missing.add("cluster-id");
@@ -541,7 +550,7 @@ public class Camunda8AdapterConfiguration {
                       : "properties %s are".formatted(missing
                           .stream()
                           .map(key -> "'%s'".formatted(propertyKey(adapterId, key)))
-                          .collect(java.util.stream.Collectors.joining(", ")))));
+                          .collect(Collectors.joining(", ")))));
     }
 
   }
@@ -617,7 +626,7 @@ public class Camunda8AdapterConfiguration {
    *
    * @return The window a dormant job's lock is extended by
    */
-  public java.time.Duration resolvedAsyncTaskLockRenewal() {
+  public Duration resolvedAsyncTaskLockRenewal() {
 
     return asyncTaskLockRenewal != null
         ? asyncTaskLockRenewal
@@ -627,29 +636,29 @@ public class Camunda8AdapterConfiguration {
 
   /**
    * The adapter-level backoff of a failed job: the configured value or
-   * {@link io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver#DEFAULT_RETRY_BACKOFF}.
+   * {@link Camunda8RetryBackoffResolver#DEFAULT_RETRY_BACKOFF}.
    *
    * @return The backoff, never <code>null</code>
    */
-  public java.time.Duration resolvedRetryBackoff() {
+  public Duration resolvedRetryBackoff() {
 
     return retryBackoff != null
         ? retryBackoff
-        : io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF;
+        : Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF;
 
   }
 
   /**
    * The adapter-level answer to what a worker fetches: the configured value or
-   * {@link io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver#DEFAULT_FETCH_VARIABLES}.
+   * {@link Camunda8FetchVariablesResolver#DEFAULT_FETCH_VARIABLES}.
    *
    * @return The mode, never <code>null</code>
    */
-  public io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode resolvedFetchVariables() {
+  public Camunda8FetchVariables.Mode resolvedFetchVariables() {
 
     return fetchVariables != null
         ? fetchVariables
-        : io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
+        : Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
 
   }
 
@@ -714,7 +723,7 @@ public class Camunda8AdapterConfiguration {
                 adapterId,
                 propertyKey(adapterId, "retry-backoff"),
                 retryBackoff,
-                io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF_ISO));
+                Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF_ISO));
 
   }
 
@@ -724,7 +733,7 @@ public class Camunda8AdapterConfiguration {
    *
    * @return The timeout, never <code>null</code>
    */
-  public java.time.Duration resolvedHealthTimeout() {
+  public Duration resolvedHealthTimeout() {
 
     return healthTimeout != null
         ? healthTimeout
@@ -763,7 +772,7 @@ public class Camunda8AdapterConfiguration {
    * activation request waits at the cluster. Named here because the shutdown has to
    * outlast it and the check has to know it even where nothing is configured.
    */
-  public static final java.time.Duration DEFAULT_REQUEST_TIMEOUT = java.time.Duration.ofSeconds(10);
+  public static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
   /**
    * How long a request of this adapter instance may take, which for an activation request
@@ -771,7 +780,7 @@ public class Camunda8AdapterConfiguration {
    *
    * @return The request timeout, never <code>null</code>
    */
-  public java.time.Duration resolvedRequestTimeout() {
+  public Duration resolvedRequestTimeout() {
 
     return requestTimeout != null
         ? requestTimeout
@@ -786,7 +795,7 @@ public class Camunda8AdapterConfiguration {
    * the worker then asks again every <code>poll-interval</code> instead of waiting at the
    * cluster.
    */
-  public static final java.time.Duration SHORTEST_USABLE_REQUEST_TIMEOUT = java.time.Duration.ofSeconds(1);
+  public static final Duration SHORTEST_USABLE_REQUEST_TIMEOUT = Duration.ofSeconds(1);
 
   /**
    * Validates how long a request of this adapter instance may take - AT STARTUP, because
@@ -799,7 +808,7 @@ public class Camunda8AdapterConfiguration {
    */
   public void validateRequestTimeout(
       final String adapterId,
-      final java.util.function.Consumer<String> warnLogger) {
+      final Consumer<String> warnLogger) {
 
     if (requestTimeout == null) {
       return;
@@ -843,7 +852,7 @@ public class Camunda8AdapterConfiguration {
    *
    * @return The wait, never <code>null</code>
    */
-  public java.time.Duration resolvedStartupWait() {
+  public Duration resolvedStartupWait() {
 
     return startupWait != null
         ? startupWait
@@ -907,7 +916,7 @@ public class Camunda8AdapterConfiguration {
    *
    * @return The grace period, never <code>null</code>
    */
-  public java.time.Duration resolvedShutdownGrace() {
+  public Duration resolvedShutdownGrace() {
 
     return shutdownGrace != null
         ? shutdownGrace
@@ -928,7 +937,7 @@ public class Camunda8AdapterConfiguration {
    */
   public void validateShutdownGrace(
       final String adapterId,
-      final java.util.function.Consumer<String> warnLogger) {
+      final Consumer<String> warnLogger) {
 
     if (shutdownGrace == null) {
       return;
@@ -1008,7 +1017,7 @@ public class Camunda8AdapterConfiguration {
    */
   public void validateAsyncTaskLockRenewal(
       final String adapterId,
-      final java.time.Duration deliveryRetention) {
+      final Duration deliveryRetention) {
 
     if (asyncTaskTimeout != null) {
       throw new IllegalStateException(

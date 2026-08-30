@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.camunda.zeebe.model.bpmn.Bpmn;
+import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.UserTask;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListener;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListenerEventType;
@@ -29,7 +30,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8UserTaskWiringTest {
 
-  private static io.camunda.zeebe.model.bpmn.BpmnModelInstance model(
+  private static BpmnModelInstance model(
       final String userTaskExtensions) {
 
     final var xml = """
@@ -50,7 +51,7 @@ public class Camunda8UserTaskWiringTest {
   }
 
   private static List<ZeebeTaskListener> listenersOf(
-      final io.camunda.zeebe.model.bpmn.BpmnModelInstance model) {
+      final BpmnModelInstance model) {
 
     return List.copyOf(model
         .getModelElementsByType(UserTask.class)

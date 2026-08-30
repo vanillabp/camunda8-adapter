@@ -1,15 +1,27 @@
 package io.vanillabp.camunda8.deployment;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.search.enums.ProcessDefinitionState;
+import io.camunda.client.api.search.enums.ProcessInstanceState;
 import io.camunda.client.api.search.filter.ProcessDefinitionFilter;
+import io.camunda.client.api.search.response.ProcessDefinition;
+import io.camunda.zeebe.model.bpmn.Bpmn;
+import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
+import io.vanillabp.camunda8.client.Camunda8QueryApi;
 import io.vanillabp.integration.adapter.spi.version.CachingProcessVersionCatalog;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
+import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -36,14 +48,14 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   private final String adapterId;
 
-  private final java.util.function.Supplier<CamundaClient> client;
+  private final Supplier<CamundaClient> client;
 
   /**
    * Whether this adapter's cluster answers query-API requests at all - settled once
    * while the adapter starts processing, and the reason a failed search here is either
    * "this cluster cannot tell" or a failure worth throwing.
    */
-  private final io.vanillabp.camunda8.client.Camunda8QueryApi queryApi;
+  private final Camunda8QueryApi queryApi;
 
   /**
    * The BPMN process id as the CLUSTER knows it for a (workflow module, plain BPMN
@@ -74,7 +86,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
    * keys serve are asked while an application boots, and the boot after the deletion
    * reads the list again.
    */
-  private final java.util.Map<String, Long> definitionKeysByVersion = new java.util.concurrent.ConcurrentHashMap<>();
+  private final Map<String, Long> definitionKeysByVersion = new ConcurrentHashMap<>();
 
   /**
    * Reads the tasks of a model the cluster holds - the deployment service' own
@@ -83,11 +95,11 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   @FunctionalInterface
   public interface TasksOfModel {
 
-    java.util.Collection<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec> of(
+    Collection<BpmnTaskSpec> of(
         String workflowModuleId,
         String bpmnProcessId,
         String version,
-        io.camunda.zeebe.model.bpmn.BpmnModelInstance model);
+        BpmnModelInstance model);
 
   }
 
@@ -104,7 +116,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   }
 
   @Override
-  public java.util.Collection<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec> tasksOfVersion(
+  public Collection<BpmnTaskSpec> tasksOfVersion(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String version) {
@@ -121,10 +133,10 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
     try {
       final var xml = client.get().newProcessDefinitionGetXmlRequest(definitionKey).send().join();
       if (xml == null) {
-        return java.util.List.of();
+        return List.of();
       }
-      final var model = io.camunda.zeebe.model.bpmn.Bpmn
-          .readModelFromStream(new java.io.ByteArrayInputStream(xml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+      final var model = Bpmn
+          .readModelFromStream(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
       return tasksOfModel.of(workflowModuleId, bpmnProcessId, version, model);
     } catch (final RuntimeException e) {
       log.warn(
@@ -159,7 +171,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
           .get()
           .newProcessInstanceSearchRequest()
           .filter(filter -> filter
-              .state(io.camunda.client.api.search.enums.ProcessInstanceState.ACTIVE)
+              .state(ProcessInstanceState.ACTIVE)
               .processDefinitionKey(definitionKey))
           .page(page -> page.limit(1))
           .send()
@@ -216,7 +228,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   private Long remember(
       final String workflowModuleId,
       final String bpmnProcessId,
-      final io.camunda.client.api.search.response.ProcessDefinition definition) {
+      final ProcessDefinition definition) {
 
     final var definitionKey = definition.getProcessDefinitionKey();
     definitionKeysByVersion
@@ -284,8 +296,8 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   public Camunda8ProcessVersions(
       final String adapterId,
-      final java.util.function.Supplier<CamundaClient> client,
-      final io.vanillabp.camunda8.client.Camunda8QueryApi queryApi,
+      final Supplier<CamundaClient> client,
+      final Camunda8QueryApi queryApi,
       final BiFunction<String, String, String> scopedProcessIds,
       final Function<String, String> tenants) {
 
@@ -321,7 +333,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
    * the id an activated job carries, so a job worker can compare without translating
    * anything.
    */
-  private final java.util.Map<String, Integer> deployedVersionByScopedProcessId = new java.util.concurrent.ConcurrentHashMap<>();
+  private final Map<String, Integer> deployedVersionByScopedProcessId = new ConcurrentHashMap<>();
 
   /**
    * Remembers which version this boot deployed for a process, under the id the cluster
@@ -402,7 +414,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
               adapterId,
               bpmnProcessId,
               workflowModuleId,
-              io.vanillabp.camunda8.client.Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED);
+              Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED);
         }
         return List.of();
       }

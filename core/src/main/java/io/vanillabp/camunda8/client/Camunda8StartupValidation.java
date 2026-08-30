@@ -1,5 +1,6 @@
 package io.vanillabp.camunda8.client;
 
+import java.time.Duration;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -48,7 +49,7 @@ public final class Camunda8StartupValidation {
       final Camunda8AdapterConfiguration configuration,
       final boolean firstPriorityAnywhere,
       final boolean deploymentFailureWarn,
-      final java.time.Duration deliveryRetention,
+      final Duration deliveryRetention,
       final Consumer<String> warnLogger) {
 
     // how the adapter runs its workers is independent of whether it can reach a cluster,

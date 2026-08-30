@@ -2,6 +2,7 @@ package io.vanillabp.camunda8.health;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
@@ -150,7 +151,7 @@ public final class Camunda8Health {
     while ((cause.getCause() != null) && (cause.getCause() != cause)) {
       cause = cause.getCause();
     }
-    if (failure instanceof java.util.concurrent.TimeoutException) {
+    if (failure instanceof TimeoutException) {
       return "The cluster did not answer the topology request in time";
     }
     final var message = cause.getMessage();
