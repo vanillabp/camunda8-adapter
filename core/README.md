@@ -29,6 +29,10 @@ configuration, create beans, run the bean lifecycle).
   the client, so the order holds on every shutdown path and not only on the
   one each platform's lifecycle takes.
 
+`Camunda8ClientFactoryTest` covers it, including that building the client contacts nothing, and
+`Camunda8SharedClusterTest` with `Camunda8InstanceIdentityTest` which ids the registry counts
+as one.
+
 ## What a worker sends back to the cluster
 
 Four classes share the way back, so the rules live in one place rather than in four
@@ -59,6 +63,12 @@ handlers:
   module, and the workers reporting themselves closed, because an activation request which
   is parked at the cluster when the client is closed stays parked and swallows the first
   job of the next application.
+
+The rules have their tests: `Camunda8ErrorsTest` for the classification,
+`Camunda8CommandRetryTest` for the bounds and the waits, `Camunda8OutcomeCommandRetryTest` for
+the four kinds of worker sending through it, `Camunda8RetryBackoffHeaderTest` for the tie-break
+between the header and the task level, and `Camunda8DrainTest` with
+`Camunda8ShutdownHandlingTest` for what a shutdown leaves alone.
 
 ## What a worker asks the cluster for
 
@@ -98,6 +108,9 @@ aggregate-id variable is absent, and their invocation contexts throw when
 unreachable - a statically named `@TaskParam` is in the list by construction - and it stays
 for the name a handler computes at runtime, which the scanner cannot see. Its message says
 so, because the first thing a reader checks is the annotation.
+
+`Camunda8FetchVariablesTest` holds the derivation, the union and the three deliberate answers,
+`Camunda8UnfetchedVariableTest` the two messages the handlers carry the `Selection` for.
 
 ## What an operator gets to see
 
@@ -146,6 +159,9 @@ An adapter whose connection is not configured yet answers UNKNOWN. That is the h
 of the same rule the startup validation follows: an application which booted with a guiding
 warning has not failed.
 
+`MicrometerCamunda8MetricsTest` covers the meters, the gauges and the no-op hook a worker gets
+without a registry, `Camunda8HealthTest` the two timeouts and the UNKNOWN above.
+
 ## Adapter SPI implementations
 
 - `Camunda8DeploymentService implements AdapterDeploymentService<BpmnModelInstance,
@@ -181,6 +197,10 @@ searched is asked once at `startWorkflowProcessing` and remembered per adapter i
 (`Camunda8QueryApi`), so a search failing later is an outage rather than a missing
 feature.
 
+`Camunda8DeploymentServiceTest` pins the pipeline calls, `Camunda8ProcessServiceTest` the two
+phases, `Camunda8AwarenessWhenSearchFailsTest` the probes and `Camunda8QueryApiTest` the
+question asked once.
+
 ## BPMN model type
 
 The BPMN model type is `io.camunda.zeebe.model.bpmn.BpmnModelInstance`, shipped in the
@@ -207,3 +227,7 @@ guiding message if the platform integration on the classpath is older — Maven 
 report that as a conflict, because a version managed by the application always wins over
 the version required transitively by this adapter, even as a downgrade. See
 `migration-adapter/README.md`, section "Adapter/platform version guard".
+
+The check itself belongs to the platform SPI, so from this repository the abort is an
+assumption: what would disprove it is a boot against an older platform integration which does
+not end.

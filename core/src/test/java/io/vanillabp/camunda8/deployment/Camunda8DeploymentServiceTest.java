@@ -32,6 +32,7 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import io.vanillabp.camunda8.wiring.Camunda8Scoping;
+import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
 import io.vanillabp.integration.adapter.spi.BpmnParseException;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
@@ -244,6 +245,57 @@ public class Camunda8DeploymentServiceTest {
     assertTrue(exception.getMessage().contains("job-timeout"),
         "the message names the property to align, but was: "
             + exception.getMessage());
+
+  }
+
+
+  @Test
+  @DisplayName("one task definition with conflicting job timeouts fails naming both")
+  public void conflictingTaskLocksFailGuiding() {
+
+    // the lock of a worker is the lock of the task definition it subscribes to, so two
+    // tasks of one definition resolving differently leave the worker without an answer.
+    // What makes them differ is configuration, which the resolver stands in for: it
+    // answers the first task thirty seconds and the second one ten minutes
+    final var locks = List.of(Duration.ofSeconds(30), Duration.ofMinutes(10)).iterator();
+    final var configuration = new Camunda8AdapterConfiguration();
+    // a client is built and the query API is asked once before the workers are opened;
+    // an address nothing listens on answers both of those without a cluster
+    configuration.setRestAddress("http://localhost:1");
+    try (final var clientFactory = new Camunda8ClientFactory("c8", configuration)) {
+
+      final var deploymentService = new Camunda8DeploymentService(
+          "c8", clientFactory, TestCollaborators
+              .of(new NoOpInvoker()), (
+                  workflowModuleId,
+                  bpmnProcessId,
+                  taskDefinition) -> locks.next(), Duration.ofDays(14));
+      final var context = new Camunda8ProcessingContext("m");
+      context
+          .getTasksToWire()
+          .add(new Camunda8TaskWiring.Camunda8TaskToWire("Fast", "assessRisk", "assessRisk"));
+      context
+          .getTasksToWire()
+          .add(new Camunda8TaskWiring.Camunda8TaskToWire("Slow", "assessRisk", "assessRisk"));
+
+      final var exception = assertThrows(
+          IllegalStateException.class,
+          () -> deploymentService.startWorkflowProcessing("m", context));
+
+      assertTrue(exception.getMessage().contains("assessRisk"),
+          "the message names the task definition, but was: "
+              + exception.getMessage());
+      assertTrue(exception.getMessage().contains("PT30S"),
+          "the message names both timeouts, but was: "
+              + exception.getMessage());
+      assertTrue(exception.getMessage().contains("PT10M"),
+          "the message names both timeouts, but was: "
+              + exception.getMessage());
+      assertTrue(exception.getMessage().contains("job-timeout"),
+          "the message names the property to align, but was: "
+              + exception.getMessage());
+
+    }
 
   }
 

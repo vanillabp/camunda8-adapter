@@ -124,9 +124,9 @@ a Maven profile that selects the client pin, and with it the cluster the integra
 run against:
 
 ```bash
-mvn install verify                                          # current GA line, 2.0.0-SNAPSHOT
-mvn -Pline-8.8 -Drevision=2.1.0-8.8 clean install verify    # a release of the previous GA line
-mvn -Pline-8.10 -Drevision=2.1.0-8.10-alpha1 clean install verify
+mvn install                                          # current GA line, 2.0.0-SNAPSHOT
+mvn -Pline-8.8 -Drevision=2.1.0-8.8 clean install    # a release of the previous GA line
+mvn -Pline-8.10 -Drevision=2.1.0-8.10-alpha1 clean install
 ```
 
 Switching a line always needs `clean`, and the CI does it that way. Classes compiled
@@ -337,6 +337,14 @@ Messages name property KEYS only - values, especially credentials like
 `client-secret`, are never echoed. Using an unconfigured adapter at runtime keeps a
 guiding failure message as backstop.
 
+Each of the three outcomes has its test, on both platforms: `Camunda8StartupValidationTest`
+and `Camunda8StartupValidationBootTest` for the adapter nobody configured,
+`Camunda8InconsistentConfigurationTest` together with
+`Camunda8StartupValidationBootTest#inconsistentNowhereFirstAdapterWithWarnPolicyBootsDegraded`
+for the half configured one, and `Camunda8ClientFactoryTest` for the client which is built
+without asking the cluster anything. That no message carries a secret is
+`Camunda8StartupValidationBootTest#fullyConfiguredAdapterBootsWithoutWarningAndWithoutEchoingSecrets`.
+
 ### Authenticating against a cluster
 
 The adapter used to authenticate against Camunda SaaS and against nothing else.
@@ -409,6 +417,12 @@ alongside, a WARN names the variables and what they no longer decide.
 self-managed address were previously the same instance and failed the boot; with separate
 accounts they are two, which is the same reasoning that already made the SaaS client id count.
 
+What the paragraphs above promise is pinned below the round trip as well:
+`Camunda8AuthConfigurationTest` for the detection, the refusals and the keys a message names,
+`Camunda8AuthenticationTest` for the provider the client ends up with and for the one runtime
+message, `Camunda8ClientFactoryTest#startupLineNamesTheAuthentication` for the startup line,
+and `Camunda8InstanceIdentityTest` for the identity of the paragraph above.
+
 ### Behavior
 
 - **Deployment (on startup):** the BPMN resources of each workflow module are deployed in
@@ -428,6 +442,11 @@ accounts they are two, which is the same reasoning that already made the SaaS cl
     repository's `DECISIONS.md` for why both travel with every command sent on behalf of
     a workflow.
 
+`Camunda8DeploymentServiceTest` holds the deployment half.
+`Camunda8DeploymentAndStartIT#instanceAppearsOnlyAfterCommit` and `#noInstanceAfterRollback`
+drive the two-phase start against a real cluster, the Quarkus twin being
+`Camunda8WorkflowLifecycleTest#aRolledBackStartCreatesNothing`.
+
 ### When a phase-one check runs
 
 The non-advancing checks of phase one - the job-timeout update for a service task, the empty
@@ -441,6 +460,9 @@ The adapter no longer carries that mechanism. It hands the check to the platform
 asks the transaction runner of that aggregate - which may be a unit of work the
 application brought. A runner which cannot offer a pre-commit hook runs the check immediately,
 the behaviour this adapter had before.
+
+`Camunda8PreCommitCheckTest` pins both halves: phase one registers without contacting the
+cluster, and the check reaches the cluster when the hook fires.
 
 ### The delivery identity is a job key, so it belongs to one cluster
 
@@ -459,6 +481,12 @@ and every heuristic (comparing process definition keys, watching for keys which 
 misses cases or risks the opposite mistake, processing a task twice after a harmless redeployment. So it is
 documented here and in the wiki instead.
 
+`Camunda8ActivationIdentityTest#aRedeliveryRepeatsBoth` pins that a redelivery keeps its
+delivery id, and `Camunda8InboundIdempotencyIT#redeliveredJobsSkipTheHandler` shows what the
+core makes of it against a real cluster. The rebuilt cluster is an assumption: no test rebuilds
+a cluster and keeps the delivery table, and a rebuilt cluster continuing its key range instead
+of starting over would disprove it.
+
 ### The activation identity is the ELEMENT instance key, not the job key
 
 Next to the delivery identity the core asks which activation of a BPMN element is running, and this
@@ -476,7 +504,10 @@ activation, and the cluster deduplicates by that for as long as the message live
 part the three siblings would reach the OUTBOX as three operations and the cluster as ONE message,
 which VanillaBP cannot see and cannot fix from its side. The activation reaches phase two with the
 outbox entry (`PhaseTwoCall.ARG_ACTIVATION_ID`), because the thread which knew it is long gone by
-then. A correlation planned outside any activation derives the id it always did.
+then. A correlation planned outside any activation derives the id it always did
+(`Camunda8MessageIdTest`, and
+`Camunda8TaskProcessingIT#theActivationTellsSiblingsApartInTheClustersOwnNet` against a
+cluster).
 
 ### How long the cluster keeps a message
 
@@ -506,6 +537,12 @@ legitimate correlations apart is what they carry - a varying correlation id, or 
 workflow, so its deduplication is wanted for as long as possible and the subscription of a message
 start event exists as long as the process is deployed; a per-message override meant for a repeating
 catch event must not shorten the protection against a double-started workflow.
+
+The four levels resolve the way `job-timeout` does
+(`Camunda8JobTimeoutOverlayTest#messageTimeToLiveResolvesThroughAllFourLevels`, and
+`Camunda8TaskProcessingIT#messageTimeToLiveResolvesThroughAllFourLevels` against a cluster).
+That a start message reads the adapter level alone is an assumption: nothing pins it, and a
+per-message `message-time-to-live` turning up on a start message would disprove it.
 
 ### Which phase-two failures are repeated
 
@@ -552,7 +589,9 @@ respectively `NOT_FOUND` and no message text at all. What bounds the repetition 
 remaining lock, and for this failure the arithmetic leaves room: a delivered job is locked for
 `job-timeout`, five minutes by default, and a command gives up after `request-timeout`, ten
 seconds, so a completion which ran out of time still has four minutes fifty of lock against a
-first backoff of 50 ms. The retry is not merely responsible here, it runs.
+first backoff of 50 ms. The retry is not merely responsible here, it runs
+(`Camunda8CommandRetryTest#aTimedOutCommandIsSentAgain` and
+`#aTimeoutLeavesEnoughLockForASecondAttempt`).
 
 **A poll which runs out of time is the client's own business.** The `JobWorker` polls, not the
 adapter, and the client carries a failed poll itself: `JobWorkerImpl#onPollError` releases the
@@ -563,7 +602,8 @@ the window an activation request waits at the cluster AND the deadline of every 
 deployment of a workflow module and every search included. Shortening it does not make the long
 poll time out - the client adds ten seconds to the response deadline of an activation, so the
 window is never its own timeout - but it does make the workers ask again more often, and it does
-make a healthy cluster answer a deploy too late. Below a second the boot says so.
+make a healthy cluster answer a deploy too late. Below a second the boot says so
+(`Camunda8RequestTimeoutTest`).
 
 **An outbox entry repeats a timeout like anything else.** Phase two is repeated while
 `Camunda8Errors.permanentFailure` answers false, which it does for every shape a timeout arrives
@@ -622,6 +662,10 @@ expired token the client refreshes. Such a boot waits out its deadline, and the 
 names the `401` from the first attempt on. And an adapter with nothing to deploy for a workflow
 module makes no round to the cluster for it, so it waits for nothing.
 
+Every way the waiting ends is in `Camunda8ClusterWaitTest`, and
+`Camunda8StartupWaitTest#theStartWaitsForTheClusterBeforeItDeploys` boots an application which
+is faster than its cluster.
+
 ### Why correlating a message has no cluster preflight
 
 Since 8.8 the client can search message subscriptions, so a preflight would be possible - and
@@ -637,7 +681,7 @@ the model - and without the check phase two would publish into the void: the clu
 the publication, the time-to-live passes, nothing correlates and nothing fails. Where this
 application version deployed no process of the workflow module (a workflow still running on a
 definition of a previous version), the declared names are unknown rather than absent and the
-check stays silent.
+check stays silent. All three cases are `Camunda8MessageDeclarationTest`.
 
 ### Idempotency limitation
 
@@ -654,6 +698,16 @@ not see the instance yet (query-API lag), and without secondary storage the prob
 cannot run at all (it then answers honestly "unknown" and the idempotent start
 proceeds — deliberately NOT the optimistic ACTIVE of the election probe, which would
 skip and thereby LOSE workflows). Do not build on exactly-once semantics.
+
+The layers have their tests: `Camunda8InboundIdempotencyIT#redeliveredJobsSkipTheHandler` for a
+repeated delivery, `Camunda8RestartDeliveryIT` with its Quarkus twin
+`Camunda8RestartDeliveryTest` for a delivery which survives a restart, and
+`Camunda8ProcessServiceTest#redispatchProbeIsNeverOptimisticOnFailure`,
+`Camunda8AwarenessWhenSearchFailsTest#theRedispatchProbeStaysHonest` and
+`Camunda8DeploymentAndStartIT#redispatchProbeIsNeverOptimistic` for the probe which must not
+guess. The residual window itself is an assumption and stays one: producing it needs a crash
+between a successful `CreateProcessInstance` and the record of it, and a run in which the
+second dispatch of such a start finds the instance every time would disprove it.
 
 ### How the adapter runs what it delivers
 
@@ -735,6 +789,14 @@ can carry a secret. What that means for credentials is settled by
 a provider from the environment only while the application set
 none.
 
+The tests: `Camunda8ExecutionModelTest` for what the two modes resolve to and for the values
+which end the boot, `Camunda8VirtualThreadExecutorTest` for the split and its bound,
+`Camunda8WorkerThreadsIT` with `Camunda8VirtualThreadsIT` for the same property against a real
+cluster, `Camunda8DeploymentServiceTest#listenerLockDefaultsToTheJobTimeout` and
+`#conflictingListenerLocksFailGuiding` for the three locks which are no longer hard coded, and
+`Camunda8EnvironmentOverridesTest` for the WARN a variable earns. The two numbers above are
+measurements: they say what one setup did on one day, and no test repeats them.
+
 ### Task processing
 
 `@WorkflowTask` methods are served by **polling job workers**: at
@@ -764,6 +826,10 @@ Execution model per delivered job (at-least-once ordering):
      failed with decremented retries and a `retryBackoff` (Camunda 8 redelivers
      after it, see below).
 
+`Camunda8TaskProcessingIT` walks that list against a real cluster
+(`#happyPathAndBpmnErrorRoutesBoundary`, `#technicalExceptionFailsJobAndRollsBack` and
+`#redeliveryConverges`); `Camunda8WorkflowLifecycleTest` does the same on Quarkus.
+
 **Asynchronous tasks (`@TaskId`) and the renewal of their lock:** a handler
 receiving the task ID completes the task later via `ProcessService#completeTask`.
 Such a job must not be redelivered while it waits, so after the commit the adapter
@@ -781,12 +847,16 @@ which is not below it ends the boot naming both properties and both values. The 
 was called `async-task-timeout` once and meant a horizon of fourteen days
 which outlived that record, so an asynchronous task open longer than it ran the
 handler a second time; the old key now ends the boot naming its successor.
+`Camunda8AsyncTaskLockRenewalTest` pins the window and the two ways it ends a boot; the
+renewal itself is `Camunda8AsyncTaskAgeTest#anOpenTaskIsRenewed`, with
+`Camunda8TaskProcessingIT#asyncTaskStaysDormant` and `#completeTaskEndsDormantProcess` against
+a cluster.
 
 The core measures how long such a task has been open (`vanillabp.delivery.max-task-age`,
 `P30D`, report only) and reports it once. Where `async-task-max-age-action` is
 `incident` this adapter stops renewing the lock of an overdue task and fails its job
 with no retries left, so the cluster raises an incident naming the workflow aggregate
-and the age.
+and the age (`Camunda8AsyncTaskAgeTest` and `Camunda8AsyncTaskAgeIT#anOverdueTaskEndsInAnIncident`).
 
 **The command which reports the outcome is repeated:** a cluster which
 cannot keep up rejects commands, as `RESOURCE_EXHAUSTED` on gRPC and as HTTP 503 on
@@ -807,7 +877,8 @@ client's own activation backoff numbers: 50 ms initially, factor 1.6, a tenth of
 and a 5s ceiling the five attempts never reach, which keeps the whole sequence below half
 a second because a waiting handler occupies an execution slot. When the bound is reached
 the original failure is rethrown, so the behaviour after the retry is exactly what it was
-before.
+before. The bounds and the waits are `Camunda8CommandRetryTest`, and
+`Camunda8OutcomeCommandRetryTest` sends through it from all four kinds of worker.
 
 `retry-backoff` (default `PT10S`, resolvable per module, workflow and task like
 `job-timeout`, resolved per COMMAND rather than per worker, so nothing has to be aligned
@@ -815,7 +886,9 @@ between the processes one worker serves) travels with every fail command which l
 job retries. A job failed with `retries(0)` carries none, there being no next attempt. The
 error message of a fail command carries the exception's TYPE next to its message, because
 that text is what an operator reads in Operate and `NullPointerException` used to write
-`null` there.
+`null` there. Held by `Camunda8JobTimeoutOverlayTest#retryBackoffResolvesThroughAllFourLevels`,
+`Camunda8TaskProcessingIT#aFailedJobIsHandedOutAgainOnlyAfterTheBackoff` and
+`Camunda8OutcomeCommandRetryTest#theIncidentNamesTheExceptionType`.
 
 A model may name the backoff of a single element itself, in the task header `retryBackoff`
 version 1 read. It is read from the JOB and not from the model while deploying: an
@@ -830,7 +903,8 @@ statements of the same reach the one which can be changed without a new process 
 wins; where both are set and differ, one line per element says which value went out. A
 header which is no ISO-8601 duration costs one line per element and leaves the configured
 value in force, where version 1 fell back to `Duration.ZERO` and thereby handed the job out
-again at once.
+again at once. `Camunda8RetryBackoffHeaderTest` pins the rule and the tie-break,
+`Camunda8TaskProcessingIT#theModelledBackoffReachesTheCluster` the cluster's half of it.
 
 **Shutting down while work is in flight:** the client does not drain. A
 worker's `close()` returns without waiting for the jobs it already handed to a handler,
@@ -883,7 +957,10 @@ interrupted by the closing client throws like any other. The default sits below 
 shutdown budgets of Spring Boot (`spring.lifecycle.timeout-per-shutdown-phase`) and
 Kubernetes (`terminationGracePeriodSeconds`), both 30 seconds, so VanillaBP is never the
 reason a container is killed; a larger value warns at startup that those have to be
-raised with it.
+raised with it. Held by `Camunda8ShutdownDrainTest`, `Camunda8DrainTest` and
+`Camunda8ShutdownGraceTest`, and against a real cluster by
+`Camunda8ShutdownDrainIT#aCutOffHandlerCostsNoRetry` with `#aHandlerWithinTheGraceFinishes`.
+The table above is a measurement.
 
 Task-scoped configuration (see the four-level pattern of the VanillaBP
 configuration model - the most specific configured value wins):
@@ -920,7 +997,8 @@ vanillabp:
 Limitation: Camunda 8 workers subscribe by job type only. If the SAME task
 definition appears with DIFFERENT resolved job timeouts within one module, the
 startup fails with a guiding message (one worker per job type - give the
-definitions distinct names or align the timeouts).
+definitions distinct names or align the timeouts), see
+`Camunda8DeploymentServiceTest#conflictingTaskLocksFailGuiding`.
 
 **Completing/canceling async tasks (`ProcessService#completeTask`/`#cancelTask`):**
 the adapter locates the job by its key (the `@TaskId` value). The
@@ -934,7 +1012,8 @@ the phase-two dispatch (fewer stale outbox entries). Phase two (after the
 commit, through the outbox) sends `CompleteJob` respectively `ThrowError` (the
 BPMN error code routes boundary events); a `NOT_FOUND` answer is tolerated with
 a WARN (at-least-once residual). Camunda 8 cannot deliver `@TaskEvent CANCELED`
-- Zeebe does not notify workers about canceled jobs.
+- Zeebe does not notify workers about canceled jobs, which is an assumption about this
+engine, see [Task cancellation is not reported](#task-cancellation-is-not-reported).
 
 **User tasks:** Camunda-managed user tasks (`zeebe:userTask`) with an
 EXTERNAL form reference - the reference IS the task definition (V1 convention).
@@ -956,7 +1035,11 @@ offers no command to cancel a Camunda-managed user task by BPMN error (ThrowErro
 is job-based) and V1's marker-variable workaround is broken by V1's own admission
 - a guiding error naming the release line explains it; the listeners it needs
 arrive with Camunda 8.10, so it can only ever come on a line built against 8.10
-or later.
+or later. The wiring and the V1 order of the listeners are `Camunda8UserTaskWiringTest`. The
+lifecycle against a cluster is `Camunda8TaskProcessingIT#userTaskCreatedAndCompleted`,
+`#userTaskCanceledOnInstanceCancellation`, `#userTaskEdgeCases` and
+`#cancelUserTaskUnsupportedGuiding`, with
+`Camunda8WorkflowLifecycleTest#userTaskNotificationAndCompletion` on Quarkus.
 
 **Message correlation:** `correlateMessage` publishes AFTER the commit
 (outbox) with `correlationKey = correlationId ?? aggregate ID` and NO variables
@@ -974,6 +1057,9 @@ idempotency key as `messageId` and ONLY the aggregate-ID variable.
 cluster refuses to be searched the adapter answers OPTIMISTICALLY (one-time
 guiding WARN) - fine for single-BPMS setups, and a guess in migration scenarios,
 see [What needs a cluster which can be searched](#what-needs-a-cluster-which-can-be-searched).
+`Camunda8TaskProcessingIT#correlateMessageResumesInstanceViaInjectedSubscription`,
+`#duplicateCorrelationDispatchIsDeduplicated` and `#startWorkflowByMessageStartsInstance` hold
+the three commands, `Camunda8WorkflowLifecycleTest` the Quarkus half.
 
 ### What a worker fetches
 
@@ -1030,6 +1116,11 @@ was quietly dropped.
 Every worker logs at DEBUG what it fetches when it opens. When somebody reports a variable
 their handler no longer sees, that line answers the first question.
 
+`Camunda8FetchVariablesTest` holds the derivation, the union, the escape hatch and that line,
+`Camunda8UnfetchedVariableTest` the two messages a delivery writes for a name outside the list,
+and `Camunda8TaskProcessingIT#aDeclaredTaskParameterIsFetched` with
+`Camunda8WorkflowLifecycleTest#declaredTaskParametersAreFetched` the same against a cluster.
+
 ### Viewing workflows
 
 `ProcessService#getProcessDefinitions`, `#getBpmnXml` and `#getWorkflowHistory` are served
@@ -1058,6 +1149,12 @@ from two sources:
 The adapter-native process definition id is the **process definition key**, the history
 context of a call activity its called **process instance key**, and the XML returned is the
 model AS DEPLOYED (VanillaBP's wiring modifications included).
+
+`Camunda8WorkflowViewerTest` covers what comes from the deployment, `Camunda8ViewerQueryTest`
+what comes from the cluster and how each answer degrades without it, and `Camunda8ViewerApiIT`,
+`Camunda8SecondaryStorageIT#theViewerFindsTheWorkflow` and
+`Camunda8WorkflowLifecycleTest#theViewerServesTheDeployedModelAndItsHistory` the two kinds of
+cluster.
 
 ### Keeping workflow modules apart
 
@@ -1129,6 +1226,12 @@ tenant which does not exist. Only an answer of the cluster counts; an unreachabl
 left to the deployment, which runs into it right after and reports it as the connection
 problem it is.
 
+`Camunda8DeploymentServiceTest` holds the three modes and the default, `Camunda8TenantCheckTest`
+the two ways `by-adapter` fails, `Camunda8SharedClusterTest` and `Camunda8InstanceIdentityTest`
+which ids count as one, and `Camunda8SharedClusterElectionIT` with
+`Camunda8SharedClusterWithoutQueryApiIT#twoIdsWithoutSecondaryStorageDoNotBoot` the two adapter
+ids on one cluster, with secondary storage and without.
+
 ### Sharing the workflow aggregate
 
 The cluster can only evaluate what it was given, so the default of this adapter is that
@@ -1160,7 +1263,13 @@ named after the aggregate's ID attribute, always as a string, because Camunda 8 
 business key. A cluster stores variables as JSON and compares against that JSON, so an
 instance search has to quote the value (`{"name":"id","value":"\"4711\""}`); an unquoted
 filter finds nothing, which is what `Camunda8VariableFilters` encodes for the process
-service and the viewer alike.
+service and the viewer alike (`Camunda8VariableFilterTest`).
+
+What travels with a command is `Camunda8SharedValuesTest`. The two scopes a push writes are
+`Camunda8AggregateChangedIT` and its Quarkus twins
+`Camunda8WorkflowLifecycleTest#aGlobalPushWritesTheWorkflowScope` and
+`#aTaskScopedPushReachesTheEnclosingScope`, and the gateway right behind a service task is
+`Camunda8TaskProcessingIT#gatewayAfterTaskSeesTheNewValues`.
 
 ### Signals
 
@@ -1169,6 +1278,11 @@ local transaction was committed, riding an outbox entry, so a rolled-back transa
 reaches the cluster. The command carries no payload, and there is nothing to deduplicate a
 signal by (unlike a message, which VanillaBP can give a message id), so a redelivered outbox
 entry broadcasts a second time.
+
+`Camunda8SendSignalIT#broadcastContinuesEveryWaitingWorkflow` and `#rollbackBroadcastsNothing`
+hold both halves, `Camunda8WorkflowLifecycleTest#sendSignalContinuesTheWaitingWorkflow` the
+Quarkus one. The second broadcast is an assumption: it is the absence of a deduplication rather
+than a behaviour, and a cluster dropping the repeated broadcast would disprove it.
 
 ### Workflows the cluster starts itself, and the end of a workflow
 
@@ -1186,6 +1300,11 @@ Where a workflow service declares a `@WorkflowEnded` method, the adapter adds an
 execution listener to the PROCESS element and opens a worker for it. The job is activated
 after the last element completed, and its completion lets the instance disappear.
 
+`Camunda8BpmsInitiatedStartIT#timerStartCreatesTheAggregate` drives a timer start and the end
+behind it, `Camunda8WorkflowLifecycleTest#theClusterStartsAWorkflowOnItsOwn` the same on
+Quarkus, and `Camunda8OutcomeCommandRetryTest#theStartEventListenerFollowsTheSameRule` with
+`#theWorkflowEndListenerBacksItsFailureOff` the way both listeners report a failure.
+
 ### Versions of a process
 
 The cluster counts a process definition's version upwards per BPMN process id, and every
@@ -1200,6 +1319,11 @@ the application starts (after the deployment) and one for a version this applica
 deployed itself, which is what a rolling deployment produces while another node is already
 ahead. The version of the model deployed by this very start needs no query at all: the deploy
 command reports it and the tag is read from the model.
+
+`Camunda8ProcessVersionIT#theVersionDecidesWhichMethodRuns` and `Camunda8OldProcessVersionsIT`
+say which method serves which version, `Camunda8DeletedProcessVersionsTest` a version the
+cluster no longer has, and `Camunda8StartupQuestionCostTest` counts the queries the claim above
+is about.
 
 ### Multi-instance
 
@@ -1252,6 +1376,14 @@ A parallel multi-instance element creates one token per instance, and each of th
 saves the workflow aggregate. Two instances writing the same attribute means the one
 committing last puts back what it read, so an iteration should write a row of its own - see
 [workflow aggregates](https://github.com/vanillabp/adapter-platform-integration/wiki/Workflow-aggregates).
+
+`Camunda8MultiInstanceTest` covers the injection, its idempotency and the ambiguous element ids,
+`Camunda8MultiInstanceIT#theIterationIsReported` with
+`Camunda8WorkflowLifecycleTest#multiInstanceBindsElementIndexAndTotal` the values a handler
+sees, and `Camunda8ConcurrentTokensTest#parallelMultiInstance` the parallel tokens of the
+paragraph above. That the index reaches the application counting from 0 is
+`Camunda8MultiInstanceTest#valuesAreTranslated`. That this engine offers no loop cardinality is
+an assumption about Camunda 8, disproved by a model which deploys with one.
 
 ### Testing
 
@@ -1314,6 +1446,9 @@ dispatch stays small. Phase two carries the activation the correlation was plann
 (`PhaseTwoRequest#activationId()`), which is what keeps three multi-instance siblings from
 becoming one message in the cluster's own deduplication net.
 
+`Camunda8ProcessServiceTest` holds what phase one may and may not do, and
+`Camunda8PreCommitCheckTest` when the check reaches the cluster.
+
 ## Decision log
 
 Decisions several places in this repository rely on live in [`DECISIONS.md`](./DECISIONS.md), the
@@ -1370,6 +1505,15 @@ reworded message would have turned "this cluster cannot tell" into "this cluster
 after which every operation of the adapter fails after a second instead of proceeding, see
 decision 16 in [`DECISIONS.md`](./DECISIONS.md).
 
+`Camunda8QueryApiTest` pins the one question and the memory of its answer,
+`Camunda8AwarenessWhenSearchFailsTest` the four answers which follow from it, and
+`Camunda8ErrorsTest#aRefusedSearchIsRecognisedByItsStatus` that the code decides and not the
+prose. The two kinds of cluster stand against each other in
+`Camunda8TaskProcessingIT#withoutSecondaryStorageWorkflowsCannotBeLocated` and
+`Camunda8SecondaryStorageIT#withSecondaryStorageWorkflowsCanBeLocated`, with
+`Camunda8ViewerApiIT#historyDegradesWithoutSecondaryStorage` and
+`Camunda8SharedClusterWithoutQueryApiIT#twoIdsWithoutSecondaryStorageDoNotBoot` for the rest.
+
 ### Eventual consistency of the query API
 
 The query API lags behind the engine, which everything in the list above inherits. The viewer
@@ -1394,6 +1538,12 @@ altogether. The alternative - asking the phase-two outbox whether a start for th
 is open or was just dispatched - was weighed and dropped; the reasoning is in
 [`migration-adapter/README.md`](https://github.com/vanillabp/adapter-platform-integration/blob/main/migration-adapter/README.md).
 
+The window is `Camunda8SecondaryStorageIT`, in `#theProbeFindsTheWorkflow`,
+`#correlatingRightAfterTheStartWorks` and `#theViewerRightAfterTheStartWorks`. The residual of
+the paragraph above is an assumption: it needs an application on several nodes without a shared
+adapter cache, and an operation waiting on a node which never heard of the workflow would
+disprove it.
+
 ### Cancel user task
 
 No Camunda 8 cluster up to 8.9 offers a command to cancel a Camunda-managed user task by
@@ -1402,6 +1552,9 @@ marker-variable workaround is broken by Version 1's own admission, so `cancelUse
 throws a guiding error naming the [release line](#release-lines) rather than pretending to
 work. The task listeners it needs arrive with Camunda 8.10, so support for it can only ever
 come on a line built against 8.10 or later.
+`Camunda8TaskProcessingIT#cancelUserTaskUnsupportedGuiding` asserts the error. That no cluster up
+to 8.9 offers the command is an assumption about those releases: a cancel command turning up in
+an 8.9 patch would disprove it.
 
 ### Task cancellation is not reported
 
@@ -1409,7 +1562,9 @@ come on a line built against 8.10 or later.
 workers about canceled jobs, so a handler subscribing to lifecycle events never learns that
 an open asynchronous task's activity was canceled. The event type `canceling` landed in
 8.10.0-alpha2, so this belongs to a line built against 8.10 or later; the prepared follow-up
-verifies it against a cluster before anything is reported.
+verifies it against a cluster before anything is reported. Nothing here can make a cluster
+report a canceled job, so this is an assumption, and a `@TaskEvent CANCELED` arriving from a
+cluster of a line this adapter is built against would disprove it.
 
 ### The end of a workflow
 
@@ -1417,22 +1572,26 @@ The cluster runs end listeners of COMPLETED instances only, so `@WorkflowEnded` 
 the kind `COMPLETED` and never `TERMINATED`: a cancelled instance is removed without running
 them. This waits on the same `canceling` event type as above. Independently of that the
 notification names no end event, because the listener sits on the process element rather than
-on an end event, which is structural rather than a gap to close.
+on an end event, which is structural rather than a gap to close. That end listeners run for
+completed instances only is an assumption about the cluster: a `TERMINATED` reaching a
+`@WorkflowEnded` method would disprove it. The completed case is held, in
+`Camunda8BpmsInitiatedStartIT#timerStartCreatesTheAggregate`.
 
 ### Conditional events
 
 Camunda 8 has no conditional start, catch or boundary events, and a model carrying one is
 rejected by the cluster while deploying. `aggregateChanged` is still useful, since the cluster
 evaluates a gateway behind the current element against the values it holds, but there is
-nothing which reacts to a variable change on its own.
+nothing which reacts to a variable change on its own. An assumption about the engine: a cluster
+deploying a model with a conditional event would disprove it.
 
 ### Multi-instance has no loop cardinality
 
 Camunda 8 iterates a multi-instance element over an `inputCollection` and offers no
 cardinality, so a model saying "run this five times" has to hand over a collection of five
 elements. The count of the instances is not reported by the engine either; the adapter
-derives it from the collection while deploying, see [Multi-instance](#multi-instance).
-Nothing announced.
+derives it from the collection while deploying, see [Multi-instance](#multi-instance), where
+this is an assumption as well. Nothing announced.
 
 ### Client certificates for the cluster connection
 
@@ -1443,7 +1602,10 @@ reads carry none either. The keystore and truststore of `CredentialsProvider`'s 
 apply to the token request against the identity provider, not to gRPC or REST against the
 gateway, and the `auth` block documents them that way. A cluster which demands a client
 certificate is therefore out of reach until the client grows the option, and the adapter says
-so rather than offering a property which would silently do something else.
+so rather than offering a property which would silently do something else. An assumption read
+off those three client versions and nothing else, disproved by a `CamundaClientBuilder` growing
+a keystore; `Camunda8ClientFactoryTest#caCertificateReachesTheClient` covers the one piece of
+TLS material the client does take.
 
 ### Message deduplication lasts for the message TTL
 
@@ -1469,6 +1631,12 @@ publication is what `prefer-rest-over-grpc` decides per adapter id. No other con
 a publication, so the code settles it on its own and a cluster rewording its rejection changes
 nothing, see decision 16 in [`DECISIONS.md`](./DECISIONS.md).
 
+`Camunda8TaskProcessingIT#duplicateCorrelationDispatchIsDeduplicated` holds the refusal,
+`#theTimeToLiveDecidesHowLongTheClustersNetLasts` how long it lasts, and
+`Camunda8ErrorsTest#aRepeatedPublicationIsRecognisedOnBothTransports` that the code is what
+recognises it. The hour is the client's default rather than a number measured here, so it is an
+assumption: a cluster forgetting a message id earlier would disprove it.
+
 ## What an operator gets to see
 
 The platform integration measures every task delivery, every outbox dispatch and puts a
@@ -1483,6 +1651,11 @@ asking the cluster for its topology.
 The reasoning behind the shape of it - why the client's Micrometer implementation is not
 used, why the health check has a timeout of its own and why the slot gauges are absent in
 the platform-thread mode - is in [`core/README.md`](./core/README.md).
+
+`MicrometerCamunda8MetricsTest` covers the meters and the gauges, `Camunda8HealthTest` the
+health contribution with its own timeout, and `Camunda8HealthBootTest` with
+`Camunda8AdapterDiscoveryTest#anAdapterWithoutAConnectionIsNotUnhealthy` the booted
+application's side of it.
 
 ## Camunda 8 client
 
@@ -1547,7 +1720,8 @@ analysis even starts). `quarkus/native-image-tests` pins `netty-bom` to
 `netty.version.quarkus` of the parent POM, which follows the Quarkus version and never
 leads it.
 
-Held by `quarkus/native-image-tests` and the `native-build` job of the publishing
+Held by `quarkus/native-image-tests` (`Camunda8NativeImageIT#theNativeBinaryRunsAWorkflow`)
+and the `native-build` job of the publishing
 workflow: the module builds an image AND runs the binary against a real cluster, where it
 deploys its workflow module, starts a workflow through the phase-two outbox and has the
 job served in a handler of its own. Both halves are needed, and the demo which found all
@@ -1561,16 +1735,20 @@ Prerequisites (built and installed into the local Maven repository first, in thi
 order): `spi-for-java`, then `adapter-platform-integration`. Then:
 
 ```bash
-mvn install verify
+mvn install
 ```
 
 That is the current GA line as `2.0.0-SNAPSHOT`, no property to remember. Another line is
 a profile, another version a `-Drevision`, and `bin/api-identity.sh` compares the public
 API of the lines; see [Release lines](#release-lines).
 
+`install` and not `install verify`: install runs every phase verify has, so naming both walks
+two lifecycles per module. The tests skip their second run, the compiler does not, and every
+warning is then reported twice. The workflows build it the same way.
+
 ## Test coverage
 
-`mvn install verify` builds one aggregated JaCoCo report per platform:
+`mvn install` builds one aggregated JaCoCo report per platform:
 
 1. **Spring Boot** (core + Spring Boot integration) - into `test-coverage-report/spring-boot/report`
 2. **Quarkus** (core + Quarkus extension) - into `test-coverage-report/quarkus/report`
@@ -1587,7 +1765,8 @@ repository gates on, and that is not the target: the rule is 90 per platform, so
 85 and 90 passes the build and still names a gap. The gate is where the gap has grown too big to
 carry, which is why it is never edited to make a build pass. It also compares every module
 producing a `jacoco.exec` against the two aggregates, so a module added to the build without being
-added to its report cannot stay unnoticed.
+added to its report cannot stay unnoticed. Both are `CoverageGateTest`, and the conventions
+every test class of this repository follows are `TestClassConventionsTest`.
 
 The gate reports what it measured on every run, green ones included, which is the one place in
 VanillaBP where a passing test prints:
