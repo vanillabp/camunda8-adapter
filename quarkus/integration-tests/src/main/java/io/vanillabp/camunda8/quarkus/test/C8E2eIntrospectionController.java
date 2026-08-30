@@ -825,6 +825,40 @@ public class C8E2eIntrospectionController {
 
   }
 
+  /**
+   * The jobs of a workflow, as the query API reports them.
+   * <p>
+   * A notification which never arrives leaves one question open: was the job never
+   * offered to the worker, or was it offered and lost on the way? The state answers it.
+   * A job the cluster still holds as <code>CREATED</code> was activatable and nobody
+   * fetched it, while a job which is gone reached somebody.
+   *
+   * @param processInstanceKey The instance
+   * @return One line per job: its key, type, state, remaining retries and lock deadline
+   */
+  @GET
+  @Path("/cluster/jobs/{processInstanceKey}")
+  public List<String> clusterJobs(
+      @PathParam("processInstanceKey") final Long processInstanceKey) {
+
+    return client()
+        .newJobSearchRequest()
+        .filter(filter -> filter.processInstanceKey(processInstanceKey))
+        .send()
+        .join()
+        .items()
+        .stream()
+        .map(job -> "%d %s %s, %d retries left, locked until %s"
+            .formatted(
+                job.getJobKey(),
+                job.getType(),
+                job.getState(),
+                job.getRetries(),
+                job.getDeadline()))
+        .toList();
+
+  }
+
   // --- plumbing ---
 
   /**
