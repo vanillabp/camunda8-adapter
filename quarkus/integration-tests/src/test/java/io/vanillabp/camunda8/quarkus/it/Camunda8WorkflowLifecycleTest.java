@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -123,6 +124,7 @@ public class Camunda8WorkflowLifecycleTest {
           .withStartupTimeout(CONTAINER_STARTUP));
 
   static final GenericContainer<?> CAMUNDA = new GenericContainer<>(ClusterImage.of())
+      .withLogConsumer(ClusterLog.of("lifecycle-cluster"))
       .withNetwork(NETWORK)
       .withExposedPorts(8080, 26500, 9600)
       .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "elasticsearch")
@@ -266,11 +268,35 @@ public class Camunda8WorkflowLifecycleTest {
       final long timeoutMillis,
       final String description) throws InterruptedException {
 
+    await(condition, timeoutMillis, description, () -> null);
+
+  }
+
+  /**
+   * Waits for a condition and, if it never becomes true, says what it saw while waiting.
+   * <p>
+   * A message holding nothing but its own description is what makes a timeout in a
+   * runner unreadable: the run is gone, and "the notification never came" leaves every
+   * explanation open. So the caller of a wait which can go red on a machine nobody
+   * watches hands over a second supplier, and that one is asked once, at the deadline.
+   *
+   * @param condition What is waited for
+   * @param timeoutMillis How long to wait
+   * @param description What is waited for, as the message says it
+   * @param whatWasSeen The state at the deadline, or <code>null</code> to report none
+   */
+  private static void await(
+      final Supplier<Boolean> condition,
+      final long timeoutMillis,
+      final String description,
+      final Supplier<String> whatWasSeen) throws InterruptedException {
+
     final var deadline = System.currentTimeMillis() + timeoutMillis;
     while (!Boolean.TRUE.equals(condition.get())) {
       if (System.currentTimeMillis() > deadline) {
         throw new AssertionError("timed out waiting for: "
-            + description);
+            + description
+            + whatWasSeenOrWhyNot(whatWasSeen));
       }
       Thread.sleep(250);
     }
@@ -282,6 +308,33 @@ public class Camunda8WorkflowLifecycleTest {
       final String description) throws InterruptedException {
 
     await(condition, TIMEOUT_MS, description);
+
+  }
+
+  /**
+   * What the timeout appends to its message, or nothing.
+   * <p>
+   * Reading the state can run into the same trouble the wait did, and a diagnosis which
+   * fails must not replace the timeout it was written to explain. An assertion is caught
+   * along with the exceptions because that is what a REST client raises for an
+   * unexpected status.
+   *
+   * @param whatWasSeen The state at the deadline
+   * @return The sentence to append
+   */
+  private static String whatWasSeenOrWhyNot(
+      final Supplier<String> whatWasSeen) {
+
+    try {
+      final var seen = whatWasSeen.get();
+      return seen == null
+          ? ""
+          : ", having seen "
+              + seen;
+    } catch (final Exception | AssertionError e) {
+      return ", and what it saw could not be read either: "
+          + e;
+    }
 
   }
 
@@ -353,6 +406,74 @@ public class Camunda8WorkflowLifecycleTest {
     return value == null
         ? null
         : value.toString();
+
+  }
+
+  /**
+   * The events the handlers reported into the aggregate, a repetition of the same event
+   * collapsed into its first occurrence.
+   * <p>
+   * Camunda 8 delivers at least once. The core drops the repetition carrying the same job
+   * key and nothing drops one carrying a new one, so an assertion about WHICH events
+   * reached the aggregate must not turn red over how often one of them did. How often is
+   * what the inbound-idempotency tests measure.
+   *
+   * @param aggregateId The aggregate the events were reported into
+   * @return The reported events in the order they arrived
+   */
+  private static List<String> reportedEventsWithoutRepetitions(
+      final String aggregateId) {
+
+    final var results = resultsOf(aggregateId);
+    return results == null
+        ? List.of()
+        : Arrays
+            .stream(results.split("\\|"))
+            .distinct()
+            .toList();
+
+  }
+
+  /**
+   * Everything the CREATED notification of a user task depends on, in one line: what the
+   * handler wrote into the aggregate, how often it ran at all, and which user tasks the
+   * cluster itself holds for the workflow.
+   *
+   * @param aggregateId The aggregate the notification is awaited for
+   * @param processInstanceKey The workflow the user task belongs to
+   * @return What a timeout should report
+   */
+  private static String userTaskNotificationState(
+      final String aggregateId,
+      final String processInstanceKey) {
+
+    return "results '%s', task id '%s' and %d invocation(s) of 'approveUser', while the cluster reports the user tasks %s for process instance %s"
+        .formatted(
+            resultsOf(aggregateId),
+            taskIdOf(aggregateId),
+            invocations("approveUser", aggregateId),
+            clusterUserTasksOf(processInstanceKey),
+            processInstanceKey);
+
+  }
+
+  /**
+   * The user tasks the cluster holds, or why they could not be read. Guarded on its own
+   * rather than only by the caller's guard, so a cluster which cannot answer still leaves
+   * the application's half of the message readable.
+   *
+   * @param processInstanceKey The workflow to ask about
+   * @return The user-task keys, or what went wrong instead
+   */
+  private static String clusterUserTasksOf(
+      final String processInstanceKey) {
+
+    try {
+      return strings("introspect/cluster/user-tasks/"
+          + processInstanceKey).toString();
+    } catch (final Exception | AssertionError e) {
+      return "<unreadable: %s>".formatted(e);
+    }
 
   }
 
@@ -700,18 +821,33 @@ public class Camunda8WorkflowLifecycleTest {
 
     final var started = startProcess("UserTaskProcess");
     final var aggregateId = aggregateIdOf(started);
+    final var instanceKey = instanceKeyOf(started);
 
-    await(() -> "usertask-created".equals(resultsOf(aggregateId)), "the user task's CREATED notification");
+    // containment and not equality, the way the Spring Boot suite asks it: a repeated
+    // notification appends a second event, and an exact comparison could then never
+    // become true again - which would turn a tolerated repetition into a timeout whose
+    // message is about something else entirely
+    await(
+        () -> {
+          final var results = resultsOf(aggregateId);
+          return (results != null) && results.contains("usertask-created");
+        },
+        TIMEOUT_MS,
+        "the user task's CREATED notification",
+        () -> userTaskNotificationState(aggregateId, instanceKey));
     final var taskId = taskIdOf(aggregateId);
     assertNotNull(taskId, "the notification carries the cluster's user-task key");
 
     post("introspect/user-tasks/%s/complete/%s".formatted(taskId, aggregateId));
 
     await(
-        () -> "COMPLETED".equals(instanceState(instanceKeyOf(started))),
+        () -> "COMPLETED".equals(instanceState(instanceKey)),
         QUERY_TIMEOUT_MS,
         "UserTaskProcess to end after the commit");
-    assertEquals("usertask-created", resultsOf(aggregateId), "completing is not an event of its own");
+    assertEquals(
+        List.of("usertask-created"),
+        reportedEventsWithoutRepetitions(aggregateId),
+        "completing a user task must not be reported as an event of its own");
 
   }
 
@@ -722,10 +858,18 @@ public class Camunda8WorkflowLifecycleTest {
 
     final var started = startProcess("UserTaskProcess");
     final var aggregateId = aggregateIdOf(started);
+    final var instanceKey = instanceKeyOf(started);
 
-    await(() -> "usertask-created".equals(resultsOf(aggregateId)), "the user task's CREATED notification");
+    await(
+        () -> {
+          final var results = resultsOf(aggregateId);
+          return (results != null) && results.contains("usertask-created");
+        },
+        TIMEOUT_MS,
+        "the user task's CREATED notification",
+        () -> userTaskNotificationState(aggregateId, instanceKey));
 
-    postWithoutResponse("introspect/cluster/instances/%s/cancel".formatted(instanceKeyOf(started)));
+    postWithoutResponse("introspect/cluster/instances/%s/cancel".formatted(instanceKey));
 
     await(
         () -> {

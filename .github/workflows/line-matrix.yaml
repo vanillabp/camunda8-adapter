@@ -62,6 +62,22 @@ jobs:
           --batch-mode --no-transfer-progress --update-snapshots
           -Pline-${{ matrix.line }} -Drevision=2.0.0-${{ matrix.line }}-SNAPSHOT
           clean install
+      # A nightly line going red used to leave nothing behind, so whoever read the matrix
+      # in the morning saw which test failed and never why. The reports hold what the
+      # test asserted, and the logs hold what the application and the cluster did while
+      # it waited - which is the half a timeout never tells on its own.
+      - name: Upload the test reports of a failed line
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          # one name per line: a matrix uploading twice under one name conflicts
+          name: test-reports-${{ matrix.line }}
+          path: |
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**
+            **/target/*application*.log
+          retention-days: 7
+          if-no-files-found: ignore
       - name: The cluster and the client this line was tested against
         run: |
           cat spring-boot/target/test-classes/camunda8-cluster.properties

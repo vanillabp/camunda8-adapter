@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
@@ -115,7 +117,7 @@ public class Camunda8TaskProcessingIT {
   private VanillaBpCamunda8Properties overlay;
 
   @Autowired
-  private java.util.List<io.vanillabp.integration.adapter.spi.MigratableProcessService<?>> processServices;
+  private List<io.vanillabp.integration.adapter.spi.MigratableProcessService<?>> processServices;
 
   @Test
   @DisplayName("Without secondary storage the adapter reports that it cannot locate workflows")
@@ -181,13 +183,64 @@ public class Camunda8TaskProcessingIT {
       final long timeoutMillis,
       final String description) throws InterruptedException {
 
+    awaitUntil(condition, timeoutMillis, description, () -> null);
+
+  }
+
+  /**
+   * Waits for a condition and, if it never becomes true, says what it saw while waiting.
+   * <p>
+   * A message holding nothing but its own description is what makes a timeout in a
+   * runner unreadable: the run is gone, and "the notification never came" leaves every
+   * explanation open. So the caller of a wait which can go red on a machine nobody
+   * watches hands over a second supplier, and that one is asked once, at the deadline.
+   *
+   * @param condition What is waited for
+   * @param timeoutMillis How long to wait
+   * @param description What is waited for, as the message says it
+   * @param whatWasSeen The state at the deadline, or <code>null</code> to report none
+   */
+  private void awaitUntil(
+      final Supplier<Boolean> condition,
+      final long timeoutMillis,
+      final String description,
+      final Supplier<String> whatWasSeen) throws InterruptedException {
+
     final var deadline = System.currentTimeMillis() + timeoutMillis;
     while (!Boolean.TRUE.equals(condition.get())) {
       if (System.currentTimeMillis() > deadline) {
         throw new AssertionError("timed out waiting for: "
-            + description);
+            + description
+            + whatWasSeenOrWhyNot(whatWasSeen));
       }
       Thread.sleep(200);
+    }
+
+  }
+
+  /**
+   * What the timeout appends to its message, or nothing.
+   * <p>
+   * Reading the state can run into the same trouble the wait did, and a diagnosis which
+   * fails must not replace the timeout it was written to explain. An assertion error is
+   * caught next to the exceptions, because reading the state may go through code which
+   * asserts rather than throws.
+   *
+   * @param whatWasSeen The state at the deadline
+   * @return The sentence to append
+   */
+  private String whatWasSeenOrWhyNot(
+      final Supplier<String> whatWasSeen) {
+
+    try {
+      final var seen = whatWasSeen.get();
+      return seen == null
+          ? ""
+          : ", having seen "
+              + seen;
+    } catch (final Exception | AssertionError e) {
+      return ", and what it saw could not be read either: "
+          + e;
     }
 
   }
@@ -210,6 +263,57 @@ public class Camunda8TaskProcessingIT {
       final Long aggregateId) {
 
     return repository.findById(aggregateId).orElseThrow().getResults();
+
+  }
+
+  /**
+   * The events the handlers reported into the aggregate, a repetition of the same event
+   * collapsed into its first occurrence.
+   * <p>
+   * Camunda 8 delivers at least once. The core drops the repetition carrying the same job
+   * key and nothing drops one carrying a new one, so an assertion about WHICH events
+   * reached the aggregate must not turn red over how often one of them did. How often is
+   * what the inbound-idempotency test measures.
+   *
+   * @param aggregateId The aggregate the events were reported into
+   * @return The reported events in the order they arrived
+   */
+  private List<String> reportedEventsWithoutRepetitions(
+      final Long aggregateId) {
+
+    final var results = results(aggregateId);
+    return results == null
+        ? List.of()
+        : Arrays
+            .stream(results.split("\\|"))
+            .distinct()
+            .toList();
+
+  }
+
+  /**
+   * Everything the CREATED notification of a user task depends on, in one line: what the
+   * handler wrote into the aggregate, how often it ran at all, and which workflow it was
+   * about - the one this test started, since a test starts exactly one.
+   * <p>
+   * The cluster of this class runs without secondary storage, so there is no user-task
+   * search to ask what it holds. What it made of the listener job is in its own log, and
+   * the process instance key is the string to look for there.
+   *
+   * @param aggregateId The aggregate the notification is awaited for
+   * @return What a timeout should report
+   */
+  private String userTaskNotificationState(
+      final Long aggregateId) {
+
+    final var aggregate = repository.findById(aggregateId).orElseThrow();
+    return "results '%s', task id '%s' and %d invocation(s) of 'approveUser' for process instance %d, whose cluster side is in '%s'"
+        .formatted(
+            aggregate.getResults(),
+            aggregate.getTaskId(),
+            invocations("approveUser", aggregateId),
+            lastStartedInstanceKey,
+            ClusterLog.FILE);
 
   }
 
@@ -656,7 +760,8 @@ public class Camunda8TaskProcessingIT {
           return (aggregate.getTaskId() != null) && aggregate.getResults().contains("usertask-created");
         },
         60000,
-        "the creating listener to notify the handler");
+        "the creating listener to notify the handler",
+        () -> userTaskNotificationState(aggregateId));
     final var taskId = repository.findById(aggregateId).orElseThrow().getTaskId();
 
     transactionTemplate.executeWithoutResult(status -> {
@@ -683,7 +788,12 @@ public class Camunda8TaskProcessingIT {
         },
         60000,
         "the user task to be completed through the outbox");
-    assertTrue(results(aggregateId).startsWith("usertask-created|approving"));
+    // completing a user task is not an event of its own: what the aggregate holds is the
+    // creation the listener reported and the word this test wrote before completing
+    assertEquals(
+        List.of("usertask-created", "approving"),
+        reportedEventsWithoutRepetitions(aggregateId),
+        "completing a user task must not be reported as an event of its own");
 
   }
 
@@ -700,7 +810,8 @@ public class Camunda8TaskProcessingIT {
     awaitUntil(
         () -> repository.findById(aggregateId).map(TaskDockerAggregate::getTaskId).orElse(null) != null,
         60000,
-        "the creating listener to notify the handler");
+        "the creating listener to notify the handler",
+        () -> userTaskNotificationState(aggregateId));
 
     // cancel the whole instance - the canceling task listener fires as a job
     // (the instance key was captured at start: the search API needs secondary
@@ -733,7 +844,8 @@ public class Camunda8TaskProcessingIT {
     awaitUntil(
         () -> repository.findById(aggregateId).map(TaskDockerAggregate::getTaskId).orElse(null) != null,
         60000,
-        "the creating listener to notify the handler");
+        "the creating listener to notify the handler",
+        () -> userTaskNotificationState(aggregateId));
     final var taskId = repository.findById(aggregateId).orElseThrow().getTaskId();
 
     final var exception = org.junit.jupiter.api.Assertions.assertThrows(

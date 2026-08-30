@@ -84,6 +84,7 @@ public class Camunda8RestartDeliveryTest {
    * test is about nothing else.
    */
   static final GenericContainer<?> CAMUNDA = new GenericContainer<>(ClusterImage.of())
+      .withLogConsumer(ClusterLog.of("restart-cluster"))
       .withExposedPorts(8080, 26500, 9600)
       .withEnv("SPRING_PROFILES_ACTIVE", "broker")
       .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")

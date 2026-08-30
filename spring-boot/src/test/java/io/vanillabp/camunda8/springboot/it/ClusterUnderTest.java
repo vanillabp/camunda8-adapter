@@ -63,6 +63,7 @@ public final class ClusterUnderTest {
   public static GenericContainer<?> standaloneBroker() {
 
     return new GenericContainer<>(image())
+        .withLogConsumer(ClusterLog.of("broker"))
         .withExposedPorts(8080, 26500, 9600)
         .withEnv("SPRING_PROFILES_ACTIVE", "broker")
         .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
@@ -92,6 +93,7 @@ public final class ClusterUnderTest {
       final Startable elasticsearch) {
 
     return new GenericContainer<>(image())
+        .withLogConsumer(ClusterLog.of("secondary-storage"))
         .withNetwork(network)
         .dependsOn(elasticsearch)
         .withExposedPorts(8080, 26500, 9600)
@@ -134,6 +136,7 @@ public final class ClusterUnderTest {
       final Startable elasticsearch) {
 
     return new GenericContainer<>(image())
+        .withLogConsumer(ClusterLog.of("authenticated"))
         .withNetwork(network)
         .dependsOn(elasticsearch)
         .withExposedPorts(8080, 26500, 9600)
