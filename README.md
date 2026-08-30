@@ -1637,6 +1637,49 @@ nothing, see decision 16 in [`DECISIONS.md`](./DECISIONS.md).
 recognises it. The hour is the client's default rather than a number measured here, so it is an
 assumption: a cluster forgetting a message id earlier would disprove it.
 
+### A job activated for a worker which never saw it
+
+Activating a job is a round trip, and the cluster commits its half of it before the worker holds
+anything: it locks what it activated and then hands the batch to the request it was activated for.
+Where that request has ended by then, the job carries a lock for a worker which never saw it. Both
+shapes of that were measured against `camunda/camunda:8.9.16` on 2026-08-30, with a job timeout of
+twenty seconds.
+
+**The gateway notices that the request is gone.** It fails the job back to the broker with the
+retries it had and no backoff, so the job is activatable again at once, 25 ms after it was created
+in the measurement. One line of the gateway says so: `Failed to send 1 activated jobs for type ...
+to client, because: Failed to send activated jobs to client`. Whichever worker of that type polls
+next receives the job.
+
+**The gateway does not notice.** Over REST the response is written when the request ends, so a
+connection which died while the request was parked is found too late for the reactivation above.
+The batch counts as delivered, the job keeps its lock, and it comes back when the lock runs out:
+20.2 to 21.1 seconds, in six rounds out of six.
+
+Nothing is lost either way. What the application gets is a delivery which is late by at most the
+`job-timeout` of that task, a user task's notification included, since CREATED and CANCELED travel
+as listener jobs. That timeout is the only knob, and it is not free: it is also the lock a handler
+runs under, so a value below what a handler needs buys the faster recovery at the price of a second
+delivery of work which is still running.
+
+One observation is explained by neither shape. In a build of 2026-08-30 against 8.9.16 the CREATED
+notification of a user task did not arrive within three minutes, and the cluster's log carries the
+gateway line of the first shape for exactly that listener job and nothing else. Both measured
+shapes recover within seconds, so something after the reactivation kept that job from being fetched
+again, and the logs of that run do not say what. The state of the job at the deadline would: a job
+the cluster still reports as CREATED was there to be fetched and nobody fetched it, while a job
+which is gone reached somebody. So the wait for a listener notification now asks the query API for
+the jobs of the workflow before it gives up, and says every quarter minute what it is still
+missing.
+
+An adapter which cannot poll was the first suspect, and the release lines answer that differently,
+which is worth knowing while reading such a log. Since 8.9 the client keeps two executors apart,
+one to schedule the polls on and one to run the handlers on, so handlers occupying every execution
+slot cannot stop a worker from asking for work. The 8.8 client has a single executor for both, and
+there `worker-threads` blocked handlers do stop the polling of that adapter until one of them
+returns. `worker-threads: virtual` avoids it on every line, the executor the adapter hands over
+separating the two itself. The observation above happened on 8.9, so this is not what it was.
+
 ## What an operator gets to see
 
 The platform integration measures every task delivery, every outbox dispatch and puts a
