@@ -1,9 +1,16 @@
 package io.vanillabp.camunda8.client;
 
 import java.net.URI;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.CamundaClientBuilder;
+import io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -58,7 +65,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * it) already receive per adapter id on both platforms.
    */
   @Getter
-  private final io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses deployedProcesses = new io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses();
+  private final Camunda8DeployedProcesses deployedProcesses = new Camunda8DeployedProcesses();
 
   /**
    * Whether this adapter's cluster can be searched, asked once and remembered - here for
@@ -117,7 +124,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * and not to a workflow module, so the second module of an application finds the question
    * answered.
    */
-  private final java.util.concurrent.atomic.AtomicBoolean clusterWaitedFor = new java.util.concurrent.atomic.AtomicBoolean();
+  private final AtomicBoolean clusterWaitedFor = new AtomicBoolean();
 
   /**
    * Waits ONCE for this adapter instance's cluster to answer, before the first round of the
@@ -326,7 +333,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
         executionModel.describe(),
         configuration.resolvedMaxJobsActive(adapterId),
         configuration.getJobTimeout() == null
-            ? io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT
+            ? Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT
             : configuration.getJobTimeout(),
         executionModel.slots());
 
@@ -366,22 +373,22 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * to before it claims the task. That answer costs a query-API round trip, which is why
    * it is only paid where two ids can actually be confused.
    */
-  private java.util.List<String> adapterIdsSharingTheCluster = java.util.List.of();
+  private List<String> adapterIdsSharingTheCluster = List.of();
 
   /**
    * @param adapterIds The other adapter ids addressing this cluster
    */
   void sharesItsClusterWith(
-      final java.util.List<String> adapterIds) {
+      final List<String> adapterIds) {
 
-    this.adapterIdsSharingTheCluster = java.util.List.copyOf(adapterIds);
+    this.adapterIdsSharingTheCluster = List.copyOf(adapterIds);
 
   }
 
   /**
    * @return The other adapter ids addressing this cluster, empty where this id is alone
    */
-  public java.util.List<String> getAdapterIdsSharingTheCluster() {
+  public List<String> getAdapterIdsSharingTheCluster() {
 
     return adapterIdsSharingTheCluster;
 
@@ -424,7 +431,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * at the cluster when its client is closed stays parked, and a job created within the
    * request timeout afterwards waits for its lock instead of reaching the next worker.
    */
-  private final java.util.Map<String, WorkflowModuleShutdown> openWorkflowModules = new java.util.LinkedHashMap<>();
+  private final Map<String, WorkflowModuleShutdown> openWorkflowModules = new LinkedHashMap<>();
 
   /**
    * Registers a workflow module whose workers are now open.
@@ -455,9 +462,9 @@ public class Camunda8ClientFactory implements AutoCloseable {
   /**
    * @return The workflow modules of this adapter instance whose workers are open
    */
-  public synchronized java.util.Set<String> getOpenWorkflowModules() {
+  public synchronized Set<String> getOpenWorkflowModules() {
 
-    return java.util.Set.copyOf(openWorkflowModules.keySet());
+    return Set.copyOf(openWorkflowModules.keySet());
 
   }
 
@@ -485,7 +492,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
     if (openWorkflowModules.isEmpty()) {
       return;
     }
-    final var pending = java.util.List.copyOf(openWorkflowModules.entrySet());
+    final var pending = List.copyOf(openWorkflowModules.entrySet());
     log.warn(
         "Camunda8[{}]: the client is being closed while the workers of the workflow module(s) '{}' are "
             + "still open, which means the shutdown of this application did not stop workflow processing. "

@@ -1,10 +1,14 @@
 package io.vanillabp.camunda8.springboot.it;
 
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
 import org.springframework.stereotype.Service;
 
 import io.vanillabp.spi.process.ProcessService;
 import io.vanillabp.spi.service.BpmnProcess;
 import io.vanillabp.spi.service.WorkflowService;
+import io.vanillabp.spi.service.WorkflowTask;
 
 /**
  * Workflow service bound to the BPMN process {@code TestProcess} deployed to the Camunda 8
@@ -36,9 +40,9 @@ public class DockerWorkflowService {
   /**
    * Aggregate IDs seen by the handler - inspected by the integration test.
    */
-  public static final java.util.List<String> ACTIVATED_AGGREGATE_IDS = new java.util.concurrent.CopyOnWriteArrayList<>();
+  public static final List<String> ACTIVATED_AGGREGATE_IDS = new CopyOnWriteArrayList<>();
 
-  @io.vanillabp.spi.service.WorkflowTask(taskDefinition = "test-job")
+  @WorkflowTask(taskDefinition = "test-job")
   public void testJob(
       final DockerAggregate aggregate) {
 

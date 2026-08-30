@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.wiring;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
+import io.camunda.zeebe.model.bpmn.instance.BpmnModelElementInstance;
 import io.camunda.zeebe.model.bpmn.instance.Error;
 import io.camunda.zeebe.model.bpmn.instance.Escalation;
 import io.camunda.zeebe.model.bpmn.instance.FlowElement;
@@ -178,7 +179,7 @@ public final class Camunda8Scoping {
    * still plain.
    */
   private static String owningProcessId(
-      final io.camunda.zeebe.model.bpmn.instance.BpmnModelElementInstance element) {
+      final BpmnModelElementInstance element) {
 
     var current = element.getParentElement();
     while (current != null) {

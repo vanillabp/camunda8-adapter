@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
+
 /**
  * Which process variables a worker of this adapter asks the cluster for.
  *
@@ -159,7 +161,7 @@ public final class Camunda8FetchVariables {
   public static String propertyKey(
       final String adapterId) {
 
-    return io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.propertyKey(adapterId, "fetch-variables");
+    return Camunda8AdapterConfiguration.propertyKey(adapterId, "fetch-variables");
 
   }
 

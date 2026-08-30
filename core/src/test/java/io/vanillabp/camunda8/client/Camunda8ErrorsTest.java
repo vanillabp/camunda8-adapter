@@ -4,16 +4,22 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.net.SocketTimeoutException;
+import java.util.List;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeoutException;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.camunda.client.api.ProblemDetail;
+import io.camunda.client.api.command.ClientException;
 import io.camunda.client.api.command.ClientHttpException;
 import io.camunda.client.api.command.ClientStatusException;
 import io.camunda.client.api.command.ProblemException;
+import io.grpc.Status;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -63,13 +69,13 @@ public class Camunda8ErrorsTest {
 
     assertTrue(
         Camunda8Errors.permanentFailure(
-            new ClientStatusException(io.grpc.Status.INVALID_ARGUMENT, null)));
+            new ClientStatusException(Status.INVALID_ARGUMENT, null)));
     assertTrue(
         Camunda8Errors.permanentFailure(
-            new ClientStatusException(io.grpc.Status.PERMISSION_DENIED, null)));
+            new ClientStatusException(Status.PERMISSION_DENIED, null)));
     assertTrue(
         Camunda8Errors.permanentFailure(
-            new ClientStatusException(io.grpc.Status.UNIMPLEMENTED, null)));
+            new ClientStatusException(Status.UNIMPLEMENTED, null)));
 
   }
 
@@ -98,8 +104,8 @@ public class Camunda8ErrorsTest {
     assertFalse(Camunda8Errors.permanentFailure(problem(503)));
     assertFalse(
         Camunda8Errors.permanentFailure(
-            new ClientStatusException(io.grpc.Status.UNAVAILABLE, null)));
-    assertFalse(Camunda8Errors.permanentFailure(new java.io.IOException("connection reset")));
+            new ClientStatusException(Status.UNAVAILABLE, null)));
+    assertFalse(Camunda8Errors.permanentFailure(new IOException("connection reset")));
     assertFalse(Camunda8Errors.permanentFailure(null));
 
   }
@@ -125,25 +131,25 @@ public class Camunda8ErrorsTest {
   /**
    * Every shape a request which ran out of time arrives in - read off the client: a REST
    * request times out in the socket below Apache HttpClient, a bounded wait on the future
-   * ends in a {@link java.util.concurrent.TimeoutException}, and gRPC answers a deadline of
+   * ends in a {@link TimeoutException}, and gRPC answers a deadline of
    * its own with the status of that name. The client wraps whichever of them into a
-   * {@link io.camunda.client.api.command.ClientException} respectively a
+   * {@link ClientException} respectively a
    * {@link CompletionException} on its way out.
    */
-  private static java.util.List<Throwable> timeoutsAsTheClientHandsThemOver() {
+  private static List<Throwable> timeoutsAsTheClientHandsThemOver() {
 
-    return java.util.List
+    return List
         .of(
-            new java.net.SocketTimeoutException("Read timed out"),
+            new SocketTimeoutException("Read timed out"),
             new CompletionException(
-                new io.camunda.client.api.command.ClientException(
-                    "io error", new java.net.SocketTimeoutException("Read timed out"))),
-            new CompletionException(new java.util.concurrent.TimeoutException()),
-            new io.camunda.client.api.command.ClientException(
-                "timed out", new java.util.concurrent.TimeoutException("waited 10s")),
-            new ClientStatusException(io.grpc.Status.DEADLINE_EXCEEDED, null),
+                new ClientException(
+                    "io error", new SocketTimeoutException("Read timed out"))),
+            new CompletionException(new TimeoutException()),
+            new ClientException(
+                "timed out", new TimeoutException("waited 10s")),
+            new ClientStatusException(Status.DEADLINE_EXCEEDED, null),
             new CompletionException(
-                new ClientStatusException(io.grpc.Status.DEADLINE_EXCEEDED, null)));
+                new ClientStatusException(Status.DEADLINE_EXCEEDED, null)));
 
   }
 
@@ -188,7 +194,7 @@ public class Camunda8ErrorsTest {
     // ...gRPC with the status of the same name, and neither of them is permanent
     assertTrue(
         Camunda8Errors.repeatableJobCommandFailure(
-            new ClientStatusException(io.grpc.Status.RESOURCE_EXHAUSTED, null)));
+            new ClientStatusException(Status.RESOURCE_EXHAUSTED, null)));
     assertFalse(Camunda8Errors.repeatableJobCommandFailure(problem(400)));
 
   }
@@ -202,7 +208,7 @@ public class Camunda8ErrorsTest {
     assertTrue(Camunda8Errors.jobAlreadyGone(problem(404, "NOT_FOUND")));
     assertTrue(
         Camunda8Errors.jobAlreadyGone(
-            new ClientStatusException(io.grpc.Status.NOT_FOUND, null)));
+            new ClientStatusException(Status.NOT_FOUND, null)));
     // the words around the code are the cluster's to reword, so they decide nothing
     assertFalse(Camunda8Errors.jobAlreadyGone(new IllegalStateException("no such job was NOT_FOUND")));
     assertFalse(Camunda8Errors.jobAlreadyGone(problem(409, "ALREADY_EXISTS")));
@@ -220,7 +226,7 @@ public class Camunda8ErrorsTest {
     assertTrue(Camunda8Errors.messageAlreadyPublished(problem(409, "ALREADY_EXISTS")));
     assertTrue(
         Camunda8Errors.messageAlreadyPublished(
-            new ClientStatusException(io.grpc.Status.ALREADY_EXISTS, null)));
+            new ClientStatusException(Status.ALREADY_EXISTS, null)));
     // and the words are not what says so: a reworded rejection keeps its code, while a
     // failure carrying the word and no code is not a rejection of the cluster at all
     assertFalse(
@@ -243,7 +249,7 @@ public class Camunda8ErrorsTest {
         Camunda8Errors.queryApiRefused(
             new IllegalStateException("searching", problem(403, "FORBIDDEN"))));
     // a cluster which is merely unreachable says nothing about what it offers
-    assertFalse(Camunda8Errors.queryApiRefused(new java.io.IOException("connection refused")));
+    assertFalse(Camunda8Errors.queryApiRefused(new IOException("connection refused")));
     assertFalse(
         Camunda8Errors.queryApiRefused(
             new IllegalStateException("This endpoint requires a secondary storage, but none is set")));

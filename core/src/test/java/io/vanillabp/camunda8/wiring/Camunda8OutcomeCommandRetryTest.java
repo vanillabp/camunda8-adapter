@@ -17,9 +17,11 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mockito;
 import org.mockito.stubbing.Answer;
 
 import io.camunda.client.CamundaClient;
@@ -28,6 +30,9 @@ import io.camunda.client.api.command.ProblemException;
 import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.client.api.worker.JobClient;
 import io.vanillabp.camunda8.client.Camunda8Drain;
+import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker;
+import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker;
+import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartResult;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -109,8 +114,15 @@ public class Camunda8OutcomeCommandRetryTest {
   private Camunda8JobHandler jobHandler(
       final WorkflowTaskInvoker invoker) {
 
-    return new Camunda8JobHandler(
-        "c8", "test-module", camundaClient, invoker, Duration.ofHours(1), null, null, null, drain, null);
+    return Camunda8JobHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .camundaClient(camundaClient)
+        .workflowTaskInvoker(invoker)
+        .asyncTaskLockRenewal(Duration.ofHours(1))
+        .drain(drain)
+        .build();
 
   }
 
@@ -153,7 +165,7 @@ public class Camunda8OutcomeCommandRetryTest {
 
     // and the failure escapes to the client, which fails the job - a retry which gave up
     // changes nothing about that
-    org.junit.jupiter.api.Assertions.assertThrows(
+    Assertions.assertThrows(
         ProblemException.class,
         () -> jobHandler(invokerReturning(WorkflowTaskOutcome.completed())).handle(jobClient, job()));
 
@@ -268,12 +280,19 @@ public class Camunda8OutcomeCommandRetryTest {
   @DisplayName("A configured retry-backoff reaches the fail command")
   public void aConfiguredBackoffReachesTheCommand() {
 
-    new Camunda8JobHandler(
-        "c8", "test-module", camundaClient, failingInvoker(new IllegalStateException("boom")), Duration
-            .ofHours(1), null, null, null, drain, (
-                module,
-                process,
-                task) -> new Camunda8RetryBackoffResolver.Configured(Duration.ofSeconds(42), false))
+    Camunda8JobHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .camundaClient(camundaClient)
+        .workflowTaskInvoker(failingInvoker(new IllegalStateException("boom")))
+        .asyncTaskLockRenewal(Duration.ofHours(1))
+        .drain(drain)
+        .retryBackoffResolver((
+            module,
+            process,
+            task) -> new Camunda8RetryBackoffResolver.Configured(Duration.ofSeconds(42), false))
+        .build()
         .handle(jobClient, job());
 
     verify(jobClient.newFailCommand(4711L).retries(2), times(1)).retryBackoff(Duration.ofSeconds(42));
@@ -300,10 +319,10 @@ public class Camunda8OutcomeCommandRetryTest {
     final var attempts = new AtomicInteger();
     when(jobClient.newCompleteCommand(4711L).variables(any(Map.class)).send())
         .thenAnswer(rejecting(attempts, 2, backpressure()));
-    final var invoker = mock(io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker.class);
+    final var invoker = mock(BpmsInitiatedStartInvoker.class);
     when(invoker.startWorkflowByBpms(anyString(), anyString(), any()))
         .thenReturn(
-            new io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartResult(
+            new BpmsInitiatedStartResult(
                 "42", "id", Map.of("id", "42"), true));
 
     new Camunda8BpmsInitiatedStartHandler(
@@ -318,8 +337,8 @@ public class Camunda8OutcomeCommandRetryTest {
   @DisplayName("A workflow-end listener fails with a backoff, too")
   public void theWorkflowEndListenerBacksItsFailureOff() {
 
-    final var invoker = mock(io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker.class);
-    org.mockito.Mockito
+    final var invoker = mock(WorkflowEndedInvoker.class);
+    Mockito
         .doThrow(new IllegalStateException("boom"))
         .when(invoker)
         .workflowEnded(anyString(), anyString(), any());
@@ -350,7 +369,13 @@ public class Camunda8OutcomeCommandRetryTest {
         .thenReturn(Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE
             + "someUserTask");
 
-    new Camunda8UserTaskListenerHandler("c8", "test-module", invoker, null, null, drain)
+    Camunda8UserTaskListenerHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .workflowTaskInvoker(invoker)
+        .drain(drain)
+        .build()
         .handle(jobClient, listenerJob);
 
     assertEquals(3, attempts.get());

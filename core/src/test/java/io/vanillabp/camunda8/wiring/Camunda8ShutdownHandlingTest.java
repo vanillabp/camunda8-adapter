@@ -18,6 +18,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mockito;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
@@ -26,6 +27,7 @@ import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker;
 import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
+import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.service.BpmsStartTrigger;
 
@@ -66,8 +68,15 @@ public class Camunda8ShutdownHandlingTest {
   private Camunda8JobHandler jobHandler(
       final WorkflowTaskInvoker invoker) {
 
-    return new Camunda8JobHandler(
-        "c8", "test-module", camundaClient, invoker, Duration.ofHours(1), null, null, null, drain);
+    return Camunda8JobHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .camundaClient(camundaClient)
+        .workflowTaskInvoker(invoker)
+        .asyncTaskLockRenewal(Duration.ofHours(1))
+        .drain(drain)
+        .build();
 
   }
 
@@ -117,7 +126,7 @@ public class Camunda8ShutdownHandlingTest {
           assertEquals(1, inFlight.size(), "the handler registered its delivery");
           assertEquals(4711L, inFlight.iterator().next().jobKey());
           assertEquals("someTask", inFlight.iterator().next().name());
-          return io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome.completed();
+          return WorkflowTaskOutcome.completed();
         });
 
     jobHandler(invoker).handle(jobClient, job("someTask"));
@@ -136,7 +145,7 @@ public class Camunda8ShutdownHandlingTest {
     when(invoker.syncedWorkflowAggregateValues(anyString(), anyString(), anyString(), any()))
         .thenReturn(Map.of());
     when(invoker.invokeWorkflowTask(anyString(), anyString(), any()))
-        .thenReturn(io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome.completed());
+        .thenReturn(WorkflowTaskOutcome.completed());
     when(jobClient.newCompleteCommand(4711L)).thenThrow(new IllegalStateException("the client is closing"));
 
     jobHandler(invoker).handle(jobClient, job("someTask"));
@@ -150,8 +159,13 @@ public class Camunda8ShutdownHandlingTest {
   private Camunda8UserTaskListenerHandler listenerHandler(
       final WorkflowTaskInvoker invoker) {
 
-    return new Camunda8UserTaskListenerHandler(
-        "c8", "test-module", invoker, null, null, drain);
+    return Camunda8UserTaskListenerHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .workflowTaskInvoker(invoker)
+        .drain(drain)
+        .build();
 
   }
 
@@ -235,7 +249,7 @@ public class Camunda8ShutdownHandlingTest {
   private Camunda8WorkflowEndedHandler endedHandler() {
 
     final var invoker = mock(WorkflowEndedInvoker.class);
-    org.mockito.Mockito
+    Mockito
         .doThrow(new IllegalStateException("interrupted by the shutdown"))
         .when(invoker)
         .workflowEnded(anyString(), anyString(), any());

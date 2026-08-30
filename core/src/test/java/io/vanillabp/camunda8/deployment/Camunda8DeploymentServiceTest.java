@@ -10,16 +10,37 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.time.Duration;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
+import org.slf4j.LoggerFactory;
 
+import io.camunda.client.api.worker.JobWorkerBuilderStep1;
 import io.camunda.zeebe.model.bpmn.Bpmn;
+import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.camunda8.Camunda8ProcessingContext;
+import io.vanillabp.camunda8.TestCollaborators;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8Scoping;
+import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
 import io.vanillabp.integration.adapter.spi.BpmnParseException;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
+import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
+import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
+import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
+import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -59,11 +80,11 @@ public class Camunda8DeploymentServiceTest {
   private Camunda8DeploymentService newDeploymentService() {
 
     // an unconfigured factory: getClient() would throw if ever called
-    return new Camunda8DeploymentService("c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+    return new Camunda8DeploymentService("c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
         .of(new NoOpInvoker()), (
             m2,
             p2,
-            t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+            t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                 .ofDays(14));
 
   }
@@ -172,8 +193,8 @@ public class Camunda8DeploymentServiceTest {
     final var deploymentService = newDeploymentService();
 
     assertEquals(
-        io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
-        deploymentService.listenerLockOf("m", java.util.List.of("Process"), "workflow-end", "jobType"),
+        Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        deploymentService.listenerLockOf("m", List.of("Process"), "workflow-end", "jobType"),
         "the user-task listener, the BPMS-initiated start and the workflow end run application code "
             + "in a transaction just like a task, so there is no second rule");
 
@@ -184,18 +205,18 @@ public class Camunda8DeploymentServiceTest {
   public void listenerLockFollowsTheConfiguredJobTimeout() {
 
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
             .of(new NoOpInvoker()), (
                 workflowModuleId,
                 bpmnProcessId,
                 taskDefinition) -> "Process".equals(bpmnProcessId)
-                    ? java.time.Duration.ofMinutes(2)
-                    : io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                    ? Duration.ofMinutes(2)
+                    : Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                         .ofDays(14));
 
     assertEquals(
-        java.time.Duration.ofMinutes(2),
-        deploymentService.listenerLockOf("m", java.util.List.of("Process"), "start-event", "jobType"),
+        Duration.ofMinutes(2),
+        deploymentService.listenerLockOf("m", List.of("Process"), "start-event", "jobType"),
         "there is no task to key a listener by, so it resolves at adapter, module and workflow level");
 
   }
@@ -205,18 +226,18 @@ public class Camunda8DeploymentServiceTest {
   public void conflictingListenerLocksFailGuiding() {
 
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
             .of(new NoOpInvoker()), (
                 workflowModuleId,
                 bpmnProcessId,
                 taskDefinition) -> "Fast".equals(bpmnProcessId)
-                    ? java.time.Duration.ofSeconds(30)
-                    : java.time.Duration.ofMinutes(10), java.time.Duration.ofDays(14));
+                    ? Duration.ofSeconds(30)
+                    : Duration.ofMinutes(10), Duration.ofDays(14));
 
     final var exception = assertThrows(
         IllegalStateException.class,
         () -> deploymentService.listenerLockOf(
-            "m", java.util.List.of("Fast", "Slow"), "user-task listener", "io.vanillabp.userTask:form"));
+            "m", List.of("Fast", "Slow"), "user-task listener", "io.vanillabp.userTask:form"));
 
     assertTrue(exception.getMessage().contains("Fast"), exception.getMessage());
     assertTrue(exception.getMessage().contains("Slow"), exception.getMessage());
@@ -232,28 +253,28 @@ public class Camunda8DeploymentServiceTest {
   public void streamTimeoutReachesTheWorkerBuilder() {
 
     final var configuration = new Camunda8AdapterConfiguration();
-    configuration.setStreamTimeout(java.time.Duration.ofMinutes(30));
+    configuration.setStreamTimeout(Duration.ofMinutes(30));
     final var deploymentService = new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", configuration), io.vanillabp.camunda8.TestCollaborators
+        "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
             .of(new NoOpInvoker()), (
                 m,
                 p,
-                t) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                     .ofDays(14));
-    final var builder = org.mockito.Mockito
-        .mock(io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
-    org.mockito.Mockito
-        .when(builder.metrics(org.mockito.ArgumentMatchers.any()))
+    final var builder = Mockito
+        .mock(JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
+    Mockito
+        .when(builder.metrics(ArgumentMatchers.any()))
         .thenReturn(builder);
-    org.mockito.Mockito
-        .when(builder.streamTimeout(org.mockito.ArgumentMatchers.any()))
+    Mockito
+        .when(builder.streamTimeout(ArgumentMatchers.any()))
         .thenReturn(builder);
 
     deploymentService.applyWorkerOptions(builder, "approve");
 
-    org.mockito.Mockito
+    Mockito
         .verify(builder)
-        .streamTimeout(java.time.Duration.ofMinutes(30));
+        .streamTimeout(Duration.ofMinutes(30));
 
   }
 
@@ -262,20 +283,20 @@ public class Camunda8DeploymentServiceTest {
   public void withoutStreamTimeoutTheWorkerIsLeftAlone() {
 
     final var deploymentService = newDeploymentService();
-    final var builder = org.mockito.Mockito
-        .mock(io.camunda.client.api.worker.JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
-    org.mockito.Mockito
-        .when(builder.metrics(org.mockito.ArgumentMatchers.any()))
+    final var builder = Mockito
+        .mock(JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
+    Mockito
+        .when(builder.metrics(ArgumentMatchers.any()))
         .thenReturn(builder);
 
     assertNotNull(deploymentService.applyWorkerOptions(builder, "approve"));
 
     // The metrics hook is the ONE thing every worker gets, and without a
     // metrics backend it is the client's own no-op
-    org.mockito.Mockito
+    Mockito
         .verify(builder)
-        .metrics(org.mockito.ArgumentMatchers.any());
-    org.mockito.Mockito.verifyNoMoreInteractions(builder);
+        .metrics(ArgumentMatchers.any());
+    Mockito.verifyNoMoreInteractions(builder);
 
   }
 
@@ -284,13 +305,13 @@ public class Camunda8DeploymentServiceTest {
    * {@code WorkflowTaskWiring} and opens its job workers with
    * {@code WorkflowTaskInvoker}, so a double standing in for the core answers both.
    */
-  static class NoOpInvoker implements io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring, io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker {
+  static class NoOpInvoker implements WorkflowTaskWiring, WorkflowTaskInvoker {
 
     @Override
     public void validateTaskWiring(
         final String workflowModuleId,
         final String bpmnProcessId,
-        final java.util.Collection<io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec> tasks) {
+        final Collection<BpmnTaskSpec> tasks) {
     }
 
     @Override
@@ -299,20 +320,20 @@ public class Camunda8DeploymentServiceTest {
     }
 
     @Override
-    public io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome invokeWorkflowTask(
+    public WorkflowTaskOutcome invokeWorkflowTask(
         final String workflowModuleId,
         final String bpmnProcessId,
-        final io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext context) {
+        final TaskInvocationContext context) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public java.util.Map<String, Object> syncedWorkflowAggregateValues(
+    public Map<String, Object> syncedWorkflowAggregateValues(
         final String workflowModuleId,
         final String bpmnProcessId,
         final String workflowAggregateId,
-        final io.vanillabp.integration.adapter.spi.AggregateSyncMode adapterDefault) {
-      return java.util.Map.of();
+        final AggregateSyncMode adapterDefault) {
+      return Map.of();
     }
 
     // the migration fallback, deprecated for removal in 2.1 and none of Camunda
@@ -360,29 +381,29 @@ public class Camunda8DeploymentServiceTest {
    * identifiers replacing it. Asserted on the model and the resolved tenant - the
    * cluster round-trip is covered by the Docker ITs.
    */
-  @org.junit.jupiter.api.Nested
+  @Nested
   @DisplayName("Name-clash avoidance")
   class NameClashAvoidanceTests {
 
     private static final String MODULE = "loan-approval";
 
     /**
-     * A minimal {@link io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport}
+     * A minimal {@link NameClashAvoidanceSupport}
      * of the given mode - the adapter is tested against the SPI, not against the
      * core's implementation (this module deliberately depends on the SPI only).
      */
-    private io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scopingWith(
-        final io.vanillabp.integration.adapter.spi.NameClashAvoidance mode) {
+    private NameClashAvoidanceSupport scopingWith(
+        final NameClashAvoidance mode) {
 
-      final var separator = io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.SEPARATOR;
-      return new io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport() {
+      final var separator = NameClashAvoidanceSupport.SEPARATOR;
+      return new NameClashAvoidanceSupport() {
 
         private boolean prefixes() {
-          return mode == io.vanillabp.integration.adapter.spi.NameClashAvoidance.USE_PREFIX;
+          return mode == NameClashAvoidance.USE_PREFIX;
         }
 
         @Override
-        public io.vanillabp.integration.adapter.spi.NameClashAvoidance modeFor(
+        public NameClashAvoidance modeFor(
             final String workflowModuleId,
             final String bpmnProcessId,
             final String adapterId) {
@@ -467,24 +488,24 @@ public class Camunda8DeploymentServiceTest {
         @Override
         public void validateNoCollidingProcessIds(
             final String adapterId,
-            final java.util.Collection<DeployedProcess> deployedProcesses) {
+            final Collection<DeployedProcess> deployedProcesses) {
         }
 
       };
 
     }
 
-    private io.camunda.zeebe.model.bpmn.BpmnModelInstance modelOf(
-        final io.vanillabp.integration.adapter.spi.NameClashAvoidance mode) {
+    private BpmnModelInstance modelOf(
+        final NameClashAvoidance mode) {
 
       final var service = new Camunda8DeploymentService(
-          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
               .of(new NoOpInvoker()), (
                   m2,
                   p2,
-                  t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                  t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                       .ofDays(14), null, scopingWith(mode));
-      final var model = io.camunda.zeebe.model.bpmn.Bpmn
+      final var model = Bpmn
           .createExecutableProcess("RiskAssessment")
           .startEvent()
           .serviceTask("Task", task -> task.zeebeJobType("scoreApplicant"))
@@ -499,20 +520,20 @@ public class Camunda8DeploymentServiceTest {
     @DisplayName("BY_ADAPTER leaves the model alone - the TENANT isolates, as in version 1")
     public void byAdapterKeepsTheModelAndUsesTheModuleAsTenant() {
 
-      final var model = modelOf(io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER);
+      final var model = modelOf(NameClashAvoidance.BY_ADAPTER);
 
       assertNotNull(model.getModelElementById("RiskAssessment"), "the process id stays plain");
       // the tenant a module is deployed to: the workflow module id (version 1's
       // behavior, overridable by the adapter's tenant-id)
       assertEquals(
           MODULE,
-          io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
-              scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER), MODULE, "c8", null));
+          Camunda8Scoping.tenantIdFor(
+              scopingWith(NameClashAvoidance.BY_ADAPTER), MODULE, "c8", null));
       // ... unless the adapter configured a name
       assertEquals(
           "banking",
-          io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
-              scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER), MODULE, "c8",
+          Camunda8Scoping.tenantIdFor(
+              scopingWith(NameClashAvoidance.BY_ADAPTER), MODULE, "c8",
               "banking"));
 
     }
@@ -521,19 +542,19 @@ public class Camunda8DeploymentServiceTest {
     @DisplayName("USE_PREFIX rewrites process id and job type - and uses NO tenant")
     public void usePrefixRewritesTheModel() {
 
-      final var model = modelOf(io.vanillabp.integration.adapter.spi.NameClashAvoidance.USE_PREFIX);
+      final var model = modelOf(NameClashAvoidance.USE_PREFIX);
 
       assertNotNull(
           model.getModelElementById("loan-approval__RiskAssessment"),
           "the process id carries the workflow module as prefix");
-      final var xml = io.camunda.zeebe.model.bpmn.Bpmn.convertToString(model);
+      final var xml = Bpmn.convertToString(model);
       assertTrue(
           xml.contains("loan-approval__RiskAssessment__scoreApplicant"),
           () -> "the job type is scoped per module AND process but was: "
               + xml);
       assertNull(
-          io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
-              scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.USE_PREFIX), MODULE, "c8",
+          Camunda8Scoping.tenantIdFor(
+              scopingWith(NameClashAvoidance.USE_PREFIX), MODULE, "c8",
               "banking"),
           "the prefix IS the isolation - no tenant, which is what saves tenant licenses");
 
@@ -544,14 +565,14 @@ public class Camunda8DeploymentServiceTest {
     public void multiProcessFileIsScopedOnlyOnce() {
 
       final var service = new Camunda8DeploymentService(
-          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
               .of(new NoOpInvoker()), (
                   m2,
                   p2,
-                  t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                  t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                       .ofDays(
-                          14), null, scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.USE_PREFIX));
-      final var model = io.camunda.zeebe.model.bpmn.Bpmn
+                          14), null, scopingWith(NameClashAvoidance.USE_PREFIX));
+      final var model = Bpmn
           .readModelFromStream(new ByteArrayInputStream(TWO_EXECUTABLE_PROCESSES.getBytes(UTF_8)));
 
       // this is what the core does for a file holding two executable processes: one
@@ -571,12 +592,12 @@ public class Camunda8DeploymentServiceTest {
     @DisplayName("NONE leaves the model alone and uses no tenant")
     public void noneScopesNothing() {
 
-      final var model = modelOf(io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE);
+      final var model = modelOf(NameClashAvoidance.NONE);
 
       assertNotNull(model.getModelElementById("RiskAssessment"));
       assertNull(
-          io.vanillabp.camunda8.wiring.Camunda8Scoping.tenantIdFor(
-              scopingWith(io.vanillabp.integration.adapter.spi.NameClashAvoidance.NONE), MODULE, "c8", null));
+          Camunda8Scoping.tenantIdFor(
+              scopingWith(NameClashAvoidance.NONE), MODULE, "c8", null));
 
     }
 
@@ -584,11 +605,11 @@ public class Camunda8DeploymentServiceTest {
         final String adapterId) {
 
       return new Camunda8DeploymentService(
-          adapterId, new Camunda8ClientFactory(adapterId, new Camunda8AdapterConfiguration()), io.vanillabp.camunda8.TestCollaborators
+          adapterId, new Camunda8ClientFactory(adapterId, new Camunda8AdapterConfiguration()), TestCollaborators
               .of(new NoOpInvoker()), (
                   m2,
                   p2,
-                  t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                  t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                       .ofDays(14), null, null);
 
     }
@@ -598,7 +619,7 @@ public class Camunda8DeploymentServiceTest {
     public void defaultsToByAdapter() {
 
       assertEquals(
-          io.vanillabp.integration.adapter.spi.NameClashAvoidance.BY_ADAPTER,
+          NameClashAvoidance.BY_ADAPTER,
           serviceOfAdapterId("c8").defaultNameClashAvoidance(),
           "version 1 deployed every workflow module into a tenant named after it, so an "
               + "application upgrading without touching its configuration has to keep addressing "
@@ -611,12 +632,12 @@ public class Camunda8DeploymentServiceTest {
      * The WARNs the adapter logged (the module's logback-test.xml has no appender on
      * purpose).
      */
-    private java.util.List<String> warningsOf(
+    private List<String> warningsOf(
         final Runnable action) {
 
       final var logWatcher = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
       logWatcher.start();
-      final var adapterLog = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
+      final var adapterLog = (ch.qos.logback.classic.Logger) LoggerFactory
           .getLogger(Camunda8DeploymentService.class);
       adapterLog.addAppender(logWatcher);
       try {
@@ -671,15 +692,15 @@ public class Camunda8DeploymentServiceTest {
       final var configuration = new Camunda8AdapterConfiguration();
       configuration.setAcceptUnscopedIdentifiers(true);
       final var service = new Camunda8DeploymentService(
-          "myengine", new Camunda8ClientFactory("myengine", configuration), io.vanillabp.camunda8.TestCollaborators
+          "myengine", new Camunda8ClientFactory("myengine", configuration), TestCollaborators
               .of(new NoOpInvoker()), (
                   m2,
                   p2,
-                  t2) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, java.time.Duration
+                  t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                       .ofDays(14), null, null);
 
       assertEquals(
-          java.util.List.of(),
+          List.of(),
           warningsOf(() -> service.warnAboutUnscopedIdentifiers(MODULE, true)),
           "the decision is on record, so there is nothing left to ask");
 

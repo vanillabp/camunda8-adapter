@@ -7,15 +7,24 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 
 import io.camunda.client.CredentialsProvider;
+import io.camunda.client.impl.NoopCredentialsProvider;
+import io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider;
+import io.camunda.client.impl.oauth.OAuthCredentialsProvider;
 import io.vanillabp.camunda8.client.Camunda8AuthConfiguration.Method;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -71,7 +80,7 @@ public class Camunda8AuthenticationTest {
 
     assertNotNull(provider);
     assertInstanceOf(
-        io.camunda.client.impl.basicauth.BasicAuthCredentialsProvider.class,
+        BasicAuthCredentialsProvider.class,
         Camunda8Authentication.unwrap(provider));
     assertEquals("basic (detected) as 'demo'", authentication.describe());
 
@@ -93,7 +102,7 @@ public class Camunda8AuthenticationTest {
     });
 
     assertInstanceOf(
-        io.camunda.client.impl.oauth.OAuthCredentialsProvider.class,
+        OAuthCredentialsProvider.class,
         Camunda8Authentication.unwrap(provider));
     assertEquals("oidc as 'app'", authentication.describe());
 
@@ -115,7 +124,7 @@ public class Camunda8AuthenticationTest {
     assertEquals(Method.OIDC, authentication.getMethod());
     assertEquals("oidc (detected) as 'cloud-client'", authentication.describe());
     assertInstanceOf(
-        io.camunda.client.impl.oauth.OAuthCredentialsProvider.class,
+        OAuthCredentialsProvider.class,
         Camunda8Authentication.unwrap(authentication.providerFor(message -> {
         })));
 
@@ -129,7 +138,7 @@ public class Camunda8AuthenticationTest {
 
     assertEquals(Method.NONE, authentication.getMethod());
     assertInstanceOf(
-        io.camunda.client.impl.NoopCredentialsProvider.class,
+        NoopCredentialsProvider.class,
         Camunda8Authentication.unwrap(authentication.providerFor(message -> {
         })));
 
@@ -217,12 +226,12 @@ public class Camunda8AuthenticationTest {
   @Test
   @DisplayName("every optional OIDC setting reaches the provider the client is handed")
   public void theOptionalOidcSettingsAreApplied(
-      @org.junit.jupiter.api.io.TempDir final java.nio.file.Path directory) throws Exception {
+      @TempDir final Path directory) throws Exception {
 
     // each of these is a documented property; one silently ignored is a token request
     // which fails at the cluster, hours after a boot which looked fine
-    final var keystore = java.nio.file.Files.createFile(directory.resolve("keystore.p12"));
-    final var truststore = java.nio.file.Files.createFile(directory.resolve("truststore.p12"));
+    final var keystore = Files.createFile(directory.resolve("keystore.p12"));
+    final var truststore = Files.createFile(directory.resolve("truststore.p12"));
 
     final var configuration = selfManaged();
     final var auth = configuration.getAuth();
@@ -233,8 +242,8 @@ public class Camunda8AuthenticationTest {
     auth.setAuthorizationServerUrl("http://localhost:18080/auth/realms/camunda/protocol/openid-connect/token");
     auth.setScope("camunda-identity");
     auth.setCredentialsCachePath(directory.resolve("credentials").toString());
-    auth.setConnectTimeout(java.time.Duration.ofSeconds(3));
-    auth.setReadTimeout(java.time.Duration.ofSeconds(7));
+    auth.setConnectTimeout(Duration.ofSeconds(3));
+    auth.setReadTimeout(Duration.ofSeconds(7));
     auth.setKeystorePath(keystore.toString());
     auth.setKeystorePassword("keystore");
     auth.setKeystoreKeyPassword("key");
@@ -276,8 +285,8 @@ public class Camunda8AuthenticationTest {
         .providerFor(message -> {
         });
 
-    final var headers = new java.util.LinkedHashMap<String, String>();
-    org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> provider.applyCredentials(headers::put));
+    final var headers = new LinkedHashMap<String, String>();
+    Assertions.assertDoesNotThrow(() -> provider.applyCredentials(headers::put));
 
     assertEquals(1, headers.size(), headers.toString());
     assertTrue(headers.containsKey("Authorization"), headers.toString());

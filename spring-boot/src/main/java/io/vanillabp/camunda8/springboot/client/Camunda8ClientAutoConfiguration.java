@@ -4,13 +4,18 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8StartupValidation;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
+import io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics;
+import io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy;
 import io.vanillabp.integration.config.VanillaBpConfigurationProperties;
 import lombok.extern.slf4j.Slf4j;
 
@@ -57,7 +62,7 @@ public class Camunda8ClientAutoConfiguration {
               configuration,
               coreProperties.isFirstPriorityAnywhere(adapterId),
               coreProperties.getDeploymentFailureFor(
-                  adapterId) == io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy.WARN,
+                  adapterId) == DeploymentFailurePolicy.WARN,
               coreProperties.resolvedDeliveryRetention(),
               log::warn);
           configurations.put(adapterId, configuration);
@@ -73,11 +78,11 @@ public class Camunda8ClientAutoConfiguration {
    * Micrometer is optional, so the whole configuration is conditional on it - an
    * application without Micrometer boots unchanged and reports nothing.
    */
-  @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+  @Configuration(proxyBeanMethods = false)
   // by NAME, not by class literal: the annotation of a nested configuration class is
   // read reflectively, so a class literal of an absent optional dependency would fail
   // before the condition is ever evaluated
-  @org.springframework.boot.autoconfigure.condition.ConditionalOnClass(
+  @ConditionalOnClass(
       name = "io.micrometer.core.instrument.MeterRegistry")
   public static class Camunda8MetricsConfiguration {
 
@@ -85,10 +90,10 @@ public class Camunda8ClientAutoConfiguration {
      * @return The meter binder of this adapter's own numbers
      */
     @Bean
-    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
-    public io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics camunda8Metrics() {
+    @ConditionalOnMissingBean
+    public MicrometerCamunda8Metrics camunda8Metrics() {
 
-      return new io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics();
+      return new MicrometerCamunda8Metrics();
 
     }
 

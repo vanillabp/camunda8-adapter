@@ -15,18 +15,27 @@ import static org.mockito.Mockito.when;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mockito;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.CamundaFuture;
+import io.camunda.client.api.ProblemDetail;
+import io.camunda.client.api.command.ProblemException;
+import io.camunda.client.api.fetch.ProcessDefinitionGetXmlRequest;
 import io.camunda.client.api.search.enums.ElementInstanceState;
 import io.camunda.client.api.search.enums.ElementInstanceType;
 import io.camunda.client.api.search.enums.IncidentState;
+import io.camunda.client.api.search.filter.ProcessInstanceFilter;
 import io.camunda.client.api.search.request.ElementInstanceSearchRequest;
 import io.camunda.client.api.search.request.IncidentsByProcessInstanceSearchRequest;
 import io.camunda.client.api.search.request.ProcessInstanceSearchRequest;
@@ -99,7 +108,7 @@ public class Camunda8ViewerQueryTest {
    * distinguish the filters, so the test scripts the sequence. Falls back to
    * {@link #foundInstances} once exhausted.
    */
-  private final java.util.Deque<List<ProcessInstance>> scriptedInstanceAnswers = new java.util.ArrayDeque<>();
+  private final Deque<List<ProcessInstance>> scriptedInstanceAnswers = new ArrayDeque<>();
 
   @BeforeEach
   public void setUp() {
@@ -159,10 +168,10 @@ public class Camunda8ViewerQueryTest {
    */
   private static RuntimeException clusterRefusesToBeSearched() {
 
-    final var details = new io.camunda.client.api.ProblemDetail();
+    final var details = new ProblemDetail();
     details.setStatus(403);
     details.setTitle("FORBIDDEN");
-    return new io.camunda.client.api.command.ProblemException(403, "Forbidden", details);
+    return new ProblemException(403, "Forbidden", details);
 
   }
 
@@ -332,7 +341,7 @@ public class Camunda8ViewerQueryTest {
 
     // the running instance uses a definition this application version did not deploy
     foundInstances = List.of(instance(4711L, "999", null));
-    final var xmlRequest = mock(io.camunda.client.api.fetch.ProcessDefinitionGetXmlRequest.class, RETURNS_SELF);
+    final var xmlRequest = mock(ProcessDefinitionGetXmlRequest.class, RETURNS_SELF);
     when(client.newProcessDefinitionGetXmlRequest(anyLong())).thenReturn(xmlRequest);
     when(xmlRequest.send()).thenAnswer(invocation -> future(PARENT_BPMN));
 
@@ -354,7 +363,7 @@ public class Camunda8ViewerQueryTest {
   @DisplayName("A cluster answering no XML for a definition is reported as unknown")
   public void missingClusterXmlIsReportedAsUnknown() {
 
-    final var xmlRequest = mock(io.camunda.client.api.fetch.ProcessDefinitionGetXmlRequest.class, RETURNS_SELF);
+    final var xmlRequest = mock(ProcessDefinitionGetXmlRequest.class, RETURNS_SELF);
     when(client.newProcessDefinitionGetXmlRequest(anyLong())).thenReturn(xmlRequest);
     when(xmlRequest.send()).thenAnswer(invocation -> future((String) null));
 
@@ -403,12 +412,12 @@ public class Camunda8ViewerQueryTest {
   public void theInstanceSearchFiltersByTheAggregateIdVariable() {
 
     // proves the filter callback is executed (it is a consumer of the filter API)
-    final var filter = mock(io.camunda.client.api.search.filter.ProcessInstanceFilter.class, RETURNS_SELF);
+    final var filter = mock(ProcessInstanceFilter.class, RETURNS_SELF);
     final var instanceSearch = mock(ProcessInstanceSearchRequest.class, RETURNS_SELF);
     when(client.newProcessInstanceSearchRequest()).thenReturn(instanceSearch);
-    when(instanceSearch.filter(any(java.util.function.Consumer.class)))
+    when(instanceSearch.filter(any(Consumer.class)))
         .thenAnswer(invocation -> {
-          invocation.<java.util.function.Consumer<io.camunda.client.api.search.filter.ProcessInstanceFilter>>getArgument(
+          invocation.<Consumer<ProcessInstanceFilter>>getArgument(
               0)
               .accept(filter);
           return instanceSearch;
@@ -421,9 +430,9 @@ public class Camunda8ViewerQueryTest {
     // travels quoted. This assertion used to pin the plain value and thereby pinned
     // the defect - the viewer found no workflow at all on a cluster with secondary
     // storage
-    org.mockito.Mockito
+    Mockito
         .verify(filter)
-        .variables(java.util.Map.of("aggregateId", "\"42\""));
+        .variables(Map.of("aggregateId", "\"42\""));
 
   }
 

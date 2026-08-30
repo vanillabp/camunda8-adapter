@@ -4,10 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
@@ -18,6 +20,9 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.wiring.Camunda8JobHandler;
+import io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -77,10 +82,10 @@ public class Camunda8AsyncTaskAgeIT {
   private TransactionTemplate transactionTemplate;
 
   @Autowired
-  private io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry clientFactoryRegistry;
+  private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   private void awaitUntil(
-      final java.util.function.Supplier<Boolean> condition,
+      final Supplier<Boolean> condition,
       final long timeoutMillis,
       final String description) throws InterruptedException {
 
@@ -112,8 +117,8 @@ public class Camunda8AsyncTaskAgeIT {
   public void anOverdueTaskEndsInAnIncident() throws Exception {
 
     final var coreMessages = appenderOn(
-        io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService.class);
-    final var adapterMessages = appenderOn(io.vanillabp.camunda8.wiring.Camunda8JobHandler.class);
+        MigrationProcessService.class);
+    final var adapterMessages = appenderOn(Camunda8JobHandler.class);
 
     try {
       final var aggregateId = transactionTemplate.execute(status -> repository
@@ -172,9 +177,9 @@ public class Camunda8AsyncTaskAgeIT {
 
     } finally {
       detach(
-          io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService.class,
+          MigrationProcessService.class,
           coreMessages);
-      detach(io.vanillabp.camunda8.wiring.Camunda8JobHandler.class, adapterMessages);
+      detach(Camunda8JobHandler.class, adapterMessages);
     }
 
   }
@@ -184,7 +189,7 @@ public class Camunda8AsyncTaskAgeIT {
 
     final var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
     appender.start();
-    ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(loggingClass)).addAppender(appender);
+    ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(loggingClass)).addAppender(appender);
     return appender;
 
   }
@@ -193,7 +198,7 @@ public class Camunda8AsyncTaskAgeIT {
       final Class<?> loggingClass,
       final ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender) {
 
-    ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(loggingClass)).detachAppender(appender);
+    ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(loggingClass)).detachAppender(appender);
     appender.stop();
 
   }

@@ -1,8 +1,11 @@
 package io.vanillabp.camunda8.client;
 
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import io.camunda.client.CamundaClientConfiguration;
 
@@ -129,10 +132,10 @@ public final class Camunda8EnvironmentOverrides {
       // environment, or there is nothing in the environment to build one from
       return null;
     }
-    final var set = java.util.Arrays
+    final var set = Arrays
         .stream(Camunda8Authentication.ENVIRONMENT_CREDENTIAL_VARIABLES)
         .filter(variable -> isSet(environment, variable))
-        .collect(java.util.stream.Collectors.joining(", "));
+        .collect(Collectors.joining(", "));
     if (set.isEmpty()) {
       return null;
     }
@@ -168,7 +171,7 @@ public final class Camunda8EnvironmentOverrides {
             override.propertyKey(),
             override.configured() == null ? "" : override.configured(),
             override.effective() == null ? "" : override.effective()))
-        .collect(java.util.stream.Collectors.joining("\n"));
+        .collect(Collectors.joining("\n"));
     return """
         Camunda 8 adapter '%s': the environment changed what this application configured. The client \
         applies CAMUNDA_* variables (and their legacy ZEEBE_* names) over everything VanillaBP set, \
@@ -196,7 +199,7 @@ public final class Camunda8EnvironmentOverrides {
     if (name == null) {
       return;
     }
-    if (java.util.Objects.equals(emptyAsNull(configured), emptyAsNull(effective))) {
+    if (Objects.equals(emptyAsNull(configured), emptyAsNull(effective))) {
       return;
     }
     overrides.add(new Override(name, propertyKey, configured, effective));

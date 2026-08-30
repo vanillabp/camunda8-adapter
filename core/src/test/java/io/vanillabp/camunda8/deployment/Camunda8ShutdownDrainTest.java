@@ -9,15 +9,19 @@ import static org.mockito.Mockito.when;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mockito;
 
 import io.camunda.client.api.worker.JobWorker;
 import io.vanillabp.camunda8.Camunda8ProcessingContext;
+import io.vanillabp.camunda8.TestCollaborators;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -37,11 +41,11 @@ public class Camunda8ShutdownDrainTest {
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setShutdownGrace(grace);
     return new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", configuration), io.vanillabp.camunda8.TestCollaborators
+        "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
             .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
                 module,
                 process,
-                task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
+                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                     .ofHours(1), adapterId -> configuration);
 
   }
@@ -56,11 +60,11 @@ public class Camunda8ShutdownDrainTest {
     configuration.setShutdownGrace(GRACE);
     configuration.setRestAddress("http://localhost:65535");
     return new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", configuration), io.vanillabp.camunda8.TestCollaborators
+        "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
             .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
                 module,
                 process,
-                task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
+                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                     .ofHours(1), adapterId -> configuration);
 
   }
@@ -72,9 +76,9 @@ public class Camunda8ShutdownDrainTest {
   private JobWorker openWorker() {
 
     final var worker = mock(JobWorker.class);
-    final var closed = new java.util.concurrent.atomic.AtomicBoolean(false);
+    final var closed = new AtomicBoolean(false);
     when(worker.isClosed()).thenAnswer(invocation -> closed.get());
-    org.mockito.Mockito
+    Mockito
         .doAnswer(invocation -> {
           closed.set(true);
           return null;
@@ -249,11 +253,11 @@ public class Camunda8ShutdownDrainTest {
     configuration.setRestAddress("http://localhost:65535");
     final var clientFactory = new Camunda8ClientFactory("c8", configuration);
     final var service = new Camunda8DeploymentService(
-        "c8", clientFactory, io.vanillabp.camunda8.TestCollaborators
+        "c8", clientFactory, TestCollaborators
             .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
                 module,
                 process,
-                task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
+                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                     .ofHours(1), adapterId -> configuration);
     final var context = new Camunda8ProcessingContext("test-module");
     service.startWorkflowProcessing("test-module", context);
@@ -287,11 +291,11 @@ public class Camunda8ShutdownDrainTest {
     configuration.setRestAddress("http://localhost:65535");
     final var clientFactory = new Camunda8ClientFactory("c8", configuration);
     final var service = new Camunda8DeploymentService(
-        "c8", clientFactory, io.vanillabp.camunda8.TestCollaborators
+        "c8", clientFactory, TestCollaborators
             .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
                 module,
                 process,
-                task) -> io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
+                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                     .ofHours(1), adapterId -> configuration);
     final var context = new Camunda8ProcessingContext("test-module");
     service.startWorkflowProcessing("test-module", context);

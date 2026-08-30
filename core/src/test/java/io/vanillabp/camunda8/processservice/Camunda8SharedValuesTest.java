@@ -3,6 +3,7 @@ package io.vanillabp.camunda8.processservice;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import java.time.Duration;
 import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
@@ -115,10 +116,10 @@ public class Camunda8SharedValuesTest {
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setRestAddress("http://localhost:1");
     return new Camunda8ProcessService<>(
-        "c8", new Camunda8ClientFactory("c8", configuration), java.time.Duration
+        "c8", new Camunda8ClientFactory("c8", configuration), Duration
             .ofDays(14), (
                 aggregateClass,
-                check) -> check.run(), aggregateSync, java.time.Duration.ZERO);
+                check) -> check.run(), aggregateSync, Duration.ZERO);
 
   }
 

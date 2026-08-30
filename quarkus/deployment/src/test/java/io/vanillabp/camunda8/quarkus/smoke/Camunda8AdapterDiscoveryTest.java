@@ -13,6 +13,7 @@ import io.quarkus.test.QuarkusExtensionTest;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
+import io.vanillabp.integration.adapter.spi.health.AdapterHealth;
 import io.vanillabp.integration.runtime.processservice.ProcessServiceBaseCdiBean;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.process.ProcessService;
@@ -97,7 +98,7 @@ public class Camunda8AdapterDiscoveryTest {
 
     Assertions.assertNotNull(health, "an adapter which can check something has to answer");
     Assertions.assertEquals(
-        io.vanillabp.integration.adapter.spi.health.AdapterHealth.Status.UNKNOWN,
+        AdapterHealth.Status.UNKNOWN,
         health.status());
     Assertions.assertEquals("c8", health.adapterId());
     Assertions.assertTrue(

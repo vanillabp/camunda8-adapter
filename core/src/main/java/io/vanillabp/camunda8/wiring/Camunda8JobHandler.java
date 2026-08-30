@@ -1,14 +1,25 @@
 package io.vanillabp.camunda8.wiring;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.function.BiPredicate;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.client.api.worker.JobClient;
 import io.camunda.client.api.worker.JobHandler;
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
+import io.vanillabp.camunda8.client.Camunda8CommandRetry;
+import io.vanillabp.camunda8.client.Camunda8Drain;
+import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
+import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -52,7 +63,7 @@ import lombok.extern.slf4j.Slf4j;
  * backpressure: a completion of work which is already committed must not cost
  * the job a retry just because the cluster was busy. The retry is bounded by the job's
  * remaining lock and by five attempts, see
- * {@link io.vanillabp.camunda8.client.Camunda8CommandRetry} - a handler waiting occupies
+ * {@link Camunda8CommandRetry} - a handler waiting occupies
  * an execution slot, which is why the bound is small. A job which is failed after all gets
  * a <code>retry-backoff</code>, which the element's own task header may name instead of the
  * configuration - see {@link Camunda8RetryBackoffHeader};</li>
@@ -61,8 +72,7 @@ import lombok.extern.slf4j.Slf4j;
  * handler interrupted by the closing client throws like any other. The job keeps its lock
  * and its retries, the cluster hands it out again once the lock expires, and VanillaBP's
  * delivery record decides whether the work has to run again. Before that, the shutdown
- * WAITS for the handlers in flight - see
- * {@link io.vanillabp.camunda8.client.Camunda8Drain};</li>
+ * WAITS for the handlers in flight - see {@link Camunda8Drain};</li>
  * <li>the core measures how long such a task has been open and says when it passed
  * <code>vanillabp.delivery.max-task-age</code>. Where
  * <code>async-task-max-age-action</code> is <code>incident</code>, the renewal stops
@@ -94,7 +104,7 @@ public class Camunda8JobHandler implements JobHandler {
    * What this adapter does with a task the core reports as older than the configured
    * maximum age. Never <code>null</code>.
    */
-  private final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction;
+  private final Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction;
 
   /**
    * What the workflow module has in flight, and whether it is going down:
@@ -102,7 +112,7 @@ public class Camunda8JobHandler implements JobHandler {
    * down is the shutdown rather than the application. Never <code>null</code> - a handler
    * built without one (tests) gets a drain of its own, which never shuts down.
    */
-  private final io.vanillabp.camunda8.client.Camunda8Drain drain;
+  private final Camunda8Drain drain;
 
   /**
    * What kind of worker this is, in the messages about a shutdown.
@@ -114,7 +124,7 @@ public class Camunda8JobHandler implements JobHandler {
    * knows - a no-op unless the workflow module uses prefixes. May be
    * <code>null</code> (tests).
    */
-  private final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping;
+  private final NameClashAvoidanceSupport scoping;
 
   /**
    * Which multi-instance elements enclose the job's element. May be
@@ -146,131 +156,53 @@ public class Camunda8JobHandler implements JobHandler {
    */
   private final Camunda8FetchVariables.Selection fetchVariables;
 
-  public Camunda8JobHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final CamundaClient camundaClient,
-      final WorkflowTaskInvoker workflowTaskInvoker,
-      final Duration asyncTaskLockRenewal) {
-
-    this(adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, null);
-
-  }
-
-  public Camunda8JobHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final CamundaClient camundaClient,
-      final WorkflowTaskInvoker workflowTaskInvoker,
-      final Duration asyncTaskLockRenewal,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
-
-    this(adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, null);
-
-  }
-
-  public Camunda8JobHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final CamundaClient camundaClient,
-      final WorkflowTaskInvoker workflowTaskInvoker,
-      final Duration asyncTaskLockRenewal,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
-      final Camunda8MultiInstance.Registry multiInstanceRegistry) {
-
-    this(
-        adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, null);
-
-  }
-
-  public Camunda8JobHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final CamundaClient camundaClient,
-      final WorkflowTaskInvoker workflowTaskInvoker,
-      final Duration asyncTaskLockRenewal,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
-      final Camunda8MultiInstance.Registry multiInstanceRegistry,
-      final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction) {
-
-    this(
-        adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction, null);
-
-  }
-
-  public Camunda8JobHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final CamundaClient camundaClient,
-      final WorkflowTaskInvoker workflowTaskInvoker,
-      final Duration asyncTaskLockRenewal,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
-      final Camunda8MultiInstance.Registry multiInstanceRegistry,
-      final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
-      final io.vanillabp.camunda8.client.Camunda8Drain drain) {
-
-    this(
-        adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction, drain, null);
-
-  }
-
-  public Camunda8JobHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final CamundaClient camundaClient,
-      final WorkflowTaskInvoker workflowTaskInvoker,
-      final Duration asyncTaskLockRenewal,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
-      final Camunda8MultiInstance.Registry multiInstanceRegistry,
-      final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
-      final io.vanillabp.camunda8.client.Camunda8Drain drain,
-      final Camunda8RetryBackoffResolver retryBackoffResolver) {
-
-    this(
-        adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction, drain, retryBackoffResolver, null);
-
-  }
-
-  public Camunda8JobHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final CamundaClient camundaClient,
-      final WorkflowTaskInvoker workflowTaskInvoker,
-      final Duration asyncTaskLockRenewal,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
-      final Camunda8MultiInstance.Registry multiInstanceRegistry,
-      final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
-      final io.vanillabp.camunda8.client.Camunda8Drain drain,
-      final Camunda8RetryBackoffResolver retryBackoffResolver,
-      final Camunda8FetchVariables.Selection fetchVariables) {
-
-    this(
-        adapterId, workflowModuleId, camundaClient, workflowTaskInvoker, asyncTaskLockRenewal, scoping, multiInstanceRegistry, asyncTaskMaxAgeAction, drain, retryBackoffResolver, fetchVariables, null);
-
-  }
-
   /**
    * Answers whether a workflow of (scoped process id, version) was started before the
    * version this boot deployed - see
-   * {@link io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext#predatesDeployedVersion()}.
+   * {@link TaskInvocationContext#predatesDeployedVersion()}.
    * A predicate rather than the version catalog itself: the handler needs one answer, and
    * a test needs to hand it in without building a catalog.
    */
-  private final java.util.function.BiPredicate<String, Integer> predatesDeployedVersion;
+  private final BiPredicate<String, Integer> predatesDeployedVersion;
 
+  /**
+   * The worker this handler serves. Built through the generated
+   * <code>Camunda8JobHandler.builder()</code>: seven of these twelve values may be left
+   * out, and a positional list of that length no longer says which is which.
+   *
+   * @param adapterId The adapter whose worker delivers here
+   * @param workflowModuleId The workflow module the subscribed tasks belong to
+   * @param camundaClient The full client, for the lock extension a {@link JobClient} has no
+   *          command for
+   * @param workflowTaskInvoker The core's runtime entry point
+   * @param asyncTaskLockRenewal How long an open asynchronous task's job lock is extended by
+   * @param scoping Translates the cluster's identifiers back, or <code>null</code>
+   * @param multiInstanceRegistry Which multi-instance elements enclose an element, or
+   *          <code>null</code> for no iteration
+   * @param asyncTaskMaxAgeAction What to do with an overdue task, or <code>null</code> for
+   *          <code>report</code>
+   * @param drain What the workflow module has in flight, or <code>null</code> for a drain of
+   *          this handler's own which never shuts down
+   * @param retryBackoffResolver How long the cluster waits before it hands a failed job out
+   *          again, or <code>null</code> for the default backoff
+   * @param fetchVariables What the worker asked for, or <code>null</code> for every variable
+   * @param predatesDeployedVersion Whether a workflow predates the deployed version, or
+   *          <code>null</code> to answer no for all of them
+   */
+  @Builder
   public Camunda8JobHandler(
       final String adapterId,
       final String workflowModuleId,
       final CamundaClient camundaClient,
       final WorkflowTaskInvoker workflowTaskInvoker,
       final Duration asyncTaskLockRenewal,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping,
+      final NameClashAvoidanceSupport scoping,
       final Camunda8MultiInstance.Registry multiInstanceRegistry,
-      final io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
-      final io.vanillabp.camunda8.client.Camunda8Drain drain,
+      final Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
+      final Camunda8Drain drain,
       final Camunda8RetryBackoffResolver retryBackoffResolver,
       final Camunda8FetchVariables.Selection fetchVariables,
-      final java.util.function.BiPredicate<String, Integer> predatesDeployedVersion) {
+      final BiPredicate<String, Integer> predatesDeployedVersion) {
 
     this.predatesDeployedVersion = predatesDeployedVersion == null
         ? (
@@ -283,7 +215,7 @@ public class Camunda8JobHandler implements JobHandler {
     this.retryBackoffResolver = retryBackoffResolver;
     this.retryBackoffHeader = new Camunda8RetryBackoffHeader(adapterId, workflowModuleId);
     this.drain = drain == null
-        ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
+        ? new Camunda8Drain(adapterId, workflowModuleId)
         : drain;
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
@@ -293,7 +225,7 @@ public class Camunda8JobHandler implements JobHandler {
     this.scoping = scoping;
     this.multiInstanceRegistry = multiInstanceRegistry;
     this.asyncTaskMaxAgeAction = asyncTaskMaxAgeAction == null
-        ? io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.REPORT
+        ? Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.REPORT
         : asyncTaskMaxAgeAction;
 
   }
@@ -381,7 +313,7 @@ public class Camunda8JobHandler implements JobHandler {
           job.getRetries() - 1,
           retryBackoff,
           e);
-      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+      Camunda8CommandRetry.send(
           adapterId,
           "failure",
           job.getKey(),
@@ -397,7 +329,7 @@ public class Camunda8JobHandler implements JobHandler {
               .retryBackoff(retryBackoff)
               // the type belongs into the incident as much as the message does: what a
               // NullPointerException says on its own is 'null'
-              .errorMessage(io.vanillabp.camunda8.client.Camunda8Errors.incidentMessage(e))
+              .errorMessage(Camunda8Errors.incidentMessage(e))
               .send()
               .join());
       return;
@@ -413,7 +345,7 @@ public class Camunda8JobHandler implements JobHandler {
         // read ONCE and not per attempt: a repeated command carries what the handler
         // produced, and reading the aggregate again would cost a transaction per retry
         final var errorVariables = variablesOf(bpmnProcessId, aggregateIdName, aggregateId);
-        io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+        Camunda8CommandRetry.send(
             adapterId,
             "BPMN error",
             job.getKey(),
@@ -435,7 +367,7 @@ public class Camunda8JobHandler implements JobHandler {
       }
       case COMPLETION_PENDING -> {
         if (outcome
-            .maxAgeExceeded() && (asyncTaskMaxAgeAction == io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.INCIDENT)) {
+            .maxAgeExceeded() && (asyncTaskMaxAgeAction == Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction.INCIDENT)) {
           // the renewal stops here: a task nobody will ever complete belongs where
           // operators look, and on Camunda 8 that is an incident rather than a log line
           failAsOverdue(client, job, taskDefinition, bpmnProcessId, String.valueOf(aggregateId), outcome.openFor());
@@ -446,7 +378,7 @@ public class Camunda8JobHandler implements JobHandler {
         // ProcessService#completeTask. When the window passes the cluster hands the job
         // out again, the core answers from its delivery record and this branch renews
         // the lock once more
-        io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+        Camunda8CommandRetry.send(
             adapterId,
             "lock renewal",
             job.getKey(),
@@ -504,11 +436,11 @@ public class Camunda8JobHandler implements JobHandler {
             bpmnProcessId,
             workflowModuleId,
             openFor,
-            io.vanillabp.camunda8.client.Camunda8AdapterConfiguration
+            Camunda8AdapterConfiguration
                 .propertyKey(adapterId, "async-task-max-age-action"));
     log.warn("Camunda8[{}]: {}", adapterId, message);
     // no retry backoff: with no retries left there is no next attempt to delay
-    io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+    Camunda8CommandRetry.send(
         adapterId,
         "overdue failure",
         job.getKey(),
@@ -569,19 +501,19 @@ public class Camunda8JobHandler implements JobHandler {
    * @param aggregateId The aggregate's ID as it arrived in the job's variables
    * @return The variables (never <code>null</code>)
    */
-  private java.util.Map<String, Object> variablesOf(
+  private Map<String, Object> variablesOf(
       final String bpmnProcessId,
       final String aggregateIdName,
       final Object aggregateId) {
 
-    final var variables = new java.util.LinkedHashMap<String, Object>(
+    final var variables = new LinkedHashMap<String, Object>(
         // the core loads the aggregate in its OWN transaction (the task's one is
         // committed) and never throws - a failed read yields an empty map
         workflowTaskInvoker.syncedWorkflowAggregateValues(
             workflowModuleId,
             bpmnProcessId,
             String.valueOf(aggregateId),
-            io.vanillabp.camunda8.processservice.Camunda8ProcessService.SYNC_MODE));
+            Camunda8ProcessService.SYNC_MODE));
     variables.put(aggregateIdName, String.valueOf(aggregateId));
     return variables;
 
@@ -596,12 +528,12 @@ public class Camunda8JobHandler implements JobHandler {
       final JobClient client,
       final ActivatedJob job,
       final String taskDefinition,
-      final java.util.Map<String, Object> variables) {
+      final Map<String, Object> variables) {
 
     try {
       // the work is committed at this point, so a cluster which is momentarily too busy
       // must not cost the job a retry
-      io.vanillabp.camunda8.client.Camunda8CommandRetry.send(
+      Camunda8CommandRetry.send(
           adapterId,
           "completion",
           job.getKey(),
@@ -614,7 +546,7 @@ public class Camunda8JobHandler implements JobHandler {
               .send()
               .join());
     } catch (final Exception e) {
-      if (io.vanillabp.camunda8.client.Camunda8Errors.jobAlreadyGone(e)) {
+      if (Camunda8Errors.jobAlreadyGone(e)) {
         log.warn(
             "Camunda8[{}]: job '{}' (type '{}') was already completed - a redelivery of the same "
                 + "task converged (at-least-once semantics); the business method ran more than once",
@@ -656,27 +588,6 @@ public class Camunda8JobHandler implements JobHandler {
         final String adapterId,
         final String taskDefinition,
         final String workflowAggregateId,
-        final ActivatedJob job) {
-
-      this(adapterId, taskDefinition, workflowAggregateId, job, null);
-
-    }
-
-    Camunda8TaskInvocationContext(
-        final String adapterId,
-        final String taskDefinition,
-        final String workflowAggregateId,
-        final ActivatedJob job,
-        final Camunda8MultiInstance.Registry multiInstanceRegistry) {
-
-      this(adapterId, taskDefinition, workflowAggregateId, job, multiInstanceRegistry, false, null);
-
-    }
-
-    Camunda8TaskInvocationContext(
-        final String adapterId,
-        final String taskDefinition,
-        final String workflowAggregateId,
         final ActivatedJob job,
         final Camunda8MultiInstance.Registry multiInstanceRegistry,
         final boolean predatesDeployedVersion,
@@ -700,10 +611,10 @@ public class Camunda8JobHandler implements JobHandler {
      * reports - element ids themselves are never scoped.
      */
     @Override
-    public java.util.Map<String, io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue> getMultiInstances() {
+    public Map<String, MultiInstanceValue> getMultiInstances() {
 
       if (multiInstanceRegistry == null) {
-        return java.util.Map.of();
+        return Map.of();
       }
       return Camunda8MultiInstance.valuesOf(
           multiInstanceRegistry.chainOf(job.getBpmnProcessId(), job.getElementId()),

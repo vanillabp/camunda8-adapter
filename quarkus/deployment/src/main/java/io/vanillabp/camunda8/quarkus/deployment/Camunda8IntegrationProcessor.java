@@ -8,6 +8,7 @@ import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.quarkus.deployment.config.Camunda8Properties;
 import io.vanillabp.camunda8.quarkus.runtime.Camunda8ClientProducer;
 import io.vanillabp.camunda8.quarkus.runtime.Camunda8DeploymentServiceProducer;
+import io.vanillabp.camunda8.quarkus.runtime.Camunda8MetricsProducer;
 import io.vanillabp.camunda8.quarkus.runtime.Camunda8ProcessServiceProducer;
 import io.vanillabp.camunda8.quarkus.runtime.Camunda8StartupObserver;
 import io.vanillabp.integration.deployment.pipeline.VanillaBpAdapterDeploymentServiceBuildItem;
@@ -122,7 +123,7 @@ class Camunda8IntegrationProcessor {
     additionalBeans
         .produce(AdditionalBeanBuildItem
             .builder()
-            .addBeanClass(io.vanillabp.camunda8.quarkus.runtime.Camunda8MetricsProducer.class)
+            .addBeanClass(Camunda8MetricsProducer.class)
             .setUnremovable() // applied by Micrometer's own startup, never injected
             .build());
 

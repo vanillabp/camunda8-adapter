@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.time.Duration;
+import java.util.LinkedList;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
@@ -106,7 +107,7 @@ public class Camunda8SharedClusterElectionIT {
   private ConfigurableApplicationContext boot(
       final boolean withPrefixAdapter) {
 
-    final var arguments = new java.util.LinkedList<String>();
+    final var arguments = new LinkedList<String>();
     arguments.add("--spring.config.name=camunda8-election-it");
     arguments.add("--spring.main.web-application-type=none");
     arguments.add("--vanillabp.adapters.c8-plain.rest-address="

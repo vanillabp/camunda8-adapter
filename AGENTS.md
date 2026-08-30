@@ -7,6 +7,12 @@ Read [`README.md`](./README.md) first: it says which release line you are buildi
 secondary storage, how the adapter runs what it delivers, and how to build. The wiki is the
 user-facing half; the README is the contributor's.
 
+What this adapter implements is described once, for every adapter, in
+[`ADAPTER-AUTHORS.md`](https://github.com/vanillabp/adapter-platform-integration/blob/main/migration-adapter/ADAPTER-AUTHORS.md)
+of the platform repository: the two interfaces, the calls the core expects back, what an answer
+promises and what a wrong one costs. Read it before changing anything on the SPI boundary, and
+where this adapter deviates from it, the deviation belongs in the README with its reason.
+
 ## The decision log is binding
 
 [`DECISIONS.md`](./DECISIONS.md) holds the decisions several places in this repository rely on. It

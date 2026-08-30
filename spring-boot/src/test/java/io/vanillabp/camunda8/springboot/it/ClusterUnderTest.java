@@ -8,6 +8,7 @@ import java.util.Properties;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.containers.wait.strategy.WaitAllStrategy;
 import org.testcontainers.lifecycle.Startable;
 import org.testcontainers.utility.DockerImageName;
 
@@ -154,7 +155,7 @@ public final class ClusterUnderTest {
         // answers before the initialization created it, and the first request of the
         // application then gets a 401 it cannot do anything with. So the second condition
         // asks an API which demands authentication, with the credentials the tests use
-        .waitingFor(new org.testcontainers.containers.wait.strategy.WaitAllStrategy()
+        .waitingFor(new WaitAllStrategy()
             .withStrategy(Wait
                 .forHttp("/actuator/health/readiness")
                 .forPort(9600)

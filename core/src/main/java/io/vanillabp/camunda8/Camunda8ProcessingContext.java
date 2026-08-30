@@ -1,9 +1,13 @@
 package io.vanillabp.camunda8;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 
+import io.camunda.client.api.worker.JobWorker;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
+import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import lombok.Getter;
 
 /**
@@ -35,35 +39,35 @@ public class Camunda8ProcessingContext {
    * definition.
    */
   @Getter
-  private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8TaskToWire> tasksToWire = new java.util.LinkedList<>();
+  private final List<Camunda8TaskWiring.Camunda8TaskToWire> tasksToWire = new LinkedList<>();
 
   /**
    * The Camunda-managed user tasks collected during {@code wireBpmn} -
    * one listener-job worker is opened per distinct listener job type.
    */
   @Getter
-  private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8UserTaskToWire> userTasksToWire = new java.util.LinkedList<>();
+  private final List<Camunda8TaskWiring.Camunda8UserTaskToWire> userTasksToWire = new LinkedList<>();
 
   /**
    * The start events the cluster fires on its own, collected while wiring
    * and served by one worker each once workflow processing starts.
    */
   @Getter
-  private final java.util.List<io.vanillabp.camunda8.wiring.Camunda8TaskWiring.Camunda8BpmsInitiatedStartToWire> bpmsInitiatedStartsToWire = new java.util.LinkedList<>();
+  private final List<Camunda8TaskWiring.Camunda8BpmsInitiatedStartToWire> bpmsInitiatedStartsToWire = new LinkedList<>();
 
   /**
    * The BPMN processes whose end has to be reported to the application,
    * as (scoped process id) - one worker each once workflow processing starts.
    */
   @Getter
-  private final java.util.List<String> workflowEndedProcessesToWire = new java.util.LinkedList<>();
+  private final List<String> workflowEndedProcessesToWire = new LinkedList<>();
 
   /**
    * The workers opened by startWorkflowProcessing, closed by
    * stopWorkflowProcessing (reverse order).
    */
   @Getter
-  private final java.util.List<io.camunda.client.api.worker.JobWorker> openWorkers = new java.util.LinkedList<>();
+  private final List<JobWorker> openWorkers = new LinkedList<>();
 
   public Camunda8ProcessingContext(
       final String workflowModuleId) {
@@ -79,7 +83,7 @@ public class Camunda8ProcessingContext {
    * DECISIONS.md).
    */
   @Getter
-  private final java.util.List<String> deployedProcessIds = new java.util.LinkedList<>();
+  private final List<String> deployedProcessIds = new LinkedList<>();
 
   /**
    * Records an executable BPMN process of this workflow module.

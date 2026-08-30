@@ -1,5 +1,6 @@
 package io.vanillabp.camunda8.springboot.it;
 
+import io.vanillabp.spi.service.NoSyncWithBPMS;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -37,7 +38,7 @@ public class TaskDockerAggregate {
    * the CLASS mode "share everything else" (opt-out) - which is what this aggregate
    * relies on.
    */
-  @io.vanillabp.spi.service.NoSyncWithBPMS
+  @NoSyncWithBPMS
   private String secret;
 
   public void appendResult(

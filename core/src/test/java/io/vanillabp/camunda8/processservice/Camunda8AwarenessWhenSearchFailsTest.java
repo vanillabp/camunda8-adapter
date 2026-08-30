@@ -7,6 +7,10 @@ import static org.mockito.Answers.RETURNS_SELF;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -100,11 +104,11 @@ public class Camunda8AwarenessWhenSearchFailsTest {
     when(client.newProcessInstanceSearchRequest()).thenReturn(search);
     @SuppressWarnings("unchecked")
     final SearchResponse<ProcessInstance> nothing = mock(SearchResponse.class);
-    when(nothing.items()).thenReturn(java.util.List.of());
+    when(nothing.items()).thenReturn(List.of());
     @SuppressWarnings("unchecked")
     final CamundaFuture<SearchResponse<ProcessInstance>> answer = mock(CamundaFuture.class);
     when(answer.join()).thenReturn(nothing);
-    final var probed = new java.util.concurrent.atomic.AtomicBoolean();
+    final var probed = new AtomicBoolean();
     when(search.send()).thenAnswer(invocation -> {
       if (probed.compareAndSet(false, true)) {
         if (probeAnswer != null) {
@@ -127,9 +131,9 @@ public class Camunda8AwarenessWhenSearchFailsTest {
 
     };
     final var service = new Camunda8ProcessService<Aggregate>(
-        "c8", clientFactory, java.time.Duration.ofDays(14), (
+        "c8", clientFactory, Duration.ofDays(14), (
             aggregateClass,
-            check) -> check.run(), null, java.time.Duration.ZERO);
+            check) -> check.run(), null, Duration.ZERO);
     // what startWorkflowProcessing does, and the only search which is allowed to
     // succeed here: from now on the capability is settled and every later failure is
     // read against it

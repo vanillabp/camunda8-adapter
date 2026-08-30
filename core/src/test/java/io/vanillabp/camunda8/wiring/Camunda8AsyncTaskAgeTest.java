@@ -21,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 
 import io.camunda.client.CamundaClient;
+import io.camunda.client.api.command.FailJobCommandStep1;
 import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.client.api.worker.JobClient;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction;
@@ -68,8 +69,15 @@ public class Camunda8AsyncTaskAgeTest {
   private Camunda8JobHandler handler(
       final AsyncTaskMaxAgeAction action) {
 
-    return new Camunda8JobHandler(
-        "c8", "test-module", camundaClient, invoker, RENEWAL, null, null, action);
+    return Camunda8JobHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .camundaClient(camundaClient)
+        .workflowTaskInvoker(invoker)
+        .asyncTaskLockRenewal(RENEWAL)
+        .asyncTaskMaxAgeAction(action)
+        .build();
 
   }
 
@@ -112,7 +120,7 @@ public class Camunda8AsyncTaskAgeTest {
   public void anOverdueTaskBecomesAnIncident() {
 
     given(WorkflowTaskOutcome.completionPending(Duration.ofDays(31), true));
-    final var failCommand = mock(io.camunda.client.api.command.FailJobCommandStep1.class, RETURNS_DEEP_STUBS);
+    final var failCommand = mock(FailJobCommandStep1.class, RETURNS_DEEP_STUBS);
     when(jobClient.newFailCommand(4711L)).thenReturn(failCommand);
 
     handler(AsyncTaskMaxAgeAction.INCIDENT).handle(jobClient, job());

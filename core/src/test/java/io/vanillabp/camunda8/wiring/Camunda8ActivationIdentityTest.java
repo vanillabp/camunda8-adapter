@@ -14,6 +14,8 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
@@ -55,8 +57,15 @@ public class Camunda8ActivationIdentityTest {
     final var invoker = mock(WorkflowTaskInvoker.class);
     when(invoker.resolveWorkflowAggregateIdName(anyString(), anyString())).thenReturn("id");
     when(invoker.invokeWorkflowTask(anyString(), anyString(), any())).thenReturn(WorkflowTaskOutcome.completed());
-    new Camunda8JobHandler(
-        "c8", "test-module", camundaClient, invoker, Duration.ofHours(1), null, null, null, drain)
+    Camunda8JobHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .camundaClient(camundaClient)
+        .workflowTaskInvoker(invoker)
+        .asyncTaskLockRenewal(Duration.ofHours(1))
+        .drain(drain)
+        .build()
         .handle(jobClient, job);
     return captured(invoker);
 
@@ -69,7 +78,13 @@ public class Camunda8ActivationIdentityTest {
     when(invoker.resolveWorkflowAggregateIdName(anyString(), anyString())).thenReturn("id");
     when(invoker.workflowTaskHandlerExists(anyString(), anyString(), anyString())).thenReturn(true);
     when(invoker.invokeWorkflowTask(anyString(), anyString(), any())).thenReturn(WorkflowTaskOutcome.completed());
-    new Camunda8UserTaskListenerHandler("c8", "test-module", invoker, null, null, drain)
+    Camunda8UserTaskListenerHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .workflowTaskInvoker(invoker)
+        .drain(drain)
+        .build()
         .handle(jobClient, listenerJob);
     return captured(invoker);
 
@@ -78,8 +93,8 @@ public class Camunda8ActivationIdentityTest {
   private static TaskInvocationContext captured(
       final WorkflowTaskInvoker invoker) {
 
-    final var context = org.mockito.ArgumentCaptor.forClass(TaskInvocationContext.class);
-    org.mockito.Mockito
+    final var context = ArgumentCaptor.forClass(TaskInvocationContext.class);
+    Mockito
         .verify(invoker)
         .invokeWorkflowTask(anyString(), anyString(), context.capture());
     return context.getValue();

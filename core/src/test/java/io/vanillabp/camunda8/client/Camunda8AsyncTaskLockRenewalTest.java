@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -113,7 +114,7 @@ public class Camunda8AsyncTaskLockRenewalTest {
 
     // zero means the cluster drops every message this adapter publishes the moment it
     // arrives, and nothing at runtime says so - a workflow waiting for one waits forever
-    for (final var wrong : java.util.List.of(Duration.ZERO, Duration.ofSeconds(-1))) {
+    for (final var wrong : List.of(Duration.ZERO, Duration.ofSeconds(-1))) {
       final var configuration = new Camunda8AdapterConfiguration();
       configuration.setMessageTimeToLive(wrong);
 

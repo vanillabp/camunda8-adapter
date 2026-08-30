@@ -2,7 +2,11 @@ package io.vanillabp.camunda8.springboot.it;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
@@ -11,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -18,6 +24,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import io.camunda.client.CamundaClient;
+import io.camunda.client.api.search.enums.ProcessDefinitionState;
+import io.camunda.client.api.search.response.ProcessDefinition;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -71,7 +80,7 @@ public class Camunda8OldProcessVersionsIT {
       final var workflowService = application.getBean(OldProcessVersionsDockerWorkflowService.class);
       final var repository = application.getBean(OldProcessVersionsDockerAggregateRepository.class);
       final var aggregate = application
-          .getBean(org.springframework.transaction.support.TransactionTemplate.class)
+          .getBean(TransactionTemplate.class)
           .execute(status -> workflowService.startWorkflow());
 
       // the workflow of version 1 walks through both tasks - what matters for the
@@ -167,13 +176,13 @@ public class Camunda8OldProcessVersionsIT {
    * A client of the test's own: the application booted per case is gone between them, and
    * this question is asked while none is running.
    */
-  private static io.camunda.client.CamundaClient testClient() {
+  private static CamundaClient testClient() {
 
-    return io.camunda.client.CamundaClient
+    return CamundaClient
         .newClientBuilder()
         .preferRestOverGrpc(true)
-        .restAddress(java.net.URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(8080))))
-        .grpcAddress(java.net.URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(26500))))
+        .restAddress(URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(8080))))
+        .grpcAddress(URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(26500))))
         .build();
 
   }
@@ -201,7 +210,7 @@ public class Camunda8OldProcessVersionsIT {
    * end of it.
    */
   private static long versionsKnownToTheCluster(
-      final io.camunda.client.CamundaClient client) {
+      final CamundaClient client) {
 
     return definitionsOfTheTestsProcess(client).count();
 
@@ -235,8 +244,8 @@ public class Camunda8OldProcessVersionsIT {
 
   }
 
-  private static java.util.stream.Stream<io.camunda.client.api.search.response.ProcessDefinition> definitionsOfTheTestsProcess(
-      final io.camunda.client.CamundaClient client) {
+  private static Stream<ProcessDefinition> definitionsOfTheTestsProcess(
+      final CamundaClient client) {
 
     return client
         .newProcessDefinitionSearchRequest()
@@ -253,11 +262,11 @@ public class Camunda8OldProcessVersionsIT {
    * deleted.
    */
   private static long activeDefinitionsOfTheTestsProcess(
-      final io.camunda.client.CamundaClient client) {
+      final CamundaClient client) {
 
     return client
         .newProcessDefinitionSearchRequest()
-        .filter(filter -> filter.state(io.camunda.client.api.search.enums.ProcessDefinitionState.ACTIVE))
+        .filter(filter -> filter.state(ProcessDefinitionState.ACTIVE))
         .send()
         .join()
         .items()
@@ -267,11 +276,11 @@ public class Camunda8OldProcessVersionsIT {
 
   }
 
-  private static org.springframework.context.ConfigurableApplicationContext boot(
+  private static ConfigurableApplicationContext boot(
       final String version,
       final String... arguments) {
 
-    final var boot = new java.util.ArrayList<String>();
+    final var boot = new ArrayList<String>();
     boot.add("--spring.config.name=camunda8-it");
     boot
         .add("--vanillabp.adapters.c8.rest-address=http://%s:%d".formatted(
@@ -285,7 +294,7 @@ public class Camunda8OldProcessVersionsIT {
     boot
         .add("--vanillabp.workflow-modules.test-app.adapters.c8.resources-location=classpath*:old-process-versions/%s"
             .formatted(version));
-    boot.addAll(java.util.List.of(arguments));
+    boot.addAll(List.of(arguments));
     return new SpringApplicationBuilder(DockerTestApplication.class).run(boot.toArray(String[]::new));
 
   }

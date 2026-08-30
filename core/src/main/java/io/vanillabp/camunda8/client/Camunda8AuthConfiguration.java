@@ -1,5 +1,8 @@
 package io.vanillabp.camunda8.client;
 
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -93,12 +96,12 @@ public class Camunda8AuthConfiguration {
    * How long connecting to the authorization server may take. Default: the client's 5
    * seconds.
    */
-  private java.time.Duration connectTimeout;
+  private Duration connectTimeout;
 
   /**
    * How long reading the token response may take. Default: the client's 5 seconds.
    */
-  private java.time.Duration readTimeout;
+  private Duration readTimeout;
 
   /**
    * The keystore holding the client certificate the AUTHORIZATION SERVER asks for (not
@@ -423,8 +426,8 @@ public class Camunda8AuthConfiguration {
     if (!hasText(path)) {
       return;
     }
-    final var file = java.nio.file.Paths.get(path);
-    if (java.nio.file.Files.isReadable(file)) {
+    final var file = Paths.get(path);
+    if (Files.isReadable(file)) {
       return;
     }
     throw new IllegalStateException(

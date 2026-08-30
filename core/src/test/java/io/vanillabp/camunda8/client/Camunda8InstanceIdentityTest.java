@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -253,7 +254,7 @@ public class Camunda8InstanceIdentityTest {
       @Override
       public void validateNoCollidingProcessIds(
           final String adapterId,
-          final java.util.Collection<DeployedProcess> deployedProcesses) {
+          final Collection<DeployedProcess> deployedProcesses) {
 
         throw new UnsupportedOperationException();
 

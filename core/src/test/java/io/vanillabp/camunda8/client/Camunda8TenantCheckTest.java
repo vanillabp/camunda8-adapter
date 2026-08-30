@@ -12,6 +12,7 @@ import org.mockito.Mockito;
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.ProblemDetail;
 import io.camunda.client.api.command.ProblemException;
+import io.camunda.client.api.search.response.Tenant;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -41,7 +42,7 @@ public class Camunda8TenantCheckTest {
     if (failure != null) {
       join.thenThrow(failure);
     } else {
-      join.thenReturn(Mockito.mock(io.camunda.client.api.search.response.Tenant.class));
+      join.thenReturn(Mockito.mock(Tenant.class));
     }
     return client;
 

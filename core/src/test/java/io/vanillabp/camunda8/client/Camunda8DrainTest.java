@@ -5,12 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.LoggerFactory;
 
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -269,12 +271,12 @@ public class Camunda8DrainTest {
    * What the drain logged while the action ran (this module configures no appender, so
    * the events are collected rather than read off the console).
    */
-  private java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> eventsOf(
+  private List<ch.qos.logback.classic.spi.ILoggingEvent> eventsOf(
       final Runnable action) {
 
     final var logWatcher = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
     logWatcher.start();
-    final var drainLog = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory
+    final var drainLog = (ch.qos.logback.classic.Logger) LoggerFactory
         .getLogger(Camunda8Drain.class);
     drainLog.addAppender(logWatcher);
     try {
@@ -282,7 +284,7 @@ public class Camunda8DrainTest {
     } finally {
       drainLog.detachAndStopAllAppenders();
     }
-    return java.util.List.copyOf(logWatcher.list);
+    return List.copyOf(logWatcher.list);
 
   }
 

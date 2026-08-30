@@ -1,13 +1,22 @@
 package io.vanillabp.camunda8.quarkus.runtime;
 
+import java.time.Duration;
+import java.util.LinkedList;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.ConfigRoot;
 import io.quarkus.runtime.annotations.StaticInitSafe;
 import io.smallrye.config.ConfigMapping;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
+import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
+import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
+import io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
 
 /**
  * The Camunda 8 adapter's OVERLAY of the shared <code>vanillabp.*</code> configuration
@@ -55,7 +64,7 @@ public interface VanillaBpCamunda8Properties {
    * @param adapterId The adapter ID
    * @return The most specific configured job timeout or the default
    */
-  default java.time.Duration jobTimeoutFor(
+  default Duration jobTimeoutFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -72,8 +81,8 @@ public interface VanillaBpCamunda8Properties {
     return adapter != null
         ? adapter
             .jobTimeout()
-            .orElse(io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT)
-        : io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT;
+            .orElse(Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT)
+        : Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT;
 
   }
 
@@ -87,7 +96,7 @@ public interface VanillaBpCamunda8Properties {
    * @param adapterId The adapter ID
    * @return The most specific configured backoff or the default
    */
-  default java.time.Duration retryBackoffFor(
+  default Duration retryBackoffFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -110,7 +119,7 @@ public interface VanillaBpCamunda8Properties {
    * @param adapterId The adapter ID
    * @return The most specific configured backoff and the level it was found at
    */
-  default io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured configuredRetryBackoffFor(
+  default Camunda8RetryBackoffResolver.Configured configuredRetryBackoffFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -118,7 +127,7 @@ public interface VanillaBpCamunda8Properties {
 
     final var perTask = taskLevelKeys(workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
     if ((perTask != null) && perTask.retryBackoff().isPresent()) {
-      return new io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured(
+      return new Camunda8RetryBackoffResolver.Configured(
           perTask.retryBackoff().get(), true);
     }
     final var scoped = scopedKeysMostSpecificFirst(workflowModuleId, bpmnProcessId, taskDefinition, adapterId)
@@ -126,15 +135,15 @@ public interface VanillaBpCamunda8Properties {
         .flatMap(Optional::stream)
         .findFirst();
     if (scoped.isPresent()) {
-      return new io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured(scoped.get(), false);
+      return new Camunda8RetryBackoffResolver.Configured(scoped.get(), false);
     }
     final var adapter = adapters().get(adapterId);
-    return new io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured(
+    return new Camunda8RetryBackoffResolver.Configured(
         adapter != null
             ? adapter
                 .retryBackoff()
-                .orElse(io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF)
-            : io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF, false);
+                .orElse(Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF)
+            : Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF, false);
 
   }
 
@@ -180,7 +189,7 @@ public interface VanillaBpCamunda8Properties {
    * @param adapterId The adapter ID
    * @return The most specific configured mode or the default
    */
-  default io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode fetchVariablesFor(
+  default Camunda8FetchVariables.Mode fetchVariablesFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -197,8 +206,8 @@ public interface VanillaBpCamunda8Properties {
     return adapter != null
         ? adapter
             .fetchVariables()
-            .orElse(io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES)
-        : io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
+            .orElse(Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES)
+        : Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
 
   }
 
@@ -224,7 +233,7 @@ public interface VanillaBpCamunda8Properties {
    * @param adapterId The adapter ID
    * @return The most specific configured time-to-live or <code>null</code>
    */
-  default java.time.Duration messageTimeToLiveFor(
+  default Duration messageTimeToLiveFor(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String messageName,
@@ -259,7 +268,7 @@ public interface VanillaBpCamunda8Properties {
    * @param adapterId The adapter ID
    * @return The sections which exist, most specific first
    */
-  private java.util.stream.Stream<Camunda8ScopedKeys> messageScopedKeysMostSpecificFirst(
+  private Stream<Camunda8ScopedKeys> messageScopedKeysMostSpecificFirst(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String messageName,
@@ -275,7 +284,7 @@ public interface VanillaBpCamunda8Properties {
         ? workflow.messages().get(messageName)
         : null;
 
-    final var levelsMostSpecificFirst = new java.util.LinkedList<Map<String, Camunda8ScopedKeys>>();
+    final var levelsMostSpecificFirst = new LinkedList<Map<String, Camunda8ScopedKeys>>();
     if (message != null) {
       levelsMostSpecificFirst.add(message.adapters());
     }
@@ -288,11 +297,11 @@ public interface VanillaBpCamunda8Properties {
     return levelsMostSpecificFirst
         .stream()
         .map(level -> level.get(adapterId))
-        .filter(java.util.Objects::nonNull);
+        .filter(Objects::nonNull);
 
   }
 
-  private java.util.stream.Stream<Camunda8ScopedKeys> scopedKeysMostSpecificFirst(
+  private Stream<Camunda8ScopedKeys> scopedKeysMostSpecificFirst(
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition,
@@ -308,7 +317,7 @@ public interface VanillaBpCamunda8Properties {
         ? workflow.tasks().get(taskDefinition)
         : null;
 
-    final var levelsMostSpecificFirst = new java.util.LinkedList<Map<String, Camunda8ScopedKeys>>();
+    final var levelsMostSpecificFirst = new LinkedList<Map<String, Camunda8ScopedKeys>>();
     if (task != null) {
       levelsMostSpecificFirst.add(task.adapters());
     }
@@ -321,7 +330,7 @@ public interface VanillaBpCamunda8Properties {
     return levelsMostSpecificFirst
         .stream()
         .map(level -> level.get(adapterId))
-        .filter(java.util.Objects::nonNull);
+        .filter(Objects::nonNull);
 
   }
 
@@ -395,7 +404,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The job timeout
      */
-    Optional<java.time.Duration> jobTimeout();
+    Optional<Duration> jobTimeout();
 
     /**
      * How long the cluster waits before it hands a FAILED job out again - adapter-level
@@ -403,7 +412,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The backoff of a failed job
      */
-    Optional<java.time.Duration> retryBackoff();
+    Optional<Duration> retryBackoff();
 
     /**
      * Whether the workers of this adapter instance ask the cluster for the variables the
@@ -412,7 +421,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The mode
      */
-    Optional<io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode> fetchVariables();
+    Optional<Camunda8FetchVariables.Mode> fetchVariables();
 
     /**
      * The window the lock of a job left open by a <code>&#64;TaskId</code> handler is
@@ -420,7 +429,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The renewal window
      */
-    Optional<java.time.Duration> asyncTaskLockRenewal();
+    Optional<Duration> asyncTaskLockRenewal();
 
     /**
      * The key which used to carry a dormancy horizon of days. Bound only so the boot can
@@ -428,7 +437,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The removed key's value, if somebody still configures it
      */
-    Optional<java.time.Duration> asyncTaskTimeout();
+    Optional<Duration> asyncTaskTimeout();
 
     /**
      * How long the shutdown of a workflow module waits for the handlers this adapter has
@@ -436,7 +445,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The grace period
      */
-    Optional<java.time.Duration> shutdownGrace();
+    Optional<Duration> shutdownGrace();
 
     /**
      * How long the health check waits for the cluster to answer its topology request,
@@ -444,7 +453,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The timeout
      */
-    Optional<java.time.Duration> healthTimeout();
+    Optional<Duration> healthTimeout();
 
     /**
      * How long the start waits for a cluster which is not answering yet,
@@ -452,7 +461,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The wait
      */
-    Optional<java.time.Duration> startupWait();
+    Optional<Duration> startupWait();
 
     /**
      * What this adapter does with a task the core reports as older than
@@ -460,7 +469,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The action
      */
-    Optional<io.vanillabp.camunda8.client.Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction> asyncTaskMaxAgeAction();
+    Optional<Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction> asyncTaskMaxAgeAction();
 
     /**
      * How long a workflow this cluster holds may stay invisible to the query API
@@ -469,7 +478,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The visibility window
      */
-    Optional<java.time.Duration> workflowVisibilityTimeout();
+    Optional<Duration> workflowVisibilityTimeout();
 
     /**
      * How this adapter instance runs what it delivers: a positive number of platform
@@ -501,7 +510,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The poll interval
      */
-    Optional<java.time.Duration> pollInterval();
+    Optional<Duration> pollInterval();
 
     /**
      * How long a request to the cluster may take, which for an activation request is
@@ -509,7 +518,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The request timeout
      */
-    Optional<java.time.Duration> requestTimeout();
+    Optional<Duration> requestTimeout();
 
     /**
      * Whether the cluster pushes jobs to the workers instead of only answering their
@@ -525,7 +534,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The stream timeout
      */
-    Optional<java.time.Duration> streamTimeout();
+    Optional<Duration> streamTimeout();
 
     /**
      * How long the cluster buffers a published message waiting for a subscription,
@@ -534,7 +543,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The message time-to-live
      */
-    Optional<java.time.Duration> messageTimeToLive();
+    Optional<Duration> messageTimeToLive();
 
     /**
      * The client's maximum inbound message size in bytes. Default: the client's.
@@ -548,7 +557,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The keep-alive interval
      */
-    Optional<java.time.Duration> keepAlive();
+    Optional<Duration> keepAlive();
 
     /**
      * How many HTTP connections the REST transport may open. Default: the client's.
@@ -575,7 +584,7 @@ public interface VanillaBpCamunda8Properties {
 
   /**
    * The <code>vanillabp.adapters.&lt;id&gt;.auth.*</code> keys (see
-   * {@link io.vanillabp.camunda8.client.Camunda8AuthConfiguration} for the semantics and
+   * {@link Camunda8AuthConfiguration} for the semantics and
    * the defaults the Camunda client brings).
    */
   interface AuthKeys {
@@ -586,7 +595,7 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The method
      */
-    Optional<io.vanillabp.camunda8.client.Camunda8AuthConfiguration.Method> method();
+    Optional<Camunda8AuthConfiguration.Method> method();
 
     /**
      * The user name of the method <code>basic</code>.
@@ -651,14 +660,14 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The connect timeout
      */
-    Optional<java.time.Duration> connectTimeout();
+    Optional<Duration> connectTimeout();
 
     /**
      * How long reading the token response may take. Default: the client's 5 seconds.
      *
      * @return The read timeout
      */
-    Optional<java.time.Duration> readTimeout();
+    Optional<Duration> readTimeout();
 
     /**
      * The keystore holding the client certificate the AUTHORIZATION SERVER asks for.
@@ -716,28 +725,28 @@ public interface VanillaBpCamunda8Properties {
      *
      * @return The job timeout
      */
-    Optional<java.time.Duration> jobTimeout();
+    Optional<Duration> jobTimeout();
 
     /**
      * How long the cluster waits before it hands a FAILED job out again, at this level.
      *
      * @return The backoff of a failed job
      */
-    Optional<java.time.Duration> retryBackoff();
+    Optional<Duration> retryBackoff();
 
     /**
      * Whether a worker fetches the derived variables or all of them, at this level.
      *
      * @return The mode
      */
-    Optional<io.vanillabp.camunda8.wiring.Camunda8FetchVariables.Mode> fetchVariables();
+    Optional<Camunda8FetchVariables.Mode> fetchVariables();
 
     /**
      * How long the cluster keeps a published message, at this level.
      *
      * @return The message time-to-live
      */
-    Optional<java.time.Duration> messageTimeToLive();
+    Optional<Duration> messageTimeToLive();
 
   }
 

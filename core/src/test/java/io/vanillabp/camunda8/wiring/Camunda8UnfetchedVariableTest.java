@@ -21,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 
 import io.camunda.client.CamundaClient;
+import io.camunda.client.api.command.FailJobCommandStep1;
 import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.client.api.worker.JobClient;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
@@ -63,8 +64,15 @@ public class Camunda8UnfetchedVariableTest {
   private Camunda8JobHandler handler(
       final Camunda8FetchVariables.Selection selection) {
 
-    return new Camunda8JobHandler(
-        "c8", "test-module", camundaClient, invoker, Duration.ofHours(1), null, null, null, null, null, selection);
+    return Camunda8JobHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .camundaClient(camundaClient)
+        .workflowTaskInvoker(invoker)
+        .asyncTaskLockRenewal(Duration.ofHours(1))
+        .fetchVariables(selection)
+        .build();
 
   }
 
@@ -133,7 +141,7 @@ public class Camunda8UnfetchedVariableTest {
   public void theMissingAggregateIdNamesTheFetchList() {
 
     when(invoker.resolveWorkflowAggregateIdName("test-module", "TestProcess")).thenReturn("id");
-    final var failCommand = mock(io.camunda.client.api.command.FailJobCommandStep1.class, RETURNS_DEEP_STUBS);
+    final var failCommand = mock(FailJobCommandStep1.class, RETURNS_DEEP_STUBS);
     when(jobClient.newFailCommand(4711L)).thenReturn(failCommand);
 
     handler(DERIVED).handle(jobClient, job(Map.of()));

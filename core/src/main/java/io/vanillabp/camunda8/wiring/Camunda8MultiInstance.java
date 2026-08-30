@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.wiring;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.Activity;
+import io.camunda.zeebe.model.bpmn.instance.BaseElement;
 import io.camunda.zeebe.model.bpmn.instance.ExtensionElements;
 import io.camunda.zeebe.model.bpmn.instance.FlowElement;
 import io.camunda.zeebe.model.bpmn.instance.MultiInstanceLoopCharacteristics;
@@ -315,18 +317,18 @@ public final class Camunda8MultiInstance {
       final Map<String, MultiInstanceElement> elements) {
 
     final var innermostFirst = new LinkedList<MultiInstanceElement>();
-    var current = (io.camunda.zeebe.model.bpmn.instance.BaseElement) flowElement;
+    var current = (BaseElement) flowElement;
     while (current != null) {
       final var element = elements.get(current.getId());
       if (element != null) {
         innermostFirst.add(element);
       }
-      current = current.getParentElement() instanceof io.camunda.zeebe.model.bpmn.instance.BaseElement parent
+      current = current.getParentElement() instanceof BaseElement parent
           ? parent
           : null;
     }
     final var outermostFirst = new ArrayList<>(innermostFirst);
-    java.util.Collections.reverse(outermostFirst);
+    Collections.reverse(outermostFirst);
     return outermostFirst;
 
   }

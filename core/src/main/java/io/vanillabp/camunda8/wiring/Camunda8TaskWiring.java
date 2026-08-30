@@ -1,27 +1,52 @@
 package io.vanillabp.camunda8.wiring;
 
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 import org.camunda.bpm.model.xml.instance.ModelElementInstance;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
+import io.camunda.zeebe.model.bpmn.instance.Activity;
+import io.camunda.zeebe.model.bpmn.instance.BoundaryEvent;
 import io.camunda.zeebe.model.bpmn.instance.BusinessRuleTask;
+import io.camunda.zeebe.model.bpmn.instance.CatchEvent;
+import io.camunda.zeebe.model.bpmn.instance.ConditionalEventDefinition;
+import io.camunda.zeebe.model.bpmn.instance.ExtensionElements;
 import io.camunda.zeebe.model.bpmn.instance.FlowElement;
+import io.camunda.zeebe.model.bpmn.instance.InclusiveGateway;
+import io.camunda.zeebe.model.bpmn.instance.Message;
+import io.camunda.zeebe.model.bpmn.instance.MessageEventDefinition;
+import io.camunda.zeebe.model.bpmn.instance.MultiInstanceLoopCharacteristics;
+import io.camunda.zeebe.model.bpmn.instance.ParallelGateway;
 import io.camunda.zeebe.model.bpmn.instance.Process;
+import io.camunda.zeebe.model.bpmn.instance.ReceiveTask;
 import io.camunda.zeebe.model.bpmn.instance.ScriptTask;
 import io.camunda.zeebe.model.bpmn.instance.SendTask;
 import io.camunda.zeebe.model.bpmn.instance.ServiceTask;
+import io.camunda.zeebe.model.bpmn.instance.SignalEventDefinition;
+import io.camunda.zeebe.model.bpmn.instance.StartEvent;
+import io.camunda.zeebe.model.bpmn.instance.SubProcess;
 import io.camunda.zeebe.model.bpmn.instance.Task;
+import io.camunda.zeebe.model.bpmn.instance.TimerEventDefinition;
 import io.camunda.zeebe.model.bpmn.instance.UserTask;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListener;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListenerEventType;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeFormDefinition;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeSubscription;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskDefinition;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListener;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListenerEventType;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListeners;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeUserTask;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeVersionTag;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
+import io.vanillabp.spi.service.BpmsStartTrigger;
 
 /**
  * Extracts the job-worker tasks of an executable BPMN process from the Camunda 8
@@ -142,7 +167,7 @@ public final class Camunda8TaskWiring {
       return null;
     }
     final var versionTag = process
-        .getSingleExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeVersionTag.class);
+        .getSingleExtensionElement(ZeebeVersionTag.class);
     return versionTag == null
         ? null
         : versionTag.getValue();
@@ -165,7 +190,7 @@ public final class Camunda8TaskWiring {
       final String bpmnProcessId) {
 
     final var process = model
-        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.Process.class)
+        .getModelElementsByType(Process.class)
         .stream()
         .filter(candidate -> bpmnProcessId.equals(candidate.getId()))
         .findFirst()
@@ -175,13 +200,13 @@ public final class Camunda8TaskWiring {
     }
 
     final var jobType = workflowEndedJobTypeOf(bpmnProcessId);
-    final io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners listeners;
+    final ZeebeExecutionListeners listeners;
     if (process
         .getSingleExtensionElement(
-            io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class) != null) {
+            ZeebeExecutionListeners.class) != null) {
       listeners = process
           .getSingleExtensionElement(
-              io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class);
+              ZeebeExecutionListeners.class);
       final var alreadyWired = listeners
           .getExecutionListeners()
           .stream()
@@ -195,18 +220,18 @@ public final class Camunda8TaskWiring {
             .setExtensionElements(
                 process
                     .getModelInstance()
-                    .newInstance(io.camunda.zeebe.model.bpmn.instance.ExtensionElements.class));
+                    .newInstance(ExtensionElements.class));
       }
       listeners = process
           .getExtensionElements()
-          .addExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class);
+          .addExtensionElement(ZeebeExecutionListeners.class);
     }
 
     final var listener = process
         .getModelInstance()
-        .newInstance(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListener.class);
+        .newInstance(ZeebeExecutionListener.class);
     listener
-        .setEventType(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListenerEventType.end);
+        .setEventType(ZeebeExecutionListenerEventType.end);
     listener.setType(jobType);
     // LAST listener: whatever the model itself does at the end of the process runs
     // before the application is told the workflow ended
@@ -229,7 +254,7 @@ public final class Camunda8TaskWiring {
   public record Camunda8BpmsInitiatedStartToWire(
                                                  String bpmnProcessId,
                                                  String startEventId,
-                                                 io.vanillabp.spi.service.BpmsStartTrigger.Kind kind,
+                                                 BpmsStartTrigger.Kind kind,
                                                  String signalName) {
 
     /**
@@ -276,34 +301,34 @@ public final class Camunda8TaskWiring {
   public static List<Camunda8BpmsInitiatedStartToWire> bpmsInitiatedStartsOf(
       final BpmnModelInstance model,
       final String bpmnProcessId,
-      final java.util.function.UnaryOperator<String> signalNameResolver) {
+      final UnaryOperator<String> signalNameResolver) {
 
     final var startEvents = new LinkedList<Camunda8BpmsInitiatedStartToWire>();
     model
-        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.StartEvent.class)
+        .getModelElementsByType(StartEvent.class)
         .stream()
         .filter(startEvent -> bpmnProcessId.equals(owningProcessId(startEvent)))
         .forEach(startEvent -> {
           final var definitions = startEvent.getEventDefinitions();
           final var timer = definitions
               .stream()
-              .anyMatch(io.camunda.zeebe.model.bpmn.instance.TimerEventDefinition.class::isInstance);
+              .anyMatch(TimerEventDefinition.class::isInstance);
           final var signal = definitions
               .stream()
-              .filter(io.camunda.zeebe.model.bpmn.instance.SignalEventDefinition.class::isInstance)
-              .map(io.camunda.zeebe.model.bpmn.instance.SignalEventDefinition.class::cast)
+              .filter(SignalEventDefinition.class::isInstance)
+              .map(SignalEventDefinition.class::cast)
               .findFirst();
           final var conditional = definitions
               .stream()
-              .anyMatch(io.camunda.zeebe.model.bpmn.instance.ConditionalEventDefinition.class::isInstance);
+              .anyMatch(ConditionalEventDefinition.class::isInstance);
 
-          final io.vanillabp.spi.service.BpmsStartTrigger.Kind kind;
+          final BpmsStartTrigger.Kind kind;
           final String signalName;
           if (timer) {
-            kind = io.vanillabp.spi.service.BpmsStartTrigger.Kind.TIMER;
+            kind = BpmsStartTrigger.Kind.TIMER;
             signalName = null;
           } else if (signal.isPresent()) {
-            kind = io.vanillabp.spi.service.BpmsStartTrigger.Kind.SIGNAL;
+            kind = BpmsStartTrigger.Kind.SIGNAL;
             signalName = signal
                 .map(definition -> definition.getSignal() == null
                     ? null
@@ -311,7 +336,7 @@ public final class Camunda8TaskWiring {
                 .map(signalNameResolver)
                 .orElse(null);
           } else if (conditional) {
-            kind = io.vanillabp.spi.service.BpmsStartTrigger.Kind.CONDITIONAL;
+            kind = BpmsStartTrigger.Kind.CONDITIONAL;
             signalName = null;
           } else {
             return;
@@ -334,16 +359,16 @@ public final class Camunda8TaskWiring {
    * workflow has no aggregate, which is worth retrying before it becomes an incident.
    */
   private static void addStartExecutionListener(
-      final io.camunda.zeebe.model.bpmn.instance.StartEvent startEvent,
+      final StartEvent startEvent,
       final String listenerJobType) {
 
-    final io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners listeners;
+    final ZeebeExecutionListeners listeners;
     if (startEvent
         .getSingleExtensionElement(
-            io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class) != null) {
+            ZeebeExecutionListeners.class) != null) {
       listeners = startEvent
           .getSingleExtensionElement(
-              io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class);
+              ZeebeExecutionListeners.class);
       final var alreadyWired = listeners
           .getExecutionListeners()
           .stream()
@@ -359,22 +384,22 @@ public final class Camunda8TaskWiring {
             .setExtensionElements(
                 startEvent
                     .getModelInstance()
-                    .newInstance(io.camunda.zeebe.model.bpmn.instance.ExtensionElements.class));
+                    .newInstance(ExtensionElements.class));
       }
       listeners = startEvent
           .getExtensionElements()
-          .addExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners.class);
+          .addExtensionElement(ZeebeExecutionListeners.class);
     }
 
     final var listener = startEvent
         .getModelInstance()
-        .newInstance(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListener.class);
+        .newInstance(ZeebeExecutionListener.class);
     // 'end' on the start event, not 'start': the cluster rejects start execution
     // listeners on start events (8.8), while an end listener still gates the
     // transition - it runs before the flow leaves the start event, so nothing of
     // the process can run before the workflow aggregate exists
     listener
-        .setEventType(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListenerEventType.end);
+        .setEventType(ZeebeExecutionListenerEventType.end);
     listener.setType(listenerJobType);
     // the workflow aggregate is built here: VanillaBP's listener has to run before
     // any listener the model brings along
@@ -596,36 +621,36 @@ public final class Camunda8TaskWiring {
   public static void wireMessageSubscriptions(
       final BpmnModelInstance model,
       final String bpmnProcessId,
-      final java.util.function.Supplier<String> aggregateIdVariableName) {
+      final Supplier<String> aggregateIdVariableName) {
 
-    final var messages = new java.util.LinkedHashSet<io.camunda.zeebe.model.bpmn.instance.Message>();
+    final var messages = new LinkedHashSet<Message>();
 
     // intermediate catch events + boundary events + receive tasks of THIS process
     model
-        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.CatchEvent.class)
+        .getModelElementsByType(CatchEvent.class)
         .stream()
         .filter(event -> bpmnProcessId.equals(owningProcessId(event)))
         // message START events correlate by name only - no correlation key
-        .filter(event -> !(event instanceof io.camunda.zeebe.model.bpmn.instance.StartEvent))
+        .filter(event -> !(event instanceof StartEvent))
         .flatMap(event -> event
             .getEventDefinitions()
             .stream()
-            .filter(io.camunda.zeebe.model.bpmn.instance.MessageEventDefinition.class::isInstance)
-            .map(io.camunda.zeebe.model.bpmn.instance.MessageEventDefinition.class::cast))
-        .map(io.camunda.zeebe.model.bpmn.instance.MessageEventDefinition::getMessage)
-        .filter(java.util.Objects::nonNull)
+            .filter(MessageEventDefinition.class::isInstance)
+            .map(MessageEventDefinition.class::cast))
+        .map(MessageEventDefinition::getMessage)
+        .filter(Objects::nonNull)
         .forEach(messages::add);
     model
-        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.ReceiveTask.class)
+        .getModelElementsByType(ReceiveTask.class)
         .stream()
         .filter(task -> bpmnProcessId.equals(owningProcessId(task)))
-        .map(io.camunda.zeebe.model.bpmn.instance.ReceiveTask::getMessage)
-        .filter(java.util.Objects::nonNull)
+        .map(ReceiveTask::getMessage)
+        .filter(Objects::nonNull)
         .forEach(messages::add);
 
     messages.forEach(message -> {
       final var existing = message
-          .getSingleExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeSubscription.class);
+          .getSingleExtensionElement(ZeebeSubscription.class);
       if (existing != null) {
         // the modeller correlates deliberately (e.g. by an own correlation-id
         // variable) - leave it untouched, V1 models stay byte-identical
@@ -635,12 +660,12 @@ public final class Camunda8TaskWiring {
           ? message.getExtensionElements()
           : message
               .getModelInstance()
-              .newInstance(io.camunda.zeebe.model.bpmn.instance.ExtensionElements.class);
+              .newInstance(ExtensionElements.class);
       if (message.getExtensionElements() == null) {
         message.addChildElement(extensionElements);
       }
       final var subscription = extensionElements
-          .addExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeSubscription.class);
+          .addExtensionElement(ZeebeSubscription.class);
       subscription.setCorrelationKey("="
           + aggregateIdVariableName.get());
     });
@@ -666,15 +691,15 @@ public final class Camunda8TaskWiring {
 
     return Stream
         .of(
-            elementsOf(model, bpmnProcessId, io.camunda.zeebe.model.bpmn.instance.BoundaryEvent.class)
+            elementsOf(model, bpmnProcessId, BoundaryEvent.class)
                 .filter(boundaryEvent -> !boundaryEvent.cancelActivity()),
-            elementsOf(model, bpmnProcessId, io.camunda.zeebe.model.bpmn.instance.ParallelGateway.class)
+            elementsOf(model, bpmnProcessId, ParallelGateway.class)
                 .filter(gateway -> gateway.getOutgoing().size() > 1),
-            elementsOf(model, bpmnProcessId, io.camunda.zeebe.model.bpmn.instance.InclusiveGateway.class)
+            elementsOf(model, bpmnProcessId, InclusiveGateway.class)
                 .filter(gateway -> gateway.getOutgoing().size() > 1),
-            elementsOf(model, bpmnProcessId, io.camunda.zeebe.model.bpmn.instance.Activity.class)
+            elementsOf(model, bpmnProcessId, Activity.class)
                 .filter(Camunda8TaskWiring::isParallelMultiInstance),
-            elementsOf(model, bpmnProcessId, io.camunda.zeebe.model.bpmn.instance.SubProcess.class)
+            elementsOf(model, bpmnProcessId, SubProcess.class)
                 .filter(Camunda8TaskWiring::isNonInterruptingEventSubProcess))
         .flatMap(elements -> elements)
         .map(FlowElement::getId)
@@ -696,19 +721,19 @@ public final class Camunda8TaskWiring {
   }
 
   private static boolean isParallelMultiInstance(
-      final io.camunda.zeebe.model.bpmn.instance.Activity activity) {
+      final Activity activity) {
 
     return (activity
-        .getLoopCharacteristics() instanceof io.camunda.zeebe.model.bpmn.instance.MultiInstanceLoopCharacteristics loop) && !loop
+        .getLoopCharacteristics() instanceof MultiInstanceLoopCharacteristics loop) && !loop
             .isSequential();
 
   }
 
   private static boolean isNonInterruptingEventSubProcess(
-      final io.camunda.zeebe.model.bpmn.instance.SubProcess subProcess) {
+      final SubProcess subProcess) {
 
     return subProcess.triggeredByEvent() && subProcess
-        .getChildElementsByType(io.camunda.zeebe.model.bpmn.instance.StartEvent.class)
+        .getChildElementsByType(StartEvent.class)
         .stream()
         .anyMatch(startEvent -> !startEvent.isInterrupting());
 

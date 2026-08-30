@@ -5,6 +5,9 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.function.Function;
 
+import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+
 /**
  * What makes two configured <code>camunda8</code> adapter ids DIFFERENT clusters.
  * Camunda 8 is remote, so two ids are distinct if they address
@@ -64,7 +67,7 @@ public final class Camunda8InstanceIdentity {
    */
   static String identityOf(
       final Camunda8AdapterConfiguration configuration,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidance nameClashAvoidance) {
+      final NameClashAvoidance nameClashAvoidance) {
 
     final var scoping = nameClashAvoidance == null
         ? ""
@@ -153,7 +156,7 @@ public final class Camunda8InstanceIdentity {
   public static void validateDistinct(
       final List<String> adapterIds,
       final Function<String, Camunda8AdapterConfiguration> configurationResolver,
-      final io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport scoping) {
+      final NameClashAvoidanceSupport scoping) {
 
     if ((adapterIds == null) || (adapterIds.size() < 2) || (configurationResolver == null)) {
       return;
