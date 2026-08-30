@@ -18,6 +18,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -80,6 +81,19 @@ import io.vanillabp.spi.process.TaskNotFoundException;
 // made the later classes of this module run into their timeouts
 @DirtiesContext
 public class Camunda8TaskProcessingIT {
+
+  private static final Logger LOG = LoggerFactory.getLogger(Camunda8TaskProcessingIT.class);
+
+  /**
+   * How long a wait may go on before it says out loud what it is still missing.
+   * <p>
+   * A minute of a runner printing nothing is what made the lost user-task notification
+   * unreadable afterwards: the deadline's message says what the state was at the END, and
+   * nothing says whether it had been that way from the first second or moved once and
+   * then stopped. A line every quarter minute turns the wait into a record. It costs
+   * nothing in a green run, where no wait ever reaches it.
+   */
+  private static final long PROGRESS_INTERVAL_MS = 15_000;
 
   /**
    * What a probe is asked about.
@@ -219,15 +233,39 @@ public class Camunda8TaskProcessingIT {
       final String description,
       final Supplier<String> whatWasSeen) throws InterruptedException {
 
-    final var deadline = System.currentTimeMillis() + timeoutMillis;
+    final var startedAt = System.currentTimeMillis();
+    final var deadline = startedAt + timeoutMillis;
+    var nextProgressAt = startedAt + PROGRESS_INTERVAL_MS;
     while (!Boolean.TRUE.equals(condition.get())) {
-      if (System.currentTimeMillis() > deadline) {
+      final var now = System.currentTimeMillis();
+      if (now > deadline) {
         throw new AssertionError("timed out waiting for: "
             + description
+            + " after "
+            + secondsSince(startedAt)
             + whatWasSeenOrWhyNot(whatWasSeen));
+      }
+      if (now >= nextProgressAt) {
+        LOG.info("still waiting for: {} after {}{}",
+            description,
+            secondsSince(startedAt),
+            whatWasSeenOrWhyNot(whatWasSeen));
+        nextProgressAt = now + PROGRESS_INTERVAL_MS;
       }
       Thread.sleep(200);
     }
+
+  }
+
+  /**
+   * @param startedAt When the wait began
+   * @return How long it has been waiting, in seconds
+   */
+  private static String secondsSince(
+      final long startedAt) {
+
+    return (System.currentTimeMillis() - startedAt) / 1000
+        + " s";
 
   }
 

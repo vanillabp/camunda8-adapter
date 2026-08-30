@@ -20,6 +20,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -77,6 +79,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @SuppressOutputExtension.SuppressBackgroundOutput
 public class Camunda8WorkflowLifecycleTest {
 
+  private static final Logger LOG = LoggerFactory.getLogger(Camunda8WorkflowLifecycleTest.class);
+
   private static final String MODULE = "c8-e2e";
 
   /**
@@ -85,6 +89,17 @@ public class Camunda8WorkflowLifecycleTest {
    * tipped over in a full build.
    */
   private static final long TIMEOUT_MS = 180_000;
+
+  /**
+   * How long a wait may go on before it says out loud what it is still missing.
+   * <p>
+   * Three minutes of a runner printing nothing is what made the lost user-task
+   * notification unreadable afterwards: the deadline's message says what the state was
+   * at the END, and nothing says whether it had been that way from the first second or
+   * moved once and then stopped. A line every quarter minute turns the wait into a
+   * record. It costs nothing in a green run, where no wait ever reaches it.
+   */
+  private static final long PROGRESS_INTERVAL_MS = 15_000;
 
   /**
    * What the query API needs on top: it is fed by an exporter, so everything read
@@ -291,15 +306,39 @@ public class Camunda8WorkflowLifecycleTest {
       final String description,
       final Supplier<String> whatWasSeen) throws InterruptedException {
 
-    final var deadline = System.currentTimeMillis() + timeoutMillis;
+    final var startedAt = System.currentTimeMillis();
+    final var deadline = startedAt + timeoutMillis;
+    var nextProgressAt = startedAt + PROGRESS_INTERVAL_MS;
     while (!Boolean.TRUE.equals(condition.get())) {
-      if (System.currentTimeMillis() > deadline) {
+      final var now = System.currentTimeMillis();
+      if (now > deadline) {
         throw new AssertionError("timed out waiting for: "
             + description
+            + " after "
+            + secondsSince(startedAt)
             + whatWasSeenOrWhyNot(whatWasSeen));
+      }
+      if (now >= nextProgressAt) {
+        LOG.info("still waiting for: {} after {}{}",
+            description,
+            secondsSince(startedAt),
+            whatWasSeenOrWhyNot(whatWasSeen));
+        nextProgressAt = now + PROGRESS_INTERVAL_MS;
       }
       Thread.sleep(250);
     }
+
+  }
+
+  /**
+   * @param startedAt When the wait began
+   * @return How long it has been waiting, in seconds
+   */
+  private static String secondsSince(
+      final long startedAt) {
+
+    return (System.currentTimeMillis() - startedAt) / 1000
+        + " s";
 
   }
 
@@ -436,8 +475,14 @@ public class Camunda8WorkflowLifecycleTest {
 
   /**
    * Everything the CREATED notification of a user task depends on, in one line: what the
-   * handler wrote into the aggregate, how often it ran at all, and which user tasks the
-   * cluster itself holds for the workflow.
+   * handler wrote into the aggregate, how often it ran at all, and which user tasks and
+   * jobs the cluster itself holds for the workflow.
+   * <p>
+   * The jobs are the half which decides where a missing notification was lost. The
+   * notification IS a listener job, so a job the cluster still reports as
+   * <code>CREATED</code> was there to be fetched and no worker fetched it, while a
+   * workflow whose listener job is gone was served and the notification was lost on this
+   * side.
    *
    * @param aggregateId The aggregate the notification is awaited for
    * @param processInstanceKey The workflow the user task belongs to
@@ -447,12 +492,13 @@ public class Camunda8WorkflowLifecycleTest {
       final String aggregateId,
       final String processInstanceKey) {
 
-    return "results '%s', task id '%s' and %d invocation(s) of 'approveUser', while the cluster reports the user tasks %s for process instance %s"
+    return "results '%s', task id '%s' and %d invocation(s) of 'approveUser', while the cluster reports the user tasks %s and the jobs %s for process instance %s"
         .formatted(
             resultsOf(aggregateId),
             taskIdOf(aggregateId),
             invocations("approveUser", aggregateId),
             clusterUserTasksOf(processInstanceKey),
+            clusterJobsOf(processInstanceKey),
             processInstanceKey);
 
   }
@@ -470,6 +516,25 @@ public class Camunda8WorkflowLifecycleTest {
 
     try {
       return strings("introspect/cluster/user-tasks/"
+          + processInstanceKey).toString();
+    } catch (final Exception | AssertionError e) {
+      return "<unreadable: %s>".formatted(e);
+    }
+
+  }
+
+  /**
+   * The jobs the cluster holds for a workflow, or why they could not be read. Guarded
+   * like the user tasks, for the same reason.
+   *
+   * @param processInstanceKey The workflow to ask about
+   * @return One entry per job, or what went wrong instead
+   */
+  private static String clusterJobsOf(
+      final String processInstanceKey) {
+
+    try {
+      return strings("introspect/cluster/jobs/"
           + processInstanceKey).toString();
     } catch (final Exception | AssertionError e) {
       return "<unreadable: %s>".formatted(e);
