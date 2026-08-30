@@ -81,7 +81,7 @@ public class Camunda8DeploymentServiceProducer {
                                       .getConfiguration(), scoping, (
                                           workflowModuleId,
                                           bpmnProcessId,
-                                          taskDefinition) -> overlay.retryBackoffFor(
+                                          taskDefinition) -> overlay.configuredRetryBackoffFor(
                                               workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
           // What each worker asks the cluster for, resolvable down to task
           // level

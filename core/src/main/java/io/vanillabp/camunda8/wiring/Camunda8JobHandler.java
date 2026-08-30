@@ -54,7 +54,8 @@ import lombok.extern.slf4j.Slf4j;
  * remaining lock and by five attempts, see
  * {@link io.vanillabp.camunda8.client.Camunda8CommandRetry} - a handler waiting occupies
  * an execution slot, which is why the bound is small. A job which is failed after all gets
- * a <code>retry-backoff</code>, so the cluster's next attempt is not immediate;</li>
+ * a <code>retry-backoff</code>, which the element's own task header may name instead of the
+ * configuration - see {@link Camunda8RetryBackoffHeader};</li>
  * <li>a delivery which fails while the workflow module is SHUTTING DOWN is not reported
  * as a job failure: the adapter's state decides, not the exception, because a
  * handler interrupted by the closing client throws like any other. The job keeps its lock
@@ -128,6 +129,13 @@ public class Camunda8JobHandler implements JobHandler {
    * {@link Camunda8RetryBackoffResolver#DEFAULT_RETRY_BACKOFF} applies.
    */
   private final Camunda8RetryBackoffResolver retryBackoffResolver;
+
+  /**
+   * What the models say about the backoff of this worker's task, and what was already
+   * said about them. One per worker, and a worker serves one task definition, so a model
+   * which got its header wrong costs one line per element rather than one per job.
+   */
+  private final Camunda8RetryBackoffHeader retryBackoffHeader;
 
   /**
    * What this worker asked the cluster for - a job carries these variables and
@@ -273,6 +281,7 @@ public class Camunda8JobHandler implements JobHandler {
         ? Camunda8FetchVariables.Selection.everything()
         : fetchVariables;
     this.retryBackoffResolver = retryBackoffResolver;
+    this.retryBackoffHeader = new Camunda8RetryBackoffHeader(adapterId, workflowModuleId);
     this.drain = drain == null
         ? new io.vanillabp.camunda8.client.Camunda8Drain(adapterId, workflowModuleId)
         : drain;
@@ -361,7 +370,7 @@ public class Camunda8JobHandler implements JobHandler {
       }
       // the core rolled the local transaction back - fail the job so Camunda 8
       // applies its retry semantics (retries reach 0 -> incident)
-      final var retryBackoff = retryBackoffOf(bpmnProcessId, taskDefinition);
+      final var retryBackoff = retryBackoffOf(job, bpmnProcessId, taskDefinition);
       log.warn(
           "Camunda8[{}]: processing job '{}' (type '{}') of BPMN process '{}' failed - failing the job "
               + "with {} retries left, to be handed out again in {}",
@@ -516,19 +525,34 @@ public class Camunda8JobHandler implements JobHandler {
   }
 
   /**
-   * How long the cluster waits before it hands a failed job of this task out again - the
-   * most specific configured <code>retry-backoff</code>, or ten seconds.
+   * How long the cluster waits before it hands a failed job of this task out again: what
+   * the element's own task header models, or the most specific configured
+   * <code>retry-backoff</code>, or ten seconds.
    *
+   * @param job The job which is about to be failed
    * @param bpmnProcessId The BPMN process id, as the core knows it
    * @param taskDefinition The task definition, as the core knows it
    * @return The backoff, never <code>null</code>
    */
   private Duration retryBackoffOf(
+      final ActivatedJob job,
       final String bpmnProcessId,
       final String taskDefinition) {
 
-    return Camunda8RetryBackoffResolver
+    final var configured = Camunda8RetryBackoffResolver
         .resolve(retryBackoffResolver, workflowModuleId, bpmnProcessId, taskDefinition);
+    final var modelled = retryBackoffHeader.modelledIn(job, bpmnProcessId, configured.duration());
+    if (modelled == null) {
+      return configured.duration();
+    }
+    if (!configured.perTask()) {
+      // the header speaks about one task, so it outranks every level which speaks about
+      // more than that one
+      return modelled;
+    }
+    retryBackoffHeader
+        .reportConfigurationWins(job, bpmnProcessId, taskDefinition, modelled, configured.duration());
+    return configured.duration();
 
   }
 

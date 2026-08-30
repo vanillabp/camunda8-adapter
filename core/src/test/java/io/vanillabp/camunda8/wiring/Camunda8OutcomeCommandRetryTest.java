@@ -273,7 +273,7 @@ public class Camunda8OutcomeCommandRetryTest {
             .ofHours(1), null, null, null, drain, (
                 module,
                 process,
-                task) -> Duration.ofSeconds(42))
+                task) -> new Camunda8RetryBackoffResolver.Configured(Duration.ofSeconds(42), false))
         .handle(jobClient, job());
 
     verify(jobClient.newFailCommand(4711L).retries(2), times(1)).retryBackoff(Duration.ofSeconds(42));

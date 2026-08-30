@@ -161,7 +161,8 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
       }
       // and otherwise the same treatment a service task gets
       final var retryBackoff = Camunda8RetryBackoffResolver
-          .resolve(retryBackoffResolver, workflowModuleId, bpmnProcessId, null);
+          .resolve(retryBackoffResolver, workflowModuleId, bpmnProcessId, null)
+          .duration();
       log.warn(
           "Camunda8[{}]: reporting the end of the instance '{}' of BPMN process '{}' (job '{}') failed - "
               + "failing the job with {} retries left, to be handed out again in {}",

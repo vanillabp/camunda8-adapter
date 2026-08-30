@@ -45,7 +45,14 @@ handlers:
   what it did before.
 - `Camunda8RetryBackoffResolver` resolves `retry-backoff` over the four configuration
   levels, per command rather than per worker. It travels with every fail command which
-  leaves the job retries.
+  leaves the job retries. Its answer names the level it comes from, because only the task
+  level has to be weighed against what the model says.
+- `Camunda8RetryBackoffHeader` reads the `retryBackoff` task header version 1 read, from
+  the job rather than from the model: the header then holds for process versions this
+  application never deployed, which is what an application arriving from version 1
+  brings. It beats every configuration level above the task and loses to the task level,
+  and a value which is no ISO-8601 duration costs one line per element instead of the
+  `Duration.ZERO` version 1 fell back to.
 - `Camunda8Drain` decides whether a failure belongs to the shutdown, in which
   case no command is sent at all and the job is left to its lock. It also holds what a
   shutdown waits for and the line it writes about it: the handlers of the

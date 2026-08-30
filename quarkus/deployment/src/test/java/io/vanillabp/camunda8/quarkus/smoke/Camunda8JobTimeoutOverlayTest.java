@@ -139,6 +139,25 @@ public class Camunda8JobTimeoutOverlayTest {
   }
 
   @Test
+  public void theAnswerSaysWhetherTheTaskLevelConfiguredIt() {
+
+    final var overlay = overlay();
+
+    // what a 'retryBackoff' task header of the model is weighed against: only the task
+    // level meets it as an equal, everything above it loses to the model
+    Assertions.assertTrue(
+        overlay.configuredRetryBackoffFor("test-app", "TaskProcess", "happyTask", "c8").perTask(),
+        "'happyTask' configures a backoff of its own");
+    Assertions.assertFalse(
+        overlay.configuredRetryBackoffFor("test-app", "TaskProcess", "otherTask", "c8").perTask(),
+        "the workflow level speaks about more than this one task");
+    Assertions.assertFalse(
+        overlay.configuredRetryBackoffFor("unknown-module", "SomeProcess", "someTask", "c8").perTask(),
+        "and so does the adapter level");
+
+  }
+
+  @Test
   public void fetchVariablesResolvesThroughAllFourLevels() {
 
     final var overlay = overlay();

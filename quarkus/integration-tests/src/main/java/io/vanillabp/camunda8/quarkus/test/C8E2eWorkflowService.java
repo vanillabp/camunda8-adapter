@@ -35,16 +35,17 @@ import jakarta.inject.Inject;
     bpmnProcess = @BpmnProcess(bpmnProcessId = "TaskProcess"),
     secondaryBpmnProcesses = {
         @BpmnProcess(bpmnProcessId = "FailProcess"), @BpmnProcess(bpmnProcessId = "RetryProcess"), @BpmnProcess(
-            bpmnProcessId = "AsyncProcess"), @BpmnProcess(bpmnProcessId = "AsyncCancelProcess"), @BpmnProcess(
-                bpmnProcessId = "UserTaskProcess"), @BpmnProcess(
-                    bpmnProcessId = "SilentUserTaskProcess"), @BpmnProcess(
-                        bpmnProcessId = "MessageProcess"), @BpmnProcess(
-                            bpmnProcessId = "MessageStartProcess"), @BpmnProcess(
-                                bpmnProcessId = "SyncProcess"), @BpmnProcess(
-                                    bpmnProcessId = "FetchProcess"), @BpmnProcess(
-                                        bpmnProcessId = "MultiInstanceProcess"), @BpmnProcess(
-                                            bpmnProcessId = "SignalCatchProcess"), @BpmnProcess(
-                                                bpmnProcessId = "VersionedProcess")
+            bpmnProcessId = "ModelledBackoffProcess"), @BpmnProcess(
+                bpmnProcessId = "AsyncProcess"), @BpmnProcess(bpmnProcessId = "AsyncCancelProcess"), @BpmnProcess(
+                    bpmnProcessId = "UserTaskProcess"), @BpmnProcess(
+                        bpmnProcessId = "SilentUserTaskProcess"), @BpmnProcess(
+                            bpmnProcessId = "MessageProcess"), @BpmnProcess(
+                                bpmnProcessId = "MessageStartProcess"), @BpmnProcess(
+                                    bpmnProcessId = "SyncProcess"), @BpmnProcess(
+                                        bpmnProcessId = "FetchProcess"), @BpmnProcess(
+                                            bpmnProcessId = "MultiInstanceProcess"), @BpmnProcess(
+                                                bpmnProcessId = "SignalCatchProcess"), @BpmnProcess(
+                                                    bpmnProcessId = "VersionedProcess")
     })
 public class C8E2eWorkflowService {
 
@@ -273,6 +274,17 @@ public class C8E2eWorkflowService {
     // transaction back and fails the job with decremented retries
     aggregate.appendResult("must-never-be-visible");
     throw new IllegalStateException("boom-c8-quarkus-e2e");
+
+  }
+
+  @WorkflowTask
+  public void modelledBackoffFails(
+      final C8E2eAggregate aggregate) {
+
+    countInvocation("modelledBackoffFails", aggregate);
+    // its element carries the task header 'retryBackoff', which is what decides how
+    // long the cluster waits before the next delivery
+    throw new IllegalStateException("boom-modelled-backoff");
 
   }
 

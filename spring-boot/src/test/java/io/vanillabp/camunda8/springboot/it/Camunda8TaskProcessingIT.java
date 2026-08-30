@@ -43,7 +43,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * (async-task-lock-renewal), so the handler is NOT re-invoked within the test
  * horizon although the task's job timeout is 2s;</li>
  * <li>the job timeout resolves through all four configuration levels from the
- * real application configuration.</li>
+ * real application configuration;</li>
+ * <li>a {@code retryBackoff} task header in the model decides the backoff of its own
+ * element, without a new process version and without configuration.</li>
  * </ul>
  * <p>
  * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
@@ -286,6 +288,13 @@ public class Camunda8TaskProcessingIT {
     assertEquals(
         Duration.ofSeconds(30),
         overlay.retryBackoffFor("unknown-module", "SomeProcess", "someTask", "c8"));
+    // and the answer names the one level a 'retryBackoff' task header meets as an equal
+    assertTrue(
+        overlay.configuredRetryBackoffFor("test-app", "TaskProcess", "happyTask", "c8").perTask(),
+        "'happyTask' configures a backoff of its own");
+    assertFalse(
+        overlay.configuredRetryBackoffFor("test-app", "TaskProcess", "errorTask", "c8").perTask(),
+        "the workflow level speaks about more than this one task");
 
   }
 
@@ -377,6 +386,43 @@ public class Camunda8TaskProcessingIT {
         "expected at least the configured five seconds between two deliveries but saw "
             + gap
             + " ms");
+
+  }
+
+  @Test
+  @DisplayName("The task header of the model decides the backoff where nothing configures the task")
+  public void theModelledBackoffReachesTheCluster() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+    // a model which brings its own backoff is what an application arriving from version 1
+    // has, and keeping that value must not cost it a new process version
+    startSecondaryProcess("ModelledBackoffProcess", aggregateId);
+
+    awaitUntil(
+        () -> invocations("modelledBackoffFails", aggregateId) >= 1,
+        60000,
+        "the failing job to be delivered");
+
+    awaitUntil(
+        () -> invocations("modelledBackoffFails", aggregateId) >= 2,
+        60000,
+        "the failing job to be handed out again");
+
+    // the element models PT12S while its workflow configures PT1S, so the distance
+    // between two deliveries is what says which of the two the cluster was given. The
+    // long value is the modelled one on purpose: a busy cluster can stretch a gap but
+    // never shorten it, so this assertion cannot go red on a slow machine
+    final var times = TaskDockerWorkflowService.INVOCATION_TIMES
+        .get("modelledBackoffFails:"
+            + aggregateId);
+    final var gap = times.get(1) - times.get(0);
+    assertTrue(
+        gap >= 8000,
+        "expected the twelve seconds the model asks for between two deliveries but saw "
+            + gap
+            + " ms, which is the second the configuration asks for");
 
   }
 

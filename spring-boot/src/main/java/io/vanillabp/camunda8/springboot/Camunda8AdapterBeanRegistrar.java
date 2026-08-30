@@ -86,7 +86,7 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                             io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.class), (
                                                 workflowModuleId,
                                                 bpmnProcessId,
-                                                taskDefinition) -> overlay.retryBackoffFor(
+                                                taskDefinition) -> overlay.configuredRetryBackoffFor(
                                                     workflowModuleId, bpmnProcessId, taskDefinition,
                                                     adapterId));
                 // What each worker asks the cluster for, resolvable down to

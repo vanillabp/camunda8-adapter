@@ -18,6 +18,10 @@ import java.time.Duration;
  * Unlike <code>job-timeout</code> this is resolved per COMMAND and not per worker: the
  * backoff travels with the fail command, so two BPMN processes served by one worker may
  * have different ones and nothing has to be aligned.
+ * <p>
+ * A BPMN model may say the same thing in the task header
+ * {@value Camunda8RetryBackoffHeader#HEADER_NAME}, which is why the answer names its
+ * level - see {@link Camunda8RetryBackoffHeader} for how the two are weighed.
  */
 @FunctionalInterface
 public interface Camunda8RetryBackoffResolver {
@@ -43,13 +47,34 @@ public interface Camunda8RetryBackoffResolver {
   Duration DEFAULT_RETRY_BACKOFF = Duration.parse(DEFAULT_RETRY_BACKOFF_ISO);
 
   /**
+   * A resolved backoff together with the level it was configured at - or rather, with the
+   * one distinction that matters. Only the TASK level is told apart, because it is the
+   * only one the model can meet as an equal: the task header
+   * {@value Camunda8RetryBackoffHeader#HEADER_NAME} speaks about exactly one task, so it
+   * outranks what a workflow, a workflow module or the adapter says and has to be decided
+   * against a task-level property.
+   *
+   * @param duration The backoff, never <code>null</code>
+   * @param perTask Whether the task level is where the duration comes from
+   */
+  record Configured(Duration duration, boolean perTask) {
+
+    /**
+     * The backoff nobody configured.
+     */
+    static final Configured DEFAULT = new Configured(DEFAULT_RETRY_BACKOFF, false);
+
+  }
+
+  /**
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process ID
    * @param taskDefinition The task definition (job type), or <code>null</code> for the
    *          workers which serve no task
-   * @return The most specific configured retry backoff or {@link #DEFAULT_RETRY_BACKOFF}
+   * @return The most specific configured retry backoff, falling back to
+   *         {@link #DEFAULT_RETRY_BACKOFF}
    */
-  Duration retryBackoffFor(
+  Configured retryBackoffFor(
       String workflowModuleId,
       String bpmnProcessId,
       String taskDefinition);
@@ -64,18 +89,18 @@ public interface Camunda8RetryBackoffResolver {
    * @param taskDefinition The task definition, or <code>null</code>
    * @return The resolved backoff, never <code>null</code>
    */
-  static Duration resolve(
+  static Configured resolve(
       final Camunda8RetryBackoffResolver resolver,
       final String workflowModuleId,
       final String bpmnProcessId,
       final String taskDefinition) {
 
     if (resolver == null) {
-      return DEFAULT_RETRY_BACKOFF;
+      return Configured.DEFAULT;
     }
     final var resolved = resolver.retryBackoffFor(workflowModuleId, bpmnProcessId, taskDefinition);
     return resolved == null
-        ? DEFAULT_RETRY_BACKOFF
+        ? Configured.DEFAULT
         : resolved;
 
   }
