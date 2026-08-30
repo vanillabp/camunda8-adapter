@@ -113,6 +113,32 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
+   * Whether the cluster was already waited for - the wait belongs to the adapter instance
+   * and not to a workflow module, so the second module of an application finds the question
+   * answered.
+   */
+  private final java.util.concurrent.atomic.AtomicBoolean clusterWaitedFor = new java.util.concurrent.atomic.AtomicBoolean();
+
+  /**
+   * Waits ONCE for this adapter instance's cluster to answer, before the first round of the
+   * start which decides anything is made (see {@link Camunda8ClusterWait}).
+   * <p>
+   * An adapter which booted unconfigured or degraded has no client and therefore no cluster
+   * to wait for; the guiding failure of {@link #getClient()} stays the answer there.
+   *
+   * @throws IllegalStateException If the cluster did not answer within
+   *           <code>startup-wait</code>, or answered something a repetition cannot change
+   */
+  public void waitUntilTheClusterAnswers() {
+
+    if ((client == null) || !clusterWaitedFor.compareAndSet(false, true)) {
+      return;
+    }
+    Camunda8ClusterWait.untilTheClusterAnswers(adapterId, configuration, client);
+
+  }
+
+  /**
    * Whether {@link #close()} was called: a dispatch racing the shutdown must not
    * use a client which is about to be closed.
    */

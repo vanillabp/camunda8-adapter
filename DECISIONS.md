@@ -273,3 +273,27 @@ which fails because the cluster has multi-tenancy switched off is answered with 
 `400` as any other rejected argument, so `Camunda8TenantCheck` picks the sharper of two
 guiding messages by what the cluster wrote. A rewording costs the sharper sentence there and
 nothing else.
+
+### 17. A start waits once for its cluster instead of repeating each round
+
+The commonest reason a start cannot reach its cluster is a cluster booting alongside the
+application, and that lets every round the start makes fail, not only the deployment: the tenant
+check, the deploy command, the question whether the cluster can be searched, and the version
+queries of the startup check. A retry around one of them would have covered a quarter of the
+cases, and it would have been a third repetition mechanic next to `Camunda8CommandRetry` and the
+outbox.
+
+So nothing is repeated. Before the first round which decides anything the adapter asks the
+cluster for its topology, the cheapest question a Camunda 8 cluster answers, and waits while the
+answer does not come - once per adapter instance, because what is waited for is the cluster and
+not the workflow module. Everything behind the wait keeps ending the start the way it always did:
+a cluster which breaks down in the middle of a deployment is not booting, it is failing.
+
+Three things end the wait, whichever comes first. The cluster answers, which costs one request.
+`vanillabp.adapters.<id>.startup-wait` is used up, and the start ends naming the address, the time
+waited and the cluster's last answer. Or the cluster answers something `Camunda8Errors` classifies
+as permanent, and the start ends at once - one classification, the same one everything else in
+this adapter reads, and it is what makes a default of ten minutes bearable. The default is long
+because the case it exists for takes minutes; it is paid for with a late abort and not with a late
+diagnosis, since a line every few seconds carries the cluster's last answer from the first attempt
+on.

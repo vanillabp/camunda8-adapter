@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.concurrent.CompletionException;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -99,6 +101,49 @@ public class Camunda8ErrorsTest {
             new ClientStatusException(io.grpc.Status.UNAVAILABLE, null)));
     assertFalse(Camunda8Errors.permanentFailure(new java.io.IOException("connection reset")));
     assertFalse(Camunda8Errors.permanentFailure(null));
+
+  }
+
+  @Test
+  @DisplayName("A timeout is repeated, in every shape the client hands one over in")
+  public void aTimeoutIsRepeatedInEveryShape() {
+
+    // The transport decides how a request which ran out of time reaches the adapter, and
+    // none of these shapes is a statement about what the cluster did - the answer may
+    // have been given and only failed to arrive. So every one of them is repeated, and
+    // none of them is mistaken for a job which is gone.
+    for (final var timeout : timeoutsAsTheClientHandsThemOver()) {
+      assertFalse(Camunda8Errors.permanentFailure(timeout), timeout.toString());
+      assertFalse(Camunda8Errors.jobAlreadyGone(timeout), timeout.toString());
+      assertTrue(Camunda8Errors.repeatableJobCommandFailure(timeout), timeout.toString());
+      assertFalse(Camunda8Errors.messageAlreadyPublished(timeout), timeout.toString());
+      assertFalse(Camunda8Errors.queryApiRefused(timeout), timeout.toString());
+    }
+
+  }
+
+  /**
+   * Every shape a request which ran out of time arrives in - read off the client: a REST
+   * request times out in the socket below Apache HttpClient, a bounded wait on the future
+   * ends in a {@link java.util.concurrent.TimeoutException}, and gRPC answers a deadline of
+   * its own with the status of that name. The client wraps whichever of them into a
+   * {@link io.camunda.client.api.command.ClientException} respectively a
+   * {@link CompletionException} on its way out.
+   */
+  private static java.util.List<Throwable> timeoutsAsTheClientHandsThemOver() {
+
+    return java.util.List
+        .of(
+            new java.net.SocketTimeoutException("Read timed out"),
+            new CompletionException(
+                new io.camunda.client.api.command.ClientException(
+                    "io error", new java.net.SocketTimeoutException("Read timed out"))),
+            new CompletionException(new java.util.concurrent.TimeoutException()),
+            new io.camunda.client.api.command.ClientException(
+                "timed out", new java.util.concurrent.TimeoutException("waited 10s")),
+            new ClientStatusException(io.grpc.Status.DEADLINE_EXCEEDED, null),
+            new CompletionException(
+                new ClientStatusException(io.grpc.Status.DEADLINE_EXCEEDED, null)));
 
   }
 

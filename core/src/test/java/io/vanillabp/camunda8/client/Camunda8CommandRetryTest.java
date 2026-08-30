@@ -105,6 +105,61 @@ public class Camunda8CommandRetryTest {
   }
 
   @Test
+  @DisplayName("A command which timed out is sent again, and the second attempt goes through")
+  public void aTimedOutCommandIsSentAgain() {
+
+    final var attempts = new AtomicInteger();
+
+    send(lockOf(Duration.ofMinutes(5)), false, () -> {
+      if (attempts.incrementAndGet() < 2) {
+        throw new java.util.concurrent.CompletionException(
+            new java.net.SocketTimeoutException("Read timed out"));
+      }
+    });
+
+    assertEquals(2, attempts.get(), "a socket which ran out of time says nothing about the job");
+
+  }
+
+  @Test
+  @DisplayName("A timeout leaves a job's lock long enough for a second attempt")
+  public void aTimeoutLeavesEnoughLockForASecondAttempt() {
+
+    // The arithmetic behind the previous test, with the values an installation which
+    // configures neither of them runs on: the lock of a delivered job lasts job-timeout,
+    // and a command which ran out of time consumed request-timeout of it before it
+    // failed. What is left has to outlast the first backoff, or the retry would be
+    // formally responsible for timeouts and practically never run.
+    final var lockLeftAfterATimeout = io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT
+        .minus(Camunda8AdapterConfiguration.DEFAULT_REQUEST_TIMEOUT);
+    assertTrue(
+        lockLeftAfterATimeout.toMillis() > Camunda8CommandRetry.backoffMillis(1),
+        "five minutes of lock minus ten seconds of request against a backoff of 50 ms");
+
+    final var attempts = new AtomicInteger();
+    send(lockOf(lockLeftAfterATimeout), false, () -> {
+      if (attempts.incrementAndGet() < 2) {
+        throw new java.util.concurrent.CompletionException(
+            new java.net.SocketTimeoutException("Read timed out"));
+      }
+    });
+    assertEquals(2, attempts.get(), "so the retry really does run");
+
+    // and the other way round: a lock shorter than one request cannot carry a second
+    // attempt, which is what the retry says instead of pretending otherwise
+    final var tooShort = new AtomicInteger();
+    assertThrows(
+        RuntimeException.class,
+        () -> send(lockOf(Duration.ZERO), false, () -> {
+          tooShort.incrementAndGet();
+          throw new java.util.concurrent.CompletionException(
+              new java.net.SocketTimeoutException("Read timed out"));
+        }));
+    assertEquals(1, tooShort.get(), "one attempt, because there is no lock left to spend");
+
+  }
+
+  @Test
   @DisplayName("A request the cluster refuses is not repeated")
   public void permanentFailuresAreNotRepeated() {
 

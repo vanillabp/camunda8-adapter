@@ -3,7 +3,7 @@ vanillabp:
     c8:
       type: camunda8
       rest-address: http://localhost:1
-      startup-wait: PT0S
+      startup-wait: PT2S
   prioritized-adapters:
     - c8
   workflow-modules:

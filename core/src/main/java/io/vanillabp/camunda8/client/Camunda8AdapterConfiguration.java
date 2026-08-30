@@ -47,6 +47,9 @@ import lombok.Setter;
  *   <li>{@code .shutdown-grace} (optional, default {@value #DEFAULT_SHUTDOWN_GRACE_ISO}) -
  *       how long a shutdown waits for the handlers it has in flight, see
  *       {@link #shutdownGrace}</li>
+ *   <li>{@code .startup-wait} (optional, default {@value #DEFAULT_STARTUP_WAIT_ISO}) - how
+ *       long the start waits for a cluster which is not answering yet, see
+ *       {@link #startupWait}</li>
  * </ul>
  * All fields are optional at binding time so applications which configure a Camunda 8
  * adapter but never actually use it still boot; {@link #validate(String)} enforces the
@@ -281,6 +284,37 @@ public class Camunda8AdapterConfiguration {
    * saying so, and the endpoint stops talking to the cluster at all.
    */
   private java.time.Duration healthTimeout;
+
+  /**
+   * How long the start of this adapter instance waits for its cluster to answer before it
+   * makes the first round which decides anything. Default:
+   * {@value #DEFAULT_STARTUP_WAIT_ISO}.
+   * <p>
+   * <b>Why the default is long.</b> The case it is there for is a cluster booting together
+   * with the application, and that takes minutes rather than seconds. Waiting is paid for
+   * with a late abort and not with a late DIAGNOSIS: the wait writes an INFO line every few
+   * seconds naming the address, the time gone and the cluster's last answer, so a typo in
+   * the address reads as "connection refused" from the first attempt on, and an answer the
+   * cluster will repeat ends the start at once rather than after the deadline.
+   * <p>
+   * <code>PT0S</code> switches the waiting off, and the start then fails on the first round
+   * which cannot reach the cluster.
+   * <p>
+   * Adapter level only: what is waited for is the cluster, and a cluster does not belong to
+   * a workflow module.
+   */
+  private java.time.Duration startupWait;
+
+  /**
+   * The default of {@link #startupWait} in ISO-8601 notation, for javadoc and messages.
+   */
+  public static final String DEFAULT_STARTUP_WAIT_ISO = "PT10M";
+
+  /**
+   * The default of {@link #startupWait}: ten minutes.
+   */
+  public static final java.time.Duration DEFAULT_STARTUP_WAIT = java.time.Duration
+      .parse(DEFAULT_STARTUP_WAIT_ISO);
 
   /**
    * The default of {@link #healthTimeout} in ISO-8601 notation, for javadoc and messages.
@@ -742,6 +776,128 @@ public class Camunda8AdapterConfiguration {
     return requestTimeout != null
         ? requestTimeout
         : DEFAULT_REQUEST_TIMEOUT;
+
+  }
+
+  /**
+   * The shortest request timeout this adapter reports as usable. Below it a deployment of a
+   * workflow module's models and a search over a busy cluster run out of time against a
+   * cluster which is perfectly healthy, and the activation request stops being a long poll:
+   * the worker then asks again every <code>poll-interval</code> instead of waiting at the
+   * cluster.
+   */
+  public static final java.time.Duration SHORTEST_USABLE_REQUEST_TIMEOUT = java.time.Duration.ofSeconds(1);
+
+  /**
+   * Validates how long a request of this adapter instance may take - AT STARTUP, because
+   * the value is the deadline of EVERY command the adapter sends and a value which is too
+   * short looks like a network problem rather than like configuration.
+   *
+   * @param adapterId The adapter id
+   * @param warnLogger Sink for the guiding warning
+   * @throws IllegalStateException If the timeout is negative or zero
+   */
+  public void validateRequestTimeout(
+      final String adapterId,
+      final java.util.function.Consumer<String> warnLogger) {
+
+    if (requestTimeout == null) {
+      return;
+    }
+    if (requestTimeout.isNegative() || requestTimeout.isZero()) {
+      throw new IllegalStateException(
+          """
+              Camunda 8 adapter '%s' has '%s: %s'. The timeout is the deadline of every request this \
+              adapter sends, so it has to be a positive duration - there is nothing a request without \
+              time could do. Give it a duration; the default is %s."""
+              .formatted(
+                  adapterId,
+                  propertyKey(adapterId, "request-timeout"),
+                  requestTimeout,
+                  DEFAULT_REQUEST_TIMEOUT));
+    }
+    if (requestTimeout.compareTo(SHORTEST_USABLE_REQUEST_TIMEOUT) >= 0) {
+      return;
+    }
+    warnLogger.accept(
+        """
+            Camunda 8 adapter '%s' has '%s: %s'. That value is the deadline of every request this \
+            adapter sends - the deployment of a workflow module's models and every search over the \
+            cluster included - so with it a healthy cluster answers too late and the failure reads \
+            like a network problem. It is also the window an activation request waits at the cluster: \
+            below a second the workers stop waiting there and ask again every '%s' instead. Raise it \
+            to at least %s; the default is %s."""
+            .formatted(
+                adapterId,
+                propertyKey(adapterId, "request-timeout"),
+                requestTimeout,
+                propertyKey(adapterId, "poll-interval"),
+                SHORTEST_USABLE_REQUEST_TIMEOUT,
+                DEFAULT_REQUEST_TIMEOUT));
+
+  }
+
+  /**
+   * How long the start of this adapter instance waits for its cluster: the configured value
+   * or {@link #DEFAULT_STARTUP_WAIT}.
+   *
+   * @return The wait, never <code>null</code>
+   */
+  public java.time.Duration resolvedStartupWait() {
+
+    return startupWait != null
+        ? startupWait
+        : DEFAULT_STARTUP_WAIT;
+
+  }
+
+  /**
+   * Validates how long the start of this adapter instance waits for its cluster - AT
+   * STARTUP, which is also the only moment the value is read.
+   *
+   * @param adapterId The adapter id
+   * @throws IllegalStateException If the wait is negative
+   */
+  public void validateStartupWait(
+      final String adapterId) {
+
+    if ((startupWait == null) || !startupWait.isNegative()) {
+      return;
+    }
+    throw new IllegalStateException(
+        """
+            Camunda 8 adapter '%s' has '%s: %s'. The wait is how long the start gives a cluster which \
+            is not answering yet, so it cannot be negative. Give it a duration (the default is %s), or \
+            'PT0S' to have the start fail on the first round it cannot make."""
+            .formatted(
+                adapterId,
+                propertyKey(adapterId, "startup-wait"),
+                startupWait,
+                DEFAULT_STARTUP_WAIT_ISO));
+
+  }
+
+  /**
+   * Where this adapter instance talks to, as an operator would write it down - the SaaS
+   * cluster and its region, or the address of a self-managed gateway.
+   * <p>
+   * Every message about reaching the cluster carries it, because the point of such a
+   * message is that somebody can act on it without opening the application's configuration
+   * first.
+   *
+   * @return The address, or <code>null</code> if none is configured
+   */
+  public String describeAddress() {
+
+    if (mode == Mode.SAAS) {
+      return (clusterId == null) && (region == null)
+          ? null
+          : "cluster '%s' in region '%s'".formatted(clusterId, region);
+    }
+    if (!isBlank(restAddress)) {
+      return restAddress;
+    }
+    return grpcAddress;
 
   }
 
