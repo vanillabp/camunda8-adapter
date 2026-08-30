@@ -104,8 +104,8 @@ public class Camunda8SharedClusterWithoutQueryApiIT {
         "and both adapter ids, so an operator knows which two: "
             + message);
     assertTrue(
-        message.contains("secondaryStorage"),
-        "and what to configure: "
+        message.contains("secondary-storage"),
+        "and what to look at first: "
             + message);
 
   }

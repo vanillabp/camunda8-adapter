@@ -113,7 +113,7 @@ public class Camunda8DeletedProcessVersionsTest {
     when(client.newProcessDefinitionSearchRequest()).thenReturn(search);
 
     final var versions = new Camunda8ProcessVersions(
-        "c8", () -> client, (
+        "c8", () -> client, new io.vanillabp.camunda8.client.Camunda8QueryApi("c8", () -> client), (
             workflowModuleId,
             bpmnProcessId) -> bpmnProcessId, workflowModuleId -> null);
     // a model this adapter could read would answer with tasks, so an empty answer below

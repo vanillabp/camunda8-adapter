@@ -23,6 +23,11 @@ public final class Camunda8Errors {
 
   /**
    * Whether the given failure means "this job does not exist (anymore)".
+   * <p>
+   * Both transports say it with a code of their own: the REST gateway answers a job
+   * command addressing a key it cannot find with HTTP <code>404</code>, the gRPC gateway
+   * with the status <code>NOT_FOUND</code>. Nothing here reads the message text - the
+   * words the cluster wraps around that code are the cluster's to change.
    *
    * @param throwable The failure of a job-based command
    * @return Whether the job is gone
@@ -32,15 +37,80 @@ public final class Camunda8Errors {
 
     var current = throwable;
     while (current != null) {
-      if (current instanceof ProblemException problem && (problem.details() != null) && (problem.details()
-          .getStatus() == 404)) {
+      if ((current instanceof ClientHttpException http) && (http.code() == 404)) {
         return true;
       }
-      final var message = current.getMessage();
-      if ((message != null) && (message.contains("NOT_FOUND") || message.contains("was not found"))) {
+      if ((current instanceof ClientStatusException status) && (status
+          .getStatusCode() == io.grpc.Status.Code.NOT_FOUND)) {
         return true;
       }
-      current = current.getCause();
+      current = current.getCause() == current
+          ? null
+          : current.getCause();
+    }
+    return false;
+
+  }
+
+  /**
+   * Whether the cluster refused a publication because a message of the same id was
+   * published before and still lives - the answer which makes an outbox entry done
+   * rather than repeated, because a repetition would be refused again.
+   * <p>
+   * Both transports name the rejection with a code, and this adapter uses both: a
+   * publication travels REST or gRPC depending on
+   * <code>vanillabp.adapters.&lt;id&gt;.prefer-rest-over-grpc</code>. On gRPC the
+   * rejection arrives as the status <code>ALREADY_EXISTS</code>, on REST as HTTP
+   * <code>409</code> (whose problem detail carries the same word as its title). No other
+   * conflict reaches a publication, so the code alone settles it, and the sentence the
+   * cluster writes around it stays the cluster's to reword.
+   *
+   * @param throwable What the publish command threw
+   * @return Whether the message was published before
+   */
+  public static boolean messageAlreadyPublished(
+      final Throwable throwable) {
+
+    var current = throwable;
+    while (current != null) {
+      if ((current instanceof ClientHttpException http) && (http.code() == 409)) {
+        return true;
+      }
+      if ((current instanceof ClientStatusException status) && (status
+          .getStatusCode() == io.grpc.Status.Code.ALREADY_EXISTS)) {
+        return true;
+      }
+      current = current.getCause() == current
+          ? null
+          : current.getCause();
+    }
+    return false;
+
+  }
+
+  /**
+   * Whether the cluster REFUSED a query-API request, which is what a cluster does that
+   * cannot be searched at all.
+   * <p>
+   * The searches of this adapter travel REST only - the client offers no gRPC equivalent
+   * for them - and the cluster refuses them with HTTP <code>403</code>. That code does
+   * not say WHY, see {@link Camunda8QueryApi}, which is why only the probe asks this
+   * question and everything else reads the remembered answer.
+   *
+   * @param throwable What a query-API request failed with
+   * @return Whether the cluster refused to answer it
+   */
+  public static boolean queryApiRefused(
+      final Throwable throwable) {
+
+    var current = throwable;
+    while (current != null) {
+      if ((current instanceof ClientHttpException http) && (http.code() == 403)) {
+        return true;
+      }
+      current = current.getCause() == current
+          ? null
+          : current.getCause();
     }
     return false;
 

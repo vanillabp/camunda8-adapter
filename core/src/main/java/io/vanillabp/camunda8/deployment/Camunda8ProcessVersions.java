@@ -20,9 +20,9 @@ import lombok.extern.slf4j.Slf4j;
  * The version itself travels with every job ({@code ActivatedJob#getProcessDefinitionVersion}),
  * so nothing here is needed for version specifications made of numbers. Version TAGS
  * are a different matter: a job does not carry one, and the cluster only tells which
- * version carries which tag through the query API (secondary storage). Where a cluster
- * runs without it, the tag stays unknown and is reported once - version specifications
- * made of numbers keep working.
+ * version carries which tag through the query API. Where a cluster refuses to be
+ * searched, the tag stays unknown and is reported once - version specifications made of
+ * numbers keep working.
  * <p>
  * What the deployment reported is recorded without any query
  * ({@link #recordDeployed(String, String, int, String)}): the deploy command
@@ -37,6 +37,13 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   private final String adapterId;
 
   private final java.util.function.Supplier<CamundaClient> client;
+
+  /**
+   * Whether this adapter's cluster answers query-API requests at all - settled once
+   * while the adapter starts processing, and the reason a failed search here is either
+   * "this cluster cannot tell" or a failure worth throwing.
+   */
+  private final io.vanillabp.camunda8.client.Camunda8QueryApi queryApi;
 
   /**
    * The BPMN process id as the CLUSTER knows it for a (workflow module, plain BPMN
@@ -159,7 +166,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
           .join();
       return found.page().totalItems();
     } catch (final RuntimeException e) {
-      if (isSecondaryStorageMissing(e)) {
+      if (!queryApi.answers()) {
         return null;
       }
       throw e;
@@ -267,7 +274,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
           .map(definition -> remember(workflowModuleId, bpmnProcessId, definition))
           .orElse(null);
     } catch (final RuntimeException e) {
-      if (isSecondaryStorageMissing(e)) {
+      if (!queryApi.answers()) {
         return null;
       }
       throw e;
@@ -278,11 +285,13 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   public Camunda8ProcessVersions(
       final String adapterId,
       final java.util.function.Supplier<CamundaClient> client,
+      final io.vanillabp.camunda8.client.Camunda8QueryApi queryApi,
       final BiFunction<String, String, String> scopedProcessIds,
       final Function<String, String> tenants) {
 
     this.adapterId = adapterId;
     this.client = client;
+    this.queryApi = queryApi;
     this.scopedProcessIds = scopedProcessIds;
     this.tenants = tenants;
 
@@ -382,18 +391,18 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
               .of(String.valueOf(definition.getVersion()), definition.getVersionTag()))
           .toList();
     } catch (final RuntimeException e) {
-      if (isSecondaryStorageMissing(e)) {
+      if (!queryApi.answers()) {
         if (noQueryApiWarned.compareAndSet(false, true)) {
           log.warn(
               """
-                  Camunda8[{}]: the cluster runs WITHOUT secondary storage, so the versions of BPMN \
+                  Camunda8[{}]: the cluster REFUSES to be searched, so the versions of BPMN \
                   process '{}' (workflow module '{}') cannot be asked for. Version specifications \
                   made of numbers (e.g. '>2') keep working - specifications naming a version TAG \
-                  match nothing until the query API is configured (camunda.database.type / \
-                  secondary storage).""",
+                  match nothing until the query API answers ({}).""",
               adapterId,
               bpmnProcessId,
-              workflowModuleId);
+              workflowModuleId,
+              io.vanillabp.camunda8.client.Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED);
         }
         return List.of();
       }
@@ -415,21 +424,6 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
     return "the end of a workflow is not reported to a @WorkflowEnded method, user-task lifecycle "
         + "notifications do not arrive where the listeners were added by this deployment, and a "
         + "message catch event correlates only by a correlation key its own model already carried";
-
-  }
-
-  private static boolean isSecondaryStorageMissing(
-      final Throwable throwable) {
-
-    var current = throwable;
-    while (current != null) {
-      final var message = current.getMessage();
-      if ((message != null) && message.contains("secondary storage")) {
-        return true;
-      }
-      current = current.getCause();
-    }
-    return false;
 
   }
 

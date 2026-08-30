@@ -31,7 +31,7 @@ import java.util.function.Function;
  * query API of that cluster. Job keys, user-task keys and
  * process-instance keys are unique per cluster and carry neither tenant nor prefix, so
  * the election has to look a key up to learn which of the two scopes it belongs to.
- * Such a setup on a cluster without secondary storage ends the boot; what counts as one
+ * Such a setup on a cluster which refuses to be searched ends the boot; what counts as one
  * cluster there is {@link #clusterIdentityOf}, which deliberately ignores the tenant and
  * the credentials this identity includes.
  */

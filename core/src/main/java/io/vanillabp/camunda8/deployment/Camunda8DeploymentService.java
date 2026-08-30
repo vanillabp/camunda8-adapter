@@ -382,7 +382,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // What the cluster's process definitions are versioned as - the version
     // travels with every job, the version TAGS come from here
     this.processVersions = new Camunda8ProcessVersions(
-        adapterId, clientFactory::getClient, this::scopedProcessId, this::tenantIdOf);
+        adapterId, clientFactory::getClient, clientFactory.getQueryApi(), this::scopedProcessId, this::tenantIdOf);
 
   }
 
@@ -805,7 +805,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * <p>
    * Two numbers are reported and only the first one is certain. The elements come from
    * the model this boot deploys and are what has to reach zero; the count of open tasks
-   * needs the query API and is left out where the cluster has no secondary storage.
+   * needs the query API and is left out where the cluster refuses to be searched.
    *
    * @param workflowModuleId The workflow module id
    * @param bpmnProcessId The plain BPMN process id
@@ -843,7 +843,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         Camunda8TaskWiring.TASKDEFINITION_USERTASK_WORKER_V1,
         String.join("', '", elementIds.stream().map("'%s'"::formatted).toList()),
         openTasks == null
-            ? "This cluster cannot be asked how many of them are open right now (no secondary storage)."
+            ? "This cluster cannot be asked how many of them are open right now (it refuses to be searched)."
             : "Open right now: %d.".formatted(openTasks));
 
   }
@@ -1046,64 +1046,37 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * <p>
    * On a shared cluster every key is global, so the election has to ask which scope a job
    * respectively a user task belongs to before an adapter claims it, and that question can
-   * only be answered by the query API. Without secondary storage the two ids are
-   * indistinguishable and the first entry of <code>prioritized-adapters</code> silently
+   * only be answered by the query API. Where the cluster refuses to be searched the two ids
+   * are indistinguishable and the first entry of <code>prioritized-adapters</code> silently
    * wins every operation of both, which routes messages into the wrong scope and writes a
    * changed aggregate into the wrong instance. An application with ONE Camunda 8 adapter is
-   * not affected and keeps working without secondary storage.
+   * not affected and keeps working on such a cluster.
    */
   private void failIfTwoAdapterIdsShareAClusterWithoutQueryApi() {
 
     if (!clientFactory.sharesItsCluster() || !sharedClusterChecked.compareAndSet(false, true)) {
       return;
     }
-    try {
-      clientFactory
-          .getClient()
-          .newProcessInstanceSearchRequest()
-          .page(page -> page.limit(1))
-          .send()
-          .join();
-    } catch (final RuntimeException e) {
-      if (!secondaryStorageMissing(e)) {
-        // any other failure is not this check's business - the cluster answered, and
-        // whatever it answered is reported by whoever asked next
-        return;
-      }
-      throw new IllegalStateException(
-          """
-              Camunda 8 adapter '%s' shares its cluster with the adapter id(s) '%s', and that cluster \
-              runs WITHOUT secondary storage. Two adapter ids on one cluster are told apart by the \
-              scope they deployed under (the tenant respectively the prefixed process id), and the \
-              key of a job or user task carries neither - the query API is what maps a key to its \
-              scope. Without it VanillaBP would route every operation to the first entry of \
-              'vanillabp.prioritized-adapters', which sends messages into the wrong scope and writes \
-              a changed workflow aggregate into the wrong instance, all without an error. Configure \
-              secondary storage for this cluster (camunda.data.secondaryStorage), or give each \
-              adapter id a cluster of its own."""
-              .formatted(
-                  adapterId,
-                  String.join("', '", clientFactory.getAdapterIdsSharingTheCluster())), e);
+    // the capability, not a failure of a request of this check's own: a cluster which
+    // was merely unreachable while it was asked leaves the answer open, and an
+    // unreachable cluster is no reason to end the boot
+    if (clientFactory.getQueryApi().answers()) {
+      return;
     }
-
-  }
-
-  /**
-   * @param throwable What a query-API request failed with
-   * @return Whether the cluster answered that it has no secondary storage
-   */
-  private static boolean secondaryStorageMissing(
-      final Throwable throwable) {
-
-    var current = throwable;
-    while (current != null) {
-      final var message = current.getMessage();
-      if ((message != null) && message.contains("secondary storage")) {
-        return true;
-      }
-      current = current.getCause();
-    }
-    return false;
+    throw new IllegalStateException(
+        """
+            Camunda 8 adapter '%s' shares its cluster with the adapter id(s) '%s', and that cluster \
+            REFUSES to be searched (%s). Two adapter ids on one cluster are told apart by the \
+            scope they deployed under (the tenant respectively the prefixed process id), and the \
+            key of a job or user task carries neither - the query API is what maps a key to its \
+            scope. Without it VanillaBP would route every operation to the first entry of \
+            'vanillabp.prioritized-adapters', which sends messages into the wrong scope and writes \
+            a changed workflow aggregate into the wrong instance, all without an error. Make the \
+            query API answer for this adapter, or give each adapter id a cluster of its own."""
+            .formatted(
+                adapterId,
+                String.join("', '", clientFactory.getAdapterIdsSharingTheCluster()),
+                io.vanillabp.camunda8.client.Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED));
 
   }
 
@@ -1333,6 +1306,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // what each worker serves, which is what its fetch list is the union over
     final var servedByJobType = new LinkedHashMap<String, List<ServedElement>>();
     final var client = clientFactory.getClient();
+    // whether this cluster can be searched is settled HERE, once per adapter id, by a
+    // request whose only purpose it is: from now on every probe, every version question
+    // and every push reads the remembered answer instead of guessing at a failure of
+    // its own
+    clientFactory.getQueryApi().answers();
     // what this module has in flight, and later whether it is going down: every handler
     // registers its delivery here, and stopWorkflowProcessing waits for them
     final var drain = freshDrainOf(workflowModuleId);

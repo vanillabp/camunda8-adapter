@@ -150,6 +150,22 @@ public class Camunda8ViewerQueryTest {
 
   }
 
+  /**
+   * How a cluster refuses a query-API request: HTTP 403 with a problem detail. Which of
+   * the two reasons it has - no secondary storage, or credentials which may not read -
+   * does not reach the client as a code, and the viewer degrades the same way for both.
+   *
+   * @return The failure a refused search ends with
+   */
+  private static RuntimeException clusterRefusesToBeSearched() {
+
+    final var details = new io.camunda.client.api.ProblemDetail();
+    details.setStatus(403);
+    details.setTitle("FORBIDDEN");
+    return new io.camunda.client.api.command.ProblemException(403, "Forbidden", details);
+
+  }
+
   private static <T> CamundaFuture<T> future(
       final T value) {
 
@@ -353,7 +369,7 @@ public class Camunda8ViewerQueryTest {
     foundInstances = List.of(instance(4711L, "111", null));
     final var elementSearch = mock(ElementInstanceSearchRequest.class, RETURNS_SELF);
     when(client.newElementInstanceSearchRequest()).thenReturn(elementSearch);
-    when(elementSearch.send()).thenThrow(new IllegalStateException("secondary storage is not enabled"));
+    when(elementSearch.send()).thenThrow(clusterRefusesToBeSearched());
 
     final var history = viewer.getWorkflowHistory("test-module", "ParentProcess", "id", "42", null);
 
@@ -370,7 +386,7 @@ public class Camunda8ViewerQueryTest {
     foundElementInstances = List.of(
         elementInstance("TheStart", ElementInstanceType.START_EVENT, ElementInstanceState.COMPLETED));
     when(client.newIncidentsByProcessInstanceSearchRequest(anyLong()))
-        .thenThrow(new IllegalStateException("secondary storage is not enabled"));
+        .thenThrow(clusterRefusesToBeSearched());
 
     final var history = viewer.getWorkflowHistory("test-module", "ParentProcess", "id", "42", null);
 
@@ -441,7 +457,7 @@ public class Camunda8ViewerQueryTest {
 
     final var instanceSearch = mock(ProcessInstanceSearchRequest.class, RETURNS_SELF);
     when(client.newProcessInstanceSearchRequest()).thenReturn(instanceSearch);
-    when(instanceSearch.send()).thenThrow(new IllegalStateException("secondary storage is not enabled"));
+    when(instanceSearch.send()).thenThrow(clusterRefusesToBeSearched());
 
     // both calls degrade to the deployed version - the second one must not warn again
     assertNotNull(viewer.getWorkflowHistory("test-module", "ParentProcess", "id", "42", null));

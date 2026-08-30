@@ -379,17 +379,17 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .join();
       return found.page().totalItems();
     } catch (final Exception e) {
-      if (isSecondaryStorageMissing(e)) {
-        // a cluster without secondary storage cannot be asked what it is holding, and
-        // a startup diagnosis is no reason to say so twice - the core stays silent
-        return null;
+      // a cluster which cannot be searched cannot be asked what it is holding either,
+      // and a startup diagnosis is no reason to say so twice - the core stays silent.
+      // Everything else is a failure of this one request and is worth a line
+      if (clientFactory.getQueryApi().answers()) {
+        log
+            .debug(
+                "Camunda8[{}]: the cluster did not answer how many tasks of '{}' are open",
+                adapterId,
+                bpmnProcessId,
+                e);
       }
-      log
-          .debug(
-              "Camunda8[{}]: the cluster did not answer how many tasks of '{}' are open",
-              adapterId,
-              bpmnProcessId,
-              e);
       return null;
     }
 
@@ -710,66 +710,27 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
-   * Logged once per adapter: probing workflow awareness needs the query API
-   * (secondary storage) - without it the adapter answers OPTIMISTICALLY.
+   * Logged once per adapter: probing workflow awareness needs a cluster which can be
+   * searched - without one the adapter answers OPTIMISTICALLY.
    */
-  private final java.util.concurrent.atomic.AtomicBoolean noSecondaryStorageWarned = new java.util.concurrent.atomic.AtomicBoolean();
-
-  /**
-   * What the cluster answered when it was asked whether it can be searched at all -
-   * <code>null</code> until somebody asked. The answer cannot change while the
-   * application runs: secondary storage is part of how the cluster was started.
-   */
-  private volatile Boolean queryApiAvailable;
+  private final java.util.concurrent.atomic.AtomicBoolean cannotSearchWarned = new java.util.concurrent.atomic.AtomicBoolean();
 
   /**
    * Whether this cluster can be ASKED which workflows it holds.
    * <p>
-   * Finding a workflow means searching the query API, which a cluster without secondary
-   * storage does not have - {@link #awarenessOfWorkflow} then answers optimistically,
+   * Finding a workflow means searching the query API, which a cluster refusing to be
+   * searched does not offer - {@link #awarenessOfWorkflow} then answers optimistically,
    * which is right while this is the only BPMS and a guess as soon as it is not. Saying
    * so here is what lets the core refuse that combination while it boots.
-   * <p>
-   * The core asks after this adapter deployed, so one search settles it: an empty result
-   * is an answer like any other, and only the "no secondary storage" failure means the
-   * cluster cannot be asked. A cluster which is unreachable in that moment is not
-   * declared incapable - it is asked again the next time.
    *
    * @return Whether the query API answers
    */
   @Override
   public boolean canLocateWorkflows() {
 
-    if (queryApiAvailable != null) {
-      return queryApiAvailable;
-    }
-    try {
-      // the same shape the real probe uses - a search FILTERED BY A VARIABLE is what
-      // needs the secondary storage, while a bare search is answered by the broker
-      // itself. The variable name matches nothing on purpose: an empty result is an
-      // answer, and only the missing query API is not
-      clientFactory
-          .getClient()
-          .newProcessInstanceSearchRequest()
-          .filter(filter -> filter
-              .variables(java.util.Map
-                  .of("vanillabp-query-api-probe", Camunda8VariableFilters.aggregateIdSearchValue("none"))))
-          .page(page -> page.limit(1))
-          .send()
-          .join();
-      queryApiAvailable = Boolean.TRUE;
-    } catch (final Exception e) {
-      if (!isSecondaryStorageMissing(e)) {
-        // the cluster could not be reached, which says nothing about its capabilities
-        log.debug(
-            "Camunda8[{}]: could not find out whether the query API answers - assuming it does",
-            adapterId,
-            e);
-        return true;
-      }
-      queryApiAvailable = Boolean.FALSE;
-    }
-    return queryApiAvailable;
+    return clientFactory
+        .getQueryApi()
+        .answers();
 
   }
 
@@ -817,19 +778,21 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               ? WorkflowAwareness.ACTIVE
               : WorkflowAwareness.COMPLETED;
     } catch (final Exception e) {
-      if (isSecondaryStorageMissing(e)) {
-        // OPTIMISTIC fallback: without the query API the instance's existence
-        // cannot be probed. Correlation publishes are buffered by the engine
+      if (!clientFactory.getQueryApi().answers()) {
+        // OPTIMISTIC fallback: a cluster which cannot be searched cannot be asked
+        // whether the instance exists. Correlation publishes are buffered by the engine
         // anyway (message TTL); in MULTI-BPMS migration setups this answer may
-        // route an operation to the wrong BPMS - configure secondary storage
-        // there (guiding WARN below).
-        if (noSecondaryStorageWarned.compareAndSet(false, true)) {
+        // route an operation to the wrong BPMS - which is what the WARN below is about.
+        // Whether THIS request failed for that reason is not asked: the capability was
+        // settled by a probe of its own, and a failure of a cluster which can be
+        // searched is an outage rather than a missing feature
+        if (cannotSearchWarned.compareAndSet(false, true)) {
           log.warn(
-              "Camunda8[{}]: the cluster runs WITHOUT secondary storage - workflow awareness "
-                  + "cannot be probed and is answered OPTIMISTICALLY (ACTIVE). Fine for "
-                  + "single-BPMS setups; for BPMS migration scenarios configure the query API "
-                  + "(camunda.database.type / secondary storage).",
-              adapterId);
+              "Camunda8[{}]: the cluster REFUSES to be searched, so workflow awareness cannot be "
+                  + "probed and is answered OPTIMISTICALLY (ACTIVE). Fine for single-BPMS setups; "
+                  + "for BPMS migration scenarios the query API has to answer - {}.",
+              adapterId,
+              io.vanillabp.camunda8.client.Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED);
         }
         return WorkflowAwareness.ACTIVE;
       }
@@ -853,7 +816,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * <ul>
    * <li>no state filter - a workflow COMPLETED since the crashed start still
    * proves the start succeeded;</li>
-   * <li>without secondary storage the answer is an honest
+   * <li>where the cluster cannot be searched the answer is an honest
    * {@link WorkflowAwareness#UNKNOWN_TO_BPMS} (instead of the election's
    * optimistic ACTIVE): the start proceeds and this adapter's
    * {@link #startWorkflowPhaseTwo} at-least-once contract applies.</li>
@@ -884,11 +847,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               ? WorkflowAwareness.UNKNOWN_TO_BPMS
               : WorkflowAwareness.ACTIVE;
     } catch (final Exception e) {
-      if (isSecondaryStorageMissing(e)) {
+      if (!clientFactory.getQueryApi().answers()) {
         log.debug(
-            "Camunda8[{}]: no secondary storage - the re-dispatch mitigation cannot probe, the "
-                + "start proceeds (duplicates within the documented at-least-once residual are "
-                + "possible)",
+            "Camunda8[{}]: the cluster cannot be searched - the re-dispatch mitigation cannot "
+                + "probe, the start proceeds (duplicates within the documented at-least-once "
+                + "residual are possible)",
             adapterId);
         return WorkflowAwareness.UNKNOWN_TO_BPMS;
       }
@@ -900,21 +863,6 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           e);
       return WorkflowAwareness.BPMS_UNAVAILABLE;
     }
-
-  }
-
-  private static boolean isSecondaryStorageMissing(
-      final Throwable throwable) {
-
-    var current = throwable;
-    while (current != null) {
-      final var message = current.getMessage();
-      if ((message != null) && message.contains("secondary storage")) {
-        return true;
-      }
-      current = current.getCause();
-    }
-    return false;
 
   }
 
@@ -971,7 +919,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * otherwise answer for each other's tasks.
    * <p>
    * The answer needs the query API, which is why an application configuring two ids on
-   * one cluster without secondary storage does not boot (see
+   * one cluster which cannot be searched does not boot (see
    * {@code Camunda8DeploymentService}). A task the query API does not know is left to the
    * probe itself: it is either gone or not exported yet, and both are answered by the
    * command which follows.
@@ -1255,7 +1203,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           request.bpmnProcessId(),
           request.workflowModuleId());
     } catch (final Exception e) {
-      if (!isMessageAlreadyPublished(e)) {
+      if (!Camunda8Errors.messageAlreadyPublished(e)) {
         throw e;
       }
       // the engine deduplicated by messageId. Which of the two it was cannot be told
@@ -1325,21 +1273,6 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     return activationId == null
         ? withoutActivation
         : "%s|%s".formatted(withoutActivation, activationId);
-
-  }
-
-  private static boolean isMessageAlreadyPublished(
-      final Throwable throwable) {
-
-    var current = throwable;
-    while (current != null) {
-      final var message = current.getMessage();
-      if ((message != null) && (message.contains("ALREADY_EXISTS") || message.contains("already been published"))) {
-        return true;
-      }
-      current = current.getCause();
-    }
-    return false;
 
   }
 
@@ -1697,7 +1630,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * The guiding failure of a push which cannot find WHERE to write. Camunda 8 has
    * neither a business key nor a command addressing a workflow by one of its
    * variables, so the query API is the only way from an aggregate ID to the keys
-   * {@code SetVariables} needs - a cluster without secondary storage cannot serve
+   * {@code SetVariables} needs - a cluster which refuses to be searched cannot serve
    * this feature at all.
    *
    * @param cause What the search failed with
@@ -1708,14 +1641,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final Exception cause,
       final String subject) {
 
-    if (isSecondaryStorageMissing(cause)) {
+    if (!clientFactory.getQueryApi().answers()) {
       return new UnsupportedOperationException(
           ("Camunda8[%s]: cannot push a changed workflow-aggregate - %s cannot be located because "
-              + "the cluster runs WITHOUT secondary storage. Camunda 8 addresses variables by "
+              + "the cluster REFUSES to be searched (%s). Camunda 8 addresses variables by "
               + "process-instance and element-instance keys only, and the query API is what "
-              + "translates the aggregate's ID into them: configure secondary storage "
-              + "(camunda.database.type) or push the aggregate by completing a task instead.")
-              .formatted(adapterId, subject), cause);
+              + "translates the aggregate's ID into them: make the query API answer, or push the "
+              + "aggregate by completing a task instead.")
+              .formatted(adapterId, subject,
+                  io.vanillabp.camunda8.client.Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED), cause);
     }
     if (cause instanceof RuntimeException runtimeException) {
       return runtimeException;
@@ -1766,7 +1700,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           request.workflowModuleId(),
           request.workflowAggregateId());
     } catch (final Exception e) {
-      if (!isMessageAlreadyPublished(e)) {
+      if (!Camunda8Errors.messageAlreadyPublished(e)) {
         throw e;
       }
       // a start is different from a correlation: a workflow is started at most once per
