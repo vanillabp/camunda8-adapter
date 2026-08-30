@@ -540,6 +540,29 @@ public class Camunda8WorkflowLifecycleTest {
   }
 
   @Test
+  @DisplayName("The task header of the model decides the backoff where nothing configures the task")
+  public void theModelledBackoffReachesTheCluster() throws Exception {
+
+    final var aggregateId = aggregateIdOf(startProcess("ModelledBackoffProcess"));
+    // a model which brings its own backoff is what an application arriving from version 1
+    // has, and keeping that value must not cost it a new process version
+
+    await(() -> invocations("modelledBackoffFails", aggregateId) >= 1, "the failing job to be delivered");
+    await(() -> invocations("modelledBackoffFails", aggregateId) >= 2, "the failing job to be handed out again");
+
+    // the element models PT12S while its workflow configures PT1S, so the distance
+    // between two deliveries is what says which of the two the cluster was given. The
+    // long value is the modelled one on purpose: a busy cluster can stretch a gap but
+    // never shorten it, so this assertion cannot go red on a slow machine
+    final var gap = Long.parseLong(text("introspect/delivery-gap/modelledBackoffFails/"
+        + aggregateId));
+    assertTrue(gap >= 8000, "expected the twelve seconds the model asks for between two deliveries but saw "
+        + gap
+        + " ms, which is the second the configuration asks for");
+
+  }
+
+  @Test
   @DisplayName("A second delivery of the same task converges - at-least-once, proven")
   public void aRedeliveredTaskConverges() throws Exception {
 

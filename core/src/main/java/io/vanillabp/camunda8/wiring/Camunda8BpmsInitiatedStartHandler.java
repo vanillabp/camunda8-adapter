@@ -173,7 +173,8 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
       // and otherwise the same treatment a service task gets: the cluster counts the
       // retries down and raises an incident once they are used up
       final var retryBackoff = Camunda8RetryBackoffResolver
-          .resolve(retryBackoffResolver, workflowModuleId, bpmnProcessId, null);
+          .resolve(retryBackoffResolver, workflowModuleId, bpmnProcessId, null)
+          .duration();
       log.warn(
           "Camunda8[{}]: building the workflow aggregate for the start event '{}' of BPMN process '{}' "
               + "(job '{}') failed - failing the job with {} retries left, to be handed out again in {}",

@@ -731,6 +731,21 @@ error message of a fail command carries the exception's TYPE next to its message
 that text is what an operator reads in Operate and `NullPointerException` used to write
 `null` there.
 
+A model may name the backoff of a single element itself, in the task header `retryBackoff`
+version 1 read. It is read from the JOB and not from the model while deploying: an
+`ActivatedJob` carries the headers of its element, so nothing has to be scanned, and the
+value holds for process versions this application never deployed. That is the situation of
+an application arriving from version 1.
+
+Which of the two applies follows one rule, the more specific statement, plus a tie-break.
+The header speaks about one task, so it beats `retry-backoff` at the workflow, the
+workflow-module and the adapter level. Against the task level it loses, because between two
+statements of the same reach the one which can be changed without a new process version
+wins; where both are set and differ, one line per element says which value went out. A
+header which is no ISO-8601 duration costs one line per element and leaves the configured
+value in force, where version 1 fell back to `Duration.ZERO` and thereby handed the job out
+again at once.
+
 **Shutting down while work is in flight:** the client does not drain. A
 worker's `close()` returns without waiting for the jobs it already handed to a handler,
 and `CamundaClient.close()` interrupts every running handler milliseconds later. So

@@ -59,6 +59,26 @@
       <bpmn:incoming>FP_f2</bpmn:incoming>
     </bpmn:endEvent>
   </bpmn:process>
+  <bpmn:process id="ModelledBackoffProcess" isExecutable="true">
+    <bpmn:startEvent id="MB_start">
+      <bpmn:outgoing>MB_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="MB_f1" sourceRef="MB_start" targetRef="MB_task" />
+    <bpmn:serviceTask id="MB_task">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="modelledBackoffFails" />
+        <zeebe:taskHeaders>
+          <zeebe:header key="retryBackoff" value="PT12S" />
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>MB_f1</bpmn:incoming>
+      <bpmn:outgoing>MB_f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="MB_f2" sourceRef="MB_task" targetRef="MB_end" />
+    <bpmn:endEvent id="MB_end">
+      <bpmn:incoming>MB_f2</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
   <bpmn:process id="RetryProcess" isExecutable="true">
     <bpmn:startEvent id="RP_start">
       <bpmn:outgoing>RP_f1</bpmn:outgoing>

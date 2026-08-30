@@ -289,13 +289,16 @@ public class Camunda8CommandRetryTest {
 
     assertEquals(
         io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
-        io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.resolve(null, "m", "P", "t"));
+        io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver
+            .resolve(null, "m", "P", "t")
+            .duration());
     assertEquals(
         io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF,
         io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.resolve((
             module,
             process,
-            task) -> null, "m", "P", "t"),
+            task) -> null, "m", "P", "t")
+            .duration(),
         "and a resolver which answers nothing does not become a null backoff");
 
   }

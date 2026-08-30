@@ -5,6 +5,41 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## The `retryBackoff` task header of a model is read again (2026-08-30)
+
+Version 1 let a Camunda 8 model name the backoff of a single element in the task header
+`retryBackoff`, which is how it filled the gap Camunda 8 leaves next to Camunda 7's
+`camunda:failedJobRetryTimeCycle`. Version 2 read no task headers, so a model carrying one
+lost it and nothing said so. The header is read again, and no model has to be touched for
+that.
+
+Two things are different from version 1. The header is read from the JOB rather than from
+the model while deploying, so it also holds for process versions this application never
+deployed and no redeployment is needed. And version 1 only looked at the header where the
+element's `zeebe:taskDefinition` carried a `retries` attribute as well; that condition is
+gone, because whoever models a backoff means it either way.
+
+An application which already moved the value into the configuration has one thing to check.
+Where it landed at the TASK level
+(`vanillabp.workflow-modules.<m>.workflows.<w>.tasks.<t>.adapters.<id>.retry-backoff`),
+nothing changes: that level still applies, and one line per element says so where the model
+disagrees with it. Where it landed at the workflow, the workflow-module or the adapter
+level while the header stayed in the model, the header applies again from now on. Both say
+something about one single task, so the more specific one wins, and between two of the same
+reach the one you can change without deploying a new process version does. So look at the
+models you migrated: a header you meant to retire has to leave the model, not just the
+configuration.
+
+A header which is no ISO-8601 duration costs a warning naming the workflow module, the
+BPMN process, the element and the value, and then the configured value applies. Version 1
+answered such a typo with `Duration.ZERO`, which reads like "no backoff wanted" and hands
+the job out again at once. The warning falls when a job of that element fails, once per
+element and not once per job, and deliberately not while the application boots: a model
+deployed long ago cannot be corrected by the boot which would complain about it.
+
+The default is unchanged: without a header and without configuration a failed job is
+handed out again after ten seconds, where version 1 sent no backoff at all.
+
 ## Deleting a process definition ends the reports about it (2026-08-30)
 
 Nothing to configure, and one fewer thing to explain away in a startup log.

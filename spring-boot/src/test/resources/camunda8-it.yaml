@@ -28,6 +28,10 @@ vanillabp:
           adapters:
             c8:
               retry-backoff: PT5S
+        ModelledBackoffProcess:
+          adapters:
+            c8:
+              retry-backoff: PT1S
         MessageProcess:
           messages:
             C8PaymentReceived:

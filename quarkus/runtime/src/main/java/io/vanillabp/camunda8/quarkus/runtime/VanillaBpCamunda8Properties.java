@@ -93,19 +93,79 @@ public interface VanillaBpCamunda8Properties {
       final String taskDefinition,
       final String adapterId) {
 
+    return configuredRetryBackoffFor(workflowModuleId, bpmnProcessId, taskDefinition, adapterId)
+        .duration();
+
+  }
+
+  /**
+   * The same answer, plus the one thing a BPMN model can argue with: whether the TASK
+   * level is where the value comes from. A task header
+   * {@value io.vanillabp.camunda8.wiring.Camunda8RetryBackoffHeader#HEADER_NAME} says as
+   * much about one task as that level does and beats every level above it.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @param taskDefinition The task definition (job type)
+   * @param adapterId The adapter ID
+   * @return The most specific configured backoff and the level it was found at
+   */
+  default io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured configuredRetryBackoffFor(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String taskDefinition,
+      final String adapterId) {
+
+    final var perTask = taskLevelKeys(workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
+    if ((perTask != null) && perTask.retryBackoff().isPresent()) {
+      return new io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured(
+          perTask.retryBackoff().get(), true);
+    }
     final var scoped = scopedKeysMostSpecificFirst(workflowModuleId, bpmnProcessId, taskDefinition, adapterId)
         .map(Camunda8ScopedKeys::retryBackoff)
         .flatMap(Optional::stream)
         .findFirst();
     if (scoped.isPresent()) {
-      return scoped.get();
+      return new io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured(scoped.get(), false);
     }
     final var adapter = adapters().get(adapterId);
-    return adapter != null
-        ? adapter
-            .retryBackoff()
-            .orElse(io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF)
-        : io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF;
+    return new io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.Configured(
+        adapter != null
+            ? adapter
+                .retryBackoff()
+                .orElse(io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF)
+            : io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF, false);
+
+  }
+
+  /**
+   * The <code>adapters.&lt;id&gt;</code> section of the TASK level alone, or
+   * <code>null</code> where the configuration says nothing about this task.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @param taskDefinition The task definition (job type)
+   * @param adapterId The adapter ID
+   * @return The section or <code>null</code>
+   */
+  private Camunda8ScopedKeys taskLevelKeys(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String taskDefinition,
+      final String adapterId) {
+
+    final var module = workflowModuleId != null
+        ? workflowModules().get(workflowModuleId)
+        : null;
+    final var workflow = (module != null) && (bpmnProcessId != null)
+        ? module.workflows().get(bpmnProcessId)
+        : null;
+    final var task = (workflow != null) && (taskDefinition != null)
+        ? workflow.tasks().get(taskDefinition)
+        : null;
+    return task != null
+        ? task.adapters().get(adapterId)
+        : null;
 
   }
 

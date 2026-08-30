@@ -24,12 +24,14 @@ import io.vanillabp.spi.service.WorkflowTask;
     workflowAggregateClass = TaskDockerAggregate.class,
     bpmnProcess = @BpmnProcess(bpmnProcessId = "TaskProcess"),
     secondaryBpmnProcesses = {
-        @BpmnProcess(bpmnProcessId = "FailProcess"), @BpmnProcess(bpmnProcessId = "AsyncProcess"), @BpmnProcess(
-            bpmnProcessId = "RetryProcess"), @BpmnProcess(bpmnProcessId = "AsyncCancelProcess"), @BpmnProcess(
-                bpmnProcessId = "UserTaskProcess"), @BpmnProcess(bpmnProcessId = "SilentUserTaskProcess"), @BpmnProcess(
-                    bpmnProcessId = "MessageProcess"), @BpmnProcess(
-                        bpmnProcessId = "MessageStartProcess"), @BpmnProcess(
-                            bpmnProcessId = "SyncProcess"), @BpmnProcess(bpmnProcessId = "FetchProcess")
+        @BpmnProcess(bpmnProcessId = "FailProcess"), @BpmnProcess(
+            bpmnProcessId = "ModelledBackoffProcess"), @BpmnProcess(bpmnProcessId = "AsyncProcess"), @BpmnProcess(
+                bpmnProcessId = "RetryProcess"), @BpmnProcess(bpmnProcessId = "AsyncCancelProcess"), @BpmnProcess(
+                    bpmnProcessId = "UserTaskProcess"), @BpmnProcess(
+                        bpmnProcessId = "SilentUserTaskProcess"), @BpmnProcess(
+                            bpmnProcessId = "MessageProcess"), @BpmnProcess(
+                                bpmnProcessId = "MessageStartProcess"), @BpmnProcess(
+                                    bpmnProcessId = "SyncProcess"), @BpmnProcess(bpmnProcessId = "FetchProcess")
     })
 public class TaskDockerWorkflowService {
 
@@ -135,6 +137,17 @@ public class TaskDockerWorkflowService {
     // transaction; the job is failed with decremented retries
     aggregate.appendResult("must-never-be-visible");
     throw new IllegalStateException("boom-c8");
+
+  }
+
+  @WorkflowTask
+  public void modelledBackoffFails(
+      final TaskDockerAggregate aggregate) {
+
+    countInvocation("modelledBackoffFails", aggregate);
+    // its element carries the task header 'retryBackoff', which is what decides how
+    // long the cluster waits before the next delivery
+    throw new IllegalStateException("boom-modelled-backoff");
 
   }
 
