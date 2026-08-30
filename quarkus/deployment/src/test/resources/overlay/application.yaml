@@ -8,6 +8,7 @@ vanillabp:
       fetch-variables: derived
       async-task-lock-renewal: PT2M
       shutdown-grace: PT5S
+      startup-wait: PT30S
       worker-threads: virtual
       worker-threads-bound: 6
       max-jobs-active: 24

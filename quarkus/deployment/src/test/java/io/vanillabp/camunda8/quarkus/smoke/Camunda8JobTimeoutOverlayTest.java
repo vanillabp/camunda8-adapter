@@ -228,6 +228,24 @@ public class Camunda8JobTimeoutOverlayTest {
             .getConfiguration()
             .resolvedShutdownGrace(),
         "the value reaches the configuration the deployment service reads it from");
+    // and so is how long the start waits for a cluster which is not answering yet
+    Assertions.assertEquals(
+        Duration.ofSeconds(30),
+        overlay
+            .adapters()
+            .get("c8")
+            .startupWait()
+            .orElseThrow());
+    Assertions.assertEquals(
+        Duration.ofSeconds(30),
+        io.quarkus.arc.Arc
+            .container()
+            .instance(io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry.class)
+            .get()
+            .getFactory("c8")
+            .getConfiguration()
+            .resolvedStartupWait(),
+        "the value reaches the configuration the wait reads it from");
 
   }
 

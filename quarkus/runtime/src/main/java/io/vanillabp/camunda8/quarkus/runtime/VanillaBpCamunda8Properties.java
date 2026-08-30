@@ -447,6 +447,14 @@ public interface VanillaBpCamunda8Properties {
     Optional<java.time.Duration> healthTimeout();
 
     /**
+     * How long the start waits for a cluster which is not answering yet,
+     * <code>PT0S</code> switching the waiting off. Default: ten minutes.
+     *
+     * @return The wait
+     */
+    Optional<java.time.Duration> startupWait();
+
+    /**
      * What this adapter does with a task the core reports as older than
      * <code>vanillabp.delivery.max-task-age</code>.
      *

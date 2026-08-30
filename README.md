@@ -536,6 +536,92 @@ permanent there and not here: a job which is gone. One classification serving bo
 directions is the point - a second opinion about what a repetition can change would drift
 away from this one.
 
+### A request which ran out of time
+
+A socket against a Camunda 8 cluster runs out of time now and then, and an answer which never
+arrived says nothing about what the cluster did: the command may well have been carried out and
+only the reply got lost. Camunda met the same case in its own migration tooling and wrapped a
+small retry around `activateJobs`. This adapter needs none, and the six places a timeout can reach
+say why.
+
+**A command a job handler sends back is repeated.** Completion, BPMN error, failure and lock
+renewal run inside `Camunda8CommandRetry`, and a timeout is repeated there. `Camunda8Errors` names
+what cannot be repeated by the cluster's own codes, and no shape of a timeout carries one of them;
+neither is a timeout mistaken for a job which is gone, because that question reads HTTP `404`
+respectively `NOT_FOUND` and no message text at all. What bounds the repetition is the job's
+remaining lock, and for this failure the arithmetic leaves room: a delivered job is locked for
+`job-timeout`, five minutes by default, and a command gives up after `request-timeout`, ten
+seconds, so a completion which ran out of time still has four minutes fifty of lock against a
+first backoff of 50 ms. The retry is not merely responsible here, it runs.
+
+**A poll which runs out of time is the client's own business.** The `JobWorker` polls, not the
+adapter, and the client carries a failed poll itself: `JobWorkerImpl#onPollError` releases the
+poller, lengthens the poll interval and schedules the next poll. A poll which runs out of time
+costs one interval and nothing else, which is why Camunda's commit has no counterpart here. What
+the adapter does contribute is the deadline, and `request-timeout` is a trap worth knowing: it is
+the window an activation request waits at the cluster AND the deadline of every other command, the
+deployment of a workflow module and every search included. Shortening it does not make the long
+poll time out - the client adds ten seconds to the response deadline of an activation, so the
+window is never its own timeout - but it does make the workers ask again more often, and it does
+make a healthy cluster answer a deploy too late. Below a second the boot says so.
+
+**An outbox entry repeats a timeout like anything else.** Phase two is repeated while
+`Camunda8Errors.permanentFailure` answers false, which it does for every shape a timeout arrives
+in. The list of permanent cases reads codes and one exception type, and a timeout matches nothing
+in it.
+
+**A start which cannot reach its cluster used to end at the first round it could not make.** It
+waits now, see [the start waits for the cluster](#the-start-waits-for-the-cluster).
+
+**A lookup which times out never answers "not here".** That would be the dangerous one, because
+such an answer sends a workflow to the next adapter. It cannot happen. A search which fails on a
+cluster that can be searched reports `BPMS_UNAVAILABLE`, which suppresses the fallback; the task
+probes report the same and read a job which is gone from its code rather than from a message; and
+the question which adapter id a key belongs to on a shared cluster answers "this one" whenever it
+cannot be read, so an unanswered question never hands a workflow away.
+
+**A health probe reports a timeout rather than waiting it out.** `Camunda8Health` answers DOWN for
+a cluster which did not answer in time, and that is left exactly as it is. A probe reports a
+state, it does not wait one out.
+
+The shapes a timeout arrives in are read off the client and pinned by `Camunda8ErrorsTest`: a
+`java.net.SocketTimeoutException` from the socket below the REST transport, a
+`java.util.concurrent.TimeoutException` from a bounded wait on the future, and the gRPC status
+`DEADLINE_EXCEEDED`, each of them plain or wrapped into a `ClientException` respectively a
+`CompletionException`.
+
+### The start waits for the cluster
+
+A cluster booting together with the application is the commonest reason a start cannot reach it,
+and it lets every round the start makes fail: the tenant check, the deploy command, the question
+whether the cluster can be searched, and the version queries of the startup check. So the adapter
+waits once, before the first of those rounds, and repeats none of them
+[(why)](./DECISIONS.md#17-a-start-waits-once-for-its-cluster-instead-of-repeating-each-round).
+
+`Camunda8ClusterWait` asks for the topology, the same question the health check asks, and it is
+answered by any cluster without secondary storage and without a tenant. What ends the waiting is
+the cluster answering, `vanillabp.adapters.<id>.startup-wait` running out, or an answer
+`Camunda8Errors` classifies as permanent - the last one ends the start at once, which is what lets
+the default be as long as ten minutes. Before the first attempt a line names the address and the
+deadline, and every few seconds another one carries the time gone and the cluster's last answer,
+so a typo in the address reads as "connection refused" from the start rather than as ten silent
+minutes.
+
+The rounds a start makes to the cluster are four, and the wait sits in front of all of them:
+`Camunda8TenantCheck` asking whether the tenant can be used, the deploy command itself, the
+question whether this cluster can be searched (`Camunda8QueryApi`, asked where two adapter ids
+share a cluster), and the version queries of `Camunda8ProcessVersions` for the process versions
+the cluster still holds. A fifth request exists and deliberately stays in front of the wait: while
+wiring, a process which still carries version 1's user tasks is counted against the cluster for
+the warning naming them. That one swallows every failure and decides nothing, so a cluster which
+is not up yet costs it one debug line.
+
+Two consequences worth writing down. Credentials the cluster answers with `401` are not permanent
+here, deliberately: the classification is the one the whole adapter uses, and there `401` is an
+expired token the client refreshes. Such a boot waits out its deadline, and the repeating line
+names the `401` from the first attempt on. And an adapter with nothing to deploy for a workflow
+module makes no round to the cluster for it, so it waits for nothing.
+
 ### Why correlating a message has no cluster preflight
 
 Since 8.8 the client can search message subscriptions, so a preflight would be possible - and

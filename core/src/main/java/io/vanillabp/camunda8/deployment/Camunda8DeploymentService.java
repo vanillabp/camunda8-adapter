@@ -930,6 +930,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       return;
     }
 
+    // A cluster booting together with the application lets every round of the start fail,
+    // so it is waited for here: once per adapter instance, and right before the first
+    // round which decides anything - the tenant check below (see
+    // io.vanillabp.camunda8.client.Camunda8ClusterWait). An adapter with nothing to
+    // deploy makes no such round and therefore waits for nothing
+    clientFactory.waitUntilTheClusterAnswers();
+
     // one DeployResourceCommand per workflow module with all its models
     final var client = clientFactory.getClient();
     DeployResourceCommandStep2 command = null;

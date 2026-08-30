@@ -11,22 +11,16 @@ import io.quarkus.test.QuarkusExtensionTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Proves the platform's runtime deployment pipeline drives the Camunda 8
- * adapter on Quarkus: a BPMN resource below the configured
- * <code>resources-location</code> is read and parsed
- * ({@code readBpmn}/{@code prepareBpmn}/{@code wireBpmn}) and its deployment is
- * attempted at boot. No cluster is available (the configured REST address points to
- * a closed port), so {@code deployResources} fails - and since the adapter is the
- * first-priority adapter, the boot is aborted with the adapter's guiding message.
- * That failure IS the assertion: without the pipeline the application would boot
- * without ever contacting the (non-existing) cluster. The application configures
- * <code>startup-wait: PT0S</code>, because the closed port of this test stays closed and the
- * start would otherwise spend the default ten minutes finding that out. A real-cluster deployment is
- * covered by the Spring Boot module's Docker-based {@code Camunda8DeploymentAndStartIT}
- * (the deployment logic is shared {@code core} code) - see the README.
+ * The counterpart of {@link Camunda8DeploymentPipelineTest}: with a
+ * <code>startup-wait</code> configured, a start which cannot reach its cluster ends with
+ * the WAIT's message rather than with the deployment's, which is what proves the wait sits
+ * in the boot before the first round the adapter makes to the cluster.
+ * <p>
+ * The wait of this application is two seconds, because the cluster is a closed port and
+ * stays one.
  */
 @ExtendWith(SuppressOutputExtension.class)
-public class Camunda8DeploymentPipelineTest {
+public class Camunda8StartupWaitTest {
 
   @RegisterExtension
   static final QuarkusExtensionTest extensionTest = new QuarkusExtensionTest()
@@ -35,14 +29,14 @@ public class Camunda8DeploymentPipelineTest {
           .addClass(Aggregate.class)
           .addClass(SampleWorkflowService.class)
           .addClass(TestPhaseTwoOutbox.class)
-          .addAsResource("pipeline/application.yaml", "application.yaml")
+          .addAsResource("startup-wait/application.yaml", "application.yaml")
           .addAsResource("test-app/processes/test-process.bpmn", "test-app/processes/test-process.bpmn")
           .addAsResource("workflow-module-descriptor/workflow-module", "META-INF/workflow-module"))
       .assertException(throwable -> Assertions.assertTrue(
           hasCauseWithMessagePart(
               throwable,
-              "Failed to deploy BPMN resources of workflow module 'test-app' to Camunda 8 (adapter 'c8')"),
-          "expected the deployment attempt against the unreachable cluster to abort the boot but got: "
+              "did not reach the cluster http://localhost:1 within 'vanillabp.adapters.c8.startup-wait: PT2S'"),
+          "expected the wait to end the boot naming the address and the deadline but got: "
               + throwable));
 
   private static boolean hasCauseWithMessagePart(
@@ -61,7 +55,7 @@ public class Camunda8DeploymentPipelineTest {
   }
 
   @Test
-  public void deploymentPipelineReachesTheAdapter() {
+  public void theStartWaitsForTheClusterBeforeItDeploys() {
     // the assertion happens on the startup exception (assertException above)
   }
 

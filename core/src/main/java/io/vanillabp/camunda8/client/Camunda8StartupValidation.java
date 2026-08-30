@@ -72,6 +72,11 @@ public final class Camunda8StartupValidation {
     // and neither is how long the cluster waits before it hands a failed job out again: a
     // negative duration is a typo, and it decides something nobody watches
     configuration.validateRetryBackoff(adapterId);
+    // and neither is the deadline every request of this adapter gets: a value which is too
+    // short makes a healthy cluster answer too late, which reads like a network problem
+    configuration.validateRequestTimeout(adapterId, warnLogger);
+    // and neither is how long the start waits for a cluster which is not answering yet
+    configuration.validateStartupWait(adapterId);
 
     if (configuration.isAbsent()) {
       warnLogger.accept(

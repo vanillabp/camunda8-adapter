@@ -5,6 +5,32 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## A start waits for its cluster instead of failing at once (2026-08-30)
+
+Until now a start which could not reach its Camunda 8 cluster ended at the first round it tried
+to make, usually the deployment. It waits now: before that round the adapter asks the cluster for
+its topology and gives it `vanillabp.adapters.<id>.startup-wait`, ten minutes by default, to
+answer. The case this is for is a cluster booting together with the application, which lets every
+round of a start fail rather than only the deployment.
+
+What an application has to look at is the ten minutes. A deployment pipeline which expects a
+start to fail fast against a cluster which is deliberately not there now waits them out; set
+`startup-wait: PT0S` for such a setup and the behaviour is the one you had. Nothing waits silently
+in the meantime: a line before the first attempt names the address and the deadline, and one every
+few seconds carries the time gone and the cluster's last answer.
+
+An answer the cluster will repeat ends the start at once rather than after the deadline. Which
+answers those are is `Camunda8Errors`, the classification the whole adapter reads, so a rejected
+request and a refused tenant fail as fast as before. A `401` is not among them, on purpose - the
+client refreshes an expired token - so wrong credentials are waited out, with the `401` in every
+line the wait writes.
+
+Two more things are checked while the application boots, both about `request-timeout`. A value
+which is not positive ends the boot, because there is no request without time. A value below one
+second is a warning: it is the deadline of every request this adapter sends, the deployment of a
+workflow module and every search included, so a healthy cluster answers too late and it reads
+like a network problem.
+
 ## The `retryBackoff` task header of a model is read again (2026-08-30)
 
 Version 1 let a Camunda 8 model name the backoff of a single element in the task header

@@ -45,7 +45,7 @@ public final class Camunda8Health {
       final Camunda8ClientFactory clientFactory) {
 
     final var configuration = clientFactory.getConfiguration();
-    final var address = describeAddress(configuration);
+    final var address = configuration.describeAddress();
     final var missing = configuration.missingConnectionProperties();
     if (!missing.isEmpty()) {
       return AdapterHealth
@@ -159,30 +159,6 @@ public final class Camunda8Health {
             .getClass()
             .getSimpleName())
         : "The topology request failed: %s".formatted(message);
-
-  }
-
-  /**
-   * Where this adapter instance talks to, as an operator would write it down.
-   *
-   * @param configuration The adapter's connection configuration
-   * @return The address or <code>null</code> if none is configured
-   */
-  private static String describeAddress(
-      final Camunda8AdapterConfiguration configuration) {
-
-    if (configuration.getMode() == Camunda8AdapterConfiguration.Mode.SAAS) {
-      final var clusterId = configuration.getClusterId();
-      final var region = configuration.getRegion();
-      return (clusterId == null) && (region == null)
-          ? null
-          : "cluster '%s' in region '%s'".formatted(clusterId, region);
-    }
-    final var rest = configuration.getRestAddress();
-    if ((rest != null) && !rest.isBlank()) {
-      return rest;
-    }
-    return configuration.getGrpcAddress();
 
   }
 
