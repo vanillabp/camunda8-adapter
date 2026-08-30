@@ -221,3 +221,22 @@ The map is what states which operations this adapter serves. Everything a Camund
 cannot answer without a round trip - and there is more of that here than on an embedded engine -
 stays where it was: in the handler, not in the operation, because the operation is the same one
 every adapter serves.
+
+### 15. The adapter sees process definitions in the state ACTIVE and no others
+
+Deleting a process definition does not remove it from Camunda 8. The cluster keeps it, marks it
+`DELETED` and keeps answering searches with it, so a search which names no state gets the deleted
+versions back along with the live ones. The startup check for old versions then reads their models,
+finds the tasks this application no longer serves and reports them, at every start, and the one
+remedy the report itself suggests is the one the operator has already applied. A report which
+cannot be switched off teaches everyone to ignore reports of its kind, which is worse than not
+having it.
+
+Every search this adapter runs for process definitions therefore restricts itself to the state
+`ACTIVE`, in one place (`Camunda8ProcessVersions#onlyDefinitionsWhichStillCount`), so the answer to
+"which definitions count" cannot drift apart between the callers. There is deliberately no property
+turning it off: a deleted definition is not a state anybody wants to hear about.
+
+The filter arrived in `camunda-client-java` 8.8.33, and by decision 11 the client an artifact was
+built against is the lowest cluster version it accepts, so every supported line has it. A fallback
+path for clusters without the filter would therefore be dead code and is not to be added.

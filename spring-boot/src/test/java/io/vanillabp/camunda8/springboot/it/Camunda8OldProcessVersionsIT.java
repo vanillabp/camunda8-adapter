@@ -28,9 +28,13 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * things only Camunda 8 can answer here, and both need the query API - which is why
  * this cluster runs WITH secondary storage.
  * <p>
- * Both cases are full boots, because the question is what a START reports, and the
+ * Every case is a full boot, because the question is what a START reports, and the
  * findings are read from the captured output: Spring Boot resets the logging context
  * while it starts, which takes a log appender attached beforehand with it.
+ * <p>
+ * The last case is the one an operator ends up in: it deletes the older version and
+ * boots again. Camunda 8 keeps a deleted definition and marks it <code>DELETED</code>,
+ * so without a state in the search the check would go on reporting it forever.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @Testcontainers(disabledWithoutDocker = true)
@@ -131,6 +135,34 @@ public class Camunda8OldProcessVersionsIT {
 
   }
 
+  @Test
+  @Order(4)
+  @DisplayName("A version an operator deleted is not one the check works on any more")
+  public void aDeletedVersionIsNoVersionTheClusterHolds(
+      final CapturedOutput output) throws Exception {
+
+    // the remedy every report above asks for, applied: the version nobody wants to hear
+    // about is deleted. Camunda 8 does not remove it, it marks it DELETED and keeps
+    // answering searches with it, so a check asking without naming a state would find
+    // everything it found before and report it again
+    deleteVersionOneFromTheCluster();
+
+    final var before = output.getAll().length();
+    boot("v2").close();
+    final var reported = output.getAll().substring(before);
+
+    // this is the boot of the second case, which reported nothing while version 1 was
+    // there: what the check works on is now version 2 alone, and the method kept for
+    // version 1 has become the dead one
+    assertTrue(
+        reported.contains("(held: 2)"),
+        "the deleted version is gone from the versions the check asks the cluster for");
+    assertTrue(
+        reported.contains("droppedInVersionTwo"),
+        "and the method serving it is named as the method which never runs");
+
+  }
+
   /**
    * A client of the test's own: the application booted per case is gone between them, and
    * this question is asked while none is running.
@@ -171,8 +203,61 @@ public class Camunda8OldProcessVersionsIT {
   private static long versionsKnownToTheCluster(
       final io.camunda.client.CamundaClient client) {
 
+    return definitionsOfTheTestsProcess(client).count();
+
+  }
+
+  /**
+   * Deletes the resource version 1 was deployed with and waits until the cluster stops
+   * answering searches for ACTIVE definitions with it - a deletion reaches the query API
+   * the same way a deployment does, so it is behind by an unknown amount as well.
+   */
+  private static void deleteVersionOneFromTheCluster() throws Exception {
+
+    try (var client = testClient()) {
+      final var versionOne = definitionsOfTheTestsProcess(client)
+          .filter(definition -> definition.getVersion() == 1)
+          .findFirst()
+          .orElseThrow(() -> new AssertionError("version 1 is not known to the cluster"));
+      client
+          .newDeleteResourceCommand(versionOne.getProcessDefinitionKey())
+          .send()
+          .join();
+
+      final var deadline = System.currentTimeMillis() + 240_000;
+      while (activeDefinitionsOfTheTestsProcess(client) > 1) {
+        if (System.currentTimeMillis() > deadline) {
+          throw new AssertionError("the query API kept answering with the deleted version 1");
+        }
+        Thread.sleep(500);
+      }
+    }
+
+  }
+
+  private static java.util.stream.Stream<io.camunda.client.api.search.response.ProcessDefinition> definitionsOfTheTestsProcess(
+      final io.camunda.client.CamundaClient client) {
+
     return client
         .newProcessDefinitionSearchRequest()
+        .send()
+        .join()
+        .items()
+        .stream()
+        .filter(definition -> definition.getProcessDefinitionId().endsWith("OldProcessVersionsProcess"));
+
+  }
+
+  /**
+   * What the cluster answers the way the adapter asks: definitions which were not
+   * deleted.
+   */
+  private static long activeDefinitionsOfTheTestsProcess(
+      final io.camunda.client.CamundaClient client) {
+
+    return client
+        .newProcessDefinitionSearchRequest()
+        .filter(filter -> filter.state(io.camunda.client.api.search.enums.ProcessDefinitionState.ACTIVE))
         .send()
         .join()
         .items()
