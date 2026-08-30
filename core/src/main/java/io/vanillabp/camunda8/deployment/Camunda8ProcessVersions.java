@@ -6,6 +6,8 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import io.camunda.client.CamundaClient;
+import io.camunda.client.api.search.enums.ProcessDefinitionState;
+import io.camunda.client.api.search.filter.ProcessDefinitionFilter;
 import io.vanillabp.integration.adapter.spi.version.CachingProcessVersionCatalog;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
 import lombok.extern.slf4j.Slf4j;
@@ -59,6 +61,11 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
    * and used to keep nothing but their version numbers. So it keeps the keys as well, and
    * the search below runs only for a version deployed after that list was read - see
    * decision 13 in the repository's DECISIONS.md.
+   * <p>
+   * A key stays here for the life of the application, so a version deleted while it runs
+   * is still answered from here. Nothing is invalidated for that: the questions these
+   * keys serve are asked while an application boots, and the boot after the deletion
+   * reads the list again.
    */
   private final java.util.Map<String, Long> definitionKeysByVersion = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -213,6 +220,26 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   }
 
+  /**
+   * Which process definitions this adapter counts as existing, applied to every search
+   * it runs for them.
+   * <p>
+   * A definition an operator deleted stays in the query API and is answered with the
+   * state <code>DELETED</code>, so a search leaving this out reports versions the
+   * cluster runs nothing on any more - and the startup check would keep demanding
+   * methods for them, restart after restart, with deleting the definition being the one
+   * remedy an operator has already tried. See decision 15 in the repository's
+   * DECISIONS.md.
+   *
+   * @param filter The filter of a process definition search
+   */
+  private static void onlyDefinitionsWhichStillCount(
+      final ProcessDefinitionFilter filter) {
+
+    filter.state(ProcessDefinitionState.ACTIVE);
+
+  }
+
   private Long askTheClusterForTheDefinitionKey(
       final String workflowModuleId,
       final String bpmnProcessId,
@@ -225,6 +252,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
           .get()
           .newProcessDefinitionSearchRequest()
           .filter(filter -> {
+            onlyDefinitionsWhichStillCount(filter);
             filter.processDefinitionId(scopedProcessId);
             filter.version(Integer.valueOf(version));
             if (tenantId != null) {
@@ -335,6 +363,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
           .get()
           .newProcessDefinitionSearchRequest()
           .filter(filter -> {
+            onlyDefinitionsWhichStillCount(filter);
             filter.processDefinitionId(scopedProcessId);
             if (tenantId != null) {
               filter.tenantId(tenantId);

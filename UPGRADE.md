@@ -5,6 +5,24 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## Deleting a process definition ends the reports about it (2026-08-30)
+
+Nothing to configure, and one fewer thing to explain away in a startup log.
+
+The check for old process versions asks the cluster which versions of a process it holds. Until
+now it asked without naming a state, and Camunda 8 keeps a deleted process definition in its query
+API rather than removing it: it is marked `DELETED` and still answered. So a definition an operator
+had deleted kept its place in the list, its model was read, and the tasks this application no longer
+serves were reported for it at every start - including the FATAL report where workflows were still
+counted on it.
+
+The searches now name the state `ACTIVE`. For an application which never deleted a definition
+nothing changes at all. Where one was deleted, the reports about it stop with the next start, and
+that is the point: deleting the definition is what the report asks for, so it has to work.
+
+Suspended definitions are a different matter and do not exist here - Camunda 8 cannot suspend a
+process definition or an instance.
+
 ## Two Camunda 8 adapter ids on one cluster are told apart by their scope (2026-08-21)
 
 Nothing changes for an application with one Camunda 8 adapter. What changes is the
