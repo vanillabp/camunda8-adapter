@@ -22,8 +22,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 /**
  * The executor of the virtual-thread mode: what the client submits runs on a virtual
  * thread and never more of it at once than the bound allows, while what the client
- * SCHEDULES keeps running even when every slot is taken - which is the property the
- * 8.8 line is missing on its own.
+ * SCHEDULES runs on a platform thread of its own. What both executors share - the bound,
+ * the gate in front of the scheduled tasks and the shutdown - is
+ * {@link Camunda8ExecutorTest}.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8VirtualThreadExecutorTest {
@@ -126,15 +127,17 @@ public class Camunda8VirtualThreadExecutorTest {
   }
 
   @Test
-  @DisplayName("a scheduled poll runs on a platform thread while every slot is blocked")
-  public void schedulingIsNotStarvedByBlockedHandlers() throws Exception {
+  @DisplayName("a scheduled poll runs on a platform thread while handlers are busy")
+  public void schedulingIsNotStarvedByBusyHandlers() throws Exception {
 
-    final var bound = 2;
+    // one slot is left free on purpose: what a scheduled task does when there is none is
+    // the gate of Camunda8ExecutorTest, while this test is about which thread runs it
+    final var bound = 3;
     final var executor = new Camunda8VirtualThreadExecutor("c8", bound);
     try {
       final var release = new CountDownLatch(1);
-      final var blocking = new CountDownLatch(bound);
-      for (int job = 0; job < bound * 4; job++) {
+      final var blocking = new CountDownLatch(bound - 1);
+      for (int job = 0; job < bound - 1; job++) {
         executor.execute(() -> {
           blocking.countDown();
           try {
@@ -144,7 +147,7 @@ public class Camunda8VirtualThreadExecutorTest {
           }
         });
       }
-      assertTrue(blocking.await(5, TimeUnit.SECONDS), "the handlers took every slot");
+      assertTrue(blocking.await(5, TimeUnit.SECONDS), "the handlers took their slots");
 
       final var polled = new CountDownLatch(1);
       final var pollThreadIsVirtual = new AtomicBoolean(true);
@@ -154,7 +157,7 @@ public class Camunda8VirtualThreadExecutorTest {
       }, 10, TimeUnit.MILLISECONDS);
 
       assertTrue(polled.await(2, TimeUnit.SECONDS),
-          "a scheduled poll runs although every execution slot is blocked");
+          "a scheduled poll runs although handlers are inside their slots");
       assertFalse(pollThreadIsVirtual.get(), "the timing runs on a platform thread");
       release.countDown();
     } finally {
@@ -162,7 +165,6 @@ public class Camunda8VirtualThreadExecutorTest {
     }
 
   }
-
 
   @Test
   @DisplayName("every way of submitting work runs it on a virtual thread, and every schedule on a platform one")

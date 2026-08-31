@@ -236,25 +236,23 @@ public class Camunda8ClientFactory implements AutoCloseable {
   private final Camunda8Authentication authentication;
 
   /**
-   * The executor handed to the client where the execution model is virtual, kept for the
-   * tests which assert the bound; <code>null</code> in the platform-thread mode, where
-   * the client builds its own pool.
+   * The executor the client runs its workers on, in both execution models: the adapter
+   * supplies it rather than letting the client build one, so the scheduling of the polls
+   * and the running of the handlers are separate on every release line.
    */
   @Getter
-  private Camunda8VirtualThreadExecutor virtualThreadExecutor;
+  private Camunda8Executor executor;
 
   private void applyExecutionModel(
       final CamundaClientBuilder builder) {
 
-    if (!executionModel.virtual()) {
-      // the client builds its own scheduled pool of this size, which on the 8.8 line
-      // runs the handlers AND the polls of every worker - see Camunda8ExecutionModel
-      builder.numJobWorkerExecutionThreads(executionModel.slots());
-      return;
-    }
-    virtualThreadExecutor = new Camunda8VirtualThreadExecutor(adapterId, executionModel.slots());
-    // which builder methods take it differs per release line, see Camunda8JobExecutors
-    Camunda8JobExecutors.install(builder, virtualThreadExecutor);
+    executor = executionModel.virtual()
+        ? new Camunda8VirtualThreadExecutor(adapterId, executionModel.slots())
+        : new Camunda8PlatformThreadExecutor(adapterId, executionModel.slots());
+    // which builder methods take it differs per release line, see Camunda8JobExecutors.
+    // 'numJobWorkerExecutionThreads' is deliberately not set: it sizes the pool the
+    // client would build for itself, and there is none once it is handed one
+    Camunda8JobExecutors.install(builder, executor);
 
   }
 
@@ -328,7 +326,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
     log.info(
         "Camunda8[{}]: {} run every worker of this adapter id, max-jobs-active {} per worker, "
             + "job-timeout {} by default. All workflow modules of this adapter share those {} execution "
-            + "slots, and a handler holds one for its whole runtime",
+            + "slots, a handler holds one for its whole runtime, and a worker asks the cluster for work "
+            + "only while one of them is free",
         adapterId,
         executionModel.describe(),
         configuration.resolvedMaxJobsActive(adapterId),

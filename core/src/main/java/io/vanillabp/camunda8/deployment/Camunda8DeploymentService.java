@@ -176,14 +176,15 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * Publishes how many handlers this adapter instance may run, how many of them run right
    * now and how many jobs wait for a slot.
    * <p>
-   * The last two exist only in the virtual-thread mode, where the adapter's own
-   * executor holds the bound. In the platform-thread mode the client owns its own pool and does
-   * not report what it does with it, so those two gauges are absent rather than guessed.
+   * All three come from the adapter's own executor, which both execution models now build,
+   * so the picture of a stalled application is the same whichever one is configured. An
+   * adapter which booted without a connection has no client and therefore no executor; there
+   * only the configured number is published.
    */
   private void registerExecutionSlots() {
 
     final var executionModel = clientFactory.getExecutionModel();
-    final var executor = clientFactory.getVirtualThreadExecutor();
+    final var executor = clientFactory.getExecutor();
     metrics
         .registerExecutionSlots(
             adapterId,

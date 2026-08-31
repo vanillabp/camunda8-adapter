@@ -30,6 +30,26 @@ public class WorkerThreadsDockerWorkflowService {
   public static final long BLOCK_MILLIS = 4000;
 
   /**
+   * How long the blocking handler holds its execution slot in the test which is running -
+   * {@link #BLOCK_MILLIS} unless a test asked for longer, which the poll test does because
+   * it has to outlive an activation request parked at the cluster.
+   */
+  private static final AtomicLong BLOCK_FOR = new AtomicLong(BLOCK_MILLIS);
+
+  /**
+   * Lets a test hold the slot longer than {@link #BLOCK_MILLIS}. Put back by
+   * {@link #reset()}, which every test using these observations calls.
+   *
+   * @param millis How long the next blocking handler stays inside
+   */
+  public static void blockFor(
+      final long millis) {
+
+    BLOCK_FOR.set(millis);
+
+  }
+
+  /**
    * Counted down when the blocking handler entered.
    */
   public static volatile CountDownLatch BLOCKING_ENTERED = new CountDownLatch(1);
@@ -73,6 +93,7 @@ public class WorkerThreadsDockerWorkflowService {
     QUICK_SERVED_AT.set(0);
     BLOCKING.set(false);
     ALREADY_BLOCKED.set(false);
+    BLOCK_FOR.set(BLOCK_MILLIS);
 
   }
 
@@ -96,7 +117,7 @@ public class WorkerThreadsDockerWorkflowService {
       BLOCKING.set(true);
       BLOCKING_ENTERED.countDown();
       try {
-        TimeUnit.MILLISECONDS.sleep(BLOCK_MILLIS);
+        TimeUnit.MILLISECONDS.sleep(BLOCK_FOR.get());
       } finally {
         BLOCKING.set(false);
       }

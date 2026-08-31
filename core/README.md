@@ -125,18 +125,19 @@ is deliberately NOT used: it would publish `camunda.job.invocations` and friends
 
 `Camunda8Metrics` is plain Java with a no-op `NONE`, `MicrometerCamunda8Metrics`
 implements it plus `MeterBinder`, and Micrometer stays optional exactly as in the platform
-integration. The execution slots come from the virtual-thread executor, which
-is the only place holding the bound; in the platform-thread mode the client owns its pool
-and reports nothing about it, so those gauges are absent instead of guessed.
+integration. The execution slots come from the executor the adapter hands the client, which
+both execution models build, so the three of them say something whichever one is configured.
+An adapter which booted without a connection has no client and therefore no executor; there
+only the configured number is published, the other two being absent instead of guessed.
 
 **Reading a metric must not cost anything.** The platform's rule applies here too: a gauge
 is read on every collection, Prometheus collects every fifteen seconds by default, a
 dashboard collects alongside it, and every instance answers each of them - so a gauge which
 asks a database or a cluster turns watching the system into load on it. None of this
 adapter's gauges do. `execution.slots.configured` reads a record field,
-`execution.slots.in.use` and `jobs.waiting` read the permits and the wait queue of the
-semaphore in `Camunda8VirtualThreadExecutor`, and the two job counters are incremented by
-the client rather than polled. They are therefore exact, and holding them would only make
+`execution.slots.in.use` reads a counter the executor keeps of the handlers inside their
+invocation, `jobs.waiting` reads the queue the handlers which found no slot are waiting in,
+and the two job counters are incremented by the client rather than polled. They are therefore exact, and holding them would only make
 them stale.
 
 A gauge added here later which DOES have to ask - the cluster, a query API, anything remote
