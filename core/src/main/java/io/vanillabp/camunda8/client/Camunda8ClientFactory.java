@@ -42,21 +42,13 @@ public class Camunda8ClientFactory implements AutoCloseable {
   @Getter
   private final String adapterId;
 
-  @Getter
-  private final Camunda8AdapterConfiguration configuration;
-
   /**
    * The bound configuration of this adapter instance - read by the process service where
    * a command needs an adapter-level setting the four-level resolution deliberately does
    * not apply to.
-   *
-   * @return The configuration
    */
-  public Camunda8AdapterConfiguration getConfiguration() {
-
-    return configuration;
-
-  }
+  @Getter
+  private final Camunda8AdapterConfiguration configuration;
 
   /**
    * The per-adapter-id record of what this application version deployed, which the
@@ -221,7 +213,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
   /**
    * The resolved execution model of this adapter instance - what the startup line names
-   * and what {@link #virtualThreadExecutor} builds where the mode is virtual.
+   * and what decides whether the {@link #executor} is a
+   * {@link Camunda8VirtualThreadExecutor} or a {@link Camunda8PlatformThreadExecutor}.
    */
   @Getter
   private final Camunda8ExecutionModel executionModel;

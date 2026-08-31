@@ -47,26 +47,27 @@ import lombok.extern.slf4j.Slf4j;
  * created per configured adapter ID (not per adapter type).
  * <p>
  * Camunda 8 is a <b>remote</b>, eventually consistent BPMS: the engine cannot join the
- * application's local database transaction, so starting a workflow is routed through the
- * core {@code PhaseTwoOutbox} like every other operation which reaches the cluster:
+ * application's local database transaction, so every operation which reaches the cluster
+ * is routed through the core's outbox as a pair of phases. Which operations this adapter
+ * serves, and what it does in each of their phases, is what {@link #phaseOperations()}
+ * answers.
  * <ul>
- *   <li>{@link #startWorkflowPhaseOne} runs inside the caller's transaction. It must
- *       never perform an action that <i>advances</i> the BPMN process (e.g. creating the
- *       instance) - that would race the still-uncommitted local transaction and, on
- *       rollback, leave a ghost workflow instance behind. It <i>may</i> contact the
- *       cluster for a non-advancing check whose only purpose is to abort the local
- *       transaction early when the phase-two action is already known to be impossible.
- *       <b>For starting a workflow there is nothing to check against the cluster</b> - if
- *       the cluster is unavailable, the phase-two start simply waits in the outbox until
- *       it is reachable again - so this method only resolves the aggregate ID and
- *       verifies the adapter is configured. (Other operations do use the phase-one check:
- *       e.g. completing a service task verifies the task still exists by extending its job
- *       worker timeout - a non-advancing operation - ideally in a pre-commit transaction
- *       synchronization to minimize the window between the check and the phase-two action
- *       and thus the number of stale outbox entries. See the {@code
- *       vanillabp-bpms-characteristics} skill / later stories.)</li>
- *   <li>{@link #startWorkflowPhaseTwo} runs after the commit and creates the process
- *       instance via {@link #createProcessInstance(String, java.util.Map, Object)}.</li>
+ *   <li>Phase one runs inside the caller's transaction. It must never perform an action
+ *       that <i>advances</i> the BPMN process (e.g. creating an instance) - that would
+ *       race the still-uncommitted local transaction and, on rollback, leave a ghost
+ *       workflow instance behind. It <i>may</i> contact the cluster for a non-advancing
+ *       check whose only purpose is to abort the local transaction early when the
+ *       phase-two action is already known to be impossible. Completing a service task
+ *       does exactly that: it verifies the task still exists by extending its job worker
+ *       timeout, and it does so from a pre-commit transaction synchronization, which
+ *       keeps the window between the check and the phase-two action short and with it the
+ *       number of stale outbox entries. Starting a workflow has nothing to check against
+ *       the cluster - an unreachable cluster only makes the phase-two start wait in the
+ *       outbox until it is reachable again - so its phase one resolves the aggregate ID
+ *       and verifies the adapter is configured.</li>
+ *   <li>Phase two runs after the commit and is where the cluster is changed, e.g.
+ *       {@link #createProcessInstance(String, java.util.Map, Object)} for a start. It is
+ *       dispatched at-least-once, so it has to survive being run a second time.</li>
  * </ul>
  *
  * @param <A> The workflow-aggregate type
@@ -843,8 +844,8 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * proves the start succeeded;</li>
    * <li>where the cluster cannot be searched the answer is an honest
    * {@link WorkflowAwareness#UNKNOWN_TO_BPMS} (instead of the election's
-   * optimistic ACTIVE): the start proceeds and this adapter's
-   * {@link #startWorkflowPhaseTwo} at-least-once contract applies.</li>
+   * optimistic ACTIVE): the start proceeds under the at-least-once contract of
+   * {@link PhaseOperationHandler#phaseTwo}.</li>
    * </ul>
    */
   @Override
@@ -1777,16 +1778,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * passing the workflow aggregate's ID as a single process variable. How the aggregate's
    * ID is stored in the BPMS is the adapter's decision: Camunda 8 stores the aggregate as
    * process variables, so the variable carrying the ID is named after the aggregate's ID
-   * property (see {@link AggregatePersistenceAware#getAggregateIdName()}). This is the
-   * actual work of
-   * {@link #startWorkflowPhaseTwo(String, String, AggregatePersistenceAware, Object)}.
+   * property (see {@link AggregatePersistenceAware#getAggregateIdName()}). This is what
+   * phase two of {@link PhaseOperation#START_WORKFLOW} does.
    * <p>
    * <b>Idempotency limitation:</b> a crash between a successful create and the removal of
    * the phase-two outbox entry can create the instance twice (at-least-once, duplicates
    * possible). That residual is accepted rather than pending: a workflow is located by
    * asking, not by a persistent registry (decision 25 of the platform's DECISIONS.md),
    * and what narrows the window is the core probing
-   * {@code awarenessOfWorkflowForRedispatch} before it dispatches a start again. What is
+   * {@link #awarenessOfWorkflowForRedispatch} before it dispatches a start again. What is
    * left of it is documented in this repository's README under "Idempotency limitation".
    * No Camunda-8-side workaround is attempted here.
    *
