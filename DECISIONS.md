@@ -140,7 +140,12 @@ work costs the job a retry and, under sustained load, produces an incident.
 So completion, BPMN error, failure and lock renewal of all four worker kinds run inside
 `Camunda8CommandRetry`. What may be repeated is what `Camunda8Errors` classifies as repeatable,
 plus the explicit exception that a job which is gone is final, or the at-least-once residual would
-turn into a storm. What bounds it is the job's REMAINING lock, taken from the activated job rather
+turn into a storm. A socket which timed out belongs to that class, and it is worth saying so
+because the classification alone does not name it: no answer arrived, so the command may or may
+not have run, which is the case the job's lock exists for. The arithmetic is what makes repeating
+it affordable. A lock of five minutes against a request timeout of ten seconds leaves room for
+every attempt this entry allows, and a completion which did arrive comes back as a job which is
+gone, which is final. What bounds it is the job's REMAINING lock, taken from the activated job rather
 than from the configured timeout, five attempts with the client's own backoff figures, and the
 shutdown of decision 6, which ends the retry at once so the job stays on its lock instead of being
 reported.
