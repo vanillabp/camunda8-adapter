@@ -118,9 +118,8 @@ public class Camunda8WorkerThreadsIT {
 
     Assertions.assertEquals(4, factory.getExecutionModel().slots(),
         "nothing is configured here, so the adapter's default applies");
-    Assertions.assertEquals(4,
-        factory.getClient().getConfiguration().getNumJobWorkerExecutionThreads(),
-        "and it reaches the client, which would otherwise use one");
+    Assertions.assertEquals(4, factory.getExecutor().getBound(),
+        "and it reaches the executor the adapter hands the client, which would otherwise use one thread");
 
   }
 
@@ -167,8 +166,8 @@ public class Camunda8WorkerThreadsIT {
     final var registry = new SimpleMeterRegistry();
     metrics.bindTo(registry);
 
-    // the slot gauges are there as soon as the client exists - four platform threads,
-    // and no gauge for what the client does with its own pool
+    // the slot gauges are there as soon as the client exists - the adapter owns the
+    // executor in this mode too, so all three of them say something
     Assertions.assertEquals(
         4.0,
         registry
@@ -176,6 +175,18 @@ public class Camunda8WorkerThreadsIT {
             .tag(Camunda8Metrics.TAG_ADAPTER, "c8")
             .gauge()
             .value());
+    assertNotNull(
+        registry
+            .find(Camunda8Metrics.EXECUTION_SLOTS_IN_USE)
+            .tag(Camunda8Metrics.TAG_ADAPTER, "c8")
+            .gauge(),
+        "the adapter owns the executor in this mode too, so it can say how many slots are busy");
+    assertNotNull(
+        registry
+            .find(Camunda8Metrics.JOBS_WAITING)
+            .tag(Camunda8Metrics.TAG_ADAPTER, "c8")
+            .gauge(),
+        "and how many jobs wait for one");
 
     // a job which really travelled through the cluster: the client counts it before
     // VanillaBP sees anything of it

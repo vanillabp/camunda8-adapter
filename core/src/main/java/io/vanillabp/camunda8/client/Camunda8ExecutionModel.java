@@ -12,31 +12,34 @@ package io.vanillabp.camunda8.client;
  * the start events the cluster fires itself and of the processes whose end is reported -
  * across every workflow module that adapter serves.
  * <p>
- * <b>Why the default is four platform threads.</b> More than one, because the client's own
- * default of one is the defect this model exists for: on the 8.8 line that single executor
- * runs the handler invocations AND the poll scheduling of every worker, so a blocking
- * handler stops the adapter from asking the cluster for work at all (measured: an unrelated
- * job of another worker waited 8013 ms, and 13 ms with four threads). Small, because every
- * concurrent handler holds a database connection inside VanillaBP's transaction while it
- * runs, and the usual pools are ten (Hikari) to twenty (Agroal) connections wide, so four
- * leaves room for the rest of the application. The number to size against is therefore the
- * connection pool, not the CPU.
+ * <b>The number counts handlers, not threads shared with the timing.</b> Whichever model is
+ * configured, the adapter hands the client an executor of its own
+ * ({@link Camunda8Executor}) which schedules the polls on threads no handler can occupy. So
+ * the number below is what it says: how many handler invocations may be inside the
+ * application at the same time.
  * <p>
- * <b>The virtual mode.</b> <code>worker-threads: virtual</code> hands the client an executor
- * of our own ({@link Camunda8VirtualThreadExecutor}) which separates the two jobs the
- * client's single executor does on the 8.8 line: a small scheduled pool of platform threads
- * for the timing, and a virtual thread per submitted task for running what was submitted.
- * That is the split Camunda itself introduced with the 8.9 client, so a blocked handler can
- * no longer starve the polling on any line. Virtual threads are unbounded by nature, and the
- * client's own limit is per worker (with N workers the ceiling would be
- * N &times; <code>max-jobs-active</code> concurrent transactions), so the executor is bounded
- * by a semaphore sized by <code>worker-threads-bound</code>. Its default is the number the
- * platform mode would use, so switching the mode changes how threads are made, not how much
- * runs at once.
+ * <b>Why the default is four platform threads.</b> More than one, because one was the defect
+ * this model exists for: nothing passed the number through, and the client's own default of
+ * one thread ran the handler invocations AND the poll scheduling of every worker on the 8.8
+ * line, so a blocking handler stopped the adapter from asking the cluster for work at all
+ * (measured: an unrelated job of another worker waited 8013 ms, and 13 ms with four
+ * threads). Small, because every concurrent handler holds a database connection inside
+ * VanillaBP's transaction while it runs, and the usual pools are ten (Hikari) to twenty
+ * (Agroal) connections wide, so four leaves room for the rest of the application. The number
+ * to size against is therefore the connection pool, not the CPU.
+ * <p>
+ * <b>The virtual mode.</b> <code>worker-threads: virtual</code> runs each handler on a
+ * virtual thread of its own ({@link Camunda8VirtualThreadExecutor}) instead of on a pool of
+ * platform threads. Virtual threads are unbounded by nature, and the client's own limit is
+ * per worker (with N workers the ceiling would be N &times; <code>max-jobs-active</code>
+ * concurrent transactions), so that model is bounded by a semaphore sized by
+ * <code>worker-threads-bound</code>. Its default is the number the platform mode would use,
+ * so switching the mode changes how threads are made, not how much runs at once.
  *
  * <p>
  * Why this adapter picks its own execution model instead of inheriting the client's single thread,
- * and why the default is four, is decision 7 in the repository's DECISIONS.md.
+ * and why the default is four, is decision 7 in the repository's DECISIONS.md; why the adapter
+ * supplies the executor on every release line is decision 18.
  *
  * @param virtual Whether handlers run on virtual threads
  * @param slots How many handlers may run at the same time (platform threads, or the bound of
@@ -143,9 +146,10 @@ public record Camunda8ExecutionModel(
       throw new IllegalStateException(
           """
               Camunda 8 adapter '%s' has '%s: %d'. An adapter without an execution thread delivers \
-              nothing, and one thread runs the handlers AND the polling of every worker of this \
-              adapter, which is why the default is %d. Size it against the database connection pool \
-              of the application, since every running handler holds a connection."""
+              nothing, and one thread means that every worker of this adapter waits for the one \
+              handler which is running, which is why the default is %d. Size it against the \
+              database connection pool of the application, since every running handler holds a \
+              connection."""
               .formatted(
                   adapterId,
                   Camunda8AdapterConfiguration.propertyKey(adapterId, "worker-threads"),

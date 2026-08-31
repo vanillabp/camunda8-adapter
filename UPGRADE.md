@@ -5,6 +5,29 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## A worker asks for work only while an execution slot is free (2026-08-31)
+
+Two things changed about how a Camunda 8 adapter runs what it delivers, and neither of them needs
+a configuration change.
+
+The adapter now hands the client the executor it runs its workers on, in the platform-thread mode
+as well as in the virtual-thread one and on every release line. Until now it did that only for
+`worker-threads: virtual`; the platform mode let the client build its own pool, which on the 8.8
+line schedules the polls of every worker on the same threads the handlers run on. So on that line
+`worker-threads` blocked handlers stopped the adapter from asking the cluster for work at all, and
+nothing said so. `worker-threads` now counts handlers running at once wherever you look, which is
+what the documentation always promised, and the two execution-slot gauges
+(`vanillabp.camunda8.execution.slots.in.use` and `vanillabp.camunda8.jobs.waiting`) exist in the
+platform mode as well, where they were absent before.
+
+And a worker asks the cluster for work only while an execution slot of its adapter id is free. The
+workers of one adapter id share those slots, so a worker used to be able to activate jobs which
+then waited in front of them, spending the lock they were handed out with; on the 8.9 and 8.10
+lines, where the client always kept polling and handling apart, that was the normal state. Such a
+job is now left at the cluster, where another instance of your application can take it. What you
+may see is a job arriving up to a moment later than before on an application whose slots are all
+busy - which is an application at its capacity, and the slot gauges say so.
+
 ## A start waits for its cluster instead of failing at once (2026-08-30)
 
 Until now a start which could not reach its Camunda 8 cluster ended at the first round it tried

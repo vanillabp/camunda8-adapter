@@ -283,13 +283,12 @@ public class Camunda8JobTimeoutOverlayTest {
     Assertions.assertEquals("demo", keys.auth().username().orElseThrow());
 
     // and the values really arrive at the client this adapter id built
-    final var clientConfiguration = Arc
+    final var factory = Arc
         .container()
         .instance(Camunda8ClientFactoryRegistry.class)
         .get()
-        .getFactory("c8")
-        .getClient()
-        .getConfiguration();
+        .getFactory("c8");
+    final var clientConfiguration = factory.getClient().getConfiguration();
     Assertions.assertEquals(24, clientConfiguration.getDefaultJobWorkerMaxJobsActive());
     Assertions.assertEquals(Duration.ofMillis(250), clientConfiguration.getDefaultJobPollInterval());
     Assertions.assertEquals(Duration.ofSeconds(20), clientConfiguration.getDefaultRequestTimeout());
@@ -305,12 +304,13 @@ public class Camunda8JobTimeoutOverlayTest {
             Camunda8Authentication
                 .unwrap(clientConfiguration.getCredentialsProvider()),
             "the auth block of the overlay reaches the client this adapter id built");
-    Assertions.assertEquals(6,
-        clientConfiguration
-            .jobWorkerExecutor() instanceof Camunda8VirtualThreadExecutor executor
-                ? executor.getBound()
-                : -1,
-        "the virtual mode hands the client the adapter's bounded executor");
+    Assertions
+        .assertInstanceOf(
+            Camunda8VirtualThreadExecutor.class,
+            factory.getExecutor(),
+            "the virtual mode is what the overlay configured");
+    Assertions.assertEquals(6, factory.getExecutor().getBound(),
+        "and the bound of the overlay reaches the executor the client runs its workers on");
 
   }
 

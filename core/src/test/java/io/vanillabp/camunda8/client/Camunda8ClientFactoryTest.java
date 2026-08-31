@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -89,9 +88,10 @@ public class Camunda8ClientFactoryTest {
     configuration.setRestAddress("http://localhost:8080");
     try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
 
-      assertEquals(4, factory.getClient().getConfiguration().getNumJobWorkerExecutionThreads(),
+      final var executor = assertInstanceOf(Camunda8PlatformThreadExecutor.class, factory.getExecutor(),
+          "the adapter supplies the executor in the platform mode too");
+      assertEquals(4, executor.getBound(),
           "four execution slots, not the client's own default of one");
-      assertNull(factory.getVirtualThreadExecutor(), "the platform mode lets the client build its pool");
       assertEquals(32, factory.getClient().getConfiguration().getDefaultJobWorkerMaxJobsActive(),
           "eight per slot, capped at the client's 32");
     }
@@ -108,13 +108,9 @@ public class Camunda8ClientFactoryTest {
     configuration.setWorkerThreadsBound(6);
     try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
 
-      final var executor = factory.getVirtualThreadExecutor();
-      assertNotNull(executor, "the adapter supplies the executor itself");
+      final var executor = assertInstanceOf(Camunda8VirtualThreadExecutor.class, factory.getExecutor(),
+          "the adapter supplies the executor itself");
       assertEquals(6, executor.getBound());
-      assertSame(executor, factory.getClient().getConfiguration().jobWorkerExecutor(),
-          "the client runs the workers on it");
-      assertTrue(factory.getClient().getConfiguration().ownsJobWorkerExecutor(),
-          "closing the client shuts the executor down");
     }
 
   }
@@ -138,7 +134,7 @@ public class Camunda8ClientFactoryTest {
     try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
 
       final var clientConfiguration = factory.getClient().getConfiguration();
-      assertEquals(3, clientConfiguration.getNumJobWorkerExecutionThreads());
+      assertEquals(3, factory.getExecutor().getBound());
       assertEquals(9, clientConfiguration.getDefaultJobWorkerMaxJobsActive());
       assertEquals(Duration.ofMillis(250), clientConfiguration.getDefaultJobPollInterval());
       assertEquals(Duration.ofSeconds(20), clientConfiguration.getDefaultRequestTimeout());

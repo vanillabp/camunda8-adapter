@@ -107,8 +107,8 @@ public class MicrometerCamunda8MetricsTest {
   }
 
   @Test
-  @DisplayName("The platform-thread mode reports the bound and guesses nothing else")
-  public void withoutTheVirtualExecutorOnlyTheBoundIsReported() {
+  @DisplayName("An adapter which built no client reports the bound and guesses nothing else")
+  public void withoutAnExecutorOnlyTheBoundIsReported() {
 
     final var registry = new SimpleMeterRegistry();
     final var metrics = new MicrometerCamunda8Metrics();
@@ -120,7 +120,7 @@ public class MicrometerCamunda8MetricsTest {
     assertThrows(
         MeterNotFoundException.class,
         () -> registry.get(Camunda8Metrics.EXECUTION_SLOTS_IN_USE).gauge(),
-        "the client owns its pool there and does not report what it does with it");
+        "an adapter configured without a connection has no executor to read them from");
     assertThrows(
         MeterNotFoundException.class,
         () -> registry.get(Camunda8Metrics.JOBS_WAITING).gauge());

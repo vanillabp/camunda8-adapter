@@ -2,7 +2,6 @@ package io.vanillabp.camunda8.springboot.it;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.TimeUnit;
@@ -30,9 +29,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <code>@WorkflowTask</code> method really runs on a virtual thread, and a blocking
  * handler does not delay the job of another worker there either.
  * <p>
- * The bound of the executor is unit-tested ({@code Camunda8VirtualThreadExecutorTest});
- * what only a cluster can show is that the executor the adapter hands the client is the
- * one the client runs the handlers on.
+ * The bound of the executor is unit-tested ({@code Camunda8ExecutorTest}) and the builder
+ * methods which carry it to the client are asserted per release line
+ * ({@code Camunda8JobExecutorsTest}). What only a cluster can show is that a handler of a
+ * booted application really ends up on one of those threads.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -96,16 +96,13 @@ public class Camunda8VirtualThreadsIT {
   }
 
   @Test
-  @DisplayName("the client runs the workers on the adapter's bounded virtual-thread executor")
-  public void theClientRunsOnTheAdaptersExecutor() {
+  @DisplayName("the configured bound reaches the executor of the booted application")
+  public void theConfiguredBoundReachesTheExecutor() {
 
     final var factory = clientFactoryRegistry.getFactory("c8");
 
-    assertNotNull(factory.getVirtualThreadExecutor(), "the adapter supplies the executor itself");
-    assertEquals(8, factory.getVirtualThreadExecutor().getBound());
-    assertSame(factory.getVirtualThreadExecutor(),
-        factory.getClient().getConfiguration().jobWorkerExecutor(),
-        "the client runs its workers on it");
+    assertNotNull(factory.getExecutor(), "the adapter supplies the executor itself");
+    assertEquals(8, factory.getExecutor().getBound());
 
   }
 

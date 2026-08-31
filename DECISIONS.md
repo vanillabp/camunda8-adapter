@@ -94,6 +94,11 @@ because an interrupted handler throws like any other.
 
 ### 7. The adapter chooses how many handlers run at once
 
+The reasoning of this entry is superseded by decision 18. What it decided still holds - the adapter
+picks how many handlers run at once, the default is four, and `virtual` is a regular mode - but the
+number no longer means threads shared between the handlers and the scheduling of every poll, and
+what the 8.8 line does on its own no longer decides anything.
+
 The client's default is a single thread, and on the 8.8 line that same thread also schedules the
 polling of every worker, so one blocking handler stopped the adapter from asking for work at all.
 `worker-threads` therefore has a default of its own, four platform threads, and accepts `virtual`
@@ -297,3 +302,53 @@ this adapter reads, and it is what makes a default of ten minutes bearable. The 
 because the case it exists for takes minutes; it is paid for with a late abort and not with a late
 diagnosis, since a line every few seconds carries the cluster's last answer from the first attempt
 on.
+
+### 18. The adapter supplies the executor, and a worker asks for work only while a slot is free
+
+This supersedes the reasoning of decision 7, which stays where it is.
+
+The 8.8 client gives ONE `ScheduledExecutorService` both jobs: it schedules the poll of every worker
+on it and it runs every handler invocation on it. So `worker-threads` blocked handlers stopped that
+adapter from asking the cluster for work at all, and nothing said so. Since 8.9 the client keeps the
+two apart by itself, which made it tempting to fix only the line which needs fixing. Decision 11
+rules that out - a line differs in what its cluster can do, never in what the adapter offers - and
+building it once was cheaper anyway. So the adapter hands the client an executor of its own in both
+execution models and on every line: a virtual thread per handler, or a pool as wide as the
+configured number, and in each case two platform threads for the timing which no handler can occupy.
+`worker-threads` therefore counts handlers running at once, which is what the README and the wiki
+promised all along. The price is those two threads per adapter id, idle almost always.
+
+Taking the roles apart also takes away a back pressure nobody designed but which did work on 8.8: an
+adapter with every slot busy stopped asking for work. On 8.9 and 8.10 there was never such a thing,
+so a queue of activated jobs in front of the slots is the normal state of those lines, and every job
+in it spends the lock it was handed out with while waiting. What replaces it is deliberate. A
+scheduled task runs when an execution slot is free and is looked at again a moment later when none
+is, so a job nobody could run is not fetched, and the cluster keeps it for whoever can.
+
+Nothing has to be told apart to do that, which is what made the rule buildable. On all three lines
+exactly two kinds of task reach the executor: the poll of a worker, and the opening and re-opening
+of a job stream where `stream-enabled` is on. Both fetch work, and neither keeps a job which was
+already activated alive. The lock renewal of a long-running task is sent by this adapter's own
+handler, on a thread which is holding a slot already, so it can never wait for one.
+
+The one job kept alive by a delivery rather than by a handler is the one a `@TaskId` method left
+open: its lock is renewed when the cluster hands it out again, which is an ordinary activation and
+therefore waits for a slot like every other. What that costs is a late renewal on an application
+which has no capacity, never the task - the lock lapses at the cluster, the job goes back to being
+fetchable, and the delivery record answers the round which finally arrives.
+
+Three limits are named rather than hidden. Asking is not the same as being answered: a Camunda 8
+activation request is a long poll which the gateway holds for `request-timeout` and answers as soon
+as a job appears, so a request already parked when the last slot filled still brings its batch. What
+the rule stops is the asking AGAIN, which is what turns a single batch into a queue. The client also
+tops a worker up directly from the thread on which one of its handlers just finished, which passes
+no executor and is therefore not gated - and that worker has just given a slot back, which is the
+one case where fetching more is the point. And the rule decides how often work is fetched, never how
+much one fetch brings.
+
+That last part is `max-jobs-active`, and it bounds one worker's queue and nothing beyond it. The
+client counts the jobs it activated and has not finished yet, activates at most `max-jobs-active`
+minus that number, and asks for more as soon as the number is down to thirty percent of it: ten of
+thirty-two, two of eight. Meanwhile the workers of one adapter id share the execution slots, so
+fifteen workers may hold fifteen times `max-jobs-active` jobs in front of four of them. That gap is
+what the rule above is for.

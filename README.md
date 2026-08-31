@@ -714,7 +714,7 @@ second dispatch of such a start finds the instance every time would disprove it.
 The Camunda client owns one executor per client and this adapter owns one client per adapter
 id, so a single number decides how much of everything an adapter delivers may be in flight
 at once. That number used to be the client's own default of one, nothing passed it
-through, and on the 8.8 client that one thread runs the handler invocations AND the poll
+through, and on the 8.8 client that one thread ran the handler invocations AND the poll
 scheduling of every worker. Measured against a real cluster: an unrelated job of another
 worker waited 8013 ms behind a blocking handler and 13 ms with four threads, and a poll
 scheduled with a delay of 100 ms started 4837 ms late while the broker's counter of
@@ -724,6 +724,31 @@ its own: the backlog was invisible to every client-side signal.
 `vanillabp.adapters.<id>.worker-threads` takes a positive number or the literal `virtual`,
 and it sits at adapter level because the executor is per client. A workflow-module level
 would be a lie.
+
+**The adapter hands the client the executor, whichever mode is configured and whichever line
+the artifact was built for.** The 8.9 client keeps the polling and the handlers on separate
+executors by itself, the 8.8 client does not, and building the separation only where it is
+missing would leave the other lines without what the rest of this section describes. So both
+modes build one of the adapter's own executors: two platform threads for the timing, which
+no handler can occupy, and either a virtual thread per handler or a pool as wide as the
+configured number for the work. `worker-threads` therefore counts handlers running at once
+rather than threads shared with the scheduling of every poll, and the two slot gauges say
+something in both modes. It costs two threads per adapter id which are idle almost always.
+
+**A worker asks the cluster for work only while an execution slot is free.** The separation
+above removes a back pressure nobody designed: on 8.8 an adapter whose handlers held every
+slot stopped polling. On 8.9 and 8.10 there was never one, so a queue of activated jobs in
+front of the slots is the normal state of those lines, and every job in it spends its lock
+waiting rather than being worked on. What the adapter does instead is deliberate: a scheduled
+poll runs when a slot is free and is looked at again 100 ms later when none is, so a job
+which nobody could run is not fetched at all and the cluster can hand it to another node.
+Three things this does not cover, all by design. An activation request is a long poll the
+gateway holds for `request-timeout` and answers as soon as a job appears, so a request
+already parked when the last slot filled still brings its batch; what the gate stops is the
+asking AGAIN, which is what turns one batch into a queue. The client tops a worker up
+directly from the thread on which one of its handlers just finished, which never passes the
+executor - and that worker has just given a slot back. And the gate decides how often work
+is fetched, not how much one activation brings; that is `max-jobs-active` below.
 
 **Four platform threads by default.** More than one, because one is the defect above. Small,
 because every concurrent handler holds a database connection inside VanillaBP's transaction
@@ -742,20 +767,19 @@ PostgreSQL 16. Zero pinning events in all six combinations; a positive control (
 `Thread.sleep` inside `synchronized`) produced four, so the detection was working. The
 drivers moved off `synchronized` for exactly this reason (pgjdbc since 42.5.1, H2 2.x), and
 JDK 24 removes the question altogether. So `virtual` is a supported mode rather than a
-caveat, and the default stays at four platform threads: at the same bound it buys nothing on
-the 8.9 client, which splits scheduling from handling by itself, and a platform pool is what
-every line does natively.
+caveat, and the default stays at four platform threads: at the same bound it buys nothing now
+that the adapter separates scheduling from handling itself, and a platform pool is what the
+clients do natively.
 
-`Camunda8VirtualThreadExecutor` is that split for the 8.8 line: two platform threads for the
-timing, a virtual thread per submitted task for the work, bounded by a semaphore whose
-permits `worker-threads-bound` sizes. Two details are deliberate. The permit is taken INSIDE
-the virtual thread, not in `execute`, because the thread calling `execute` is the client's and
-blocking it would stall the delivery of every other worker - the defect the mode exists to
-avoid. And the bound defaults to the number the platform mode would use, so switching the
-mode changes how threads are made and not how much runs at once. With `stream-enabled` the
-client wraps whatever executor it was given in its own semaphore of `max-jobs-active` permits
-whose acquire waits for the job timeout, so the effective limit is then the smaller of the
-two.
+`Camunda8VirtualThreadExecutor` runs a virtual thread per submitted task, bounded by a
+semaphore whose permits `worker-threads-bound` sizes. Two details are deliberate. The permit
+is taken INSIDE the virtual thread, not in `execute`, because the thread calling `execute` is
+the client's and blocking it would stall the delivery of every other worker - the defect the
+mode exists to avoid. And the bound defaults to the number the platform mode would use, so
+switching the mode changes how threads are made and not how much runs at once. With
+`stream-enabled` the client wraps whatever executor it was given in its own semaphore of
+`max-jobs-active` permits whose acquire waits for the job timeout, so the effective limit is
+then the smaller of the two.
 
 **The worker settings are set on the CLIENT, not on every worker.** A worker builder inherits
 the client's defaults, and setting them per worker would defeat the environment variables the
@@ -764,6 +788,13 @@ set per worker. `max-jobs-active` defaults to eight per execution slot capped at
 32, which is the familiar 32 at four slots and scales down to 8 at one, so the last job of a
 batch waits for seven handler runtimes instead of thirty-one. A value below the slot count
 fails the boot: some slots could never be busy.
+
+What that setting bounds is one worker's queue and nothing beyond it. The client counts the
+jobs it activated and has not finished, activates at most `max-jobs-active` minus that number,
+and asks for more as soon as the number is down to thirty percent of it - ten of thirty-two,
+two of eight. The workers of one adapter id share the execution slots, so fifteen workers may
+hold fifteen times that many jobs in front of four slots, which is why the gate above exists
+next to it.
 
 **The three hard coded one-minute locks are gone.** The user-task lifecycle listener, the
 BPMS-initiated start and the workflow-ended worker run application code in a transaction
@@ -1405,9 +1436,14 @@ an assumption about Camunda 8, disproved by a model which deploys with one.
   workflow of ANOTHER worker of the same adapter is started, and its job has to be served
   meanwhile - which one execution thread could not do. The virtual variant asserts the same
   property plus that the handler really ran on a virtual thread and that the client runs its
-  workers on the adapter's own bounded executor. The bound itself is a unit test
-  (`Camunda8VirtualThreadExecutorTest`), where more concurrent jobs than the bound can be
-  thrown at it without a cluster.
+  workers on the adapter's own bounded executor. `Camunda8PollWhenASlotIsFreeIT` is the other
+  half of the same picture, with one slot instead of four: the client's own activation counter
+  stays at zero for the second worker while that slot is busy, so the job stays at the cluster
+  rather than in front of the application. The bound and the gate themselves are unit tests
+  (`Camunda8ExecutorTest` for both execution models, `Camunda8VirtualThreadExecutorTest` and
+  `Camunda8PlatformThreadExecutorTest` for what each of them does on its own), where more
+  concurrent jobs than the bound can be thrown at them without a cluster. Which builder method
+  of which line carries the two roles is `Camunda8JobExecutorsTest`, once per release line.
 - **Spring Boot / Quarkus discovery tests:** the adapter is discovered and the deployment
   service (one per configured adapter id), process service and client-factory registry
   beans are created (no cluster needed).
@@ -1672,13 +1708,12 @@ which is gone reached somebody. So the wait for a listener notification now asks
 the jobs of the workflow before it gives up, and says every quarter minute what it is still
 missing.
 
-An adapter which cannot poll was the first suspect, and the release lines answer that differently,
-which is worth knowing while reading such a log. Since 8.9 the client keeps two executors apart,
-one to schedule the polls on and one to run the handlers on, so handlers occupying every execution
-slot cannot stop a worker from asking for work. The 8.8 client has a single executor for both, and
-there `worker-threads` blocked handlers do stop the polling of that adapter until one of them
-returns. `worker-threads: virtual` avoids it on every line, the executor the adapter hands over
-separating the two itself. The observation above happened on 8.9, so this is not what it was.
+An adapter which cannot poll was the first suspect, and it used to be a real one on the 8.8 line,
+where the client gave a single executor both jobs. The adapter now hands the client an executor
+which keeps them apart on every line, so a blocked handler no longer stops a worker from asking
+for work. What it does stop is a worker asking while every execution slot is busy, which is
+deliberate and visible in the slot gauges. The observation above happened on 8.9 and with free
+slots, so it was neither.
 
 ## What an operator gets to see
 
@@ -1692,8 +1727,8 @@ same registry, the execution slots as gauges, and a health contribution
 asking the cluster for its topology.
 
 The reasoning behind the shape of it - why the client's Micrometer implementation is not
-used, why the health check has a timeout of its own and why the slot gauges are absent in
-the platform-thread mode - is in [`core/README.md`](./core/README.md).
+used, why the health check has a timeout of its own and where the slot gauges are read from -
+is in [`core/README.md`](./core/README.md).
 
 `MicrometerCamunda8MetricsTest` covers the meters and the gauges, `Camunda8HealthTest` the
 health contribution with its own timeout, and `Camunda8HealthBootTest` with
