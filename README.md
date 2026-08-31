@@ -39,6 +39,12 @@ This adapter runs on both platforms VanillaBP supports:
 Coverage is measured separately per platform - a platform's tests never cover the other
 platform's code. Click a badge to open the respective report.
 
+The mechanisms this adapter plugs into are drawn in `migration-adapter/README.md` of
+`adapter-platform-integration`, each picture in the section which describes it, and
+[`diagrams/README.md`](https://github.com/vanillabp/adapter-platform-integration/blob/main/diagrams)
+there lists them. Camunda 8 appears in most of them as one branch beside Camunda 7 and the
+Process-Engine-API, which is a comparison this repository cannot draw on its own.
+
 ## Release lines
 
 A Camunda 8 cluster upgrade is expensive, more so organizationally than technically, and
@@ -454,6 +460,9 @@ update for a user task - run right before the caller's transaction commits, not 
 application calls. The later the check, the smaller the window in which its answer can go
 stale before phase two acts on it, and a failing check aborts the commit, which is how the
 application learns about a task which is already gone.
+
+Where the hook sits relative to the caller's commit and to the dispatcher which runs phase two is
+drawn under [The transaction the work runs in](https://github.com/vanillabp/adapter-platform-integration/blob/main/migration-adapter/README.md#the-transaction-the-work-runs-in).
 
 The adapter no longer carries that mechanism. It hands the check to the platform
 (`PreCommitRegistrar` of the adapter SPI), naming the workflow aggregate, and the platform
@@ -1552,6 +1561,9 @@ prose. The two kinds of cluster stand against each other in
 
 ### Eventual consistency of the query API
 
+The window this section is about, and the waiting the dispatch does inside it, is the second of the
+two walks drawn under [Awareness contract](https://github.com/vanillabp/adapter-platform-integration/blob/main/migration-adapter/README.md#awareness-contract-workflowawareness).
+
 The query API lags behind the engine, which everything in the list above inherits. The viewer
 tolerates it by design, since a viewer polling shortly after sees the data. The awareness
 probe cannot: a workflow started moments ago is not searchable yet, and reporting
@@ -1644,6 +1656,9 @@ a keystore; `Camunda8ClientFactoryTest#caCertificateReachesTheClient` covers the
 TLS material the client does take.
 
 ### Message deduplication lasts for the message TTL
+
+A correlation on its way through both nets, the outbox' and the cluster's, is drawn under
+[Waiting for a workflow to become visible](https://github.com/vanillabp/adapter-platform-integration/blob/main/migration-adapter/README.md#waiting-for-a-workflow-to-become-visible).
 
 A correlation carrying a correlation id deduplicates engine-side, because a message id derived
 from the same values as the outbox' idempotency key travels to the cluster, and the engine
