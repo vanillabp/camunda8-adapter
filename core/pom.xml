@@ -14,8 +14,8 @@
 
   <dependencies>
     <dependency>
-      <groupId>io.vanillabp.adapter</groupId>
-      <artifactId>migration-adapter-spi</artifactId>
+      <groupId>io.vanillabp</groupId>
+      <artifactId>vanillabp-adapter-spi</artifactId>
     </dependency>
     <dependency>
       <groupId>io.camunda</groupId>

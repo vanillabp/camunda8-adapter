@@ -151,8 +151,8 @@
         <version>${spi-for-java.version}</version>
       </dependency>
       <dependency>
-        <groupId>io.vanillabp.adapter</groupId>
-        <artifactId>migration-adapter-spi</artifactId>
+        <groupId>io.vanillabp</groupId>
+        <artifactId>vanillabp-adapter-spi</artifactId>
         <version>${adapter-platform.version}</version>
       </dependency>
       <dependency>
