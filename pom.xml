@@ -234,6 +234,13 @@
           <version>3.15.0</version>
           <configuration>
             <release>${version.java}</release>
+            <compilerArgs>
+              <!-- a javadoc which names a method is checked like any other claim: a link
+                   the compiler cannot resolve is an error, a parameter documented twice a
+                   warning. Only the reference group is on, so wording and missing comments
+                   stay a matter of review. -->
+              <arg>-Xdoclint:reference</arg>
+            </compilerArgs>
             <annotationProcessorPaths>
               <path>
                 <groupId>org.projectlombok</groupId>

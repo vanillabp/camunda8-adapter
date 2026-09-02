@@ -17,10 +17,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * A <code>&#64;WorkflowTask</code> method matching no task of any BPMN process of its
  * workflow module ends the boot, naming the method and the fix.
  * <p>
- * The check is the core's since story 158 of the platform - this adapter used to call it
- * itself, and Camunda 7 used to forget it. What this test adds is the proof that it still
- * fires for Camunda 8 now that nobody calls it here: the model reaches a REAL cluster, so
- * the deployment really finishes, which is the moment the core is waiting for. The cluster
+ * The check belongs to the platform's core - this adapter used to call it itself, and
+ * Camunda 7 used to forget it. What this test adds is the proof that it still fires for
+ * Camunda 8 now that nobody calls it here: the model reaches a REAL cluster, so the
+ * deployment really finishes, which is the moment the core is waiting for. The cluster
  * needs no secondary storage for it; wiring a model and reporting a method are questions
  * of the model and the application, not of the query API.
  */
