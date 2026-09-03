@@ -1196,6 +1196,27 @@ what comes from the cluster and how each answer degrades without it, and `Camund
 `Camunda8WorkflowLifecycleTest#theViewerServesTheDeployedModelAndItsHistory` the two kinds of
 cluster.
 
+### Decision tables
+
+The `.dmn` files of a workflow module are deployed by the boot, in the SAME
+`DeployResourceCommand` as its BPMN files, so process and decision are one deployment and
+one version step. A business rule task naming `zeebe:calledDecision` then has the CLUSTER
+evaluate the decision, which is why the wiring leaves such a task alone: there is no
+`@WorkflowTask` method to ask for. A business rule task carrying a `zeebe:taskDefinition`
+is an ordinary VanillaBP task and is validated like a service task.
+
+What the decision produced is a variable of the workflow, so a following task reads it
+through its input mapping and a `@TaskParam` parameter -
+`Camunda8DecisionTableIT` runs both rules of a table against a real cluster and asserts
+what reaches the handler.
+
+Under `use-prefix` the decision ids are rewritten like the process ids, and the
+`decisionId` of the business rule tasks is rewritten with them, so both name the same
+decision (`Camunda8DeploymentServiceTest#aBusinessRuleTaskFindsItsRenamedDecision`). A
+`decisionId` given as a FEEL expression stays untouched. What this mode cannot follow is a
+reference to a decision the module does not deploy: that one is renamed here and not in the
+cluster.
+
 ### Keeping workflow modules apart
 
 The [name-clash-avoidance mode](https://github.com/vanillabp/adapter-platform-integration/wiki/Workflow-modules#how-name-clashes-are-avoided)

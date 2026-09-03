@@ -711,6 +711,34 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   @Override
+  public Camunda8ProcessingContext readDmn(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext existingContext,
+      final String filename,
+      final java.io.InputStream dmn) {
+
+    // the decision travels as bytes: the cluster reads it, this adapter only has to make
+    // sure the id it is deployed under matches what the business rule task points at
+    final var file = io.vanillabp.integration.adapter.spi.DmnDecisionIds.bytesOf(dmn);
+    final var prefixes = Camunda8Scoping.prefixes(workflowModuleId, adapterId, scoping);
+    final var toDeploy = prefixes
+        ? io.vanillabp.integration.adapter.spi.DmnDecisionIds
+            .rewrite(file, id -> scoping.scopedIdentifier(workflowModuleId, id, adapterId))
+        : file;
+    if (prefixes) {
+      log.debug(
+          "Camunda8[{}]: the decisions of '{}' are deployed under prefixed ids ({}), matching the "
+              + "'zeebe:calledDecision' of the business rule tasks calling them",
+          adapterId,
+          filename,
+          io.vanillabp.integration.adapter.spi.DmnDecisionIds.of(toDeploy));
+    }
+    existingContext.addDecision(filename, toDeploy);
+    return existingContext;
+
+  }
+
+  @Override
   public void wireBpmn(
       final String workflowModuleId,
       final String filename,
@@ -977,6 +1005,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final DeployResourceCommandStep1 next = command != null ? command : client.newDeployResourceCommand();
       command = next.addProcessModel(resource.getValue(), resource.getKey());
     }
+    // the module's decision tables go into the SAME command: a business rule task binding
+    // its decision to the deployment finds it, and both are versioned together
+    for (final var decision : bpmsProcessingContext.getDecisions().entrySet()) {
+      final DeployResourceCommandStep1 next = command != null ? command : client.newDeployResourceCommand();
+      command = next.addResourceBytes(decision.getValue(), decision.getKey());
+    }
 
     // Which tenant a workflow module is deployed to is decided by the
     // name-clash-avoidance mode - 'by-adapter' (the default, version 1's behavior)
@@ -1049,6 +1083,19 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                     adapterId, workflowModuleId, plainBpmnProcessId, String.valueOf(process.getVersion()));
           });
 
+      final var deployedDecisions = deployment.getDecisions();
+      if ((deployedDecisions != null) && !deployedDecisions.isEmpty()) {
+        // the ids the CLUSTER knows, which is what a business rule task has to name
+        log.info(
+            "Deployed {} decision(s) of workflow module '{}' to Camunda 8 (adapter '{}'): {}",
+            deployedDecisions.size(),
+            workflowModuleId,
+            adapterId,
+            deployedDecisions
+                .stream()
+                .map(decision -> "%s (version %d)".formatted(decision.getDmnDecisionId(), decision.getVersion()))
+                .toList());
+      }
       log.info("Deployed {} BPMN resource(s) of workflow module '{}' to Camunda 8 "
           + "(adapter '{}', deployment key {}, tenant '{}'): {}",
           bpmsProcessingContext.getResources().size(),

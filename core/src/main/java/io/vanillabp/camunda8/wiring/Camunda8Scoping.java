@@ -88,6 +88,25 @@ public final class Camunda8Scoping {
   }
 
   /**
+   * Whether the given workflow module's identifiers are prefixed for this adapter -
+   * asked by the deployment service for the decision tables of the module, whose ids are
+   * rewritten outside a BPMN model.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param adapterId The adapter ID
+   * @param scoping The core's name-clash-avoidance support (may be <code>null</code>)
+   * @return Whether prefixing applies
+   */
+  public static boolean prefixes(
+      final String workflowModuleId,
+      final String adapterId,
+      final NameClashAvoidanceSupport scoping) {
+
+    return (scoping != null) && (scoping.modeFor(workflowModuleId, null, adapterId) == NameClashAvoidance.USE_PREFIX);
+
+  }
+
+  /**
    * Rewrites the identifiers of the given model in place. A no-op unless the mode of
    * the workflow module is {@link NameClashAvoidance#USE_PREFIX}.
    *
@@ -102,7 +121,7 @@ public final class Camunda8Scoping {
       final String adapterId,
       final NameClashAvoidanceSupport scoping) {
 
-    if ((scoping == null) || (scoping.modeFor(workflowModuleId, null, adapterId) != NameClashAvoidance.USE_PREFIX)) {
+    if (!prefixes(workflowModuleId, adapterId, scoping)) {
       return;
     }
 
@@ -153,6 +172,20 @@ public final class Camunda8Scoping {
         .getModelElementsByType(ZeebeCalledElement.class)
         .forEach(calledElement -> calledElement.setProcessId(
             scoping.scopedProcessId(workflowModuleId, calledElement.getProcessId(), adapterId)));
+
+    // a business rule task addresses a decision BY ID, and the decisions this module
+    // deploys were renamed the same way while their files were read. An id given as an
+    // expression (it starts with '=') is the application's own FEEL and stays untouched
+    model
+        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledDecision.class)
+        .forEach(calledDecision -> {
+          final var decisionId = calledDecision.getDecisionId();
+          if ((decisionId == null) || decisionId.isBlank() || decisionId.startsWith("=")) {
+            return;
+          }
+          calledDecision
+              .setDecisionId(scoping.scopedIdentifier(workflowModuleId, decisionId, adapterId));
+        });
 
     // ... and the process ids last
     model

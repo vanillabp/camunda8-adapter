@@ -78,6 +78,16 @@ public class Camunda8DeploymentServiceTest {
       </bpmn:definitions>
       """;
 
+  private static final String CREDIT_RATING_DMN = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+          id="creditRatingDefinitions" name="Credit rating" namespace="http://vanillabp.io/test">
+        <decision id="creditRating" name="Credit rating">
+          <decisionTable id="creditRatingTable" hitPolicy="UNIQUE"/>
+        </decision>
+      </definitions>
+      """;
+
   private Camunda8DeploymentService newDeploymentService() {
 
     // an unconfigured factory: getClient() would throw if ever called
@@ -544,6 +554,113 @@ public class Camunda8DeploymentServiceTest {
         }
 
       };
+
+    }
+
+    @Test
+    @DisplayName("a decision and the business rule task calling it are renamed to the same string")
+    public void aBusinessRuleTaskFindsItsRenamedDecision() {
+
+      final var scoping = scopingWith(NameClashAvoidance.USE_PREFIX);
+      final var service = new Camunda8DeploymentService(
+          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
+              .of(new NoOpInvoker()), (
+                  m,
+                  p,
+                  t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration.ofDays(14), null, scoping);
+
+      final var model = Bpmn
+          .createExecutableProcess("Rating")
+          .startEvent()
+          .businessRuleTask("rate", task -> task.zeebeCalledDecisionId("creditRating").zeebeResultVariable("rating"))
+          .endEvent()
+          .done();
+      final var context = service.prepareBpmn(MODULE, null, "rating.bpmn", "Rating", model);
+      service
+          .readDmn(MODULE, context, "rating.dmn", new ByteArrayInputStream(CREDIT_RATING_DMN.getBytes(UTF_8)));
+
+      // what the model points at has to be what the cluster deploys the decision under,
+      // so both sides go through the same function of the core
+      final var calledDecision = model
+          .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledDecision.class)
+          .iterator()
+          .next()
+          .getDecisionId();
+      final var deployedDecisionId = io.vanillabp.integration.adapter.spi.DmnDecisionIds
+          .of(context.getDecisions().get("rating.dmn"))
+          .iterator()
+          .next();
+      assertEquals(deployedDecisionId, calledDecision);
+      assertEquals(MODULE
+          + NameClashAvoidanceSupport.SEPARATOR
+          + "creditRating", calledDecision);
+
+    }
+
+    @Test
+    @DisplayName("without prefixing the decision keeps the id the modeller gave it")
+    public void byAdapterLeavesTheDecisionAlone() {
+
+      final var scoping = scopingWith(NameClashAvoidance.BY_ADAPTER);
+      final var service = new Camunda8DeploymentService(
+          "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
+              .of(new NoOpInvoker()), (
+                  m,
+                  p,
+                  t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration.ofDays(14), null, scoping);
+
+      final var model = Bpmn
+          .createExecutableProcess("Rating")
+          .startEvent()
+          .businessRuleTask("rate", task -> task.zeebeCalledDecisionId("creditRating").zeebeResultVariable("rating"))
+          .endEvent()
+          .done();
+      final var context = service.prepareBpmn(MODULE, null, "rating.bpmn", "Rating", model);
+      service
+          .readDmn(MODULE, context, "rating.dmn", new ByteArrayInputStream(CREDIT_RATING_DMN.getBytes(UTF_8)));
+
+      assertEquals(
+          "creditRating",
+          model
+              .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledDecision.class)
+              .iterator()
+              .next()
+              .getDecisionId());
+      assertEquals(
+          List.of("creditRating"),
+          List.copyOf(
+              io.vanillabp.integration.adapter.spi.DmnDecisionIds
+                  .of(context.getDecisions().get("rating.dmn"))));
+
+    }
+
+    @Test
+    @DisplayName("a business rule task calling a decision is no job-worker task")
+    public void aDecisionIsServedByTheClusterAndNotByAWorker() {
+
+      final var callingADecision = Bpmn
+          .createExecutableProcess("Rating")
+          .startEvent()
+          .businessRuleTask("rate", task -> task.zeebeCalledDecisionId("creditRating").zeebeResultVariable("rating"))
+          .endEvent()
+          .done();
+
+      assertEquals(
+          List.of(),
+          io.vanillabp.camunda8.wiring.Camunda8TaskWiring.tasksOf(callingADecision, "Rating"),
+          "the cluster evaluates the decision, so no @WorkflowTask method is expected");
+
+      // one wired by a task definition is an ordinary VanillaBP task
+      final var callingAWorker = Bpmn
+          .createExecutableProcess("Rating")
+          .startEvent()
+          .businessRuleTask("rate", task -> task.zeebeJobType("rateTheApplicant"))
+          .endEvent()
+          .done();
+
+      assertEquals(
+          1,
+          io.vanillabp.camunda8.wiring.Camunda8TaskWiring.tasksOf(callingAWorker, "Rating").size());
 
     }
 
