@@ -24,7 +24,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
-import io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService;
+import io.vanillabp.integration.adapter.migration.processservice.DeliveryRecords;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -138,8 +138,10 @@ public class Camunda8InboundIdempotencyIT {
     // the same on the aggregate)
     final var skippedDeliveries = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
     skippedDeliveries.start();
+    // a repeated delivery is answered from the core's delivery records, which is where
+    // the message about it comes from
     final var coreLogger = (ch.qos.logback.classic.Logger) LoggerFactory
-        .getLogger(MigrationProcessService.class);
+        .getLogger(DeliveryRecords.class);
     coreLogger.addAppender(skippedDeliveries);
 
     try {

@@ -22,7 +22,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.wiring.Camunda8JobHandler;
-import io.vanillabp.integration.adapter.migration.processservice.MigrationProcessService;
+import io.vanillabp.integration.adapter.migration.processservice.DeliveryRecords;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -116,8 +116,8 @@ public class Camunda8AsyncTaskAgeIT {
   @DisplayName("A task older than the maximum age is reported once and fails its job into an incident")
   public void anOverdueTaskEndsInAnIncident() throws Exception {
 
-    final var coreMessages = appenderOn(
-        MigrationProcessService.class);
+    // the age of an open task is measured and reported by the core's delivery records
+    final var coreMessages = appenderOn(DeliveryRecords.class);
     final var adapterMessages = appenderOn(Camunda8JobHandler.class);
 
     try {
@@ -176,9 +176,7 @@ public class Camunda8AsyncTaskAgeIT {
           "a job which ended in an incident is not redelivered");
 
     } finally {
-      detach(
-          MigrationProcessService.class,
-          coreMessages);
+      detach(DeliveryRecords.class, coreMessages);
       detach(Camunda8JobHandler.class, adapterMessages);
     }
 
