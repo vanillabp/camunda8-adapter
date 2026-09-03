@@ -30,11 +30,25 @@ public final class TestCollaborators {
   public static <T extends WorkflowTaskWiring & WorkflowTaskInvoker> AdapterCollaborators of(
       final T core) {
 
+    return of(core, mock(NameClashAvoidanceSupport.class));
+
+  }
+
+  /**
+   * @param <T> A double playing both halves of the task SPI
+   * @param core The double
+   * @param scoping What the test wants the name-clash avoidance to answer
+   * @return A complete set built around them
+   */
+  public static <T extends WorkflowTaskWiring & WorkflowTaskInvoker> AdapterCollaborators of(
+      final T core,
+      final NameClashAvoidanceSupport scoping) {
+
     return AdapterCollaborators
         .forAdapter("c8")
         .workflowTaskWiring(core)
         .workflowTaskInvoker(core)
-        .scoping(mock(NameClashAvoidanceSupport.class))
+        .scoping(scoping)
         .workflowAggregateSync(mock(WorkflowAggregateSync.class))
         .preCommitRegistrar(mock(PreCommitRegistrar.class))
         .workflowEndedInvoker(mock(WorkflowEndedInvoker.class))

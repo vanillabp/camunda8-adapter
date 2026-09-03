@@ -87,7 +87,8 @@ public final class Camunda8TaskWiring {
    * The job-worker tasks of the given executable process (including tasks inside
    * embedded subprocesses). Tasks without a <code>zeebe:taskDefinition</code> get a
    * <code>null</code> task definition - reported by the wiring validation with a
-   * guiding message.
+   * guiding message. A business rule task calling a decision
+   * (<code>zeebe:calledDecision</code>) is none of them: the cluster evaluates it.
    */
   public static List<Camunda8TaskToWire> tasksOf(
       final BpmnModelInstance model,
@@ -100,6 +101,14 @@ public final class Camunda8TaskWiring {
         .map(Task.class::cast)
         .filter(task -> bpmnProcessId.equals(owningProcessId(task)))
         .forEach(task -> {
+          // a business rule task calling a DECISION is served by the cluster, not by a
+          // job worker of the application: the decision was deployed with this process,
+          // and asking for a @WorkflowTask method would make DMN unusable here. A
+          // business rule task carrying a task definition is an ordinary VanillaBP task
+          if (task.getSingleExtensionElement(
+              io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledDecision.class) != null) {
+            return;
+          }
           final var taskDefinition = task.getSingleExtensionElement(ZeebeTaskDefinition.class);
           tasks.add(new Camunda8TaskToWire(
               bpmnProcessId, task.getId(), taskDefinition != null

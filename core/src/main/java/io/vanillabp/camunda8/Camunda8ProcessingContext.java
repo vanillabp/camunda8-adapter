@@ -34,6 +34,30 @@ public class Camunda8ProcessingContext {
   private final Map<String, BpmnModelInstance> resources = new LinkedHashMap<>();
 
   /**
+   * The decision tables of the workflow module, keyed by filename - deployed with its
+   * processes in the same command. Bytes rather than a model: nothing here has to
+   * understand a decision, and the one thing which is rewritten, the decision id under
+   * prefix scoping, was rewritten while the file was read.
+   */
+  @Getter
+  private final Map<String, byte[]> decisions = new LinkedHashMap<>();
+
+  /**
+   * Remembers a decision table for deployment.
+   *
+   * @param filename The DMN file name - it keeps its extension, which is how the cluster
+   *          tells a decision from a process
+   * @param dmn The file
+   */
+  public void addDecision(
+      final String filename,
+      final byte[] dmn) {
+
+    decisions.putIfAbsent(filename, dmn);
+
+  }
+
+  /**
    * The job-worker tasks of all executable processes of the module, collected
    * during wireBpmn - startWorkflowProcessing opens one worker per distinct task
    * definition.
