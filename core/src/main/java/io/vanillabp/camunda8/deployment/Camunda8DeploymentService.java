@@ -426,6 +426,88 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final Camunda8ProcessVersions processVersions;
 
   /**
+   * What the cluster holds for a BPMN process this application declares without deploying a
+   * model under it - the old id of a renamed process, which the cluster keeps with every
+   * version ever deployed under it and with the workflows still running on them.
+   * <p>
+   * It is the same catalog every deployed process of this adapter is registered with: it
+   * searches by the process id as the cluster knows it, so a prefix and a tenant reach the
+   * old id like any other, and a cluster without its query API answers nothing and says so
+   * once.
+   */
+  @Override
+  public io.vanillabp.integration.adapter.spi.version.ProcessVersionCatalog processVersionCatalogOf(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    reportJobsOfADeclaredIdNoWorkerAsksFor(workflowModuleId, bpmnProcessId);
+    return processVersions;
+
+  }
+
+  /**
+   * The workflow modules already told about their prefixed task definitions, so a
+   * declared id is spoken about once.
+   */
+  private final Set<String> reportedAsPrefixedPerProcess = ConcurrentHashMap.newKeySet();
+
+  /**
+   * Says that the workflows still running under a declared id will NOT be served, where
+   * the task definitions of the workflow module carry the BPMN process id.
+   * <p>
+   * A worker asks the cluster for one task definition, and under
+   * <code>use-prefix</code> that name contains the id of the process it was deployed with.
+   * The jobs of the workflows under the old id therefore carry a name this application
+   * does not subscribe to any more, and nobody notices: an unfetched job is not an
+   * incident, it is a workflow which stands still. Which is why this is said while the
+   * application starts, where the declaration is right in front of the developer.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The declared BPMN process ID nothing was deployed under
+   */
+  private void reportJobsOfADeclaredIdNoWorkerAsksFor(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    if (scoping == null) {
+      return;
+    }
+    final var probe = "aTaskDefinition";
+    final var underThisId = scoping.scopedTaskDefinition(workflowModuleId, bpmnProcessId, probe, adapterId);
+    // the same task definition under another process id: a different name means the
+    // process id is part of it
+    final var underAnotherId = scoping
+        .scopedTaskDefinition(workflowModuleId, bpmnProcessId
+            + "-another", probe, adapterId);
+    if (java.util.Objects.equals(underThisId, underAnotherId)) {
+      return;
+    }
+    if (!reportedAsPrefixedPerProcess.add(workflowModuleId
+        + "|"
+        + bpmnProcessId)) {
+      return;
+    }
+    log.warn(
+        """
+            Camunda8[{}]: workflow module '{}' declares BPMN process '{}' without deploying a model \
+            under it, while its task definitions carry the BPMN process id ('name-clash-avoidance: \
+            use-prefix'). The jobs of the workflows still running under that id are named '{}' and no \
+            worker of this application asks for them, so those workflows stand still at their next \
+            task - without an incident, because an unfetched job is not a failed one. Keep deploying \
+            the old model under its old id until those workflows have ended, or take the process id \
+            off the task definitions ('vanillabp.workflow-modules.{}.adapters.{}\
+            .prefix-task-definitions-per-process: false', which renames the task definitions of every \
+            process of this module and is a change of its own).""",
+        adapterId,
+        workflowModuleId,
+        bpmnProcessId,
+        underThisId,
+        workflowModuleId,
+        adapterId);
+
+  }
+
+  /**
    * The BPMN process id as the CLUSTER knows it - the model carries the
    * scoped ids after {@code prepareBpmn}, while the core is keyed by the plain ones.
    */
