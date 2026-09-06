@@ -1381,10 +1381,26 @@ deployed itself, which is what a rolling deployment produces while another node 
 ahead. The version of the model deployed by this very start needs no query at all: the deploy
 command reports it and the tag is read from the model.
 
+One more query joins them per BPMN process id a workflow module DECLARES without deploying a
+model under it, which is what renaming a process leaves behind. The core asks the adapter for
+the catalog of such an id once the module was deployed
+(`AdapterDeploymentService#processVersionCatalogOf`), and the catalog reads the versions the
+cluster still holds under it, so the startup check reaches the workflows which are still
+running there.
+
+Whether the workflows under such a declared id keep RUNNING is a second question, and here it
+depends on the scoping of the workflow module. A job worker asks for one task definition, and
+under `use-prefix` that name carries the id of the process the task was deployed with
+(`prefix-task-definitions-per-process`), so the jobs of the old id reach no worker of the
+renamed application and their workflows stand still without an incident. The adapter reports
+that where it applies, together with the two ways out, and says nothing where the task
+definitions carry no process id, since those workers serve the old id as they always did.
+
 `Camunda8ProcessVersionIT#theVersionDecidesWhichMethodRuns` and `Camunda8OldProcessVersionsIT`
 say which method serves which version, `Camunda8DeletedProcessVersionsTest` a version the
-cluster no longer has, and `Camunda8StartupQuestionCostTest` counts the queries the claim above
-is about.
+cluster no longer has, `Camunda8RenamedProcessTest` with `Camunda8RenamedProcessIT` the
+declared id and a workflow which outlives the rename, and `Camunda8StartupQuestionCostTest`
+counts the queries the claim above is about.
 
 ### Multi-instance
 
