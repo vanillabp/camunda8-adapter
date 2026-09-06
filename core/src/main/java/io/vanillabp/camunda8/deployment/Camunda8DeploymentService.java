@@ -1334,9 +1334,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * The variable a BPMN process carries the workflow aggregate's ID in - the one variable
-   * every worker of this adapter reads. A process no workflow service serves cannot
-   * happen after the wiring validation; if it does, the derivation gives up on the whole
-   * worker rather than building a list which is missing exactly the name the handler
+   * every worker of this adapter reads. A BPMN file may carry a process no
+   * <code>&#64;WorkflowService</code> class claims, and the wiring validation lets such a
+   * process pass rather than ending the boot over a model somebody else owns, so this can
+   * be asked about a process the core knows no aggregate for. It then gives up on the
+   * whole worker rather than building a list which is missing exactly the name the handler
    * needs.
    *
    * @param workflowModuleId The workflow module
