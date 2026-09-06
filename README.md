@@ -1087,6 +1087,22 @@ lifecycle against a cluster is `Camunda8TaskProcessingIT#userTaskCreatedAndCompl
 correlation-key expression `=<aggregate-ID variable>` into message subscriptions
 lacking one - catch events correlate via the aggregate ID without manual model
 tweaks (existing expressions stay untouched; V1 models deploy byte-identically).
+The injection needs a workflow aggregate, and a BPMN process no `@WorkflowService`
+class of this application claims has none. Its file is deployed anyway, so those
+subscriptions carry the constant
+`Camunda8TaskWiring.CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE`, and one DEBUG line
+names them. The constant is there because the cluster refuses a message catch element
+whose message carries no subscription, and it rejects the whole FILE over it, which
+would take the process next to that one down as well (measured against 8.9.16:
+*Must have exactly one zeebe:subscription extension element*; a static value is
+refused too, the key has to be an expression). Such a workflow can still be started,
+by a call activity or by a start event of its own. It stops at the first VanillaBP
+task, because no worker of this application asks for that job type, and at a message
+catch event it stops for good: nothing publishes that key, and `correlateMessage`
+cannot address the process either, since a process no workflow service claims has no
+process service. `Camunda8UnclaimedProcessTest` holds the wiring and the DEBUG line,
+`Camunda8RenamedProcessIT#theWorkflowOfTheOldIdIsFinishedAfterTheRename` the boot
+against a cluster.
 WITH a correlation id the outbox idempotency key doubles as the Zeebe `messageId`,
 so redelivered dispatches are rejected engine-side WITHIN THE MESSAGE TTL (engine
 default; a redelivery after the TTL could correlate again - the documented
@@ -1360,6 +1376,15 @@ a redelivery finds the aggregate instead of building a second one.
 Where a workflow service declares a `@WorkflowEnded` method, the adapter adds an `end`
 execution listener to the PROCESS element and opens a worker for it. The job is activated
 after the last element completed, and its completion lets the instance disappear.
+
+The core also wants that notification where no application method asks for it: a workflow
+module which releases the records of its processed task deliveries, or the hints of its
+election cache, when a workflow ends. So `workflowEndedHandlerExists` can answer `true` for
+every process of the module, an unclaimed one included. Such a process is left out anyway.
+The worker answering the listener's job reads the aggregate-ID variable, and a listener whose
+job nobody activates would stop the workflow at its own end, so the guard sits in `wireBpmn`,
+before the listener is attached. Held by
+`Camunda8UnclaimedProcessTest#anUnclaimedProcessGetsNoWorkflowEndListener`.
 
 `Camunda8BpmsInitiatedStartIT#timerStartCreatesTheAggregate` drives a timer start and the end
 behind it, `Camunda8WorkflowLifecycleTest#theClusterStartsAWorkflowOnItsOwn` the same on

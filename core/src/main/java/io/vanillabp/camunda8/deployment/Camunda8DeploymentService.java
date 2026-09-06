@@ -883,11 +883,17 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // message correlation: inject the correlation-key expression
     // '=<aggregate-ID variable>' into message subscriptions lacking one - the V2
     // convention enabling ProcessService#correlateMessage without manual model
-    // tweaks (existing expressions stay untouched, V1 models deploy unchanged)
-    Camunda8TaskWiring.wireMessageSubscriptions(
-        model,
-        scopedBpmnProcessId,
-        () -> workflowTaskWiring.resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId));
+    // tweaks (existing expressions stay untouched, V1 models deploy unchanged).
+    // What comes back are the messages of a process this application serves no
+    // workflow of, which got a key nothing publishes instead of an aggregate
+    reportMessagesWithoutAWorkflowAggregate(
+        workflowModuleId,
+        filename,
+        bpmnProcessId,
+        Camunda8TaskWiring.wireMessageSubscriptions(
+            model,
+            scopedBpmnProcessId,
+            () -> aggregateIdNameOf(workflowModuleId, bpmnProcessId)));
     // multi-instance: the input mappings which make the element, the index
     // and the total of every iteration readable from a job are ADDED TO THE MODEL
     // here, and which iterations enclose which element is remembered for dispatch
@@ -917,10 +923,16 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     }
 
     // the end of a workflow is reported only where the application asked for it -
-    // a model must not pay for a listener nobody wants
-    if ((workflowEndedInvoker != null) && workflowEndedInvoker
-        .workflowEndedHandlerExists(workflowModuleId, bpmnProcessId) && Camunda8TaskWiring
-            .attachWorkflowEndedListener(model, scopedBpmnProcessId)) {
+    // a model must not pay for a listener nobody wants. A process this application
+    // serves no workflow of is left out even where the end IS wanted, which a workflow
+    // module releasing its delivery records on workflow end wants for every process it
+    // deploys: the worker answering that listener's job reads the aggregate-ID variable,
+    // so a listener without one would stop the workflow at its own end
+    final var theEndIsReported = (workflowEndedInvoker != null) && workflowEndedInvoker
+        .workflowEndedHandlerExists(workflowModuleId, bpmnProcessId) && (aggregateIdNameOf(
+            workflowModuleId,
+            bpmnProcessId) != null);
+    if (theEndIsReported && Camunda8TaskWiring.attachWorkflowEndedListener(model, scopedBpmnProcessId)) {
       context.getWorkflowEndedProcessesToWire().add(scopedBpmnProcessId);
     }
 
@@ -931,6 +943,47 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         bpmnProcessId,
         filename,
         workflowModuleId);
+
+  }
+
+  /**
+   * Says which messages of a BPMN process went to the cluster with a correlation key
+   * nothing publishes, because the core knows no workflow aggregate for that process.
+   * <p>
+   * A DEBUG line and not a second WARN. The core already writes one WARN per workflow
+   * module naming every process nothing claims and what serving it would take, and
+   * serving the process is the one action which also gives these messages a real key -
+   * so a WARN here would repeat that verdict in adapter words. What this line adds is
+   * the fact the core cannot know, because it reads no model: WHICH messages are the
+   * ones which will never correlate. That is the question somebody has on a running
+   * cluster, watching a publication reach nothing.
+   *
+   * @param workflowModuleId The workflow module
+   * @param filename The BPMN file the process came in
+   * @param bpmnProcessId The plain BPMN process id
+   * @param messageNames The messages which got no aggregate to correlate by, empty for
+   *          every process this application serves
+   */
+  private void reportMessagesWithoutAWorkflowAggregate(
+      final String workflowModuleId,
+      final String filename,
+      final String bpmnProcessId,
+      final List<String> messageNames) {
+
+    if (messageNames.isEmpty()) {
+      return;
+    }
+    log.debug(
+        "Camunda8[{}]: the message(s) {} of BPMN process '{}' (file '{}', workflow module '{}') "
+            + "have no workflow aggregate to correlate by, so they are deployed with the "
+            + "correlation key {} instead, which nothing publishes - a workflow of this process "
+            + "waits at them for as long as it lives",
+        adapterId,
+        messageNames,
+        bpmnProcessId,
+        filename,
+        workflowModuleId,
+        Camunda8TaskWiring.CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE);
 
   }
 
@@ -1334,12 +1387,18 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * The variable a BPMN process carries the workflow aggregate's ID in - the one variable
-   * every worker of this adapter reads. A BPMN file may carry a process no
-   * <code>&#64;WorkflowService</code> class claims, and the wiring validation lets such a
-   * process pass rather than ending the boot over a model somebody else owns, so this can
-   * be asked about a process the core knows no aggregate for. It then gives up on the
-   * whole worker rather than building a list which is missing exactly the name the handler
-   * needs.
+   * every worker of this adapter reads, and the one a message subscription of this adapter
+   * correlates by. A BPMN file may carry a process no <code>&#64;WorkflowService</code>
+   * class claims, and the wiring validation lets such a process pass rather than ending
+   * the boot over a model somebody else owns, so this can be asked about a process the
+   * core knows no aggregate for.
+   * <p>
+   * Whoever needs the name then gives up on that process rather than working with a
+   * substitute: a worker asks for every variable instead of a list which is missing
+   * exactly the name its handler reads, a message subscription correlates by a constant
+   * nothing publishes instead of by the aggregate, and the end of such a workflow is not
+   * reported at all. Each of them says what it gave up on where it happens, which is the
+   * only place the fact is specific enough to help anybody.
    *
    * @param workflowModuleId The workflow module
    * @param plainBpmnProcessId The BPMN process id as the core knows it
@@ -1354,7 +1413,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     } catch (final RuntimeException e) {
       log.debug(
           "Camunda8[{}]: the BPMN process '{}' of workflow module '{}' has no known workflow "
-              + "aggregate - its workers ask for all variables",
+              + "aggregate, so nothing which needs its aggregate-ID variable is wired for it",
           adapterId,
           plainBpmnProcessId,
           workflowModuleId,
@@ -1632,6 +1691,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           var endWorkerBuilder = applyFetchVariables(applyWorkerOptions(client
               .newWorker()
               .jobType(Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId))
+              // asking the core outright is safe here: wireBpmn put only processes
+              // with a known workflow aggregate into this list
               .handler(new Camunda8WorkflowEndedHandler(
                   adapterId, workflowModuleId, plainProcessId, workflowTaskWiring
                       .resolveWorkflowAggregateIdName(workflowModuleId,

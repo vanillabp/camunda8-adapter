@@ -44,6 +44,31 @@ public final class TestCollaborators {
       final T core,
       final NameClashAvoidanceSupport scoping) {
 
+    return of(core, scoping, mock(WorkflowEndedInvoker.class));
+
+  }
+
+  /**
+   * @param <T> A double playing both halves of the task SPI
+   * @param core The double
+   * @param workflowEnded What the test wants the core to answer about the end of a
+   *          workflow - whether it has to be reported decides what the wiring puts into
+   *          the model
+   * @return A complete set built around them
+   */
+  public static <T extends WorkflowTaskWiring & WorkflowTaskInvoker> AdapterCollaborators of(
+      final T core,
+      final WorkflowEndedInvoker workflowEnded) {
+
+    return of(core, mock(NameClashAvoidanceSupport.class), workflowEnded);
+
+  }
+
+  private static <T extends WorkflowTaskWiring & WorkflowTaskInvoker> AdapterCollaborators of(
+      final T core,
+      final NameClashAvoidanceSupport scoping,
+      final WorkflowEndedInvoker workflowEnded) {
+
     return AdapterCollaborators
         .forAdapter("c8")
         .workflowTaskWiring(core)
@@ -51,7 +76,7 @@ public final class TestCollaborators {
         .scoping(scoping)
         .workflowAggregateSync(mock(WorkflowAggregateSync.class))
         .preCommitRegistrar(mock(PreCommitRegistrar.class))
-        .workflowEndedInvoker(mock(WorkflowEndedInvoker.class))
+        .workflowEndedInvoker(workflowEnded)
         .bpmsInitiatedStartInvoker(mock(BpmsInitiatedStartInvoker.class))
         .build();
 
