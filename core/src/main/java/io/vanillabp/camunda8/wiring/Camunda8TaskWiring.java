@@ -143,21 +143,6 @@ public final class Camunda8TaskWiring {
   public static final String TASKDEFINITION_WORKFLOW_ENDED = "io.vanillabp.workflowEnd:";
 
   /**
-   * The correlation key a message subscription of a BPMN process gets which no
-   * <code>&#64;WorkflowService</code> class of the application claims: a constant
-   * nothing publishes, so a workflow of such a process waits at its catch event for as
-   * long as it lives.
-   * <p>
-   * It exists because the cluster accepts no message catch element whose message carries
-   * no subscription, and it rejects the whole FILE over it, which would take the
-   * processes next to that one down as well. So the expression is what keeps the file
-   * deployable. Being unmistakable is the rest of its job: whoever finds it in a
-   * deployed model or in a waiting subscription has the answer to why nothing
-   * correlates.
-   */
-  public static final String CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE = "=\"vanillabp-no-workflow-aggregate\"";
-
-  /**
    * @param scopedBpmnProcessId The BPMN process id the cluster knows
    * @return The job type of the process' end execution listener
    */
@@ -635,122 +620,137 @@ public final class Camunda8TaskWiring {
    * correlation-id scenarios - V1 models keep working byte-identically). Message
    * START events need no correlation key and are skipped.
    * <p>
-   * The injection has one boundary, and it is the one case where the name cannot be
-   * had: a BPMN process which no <code>&#64;WorkflowService</code> class of the
-   * application claims has no workflow aggregate to name a variable after. Its
-   * subscriptions get {@link #CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE} instead,
-   * because the cluster refuses a whole FILE whose message catch element carries no
-   * subscription at all, and a file travels as one resource - so leaving the message
-   * alone would take the process next to it down as well. The names of those messages
-   * are handed back, and saying what they cost is the caller's job: this class has
-   * neither a logger nor an adapter id.
+   * The injection is for a process the application serves a workflow of, and it is
+   * called for no other: the variable it names is the workflow aggregate's, and a
+   * process no <code>&#64;WorkflowService</code> class claims has no aggregate to name
+   * one after. What such a process owes the cluster is asked BEFORE any of the file is
+   * rewritten, by {@link #messagesWithoutACorrelationKey}, and the deployment refuses
+   * the file over it rather than putting a substitute into a model it does not own.
    *
    * @param model The BPMN model (modified in place)
    * @param bpmnProcessId The executable process to wire
    * @param aggregateIdVariableName Supplies the name of the process variable
-   *          holding the workflow-aggregate ID, or <code>null</code> where the
-   *          application serves no workflow of this process - asked ONCE, and only
-   *          if an injection is actually necessary, so a process without message
-   *          catch elements does not require the aggregate's ID property to be
-   *          resolvable
-   * @return The names of the messages which got no aggregate to correlate by, empty
-   *         wherever nothing had to be injected or everything could be
+   *          holding the workflow-aggregate ID - asked ONCE, and only if an
+   *          injection is actually necessary, so a process without message catch
+   *          elements does not require the aggregate's ID property to be resolvable
    */
-  public static List<String> wireMessageSubscriptions(
+  public static void wireMessageSubscriptions(
       final BpmnModelInstance model,
       final String bpmnProcessId,
       final Supplier<String> aggregateIdVariableName) {
 
     final var messages = new LinkedHashSet<Message>();
+    messageCatchElementsOf(model, bpmnProcessId)
+        .map(MessageCatchElement::message)
+        // the modeller correlates deliberately (e.g. by an own correlation-id
+        // variable) - leave it untouched, V1 models stay byte-identical
+        .filter(message -> message.getSingleExtensionElement(ZeebeSubscription.class) == null)
+        .forEach(messages::add);
+    if (messages.isEmpty()) {
+      return;
+    }
 
-    // intermediate catch events + boundary events + receive tasks of THIS process
-    model
+    final var correlationKey = "="
+        + aggregateIdVariableName.get();
+    messages.forEach(message -> {
+      final var extensionElements = message.getExtensionElements() != null
+          ? message.getExtensionElements()
+          : message
+              .getModelInstance()
+              .newInstance(ExtensionElements.class);
+      if (message.getExtensionElements() == null) {
+        message.addChildElement(extensionElements);
+      }
+      final var subscription = extensionElements
+          .addExtensionElement(ZeebeSubscription.class);
+      subscription.setCorrelationKey(correlationKey);
+    });
+
+  }
+
+  /**
+   * What the given executable process still owes the cluster: every catch element of it
+   * whose message carries no <code>zeebe:subscription</code>, in the order the model
+   * declares them.
+   * <p>
+   * Camunda 8 accepts no such element and rejects the whole FILE over one, so this is the
+   * question to ask about a process the application serves no workflow of: there is no
+   * workflow aggregate to name a correlation key after, and the deployment refuses the
+   * file rather than inventing one. Asked while the model is still the one the modeller
+   * wrote, so the answer does not depend on which process of a file was wired first - a
+   * message element belongs to the FILE, and an injection for one process would otherwise
+   * fill the gap of another.
+   *
+   * @param model The BPMN model
+   * @param bpmnProcessId The executable process to look at
+   * @return One entry per catch element waiting for a correlation key, empty where the
+   *         process catches no message or every message it catches carries a key
+   */
+  public static List<MessageWithoutACorrelationKey> messagesWithoutACorrelationKey(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    return messageCatchElementsOf(model, bpmnProcessId)
+        .filter(catchElement -> catchElement
+            .message()
+            .getSingleExtensionElement(ZeebeSubscription.class) == null)
+        .map(catchElement -> new MessageWithoutACorrelationKey(
+            catchElement.elementId(), catchElement.message().getName()))
+        .toList();
+
+  }
+
+  /**
+   * A message a process waits for without saying what to correlate it by.
+   *
+   * @param catchElementId The intermediate catch event, boundary event or receive task
+   *          waiting for it
+   * @param messageName The name a publication of that message carries
+   */
+  public record MessageWithoutACorrelationKey(
+                                              String catchElementId,
+                                              String messageName) {
+  }
+
+  /**
+   * A catch element of a process together with the message element it points at. The
+   * message belongs to the FILE rather than to the process, so two processes of one file
+   * can point at the same one.
+   */
+  private record MessageCatchElement(
+                                     String elementId,
+                                     Message message) {
+  }
+
+  /**
+   * Every element of the given executable process which waits for a message: an
+   * intermediate catch event, a boundary event or a receive task. A message START event
+   * is not one of them, it correlates by name and needs no key.
+   */
+  private static Stream<MessageCatchElement> messageCatchElementsOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    final var catchEvents = model
         .getModelElementsByType(CatchEvent.class)
         .stream()
         .filter(event -> bpmnProcessId.equals(owningProcessId(event)))
-        // message START events correlate by name only - no correlation key
         .filter(event -> !(event instanceof StartEvent))
         .flatMap(event -> event
             .getEventDefinitions()
             .stream()
             .filter(MessageEventDefinition.class::isInstance)
-            .map(MessageEventDefinition.class::cast))
-        .map(MessageEventDefinition::getMessage)
-        .filter(Objects::nonNull)
-        .forEach(messages::add);
-    model
+            .map(MessageEventDefinition.class::cast)
+            .map(MessageEventDefinition::getMessage)
+            .filter(Objects::nonNull)
+            .map(message -> new MessageCatchElement(event.getId(), message)));
+    final var receiveTasks = model
         .getModelElementsByType(ReceiveTask.class)
         .stream()
         .filter(task -> bpmnProcessId.equals(owningProcessId(task)))
-        .map(ReceiveTask::getMessage)
-        .filter(Objects::nonNull)
-        .forEach(messages::add);
-
-    final var messagesWaitingForACorrelationKey = messages
-        .stream()
-        .filter(message -> isWaitingForACorrelationKey(message))
-        .toList();
-    if (messagesWaitingForACorrelationKey.isEmpty()) {
-      return List.of();
-    }
-    final var variableName = aggregateIdVariableName.get();
-    final var correlationKey = variableName == null
-        ? CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE
-        : "="
-            + variableName;
-
-    messagesWaitingForACorrelationKey.forEach(message -> {
-      // the element is reused where the placeholder already put one there: the cluster
-      // wants EXACTLY one zeebe:subscription per message, so a second one would be
-      // rejected together with the whole file
-      var subscription = message
-          .getSingleExtensionElement(ZeebeSubscription.class);
-      if (subscription == null) {
-        final var extensionElements = message.getExtensionElements() != null
-            ? message.getExtensionElements()
-            : message
-                .getModelInstance()
-                .newInstance(ExtensionElements.class);
-        if (message.getExtensionElements() == null) {
-          message.addChildElement(extensionElements);
-        }
-        subscription = extensionElements
-            .addExtensionElement(ZeebeSubscription.class);
-      }
-      subscription.setCorrelationKey(correlationKey);
-    });
-    return variableName == null
-        ? messagesWaitingForACorrelationKey
-            .stream()
-            .map(Message::getName)
-            .toList()
-        : List.of();
-
-  }
-
-  /**
-   * Whether the given message still has to be given a correlation key. A key the
-   * modeller wrote is never touched, which is what keeps V1 models byte-identical and
-   * lets a correlation-id scenario correlate by its own variable.
-   * <p>
-   * {@link #CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE} is the exception: it is this
-   * class' own placeholder, so it counts as still waiting. A message element belongs to
-   * the FILE and not to one process, so two processes of a file can share it - and where
-   * one of them is claimed and the other is not, the order they are wired in would
-   * otherwise decide whether the claimed one correlates. The placeholder is overwritten
-   * by a real aggregate, a real aggregate is never overwritten by the placeholder, and
-   * wiring the same model twice writes what is already there.
-   *
-   * @param message The message of a catch element
-   * @return Whether a correlation key may be written
-   */
-  private static boolean isWaitingForACorrelationKey(
-      final Message message) {
-
-    final var existing = message
-        .getSingleExtensionElement(ZeebeSubscription.class);
-    return (existing == null) || CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE
-        .equals(existing.getCorrelationKey());
+        .filter(task -> task.getMessage() != null)
+        .map(task -> new MessageCatchElement(task.getId(), task.getMessage()));
+    return Stream.concat(catchEvents, receiveTasks);
 
   }
 

@@ -2,8 +2,8 @@ package io.vanillabp.camunda8.deployment;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -12,17 +12,14 @@ import java.io.ByteArrayInputStream;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatchers;
-import org.slf4j.LoggerFactory;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.read.ListAppender;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.Message;
 import io.camunda.zeebe.model.bpmn.instance.Process;
@@ -33,7 +30,6 @@ import io.vanillabp.camunda8.TestCollaborators;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
-import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -43,20 +39,19 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * a whole, and the core reports it instead of validating it - so everything the adapter
  * wires has to cope with a process it can learn no workflow aggregate for.
  * <p>
- * Two things in <code>wireBpmn</code> need that aggregate's ID variable, and both used to
- * ask for it without a net: the correlation key injected into a message subscription and
- * the execution listener reporting the end of a workflow. Either one turned an unclaimed
- * process into a failed boot, with a message asking for a class the application may
- * deliberately not have - and the boot ended before the report naming the process could be
- * written, so the developer saw the wrong half of the answer and nothing of the right one.
+ * Two things in the deployment need that aggregate's ID variable, and the answer differs
+ * per thing. The execution listener reporting the end of a workflow is this adapter's own
+ * addition, so it is simply left out where nobody could answer its job. The correlation
+ * key of a message subscription is not: Camunda 8 accepts no message catch element whose
+ * message carries none, and it rejects the whole file over it, so a process waiting for a
+ * message is incomplete for the cluster whatever VanillaBP does. Writing a substitute
+ * there would change a process this application does not serve and hide the gap from the
+ * modeller, so the deployment ends the boot instead and says what the model is missing.
  * <p>
- * What such a subscription gets instead is a constant, not nothing: the cluster refuses a
- * message catch element whose message carries no subscription and rejects the whole file
- * over it, so leaving the message alone would end the boot from the other side and take
- * the claimed process down with it. That the constant deploys and that a workflow waits at
- * it without an incident was measured against Camunda 8.9.16, and
- * {@code Camunda8RenamedProcessIT} of the Spring Boot module sends such a file to a
- * cluster on every run, so the day the cluster changes its mind about it a build says so.
+ * That verdict is reached before the file is rewritten, which is what makes it independent
+ * of the order the processes of a file are wired in: a message element belongs to the file
+ * rather than to one process, so an injection for a claimed process could otherwise fill
+ * the gap of the unclaimed one standing next to it.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8UnclaimedProcessTest {
@@ -97,9 +92,8 @@ public class Camunda8UnclaimedProcessTest {
 
   /**
    * An unclaimed process which carries no task at all, only the message it waits for -
-   * the only shape which could reach the injection before the core started collecting
-   * unclaimed processes instead of refusing them, and therefore the shape which must be
-   * covered by the same guard.
+   * the only shape which could reach the correlation key before the core started
+   * collecting unclaimed processes instead of refusing them.
    */
   private static final String UNCLAIMED_WITHOUT_ANY_TASK = """
       <?xml version="1.0" encoding="UTF-8"?>
@@ -116,44 +110,65 @@ public class Camunda8UnclaimedProcessTest {
       """;
 
   /**
-   * ONE message element shared by two processes, the unclaimed one written FIRST. A
-   * message belongs to the file rather than to a process, so both catch events point at
-   * the same element and the order they are wired in must not decide what the claimed
-   * process correlates by.
+   * ONE message element shared by two processes, the CLAIMED one written first. A message
+   * belongs to the file rather than to a process, so the injection for the claimed process
+   * would give the unclaimed one a subscription it never modelled - which is why the file
+   * is read before any of it is wired.
    */
   private static final String A_SHARED_MESSAGE = """
       <?xml version="1.0" encoding="UTF-8"?>
       <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
         <bpmn:message id="Msg_Shared" name="SharedApproval" />
-        <bpmn:process id="Cards" isExecutable="true">
-          <bpmn:intermediateCatchEvent id="AwaitOnCards">
-            <bpmn:messageEventDefinition id="CardsDef" messageRef="Msg_Shared" />
-          </bpmn:intermediateCatchEvent>
-        </bpmn:process>
         <bpmn:process id="Loans" isExecutable="true">
           <bpmn:intermediateCatchEvent id="AwaitOnLoans">
             <bpmn:messageEventDefinition id="LoansDef" messageRef="Msg_Shared" />
+          </bpmn:intermediateCatchEvent>
+        </bpmn:process>
+        <bpmn:process id="Cards" isExecutable="true">
+          <bpmn:intermediateCatchEvent id="AwaitOnCards">
+            <bpmn:messageEventDefinition id="CardsDef" messageRef="Msg_Shared" />
           </bpmn:intermediateCatchEvent>
         </bpmn:process>
       </bpmn:definitions>
       """;
 
   /**
-   * An unclaimed process whose message carries a correlation key its modeller wrote - the
-   * case where nothing has to be injected and therefore nothing is missing.
+   * A claimed process waiting for a message it models no correlation key for, next to an
+   * unclaimed process whose message carries the key its modeller wrote. Nothing is missing
+   * for the cluster here, so the file deploys and the claimed process gets its aggregate.
    */
-  private static final String UNCLAIMED_WITH_A_MODELLED_KEY = """
+  private static final String A_COMPLETE_UNCLAIMED_PROCESS = """
       <?xml version="1.0" encoding="UTF-8"?>
       <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:message id="Msg_LoanApproved" name="LoanApproved" />
         <bpmn:message id="Msg_CardApproved" name="CardApproved">
           <bpmn:extensionElements>
             <zeebe:subscription correlationKey="=applicationNumber" />
           </bpmn:extensionElements>
         </bpmn:message>
+        <bpmn:process id="Loans" isExecutable="true">
+          <bpmn:intermediateCatchEvent id="AwaitLoanApproval">
+            <bpmn:messageEventDefinition id="LoanApprovedDef" messageRef="Msg_LoanApproved" />
+          </bpmn:intermediateCatchEvent>
+        </bpmn:process>
         <bpmn:process id="Cards" isExecutable="true">
           <bpmn:intermediateCatchEvent id="AwaitCardApproval">
             <bpmn:messageEventDefinition id="CardApprovedDef" messageRef="Msg_CardApproved" />
           </bpmn:intermediateCatchEvent>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  /**
+   * An unclaimed process the cluster is perfectly happy with: it waits for nothing and
+   * therefore owes no correlation key. The shape the workflow-end listener is asked about.
+   */
+  private static final String UNCLAIMED_WITHOUT_A_MESSAGE = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:process id="Cards" isExecutable="true">
+          <bpmn:startEvent id="CardStart" />
+          <bpmn:endEvent id="CardEnd" />
         </bpmn:process>
       </bpmn:definitions>
       """;
@@ -221,28 +236,51 @@ public class Camunda8UnclaimedProcessTest {
   }
 
   /**
-   * Runs the deployment pipeline up to <code>wireBpmn</code> - the stage which rewrites
-   * the model - and hands back the models and the context it filled.
+   * The executable processes of the given file, each of them paired with the one model of
+   * the file.
+   */
+  private List<Map.Entry<String, BpmnModelInstance>> executableProcessesOf(
+      final Camunda8DeploymentService deploymentService,
+      final String xml) {
+
+    return deploymentService
+        .readBpmn(MODULE, "cards.bpmn", new ByteArrayInputStream(xml.getBytes(UTF_8)), true);
+
+  }
+
+  /**
+   * Runs the deployment pipeline the way the core runs it: every process of the file is
+   * prepared and wired before the next one is prepared, which is the order a file-wide
+   * verdict has to be independent of.
+   */
+  private Camunda8ProcessingContext runPipeline(
+      final Camunda8DeploymentService deploymentService,
+      final List<Map.Entry<String, BpmnModelInstance>> models) {
+
+    Camunda8ProcessingContext context = null;
+    for (final var model : models) {
+      context = deploymentService.prepareBpmn(MODULE, context, "cards.bpmn", model.getKey(), model.getValue());
+      deploymentService.wireBpmn(MODULE, "cards.bpmn", model.getKey(), model.getValue(), context);
+    }
+    return context;
+
+  }
+
+  /**
+   * The whole pipeline for one file, from reading it to the model and the context it left
+   * behind.
    */
   private Wired wire(
       final Camunda8DeploymentService deploymentService,
       final String xml) {
 
-    final var models = deploymentService
-        .readBpmn(MODULE, "cards.bpmn", new ByteArrayInputStream(xml.getBytes(UTF_8)), true);
-    Camunda8ProcessingContext context = null;
-    for (final var model : models) {
-      context = deploymentService.prepareBpmn(MODULE, context, "cards.bpmn", model.getKey(), model.getValue());
-    }
-    for (final var model : models) {
-      deploymentService.wireBpmn(MODULE, "cards.bpmn", model.getKey(), model.getValue(), context);
-    }
-    return new Wired(models.getFirst().getValue(), context);
+    final var models = executableProcessesOf(deploymentService, xml);
+    return new Wired(models.getFirst().getValue(), runPipeline(deploymentService, models));
 
   }
 
   /**
-   * @param model The model as <code>wireBpmn</code> left it
+   * @param model The model as the pipeline left it
    * @param context What the pipeline carries on to <code>startWorkflowProcessing</code>
    */
   private record Wired(
@@ -283,141 +321,131 @@ public class Camunda8UnclaimedProcessTest {
 
   }
 
-  /**
-   * How many <code>zeebe:subscription</code> elements the named message carries.
-   */
-  private long subscriptionsOf(
-      final BpmnModelInstance model,
-      final String messageName) {
-
-    final var extensionElements = messageNamed(model, messageName).getExtensionElements();
-    return extensionElements == null
-        ? 0
-        : extensionElements
-            .getElements()
-            .stream()
-            .filter(ZeebeSubscription.class::isInstance)
-            .count();
-
-  }
-
   @Test
-  @DisplayName("The claimed process correlates by its aggregate, the unclaimed one by a constant")
-  public void anUnclaimedProcessCorrelatesByAConstantNothingPublishes() {
-
-    final var wired = wire(
-        deploymentService(bpmnProcessId -> "Loans".equals(bpmnProcessId)
-            ? "loanId"
-            : null),
-        CLAIMED_AND_UNCLAIMED);
-
-    assertEquals(
-        "=loanId",
-        correlationKeyOf(wired.model(), "LoanApproved"),
-        "the process this application serves has a workflow aggregate, so its subscription is wired");
-    assertEquals(
-        Camunda8TaskWiring.CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE,
-        correlationKeyOf(wired.model(), "CardApproved"),
-        "and the one it does not serve correlates by a constant nothing publishes - the file has "
-            + "to stay deployable, and there is no aggregate to name");
-
-  }
-
-  @Test
-  @DisplayName("An unclaimed process holding no task at all is covered by the same guard")
-  public void anUnclaimedProcessWithoutAnyTaskIsCoveredAsWell() {
-
-    final var wired = wire(deploymentService(bpmnProcessId -> null), UNCLAIMED_WITHOUT_ANY_TASK);
-
-    assertEquals(
-        Camunda8TaskWiring.CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE,
-        correlationKeyOf(wired.model(), "CardApproved"),
-        "a process without tasks reached the injection before the core collected unclaimed "
-            + "processes, so it is the older half of the same defect");
-
-  }
-
-  @Test
-  @DisplayName("A correlation key the modeller wrote stays untouched, whoever serves the process")
-  public void aModelledCorrelationKeyOfAnUnclaimedProcessSurvives() {
-
-    final var wired = wire(deploymentService(bpmnProcessId -> null), UNCLAIMED_WITH_A_MODELLED_KEY);
-
-    assertEquals(
-        "=applicationNumber",
-        correlationKeyOf(wired.model(), "CardApproved"),
-        "nothing had to be injected here, so the missing workflow aggregate costs nothing");
-
-  }
-
-  @Test
-  @DisplayName("One DEBUG line names the messages which got no aggregate to correlate by")
-  public void theMessagesWithoutAnAggregateAreNamedAtDebug() {
+  @DisplayName("A process nobody serves which waits for a message ends the deployment")
+  public void aProcessWaitingForAMessageItCannotCorrelateEndsTheDeployment() {
 
     final var deploymentService = deploymentService(bpmnProcessId -> "Loans".equals(bpmnProcessId)
         ? "loanId"
         : null);
-    final var logWatcher = new ListAppender<ILoggingEvent>();
-    logWatcher.start();
-    final var adapterLog = (ch.qos.logback.classic.Logger) LoggerFactory
-        .getLogger(Camunda8DeploymentService.class);
-    final var previousLevel = adapterLog.getLevel();
-    adapterLog.setLevel(Level.DEBUG);
-    adapterLog.addAppender(logWatcher);
-    try {
-      wire(deploymentService, CLAIMED_AND_UNCLAIMED);
-    } finally {
-      adapterLog.detachAppender(logWatcher);
-      adapterLog.setLevel(previousLevel);
-    }
 
-    final var reported = logWatcher.list
-        .stream()
-        .filter(event -> event.getLevel() == Level.DEBUG)
-        .map(ILoggingEvent::getFormattedMessage)
-        .filter(message -> message.contains("CardApproved"))
-        .findFirst()
-        .orElse(null);
-    assertNotNull(
-        reported,
-        () -> "expected the message which got no aggregate to correlate by to be named, but saw: "
-            + logWatcher.list);
-    assertTrue(reported.contains("Cards"), () -> "the process it belongs to: "
+    final var refused = assertThrows(
+        IllegalStateException.class,
+        () -> wire(deploymentService, CLAIMED_AND_UNCLAIMED),
+        "a model the cluster would reject has to be reported while starting");
+
+    final var reported = refused.getMessage();
+    assertTrue(reported.contains("cards.bpmn"), () -> "the file the cluster would reject: "
         + reported);
-    assertTrue(reported.contains(MODULE), () -> "the workflow module: "
+    assertTrue(reported.contains(MODULE), () -> "the workflow module it belongs to: "
         + reported);
-    assertTrue(reported.contains("cards.bpmn"), () -> "and the file it came from: "
+    assertTrue(reported.contains("'Cards'"), () -> "the process which is incomplete: "
+        + reported);
+    assertTrue(reported.contains("AwaitCardApproval"), () -> "the element which waits: "
+        + reported);
+    assertTrue(reported.contains("CardApproved"), () -> "the message it waits for: "
+        + reported);
+    assertTrue(reported.contains("every executable process"), () -> "of whom the cluster demands it: "
         + reported);
     assertTrue(
-        logWatcher.list
-            .stream()
-            .noneMatch(event -> event.getFormattedMessage().contains("LoanApproved")),
-        () -> "the message which got its key is not worth a line: "
-            + logWatcher.list);
+        reported.contains("Camunda 8 demands a 'zeebe:subscription'"),
+        () -> "and whose demand that is, which is not VanillaBP's: "
+            + reported);
+    assertTrue(
+        reported.contains("reject the file as a whole"),
+        () -> "the reason the boot ends here rather than at the cluster: "
+            + reported);
+    assertTrue(
+        reported.contains("isExecutable=\"false\"") && reported.contains("model the correlation key"),
+        () -> "and both ways out: "
+            + reported);
+    assertTrue(
+        reported.contains("'Loans'") || !reported.contains("LoanApproved"),
+        () -> "the message of the claimed process is not what this is about: "
+            + reported);
 
   }
 
   @Test
-  @DisplayName("A message two processes share correlates by the aggregate of the one which is served")
-  public void aSharedMessageEndsUpWithTheRealAggregate() {
+  @DisplayName("The file is refused before anything of it was rewritten")
+  public void theFileIsRefusedBeforeAnythingOfItWasRewritten() {
+
+    final var deploymentService = deploymentService(bpmnProcessId -> "Loans".equals(bpmnProcessId)
+        ? "loanId"
+        : null);
+    final var models = executableProcessesOf(deploymentService, CLAIMED_AND_UNCLAIMED);
+    final var model = models.getFirst().getValue();
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> runPipeline(deploymentService, models));
+
+    assertNull(
+        correlationKeyOf(model, "LoanApproved"),
+        "the process this application does serve was not wired either - the developer reads the "
+            + "verdict about the file before this adapter changed a single element of it");
+
+  }
+
+  @Test
+  @DisplayName("An unclaimed process holding no task at all is judged the same way")
+  public void anUnclaimedProcessWithoutAnyTaskIsJudgedTheSameWay() {
+
+    final var deploymentService = deploymentService(bpmnProcessId -> null);
+
+    final var refused = assertThrows(
+        IllegalStateException.class,
+        () -> wire(deploymentService, UNCLAIMED_WITHOUT_ANY_TASK),
+        "a process without tasks was the older half of the same shape");
+
+    assertTrue(
+        refused.getMessage().contains("AwaitCardApproval"),
+        () -> "and it names the element which waits as well: "
+            + refused.getMessage());
+
+  }
+
+  @Test
+  @DisplayName("A message two processes share is judged by the model, not by the wiring order")
+  public void aSharedMessageIsJudgedByTheModel() {
+
+    final var deploymentService = deploymentService(bpmnProcessId -> "Loans".equals(bpmnProcessId)
+        ? "loanId"
+        : null);
+
+    final var refused = assertThrows(
+        IllegalStateException.class,
+        () -> wire(deploymentService, A_SHARED_MESSAGE),
+        "the claimed process is wired first here, so its injection would have given the unclaimed "
+            + "process a subscription its modeller never wrote");
+
+    assertTrue(
+        refused.getMessage().contains("AwaitOnCards"),
+        () -> "the element of the process nothing serves is what is missing a key: "
+            + refused.getMessage());
+
+  }
+
+  @Test
+  @DisplayName("A claimed process next to an unclaimed one still gets its real correlation key")
+  public void aClaimedProcessNextToAnUnclaimedOneGetsItsRealKey() {
 
     final var wired = wire(
         deploymentService(bpmnProcessId -> "Loans".equals(bpmnProcessId)
             ? "loanId"
             : null),
-        A_SHARED_MESSAGE);
+        A_COMPLETE_UNCLAIMED_PROCESS);
 
     assertEquals(
         "=loanId",
-        correlationKeyOf(wired.model(), "SharedApproval"),
-        "the unclaimed process is wired first and puts its placeholder there, and the claimed one "
-            + "then replaces it - the other way round the workflow this application serves would "
-            + "stop correlating");
+        correlationKeyOf(wired.model(), "LoanApproved"),
+        "the process this application serves correlates by its workflow aggregate, which is what "
+            + "the injection is for");
     assertEquals(
-        1,
-        subscriptionsOf(wired.model(), "SharedApproval"),
-        "and there is one zeebe:subscription, not two - the cluster rejects the whole file over a "
-            + "second one");
+        "=applicationNumber",
+        correlationKeyOf(wired.model(), "CardApproved"),
+        "and the key the modeller of the other process wrote is untouched - a process nothing "
+            + "serves whose model is complete costs nothing");
 
   }
 
@@ -433,7 +461,7 @@ public class Camunda8UnclaimedProcessTest {
         .thenReturn(true);
     final var deploymentService = deploymentService(bpmnProcessId -> null, workflowEndedInvoker);
 
-    final var wired = wire(deploymentService, UNCLAIMED_WITHOUT_ANY_TASK);
+    final var wired = wire(deploymentService, UNCLAIMED_WITHOUT_A_MESSAGE);
 
     final var process = wired.model()
         .getModelElementsByType(Process.class)
@@ -443,7 +471,8 @@ public class Camunda8UnclaimedProcessTest {
         .orElseThrow();
     assertNull(
         process.getSingleExtensionElement(ZeebeExecutionListeners.class),
-        "an 'end' listener nobody can activate would stop the workflow at its own end");
+        "an 'end' listener nobody can activate would stop the workflow at its own end, and the "
+            + "listener is this adapter's own addition rather than something the cluster wants");
     assertTrue(
         wired.context().getWorkflowEndedProcessesToWire().isEmpty(),
         "so the process is kept out of the list the workers are opened from");
