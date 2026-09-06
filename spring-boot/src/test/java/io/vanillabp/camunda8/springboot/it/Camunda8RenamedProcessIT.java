@@ -2,8 +2,10 @@ package io.vanillabp.camunda8.springboot.it;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.URI;
 import java.util.ArrayList;
 
 import org.junit.jupiter.api.DisplayName;
@@ -19,7 +21,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
+import io.camunda.client.CamundaClient;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -45,12 +47,13 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * the platform's own {@code RenamedBpmnProcessTest}.
  * <p>
  * The second generation's file carries a SECOND executable process which no workflow
- * service of this application claims, waiting for a message it models no correlation key
- * for. That is the shape which used to end the boot: the adapter asked the core for the
- * aggregate-ID variable of a process the core knows nothing about, and the exception it got
- * came out of the deployment before the report naming the unclaimed process was written. So
- * this boot answers both halves - the application starts, the process is reported, and the
- * workflow of the rename still runs.
+ * service of this application claims, waiting for a message whose correlation key its
+ * modeller wrote. Such a process costs the boot nothing: it is deployed with the file, the
+ * core names it in the report every workflow module writes, and the workflow of the rename
+ * runs through it all. What happens where its model is NOT complete for the cluster is the
+ * case below: Camunda 8 answers a message catch element without a subscription by rejecting
+ * the whole file, so the deployment refuses such a file rather than writing a correlation
+ * key into a process this application does not serve.
  * <p>
  * The workflow module of this scenario deliberately scopes nothing
  * ('name-clash-avoidance: none'), unlike every other integration test of this module: with
@@ -139,14 +142,93 @@ public class Camunda8RenamedProcessIT {
           logged.contains("renamed-process-v2.bpmn"),
           () -> "together with the file it came with, which is where it is taken out: "
               + logged);
-      assertTrue(
-          logged.contains("NeighbourContinue") && logged
-              .contains(Camunda8TaskWiring.CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE),
-          () -> "and the adapter says which message got no aggregate to correlate by: "
-              + logged);
     } finally {
       application.close();
     }
+
+  }
+
+  /**
+   * A file whose second process waits for a message without saying what to correlate it
+   * by, next to a process which is complete. Sent to the cluster as it stands, which is
+   * what the deployment does NOT do.
+   */
+  private static final String A_KEYLESS_MESSAGE_NEXT_TO_A_COMPLETE_PROCESS = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="Definitions_Keyless" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:message id="Msg_Keyless" name="KeylessProbe" />
+        <bpmn:process id="KeylessProbeComplete" isExecutable="true">
+          <bpmn:startEvent id="KP_Start">
+            <bpmn:outgoing>KP_ToEnd</bpmn:outgoing>
+          </bpmn:startEvent>
+          <bpmn:sequenceFlow id="KP_ToEnd" sourceRef="KP_Start" targetRef="KP_End" />
+          <bpmn:endEvent id="KP_End">
+            <bpmn:incoming>KP_ToEnd</bpmn:incoming>
+          </bpmn:endEvent>
+        </bpmn:process>
+        <bpmn:process id="KeylessProbeWaiting" isExecutable="true">
+          <bpmn:startEvent id="KW_Start">
+            <bpmn:outgoing>KW_ToWait</bpmn:outgoing>
+          </bpmn:startEvent>
+          <bpmn:sequenceFlow id="KW_ToWait" sourceRef="KW_Start" targetRef="KW_Wait" />
+          <bpmn:intermediateCatchEvent id="KW_Wait">
+            <bpmn:incoming>KW_ToWait</bpmn:incoming>
+            <bpmn:messageEventDefinition id="KW_MsgDef" messageRef="Msg_Keyless" />
+          </bpmn:intermediateCatchEvent>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  @Test
+  @Order(3)
+  @DisplayName("The cluster answers a message catch element without a subscription by rejecting the file")
+  public void theClusterRejectsTheWholeFileOverAMessageWithoutASubscription() {
+
+    // The premise of the message the deployment writes about a process nothing serves:
+    // the cluster judges the FILE, so leaving such a message alone would take the process
+    // next to it down as well, and refusing the file while starting is the earlier half of
+    // a failure which happens either way. Measured here rather than remembered, so a
+    // cluster which changes its mind about it turns this red.
+    try (var client = testClient()) {
+      final var rejected = assertThrows(
+          RuntimeException.class,
+          () -> client
+              .newDeployResourceCommand()
+              .addResourceStringUtf8(A_KEYLESS_MESSAGE_NEXT_TO_A_COMPLETE_PROCESS, "keyless-probe.bpmn")
+              .send()
+              .join(),
+          "a message catch element whose message carries no zeebe:subscription is refused");
+      assertTrue(
+          rejected.getMessage().toLowerCase().contains("subscription"),
+          () -> "and the cluster says what the model is missing: "
+              + rejected.getMessage());
+
+      assertThrows(
+          RuntimeException.class,
+          () -> client
+              .newCreateInstanceCommand()
+              .bpmnProcessId("KeylessProbeComplete")
+              .latestVersion()
+              .send()
+              .join(),
+          "the process standing next to it was not deployed either - the rejection is the "
+              + "file's, not the element's");
+    }
+
+  }
+
+  /**
+   * A client of the test's own, for the one question which is asked while no application
+   * of this class is running.
+   */
+  private static CamundaClient testClient() {
+
+    return CamundaClient
+        .newClientBuilder()
+        .preferRestOverGrpc(true)
+        .restAddress(URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(8080))))
+        .grpcAddress(URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(26500))))
+        .build();
 
   }
 
@@ -198,11 +280,6 @@ public class Camunda8RenamedProcessIT {
             CAMUNDA.getHost(),
             CAMUNDA.getMappedPort(26500)));
     boot.add("--vanillabp.adapters.c8.workflow-visibility-timeout=PT60S");
-    // what the adapter says about a process it can learn no workflow aggregate for is a
-    // DEBUG line, because the WARN the core writes per workflow module already carries the
-    // verdict and the way out. Raising the level for that one class is what makes the
-    // adapter's own half readable here, and it is scoped to these two boots
-    boot.add("--logging.level.io.vanillabp.camunda8.deployment=DEBUG");
     // this scenario does not prefix its identifiers, and that is not a detail: under
     // 'use-prefix' a task definition carries the BPMN process id, so the jobs of the
     // workflows running under the OLD id are named after that id and no worker of the

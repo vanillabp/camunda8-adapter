@@ -69,8 +69,12 @@ mappings which make the multi-instance index, total and element readable at all.
 
 The correlation key has a boundary it always had. The aggregate id that expression points at is
 the aggregate of a process this application serves; a process no workflow service claims has none
-to name one from. Its subscriptions therefore carry a constant nothing publishes, because the
-cluster refuses a whole file over a message catch element whose message has no subscription.
+to name one from. Such a file is refused instead of rewritten, and before anything of it is
+prepared: the cluster demands a subscription on the message of every executable process which waits
+for one and rejects the whole file over a missing one, so the boot ends with a message which says
+where in the model the gap is. Whether that model gains a correlation key or loses its
+`isExecutable` is the modeller's decision, and this adapter does not take it for them by writing
+something into a process the application does not serve.
 
 Two rules keep that predictable. Every addition is idempotent, so re-wiring the same model does
 not stack listeners, and nothing the application modelled itself is overwritten. The price is

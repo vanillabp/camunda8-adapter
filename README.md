@@ -1088,21 +1088,23 @@ correlation-key expression `=<aggregate-ID variable>` into message subscriptions
 lacking one - catch events correlate via the aggregate ID without manual model
 tweaks (existing expressions stay untouched; V1 models deploy byte-identically).
 The injection needs a workflow aggregate, and a BPMN process no `@WorkflowService`
-class of this application claims has none. Its file is deployed anyway, so those
-subscriptions carry the constant
-`Camunda8TaskWiring.CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE`, and one DEBUG line
-names them. The constant is there because the cluster refuses a message catch element
-whose message carries no subscription, and it rejects the whole FILE over it, which
-would take the process next to that one down as well (measured against 8.9.16:
-*Must have exactly one zeebe:subscription extension element*; a static value is
-refused too, the key has to be an expression). Such a workflow can still be started,
-by a call activity or by a start event of its own. It stops at the first VanillaBP
-task, because no worker of this application asks for that job type, and at a message
-catch event it stops for good: nothing publishes that key, and `correlateMessage`
-cannot address the process either, since a process no workflow service claims has no
-process service. `Camunda8UnclaimedProcessTest` holds the wiring and the DEBUG line,
-`Camunda8RenamedProcessIT#theWorkflowOfTheOldIdIsFinishedAfterTheRename` the boot
-against a cluster.
+class of this application claims has none. Such a file is REFUSED while starting,
+in `prepareBpmn` and before any element of it was rewritten: the cluster demands a
+`zeebe:subscription` on the message of every executable process which waits for one,
+and it answers a missing one by rejecting the whole FILE (8.9.16 says *Must have
+exactly one zeebe:subscription extension element*; a static value is refused too, the
+key has to be an expression). So the file would not deploy either way, the process
+next to that one included, and ending the boot here is the earlier half of a failure
+which happens anyway. The message says which file, which process and which element it
+is about, and it asks for one of the two things which fix the model: the correlation
+key, or an `isExecutable` taken off a process nothing is meant to run. What VanillaBP
+does NOT do is put a substitute into a model it does not own.
+`Camunda8UnclaimedProcessTest` holds the verdict, the message and the claimed process
+which still gets its real key next to an unclaimed one;
+`Camunda8RenamedProcessIT#theClusterRejectsTheWholeFileOverAMessageWithoutASubscription`
+sends such a file to a cluster, so the premise is measured on every run instead of
+remembered. An unclaimed process whose model IS complete costs the boot nothing, and
+`Camunda8RenamedProcessIT#theWorkflowOfTheOldIdIsFinishedAfterTheRename` deploys one.
 WITH a correlation id the outbox idempotency key doubles as the Zeebe `messageId`,
 so redelivered dispatches are rejected engine-side WITHIN THE MESSAGE TTL (engine
 default; a redelivery after the TTL could correlate again - the documented
@@ -1384,7 +1386,10 @@ every process of the module, an unclaimed one included. Such a process is left o
 The worker answering the listener's job reads the aggregate-ID variable, and a listener whose
 job nobody activates would stop the workflow at its own end, so the guard sits in `wireBpmn`,
 before the listener is attached. Held by
-`Camunda8UnclaimedProcessTest#anUnclaimedProcessGetsNoWorkflowEndListener`.
+`Camunda8UnclaimedProcessTest#anUnclaimedProcessGetsNoWorkflowEndListener`. Leaving it out
+is enough because the listener is this adapter's own addition and the cluster wants nothing
+of it, unlike the correlation key of a message subscription, which is why that one ends the
+boot instead.
 
 `Camunda8BpmsInitiatedStartIT#timerStartCreatesTheAggregate` drives a timer start and the end
 behind it, `Camunda8WorkflowLifecycleTest#theClusterStartsAWorkflowOnItsOwn` the same on
