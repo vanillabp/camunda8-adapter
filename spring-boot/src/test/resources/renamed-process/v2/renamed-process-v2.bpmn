@@ -4,6 +4,7 @@
                   id="Definitions_RenamedProcess_v2"
                   targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:message id="Msg_RenameContinue" name="RenameContinue" />
+  <bpmn:message id="Msg_NeighbourContinue" name="NeighbourContinue" />
   <!-- the same model AFTER the rename: only the process id changed -->
   <bpmn:process id="RenamedProcessNew" isExecutable="true">
     <bpmn:startEvent id="RN_Start">
@@ -35,6 +36,34 @@
     <bpmn:sequenceFlow id="RN_ToEnd" sourceRef="RN_Finished" targetRef="RN_End" />
     <bpmn:endEvent id="RN_End">
       <bpmn:incoming>RN_ToEnd</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+  <!-- A second executable process which no @WorkflowService class of this application
+       claims: the shape a modeller leaves behind next to the process somebody asked for,
+       and the one which used to end the boot. It waits for a message and models no
+       correlation key, so the adapter has to find something to correlate by without a
+       workflow aggregate. -->
+  <bpmn:process id="RenameNeighbour" isExecutable="true">
+    <bpmn:startEvent id="NB_Start">
+      <bpmn:outgoing>NB_ToWork</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="NB_ToWork" sourceRef="NB_Start" targetRef="NB_Work" />
+    <bpmn:serviceTask id="NB_Work">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="neighbourWork" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>NB_ToWork</bpmn:incoming>
+      <bpmn:outgoing>NB_ToWait</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="NB_ToWait" sourceRef="NB_Work" targetRef="NB_Wait" />
+    <bpmn:intermediateCatchEvent id="NB_Wait">
+      <bpmn:incoming>NB_ToWait</bpmn:incoming>
+      <bpmn:outgoing>NB_ToEnd</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="NB_MsgDef" messageRef="Msg_NeighbourContinue" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:sequenceFlow id="NB_ToEnd" sourceRef="NB_Wait" targetRef="NB_End" />
+    <bpmn:endEvent id="NB_End">
+      <bpmn:incoming>NB_ToEnd</bpmn:incoming>
     </bpmn:endEvent>
   </bpmn:process>
 </bpmn:definitions>

@@ -2,6 +2,7 @@ package io.vanillabp.camunda8.springboot.it;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 
@@ -18,6 +19,8 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
+import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -40,6 +43,14 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * workflows keep running, not what the startup check reports about their versions - that
  * report needs the query API and is held by {@code Camunda8OldProcessVersionsIT} and by
  * the platform's own {@code RenamedBpmnProcessTest}.
+ * <p>
+ * The second generation's file carries a SECOND executable process which no workflow
+ * service of this application claims, waiting for a message it models no correlation key
+ * for. That is the shape which used to end the boot: the adapter asked the core for the
+ * aggregate-ID variable of a process the core knows nothing about, and the exception it got
+ * came out of the deployment before the report naming the unclaimed process was written. So
+ * this boot answers both halves - the application starts, the process is reported, and the
+ * workflow of the rename still runs.
  * <p>
  * The workflow module of this scenario deliberately scopes nothing
  * ('name-clash-avoidance: none'), unlike every other integration test of this module: with
@@ -95,7 +106,8 @@ public class Camunda8RenamedProcessIT {
   @Test
   @Order(2)
   @DisplayName("The renamed application finishes the workflow which runs under the old id")
-  public void theWorkflowOfTheOldIdIsFinishedAfterTheRename() throws Exception {
+  public void theWorkflowOfTheOldIdIsFinishedAfterTheRename(
+      final CapturedOutput output) throws Exception {
 
     assertNotNull(orderId, "the workflow of the first case has to exist");
 
@@ -117,6 +129,21 @@ public class Camunda8RenamedProcessIT {
           "after-the-rename",
           repository.findById(orderId).orElseThrow().getFinishedBy(),
           "the methods of the renamed application served the workflow of the old id");
+
+      final var logged = output.getOut() + output.getErr();
+      assertTrue(
+          logged.contains("RenameNeighbour"),
+          () -> "the process no workflow service claims has to be named while starting: "
+              + logged);
+      assertTrue(
+          logged.contains("renamed-process-v2.bpmn"),
+          () -> "together with the file it came with, which is where it is taken out: "
+              + logged);
+      assertTrue(
+          logged.contains("NeighbourContinue") && logged
+              .contains(Camunda8TaskWiring.CORRELATION_KEY_WITHOUT_A_WORKFLOW_AGGREGATE),
+          () -> "and the adapter says which message got no aggregate to correlate by: "
+              + logged);
     } finally {
       application.close();
     }
@@ -171,6 +198,11 @@ public class Camunda8RenamedProcessIT {
             CAMUNDA.getHost(),
             CAMUNDA.getMappedPort(26500)));
     boot.add("--vanillabp.adapters.c8.workflow-visibility-timeout=PT60S");
+    // what the adapter says about a process it can learn no workflow aggregate for is a
+    // DEBUG line, because the WARN the core writes per workflow module already carries the
+    // verdict and the way out. Raising the level for that one class is what makes the
+    // adapter's own half readable here, and it is scoped to these two boots
+    boot.add("--logging.level.io.vanillabp.camunda8.deployment=DEBUG");
     // this scenario does not prefix its identifiers, and that is not a detail: under
     // 'use-prefix' a task definition carries the BPMN process id, so the jobs of the
     // workflows running under the OLD id are named after that id and no worker of the

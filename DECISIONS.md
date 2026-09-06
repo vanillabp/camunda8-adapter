@@ -67,6 +67,11 @@ without the application modelling anything, an `end` execution listener on the p
 the end of a workflow and on a start event for a workflow the cluster starts itself, and the input
 mappings which make the multi-instance index, total and element readable at all.
 
+The correlation key has a boundary it always had. The aggregate id that expression points at is
+the aggregate of a process this application serves; a process no workflow service claims has none
+to name one from. Its subscriptions therefore carry a constant nothing publishes, because the
+cluster refuses a whole file over a message catch element whose message has no subscription.
+
 Two rules keep that predictable. Every addition is idempotent, so re-wiring the same model does
 not stack listeners, and nothing the application modelled itself is overwritten. The price is
 stated rather than hidden: a model which the adapter rewrites is a new process version in the
