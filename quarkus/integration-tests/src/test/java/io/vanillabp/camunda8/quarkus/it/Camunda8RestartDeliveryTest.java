@@ -19,7 +19,9 @@ import org.junit.jupiter.api.TestReporter;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.utility.DockerImageName;
 
 import io.quarkus.test.QuarkusProdModeTest;
 import io.restassured.RestAssured;
@@ -44,9 +46,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * closing client.
  * <p>
  * It brings a cluster of its own, which the lifecycle test deliberately avoids for every
- * other feature. Two reasons make it worth the container here: this scenario owns the
- * application's lifecycle, and delivering a job needs no secondary storage, so this one is
- * a broker alone rather than the pair the query API costs. Testcontainers removes it when
+ * other feature: this scenario owns the application's lifecycle, so it cannot share the
+ * application every other Quarkus test uses. Testcontainers removes the containers when
  * the JVM of the test run exits.
  */
 @ExtendWith(SuppressOutputExtension.class)
@@ -79,15 +80,33 @@ public class Camunda8RestartDeliveryTest {
       .of("target", "c8-restart-application.log")
       .toAbsolutePath();
 
+  static final Network NETWORK = Network.newNetwork();
+
+  static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
+      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
+      .withNetwork(NETWORK)
+      .withNetworkAliases("elasticsearch")
+      .withEnv("discovery.type", "single-node")
+      .withEnv("xpack.security.enabled", "false")
+      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
+      .withExposedPorts(9200)
+      .waitingFor(Wait
+          .forHttp("/_cluster/health")
+          .forPort(9200)
+          .forStatusCode(200)
+          .withStartupTimeout(CONTAINER_STARTUP));
+
   /**
-   * A cluster without secondary storage: delivering a job needs no query API, and this
-   * test is about nothing else.
+   * The cluster of this test. It exports to Elasticsearch because the adapter serves no
+   * cluster it cannot search: the application under test would refuse to deploy into a
+   * broker alone, whatever the test is actually about.
    */
   static final GenericContainer<?> CAMUNDA = new GenericContainer<>(ClusterImage.of())
       .withLogConsumer(ClusterLog.of("restart-cluster"))
+      .withNetwork(NETWORK)
       .withExposedPorts(8080, 26500, 9600)
-      .withEnv("SPRING_PROFILES_ACTIVE", "broker")
-      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
+      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "elasticsearch")
+      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_ELASTICSEARCH_URL", "http://elasticsearch:9200")
       .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
       .waitingFor(Wait
           .forHttp("/actuator/health/readiness")
@@ -98,9 +117,10 @@ public class Camunda8RestartDeliveryTest {
   /*
    * Started here rather than by the Testcontainers extension: the application's runtime
    * properties need the mapped ports, and they are read while the field below is
-   * initialized.
+   * initialized. The cluster outlives BOTH runs of the application this test makes.
    */
   static {
+    ELASTICSEARCH.start();
     CAMUNDA.start();
   }
 

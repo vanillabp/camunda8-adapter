@@ -29,7 +29,6 @@ import org.mockito.Mockito;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.CamundaFuture;
-import io.camunda.client.api.ProblemDetail;
 import io.camunda.client.api.command.ProblemException;
 import io.camunda.client.api.fetch.ProcessDefinitionGetXmlRequest;
 import io.camunda.client.api.search.enums.ElementInstanceState;
@@ -47,16 +46,21 @@ import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses;
+import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.process.WorkflowElementType;
 
 /**
- * The viewer/history API's QUERY-API paths of the Camunda 8 adapter (which the
- * Docker integration tests cannot reach: their broker deliberately runs without
- * secondary storage). The cluster is mocked - the point here is the mapping:
- * which instance answers, how element instances and incidents become a
- * {@code WorkflowHistory}, and how a call activity's secondary history context is
- * resolved and validated.
+ * The viewer/history API's query paths of the Camunda 8 adapter, against a mocked cluster.
+ * The point here is the mapping: which instance answers, how element instances and
+ * incidents become a {@code WorkflowHistory}, and how a call activity's secondary history
+ * context is resolved and validated.
+ * <p>
+ * A mock rather than a container because three of these ask what a FAILING search does
+ * ({@link #anOutageWhileReadingElementInstancesYieldsNoElementHistory},
+ * {@link #anOutageWhileReadingIncidentsYieldsNoErrors} and
+ * {@link #anOutageIsWarnedAboutOnce}), and an outage is not something a healthy Docker
+ * cluster does on request.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8ViewerQueryTest {
@@ -160,18 +164,15 @@ public class Camunda8ViewerQueryTest {
   }
 
   /**
-   * How a cluster refuses a query-API request: HTTP 403 with a problem detail. Which of
-   * the two reasons it has - no secondary storage, or credentials which may not read -
-   * does not reach the client as a code, and the viewer degrades the same way for both.
+   * A cluster which stopped answering. The adapter's cluster can be searched - the
+   * deployment refuses one which cannot - so this is what a viewer query fails with, and
+   * what the viewer reports as no history rather than as an error.
    *
-   * @return The failure a refused search ends with
+   * @return The failure a search of an unreachable cluster ends with
    */
-  private static RuntimeException clusterRefusesToBeSearched() {
+  private static RuntimeException clusterDoesNotAnswer() {
 
-    final var details = new ProblemDetail();
-    details.setStatus(403);
-    details.setTitle("FORBIDDEN");
-    return new ProblemException(403, "Forbidden", details);
+    return new ProblemException(503, "Service Unavailable", null);
 
   }
 
@@ -372,13 +373,13 @@ public class Camunda8ViewerQueryTest {
   }
 
   @Test
-  @DisplayName("Element instances unavailable: the history reports the instance without elements")
-  public void unavailableElementInstancesYieldNoElementHistory() {
+  @DisplayName("A cluster which stops answering: the history reports the instance without elements")
+  public void anOutageWhileReadingElementInstancesYieldsNoElementHistory() {
 
     foundInstances = List.of(instance(4711L, "111", null));
     final var elementSearch = mock(ElementInstanceSearchRequest.class, RETURNS_SELF);
     when(client.newElementInstanceSearchRequest()).thenReturn(elementSearch);
-    when(elementSearch.send()).thenThrow(clusterRefusesToBeSearched());
+    when(elementSearch.send()).thenThrow(clusterDoesNotAnswer());
 
     final var history = viewer.getWorkflowHistory("test-module", "ParentProcess", "id", "42", null);
 
@@ -388,14 +389,14 @@ public class Camunda8ViewerQueryTest {
   }
 
   @Test
-  @DisplayName("Incidents unavailable: the history is reported without error messages")
-  public void unavailableIncidentsYieldNoErrors() {
+  @DisplayName("A cluster which stops answering for incidents: the history has no error messages")
+  public void anOutageWhileReadingIncidentsYieldsNoErrors() {
 
     foundInstances = List.of(instance(4711L, "111", null));
     foundElementInstances = List.of(
         elementInstance("TheStart", ElementInstanceType.START_EVENT, ElementInstanceState.COMPLETED));
     when(client.newIncidentsByProcessInstanceSearchRequest(anyLong()))
-        .thenThrow(clusterRefusesToBeSearched());
+        .thenThrow(clusterDoesNotAnswer());
 
     final var history = viewer.getWorkflowHistory("test-module", "ParentProcess", "id", "42", null);
 
@@ -461,17 +462,32 @@ public class Camunda8ViewerQueryTest {
   }
 
   @Test
-  @DisplayName("The 'no query API' warning is emitted once, further failures only log at debug level")
-  public void theNoQueryApiWarningIsEmittedOnce() {
+  @DisplayName("An outage is warned about once, and every read after that only logs at debug level")
+  public void anOutageIsWarnedAboutOnce(
+      final CapturedOutput output) {
 
     final var instanceSearch = mock(ProcessInstanceSearchRequest.class, RETURNS_SELF);
     when(client.newProcessInstanceSearchRequest()).thenReturn(instanceSearch);
-    when(instanceSearch.send()).thenThrow(clusterRefusesToBeSearched());
+    when(instanceSearch.send()).thenThrow(clusterDoesNotAnswer());
 
-    // both calls degrade to the deployed version - the second one must not warn again
+    // all three calls fall back to what this application version deployed, and the
+    // reader is told about it once rather than per read
     assertNotNull(viewer.getWorkflowHistory("test-module", "ParentProcess", "id", "42", null));
     assertNotNull(viewer.getWorkflowHistory("test-module", "ParentProcess", "id", "42", null));
     assertEquals(2, viewer.getProcessDefinitions("test-module", "ParentProcess", "id", "42", null).size());
+
+    final var logged = output.getOut() + output.getErr();
+    assertEquals(
+        1,
+        logged.split("could not query process instances, so", -1).length - 1,
+        () -> "one warning, not one per read: "
+            + logged);
+    // and it says outage rather than missing capability, because a failed query cannot
+    // tell those apart and the deployment already settled which cluster this is
+    assertTrue(
+        logged.contains("Retried on the next call"),
+        () -> "the warning is about an outage: "
+            + logged);
 
   }
 

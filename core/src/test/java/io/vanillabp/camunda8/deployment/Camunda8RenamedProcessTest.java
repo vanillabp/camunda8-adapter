@@ -25,7 +25,6 @@ import io.camunda.client.api.search.response.SearchResponsePage;
 import io.vanillabp.camunda8.TestCollaborators;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
-import io.vanillabp.camunda8.client.Camunda8QueryApi;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -128,7 +127,7 @@ public class Camunda8RenamedProcessTest {
     when(client.newProcessDefinitionSearchRequest()).thenReturn(search);
 
     return new Camunda8ProcessVersions(
-        "c8", () -> client, new Camunda8QueryApi("c8", () -> client), (
+        "c8", () -> client, (
             workflowModuleId,
             bpmnProcessId) -> "%s-%s".formatted(workflowModuleId,
                 bpmnProcessId), workflowModuleId -> "tenant-of-the-module");

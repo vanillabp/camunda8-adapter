@@ -28,6 +28,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -36,7 +37,6 @@ import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
-import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import io.vanillabp.integration.adapter.spi.WorkflowScope;
 import io.vanillabp.integration.spi.PhaseOperation;
@@ -63,11 +63,6 @@ import io.vanillabp.spi.process.TaskNotFoundException;
  * <li>a {@code retryBackoff} task header in the model decides the backoff of its own
  * element, without a new process version and without configuration.</li>
  * </ul>
- * <p>
- * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
- * awareness probe answers optimistically - what this test exercises is that fallback.
- * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
- * Elasticsearch.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -111,8 +106,13 @@ public class Camunda8TaskProcessingIT {
    */
   private static final String USER_TASK_LISTENER_JOBS = "user-task-listener-jobs";
 
+  static final Network NETWORK = Network.newNetwork();
+
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
+
+  @Container
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   @DynamicPropertySource
   static void camunda8Properties(
@@ -142,24 +142,6 @@ public class Camunda8TaskProcessingIT {
 
   @Autowired
   private VanillaBpCamunda8Properties overlay;
-
-  @Autowired
-  private List<MigratableProcessService<?>> processServices;
-
-  @Test
-  @DisplayName("Without secondary storage the adapter reports that it cannot locate workflows")
-  public void withoutSecondaryStorageWorkflowsCannotBeLocated() {
-
-    // the cluster of this test runs without secondary storage, so the awareness probe
-    // has nothing to search and answers optimistically. Saying so lets the platform
-    // refuse a migration setup built on that guess (decision 4 of the platform)
-    assertFalse(
-        processServices
-            .getFirst()
-            .canLocateWorkflows(),
-        "a cluster without a query API cannot be asked which workflows it holds");
-
-  }
 
   private Long start(
       final String bpmnProcessId) {
@@ -347,9 +329,8 @@ public class Camunda8TaskProcessingIT {
    * handler wrote into the aggregate, how often it ran at all, and which workflow it was
    * about - the one this test started, since a test starts exactly one.
    * <p>
-   * The cluster of this class runs without secondary storage, so there is no user-task
-   * search to ask what it holds. What it made of the listener job is in its own log, and
-   * the process instance key is the string to look for there.
+   * What the cluster made of the listener job is in its own log, and the process instance
+   * key is the string to look for there.
    *
    * @param aggregateId The aggregate the notification is awaited for
    * @return What a timeout should report
@@ -966,8 +947,9 @@ public class Camunda8TaskProcessingIT {
         .getId());
     startSecondaryProcess("MessageProcess", aggregateId);
 
-    // no reliable waiting-state query without secondary storage - correlate
-    // (buffered by the engine's message TTL, so timing is not critical)
+    // waiting for the exporter to report the catch event would be a test of the
+    // exporter - correlate instead, buffered by the engine's message TTL, so the timing
+    // is not critical
     Thread.sleep(2000);
     transactionTemplate.executeWithoutResult(status -> {
       final var aggregate = repository.findById(aggregateId).orElseThrow();

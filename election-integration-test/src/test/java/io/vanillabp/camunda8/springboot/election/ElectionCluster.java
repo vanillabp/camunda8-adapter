@@ -19,9 +19,9 @@ import org.testcontainers.utility.DockerImageName;
  * release line pins ({@code camunda8.version}), so activating another line moves the
  * client and the cluster together.
  * <p>
- * Two flavours, which is all these tests need: a cluster WITHOUT secondary storage, where
- * two adapter ids sharing it cannot be told apart and the boot has to say so, and one WITH
- * it, where the election finds the workflow of the older scope.
+ * Two flavours, which is all these tests need: a cluster which refuses to be searched,
+ * where the boot has to say so, and one which answers, where the election finds the
+ * workflow of the older scope.
  */
 public final class ElectionCluster {
 
@@ -61,12 +61,13 @@ public final class ElectionCluster {
   }
 
   /**
-   * A cluster WITHOUT secondary storage: the query API is unavailable, so two adapter ids
-   * of one cluster cannot be told apart and the boot ends saying so.
+   * A cluster WITHOUT secondary storage: it refuses every search with HTTP 403, which is
+   * what the adapter's requirement is refused by, and the only cluster of that kind left
+   * in the suites.
    *
    * @return A container to be used as a Testcontainers {@code @Container} field
    */
-  public static GenericContainer<?> standaloneBroker() {
+  public static GenericContainer<?> clusterWhichRefusesSearches() {
 
     return new GenericContainer<>(image())
         .withExposedPorts(8080, 26500, 9600)
@@ -85,15 +86,15 @@ public final class ElectionCluster {
   }
 
   /**
-   * A cluster WITH secondary storage, exporting into an Elasticsearch reachable in
+   * A cluster which answers searches, exporting into an Elasticsearch reachable in
    * {@code network} under the alias {@code elasticsearch} - what the election needs to map
-   * a key to the scope it belongs to.
+   * a key to the scope it belongs to, and what this adapter requires of every cluster.
    *
    * @param network The network shared with the Elasticsearch container
    * @param elasticsearch The Elasticsearch container, started first
    * @return A container to be used as a Testcontainers {@code @Container} field
    */
-  public static GenericContainer<?> withSecondaryStorage(
+  public static GenericContainer<?> cluster(
       final Network network,
       final Startable elasticsearch) {
 

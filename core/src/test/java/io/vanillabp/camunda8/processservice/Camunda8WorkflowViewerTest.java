@@ -21,10 +21,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.process.WorkflowElementType;
 
 /**
- * Unit tests of the viewer/history API's Camunda 8 part WITHOUT a cluster: the
- * documented degradation. Whatever the query API cannot answer (no secondary
- * storage, cluster unreachable, data not visible yet) is served from what this
- * application version deployed - and never reported as an error.
+ * Unit tests of the viewer/history API's Camunda 8 part against a cluster which answers
+ * nothing at all: the degradation which stays. Whatever a search cannot answer, because
+ * the cluster is unreachable or because the data is not visible yet, is served from what
+ * this application version deployed - and never reported as an error.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8WorkflowViewerTest {

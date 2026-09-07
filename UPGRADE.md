@@ -5,6 +5,49 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## The cluster has to be one the adapter can search (2026-09-07)
+
+The Camunda 8 adapter of 2.0 requires a cluster which answers searches, and it says so while it
+deploys instead of running on and answering questions it cannot answer. Two things make a cluster
+answer them: it brings secondary storage (`camunda.data.secondary-storage.type`, an Elasticsearch or
+OpenSearch it exports to), and the credentials the adapter is configured with may read process
+instances, process definitions, jobs, user tasks and element instances. Where either is missing the
+cluster refuses every search with HTTP 403 and says which of the two it was in prose only, so the
+message names both.
+
+What the adapter uses a search for is the list a reader can check themselves against: locating a
+workflow by its aggregate's id, which is what elects the BPMS of an operation and what a pushed
+workflow aggregate is written by; resolving a version specification which names a
+`zeebe:versionTag`; the viewer's element history and the definitions of earlier application
+versions; and the startup report about the versions the cluster still holds. Until now four of those
+had a second behaviour for a cluster which refuses: an optimistic yes with a warning, a guiding
+failure, an empty version list, a viewer serving what this application version deployed. Those are
+gone.
+
+Where you are coming from decides whether this is news.
+
+**From 1.7.0 or later** your application already needed such a cluster and nobody wrote it down. It
+read every active process definition of its tenant through the search API while it started, to parse
+the BPMN of earlier deployments for the SPI wiring, with no property switching it off and no
+fallback around it. A cluster refusing that search kept the application from starting, so what
+changes for you is the message: a named requirement with both reasons and both ways out, instead of
+whatever the first failing read said.
+
+**From 1.6.3 or earlier** this is a real change. Those versions ran against the 8.6 client and kept
+the metadata of earlier deployments in tables of the application's own database, which is what their
+README said out loud, and they searched nothing. If your cluster is still one without secondary
+storage, 2.0 does not serve it: give the cluster its secondary storage before you upgrade. The
+tables are gone either way - 1.7.0 dropped them - so what answers the questions those tables used to
+answer is the cluster, and it has to be askable.
+
+An adapter which is not the first-priority adapter of a workflow module and carries
+`vanillabp.adapters.<id>.deployment-failure: warn` boots degraded against such a cluster with a
+guiding warning rather than ending the start. That is the way out for the old BPMS of a migration
+AWAY from a cluster like this, and it takes one more property: an adapter which deployed nothing
+cannot answer the BPMS election either, so a workflow module serving two adapters also needs
+`vanillabp.workflow-modules.<id>.election.guessing-adapters: ACCEPTED`. The application says both,
+one message per step, and comes up once both are set.
+
 ## A worker asks for work only while an execution slot is free (2026-08-31)
 
 Two things changed about how a Camunda 8 adapter runs what it delivers, and neither of them needs
@@ -126,8 +169,8 @@ The probes now compare the tenant and the process definition id against what the
 itself deployed. Three things follow for such a setup:
 
 - **the cluster needs secondary storage.** A task key can only be mapped to its scope through
-  the query API. Two ids on one cluster without it do not boot any more, with a message naming
-  the ids which share the cluster. A single Camunda 8 adapter keeps working without it,
+  the query API, and the searchable-cluster requirement of 2.0 (at the top of this file) is what
+  refuses a cluster which cannot serve one, whether one adapter id addresses it or two,
 - **an election of a task costs one query-API read**, and only where a second id shares the
   cluster,
 - **check your election cache.** `WorkflowLocator` remembers which adapter holds a workflow. An

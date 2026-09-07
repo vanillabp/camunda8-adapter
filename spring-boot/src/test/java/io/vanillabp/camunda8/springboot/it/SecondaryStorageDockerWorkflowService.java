@@ -12,9 +12,9 @@ import io.vanillabp.spi.service.WorkflowService;
 import io.vanillabp.spi.service.WorkflowTask;
 
 /**
- * The workflow service of the secondary-storage integration test: the
- * workflow waits for a message, and correlating it needs the probe which locates the
- * BPMS holding the workflow.
+ * The workflow service behind {@code Camunda8LocatingWorkflowsIT}: the workflow waits for
+ * a message, and correlating it needs the probe which locates the BPMS holding the
+ * workflow.
  */
 @Service
 @WorkflowService(

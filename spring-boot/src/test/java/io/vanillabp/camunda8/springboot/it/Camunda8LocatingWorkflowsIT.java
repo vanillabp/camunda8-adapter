@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -20,10 +19,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import io.camunda.client.CamundaClient;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
@@ -31,14 +28,14 @@ import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * What a cluster WITH secondary storage does to operations on running workflows.
+ * Locating a running workflow by its aggregate's id, which is what the adapter requires a
+ * searchable cluster for: the election probe, the correlation which depends on it, and the
+ * viewer.
  * <p>
- * This is the cluster the other Camunda 8 tests deliberately do not run on: without
- * secondary storage the query API is unavailable, the adapter answers its awareness
- * probe optimistically, and the search path is never exercised. That is how a filter
- * which matched nothing survived - the probe answered "no BPMS knows this workflow"
- * for every workflow, and every operation electing its BPMS by probing failed on real
- * clusters while all tests were green.
+ * The search is what a filter matching nothing used to break silently. The probe answered
+ * "no BPMS knows this workflow" for every workflow, and every operation electing its BPMS
+ * by probing failed on real clusters while all tests were green, because no test ran
+ * against a cluster the probe could search at all.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -51,27 +48,15 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 // its cluster keeps its job workers polling an address nobody answers - which is what
 // made the later classes of this module run into their timeouts
 @DirtiesContext
-public class Camunda8SecondaryStorageIT {
+public class Camunda8LocatingWorkflowsIT {
 
   static final Network NETWORK = Network.newNetwork();
 
   @Container
-  static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
-      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
-      .withNetwork(NETWORK)
-      .withNetworkAliases("elasticsearch")
-      .withEnv("discovery.type", "single-node")
-      .withEnv("xpack.security.enabled", "false")
-      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
-      .withExposedPorts(9200)
-      .waitingFor(Wait
-          .forHttp("/_cluster/health")
-          .forPort(9200)
-          .forStatusCode(200)
-          .withStartupTimeout(Duration.ofMinutes(3)));
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
 
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.withSecondaryStorage(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   @DynamicPropertySource
   static void camunda8Properties(
@@ -115,16 +100,16 @@ public class Camunda8SecondaryStorageIT {
   private List<MigratableProcessService<?>> processServices;
 
   @Test
-  @DisplayName("With secondary storage the adapter reports that it can locate workflows")
-  public void withSecondaryStorageWorkflowsCanBeLocated() {
+  @DisplayName("The adapter reports that it can locate workflows, which is what a searchable cluster is for")
+  public void theAdapterReportsItCanLocateWorkflows() {
 
-    // this cluster has a query API, so the awareness probe asks instead of assuming -
-    // which is what makes this adapter usable next to a second one
+    // the answer comes from the probe rather than from a constant, and a cluster which
+    // would answer 'no' never got the application this far
     assertTrue(
         processServices
             .getFirst()
             .canLocateWorkflows(),
-        "a cluster with a query API can be asked which workflows it holds");
+        "this cluster can be asked which workflows it holds");
 
   }
 

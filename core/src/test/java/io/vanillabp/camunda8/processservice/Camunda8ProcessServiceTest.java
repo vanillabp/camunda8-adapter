@@ -110,9 +110,7 @@ public class Camunda8ProcessServiceTest {
 
     // an unreachable cluster must yield BPMS_UNAVAILABLE (the outbox entry stays
     // pending and is retried) - answering ACTIVE would SKIP a recovered start and
-    // thereby lose the workflow, which is why this probe is stricter than the
-    // election's awarenessOfWorkflow (that one may answer optimistically when the
-    // query API is absent)
+    // thereby lose the workflow
     final var awareness = configuredService().awarenessOfWorkflowForRedispatch(SCOPE, persistence("agg-1"), "agg-1");
 
     assertTrue(

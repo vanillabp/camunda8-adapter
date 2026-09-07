@@ -9,7 +9,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import io.camunda.client.api.response.ProcessInstanceEvent;
@@ -405,17 +404,14 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           .join();
       return found.page().totalItems();
     } catch (final Exception e) {
-      // a cluster which cannot be searched cannot be asked what it is holding either,
-      // and a startup diagnosis is no reason to say so twice - the core stays silent.
-      // Everything else is a failure of this one request and is worth a line
-      if (clientFactory.getQueryApi().answers()) {
-        log
-            .debug(
-                "Camunda8[{}]: the cluster did not answer how many tasks of '{}' are open",
-                adapterId,
-                bpmnProcessId,
-                e);
-      }
+      // a startup diagnostic, so a cluster which did not answer costs the number and
+      // nothing else
+      log
+          .debug(
+              "Camunda8[{}]: the cluster did not answer how many tasks of '{}' are open",
+              adapterId,
+              bpmnProcessId,
+              e);
       return null;
     }
 
@@ -542,9 +538,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final Object workflowAggregateId,
       final String taskId) {
 
-    // the probe is an EMPTY UpdateUserTask - an engine command (unlike the
-    // query API it needs no secondary storage) which never advances the task;
-    // it answers NOT_FOUND for gone tasks. Side effect: modeller-defined
+    // the probe is an EMPTY UpdateUserTask - an engine COMMAND rather than a search,
+    // so it answers from the partition instead of waiting for the exporter, and it
+    // never advances the task; it answers NOT_FOUND for gone tasks. Side effect: modeller-defined
     // 'updating' task listeners fire - documented in the README.
     //
     // As for service tasks, a user-task key is unique per cluster, and on a
@@ -736,18 +732,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
-   * Logged once per adapter: probing workflow awareness needs a cluster which can be
-   * searched - without one the adapter answers OPTIMISTICALLY.
-   */
-  private final AtomicBoolean cannotSearchWarned = new AtomicBoolean();
-
-  /**
    * Whether this cluster can be ASKED which workflows it holds.
    * <p>
-   * Finding a workflow means searching the query API, which a cluster refusing to be
-   * searched does not offer - {@link #awarenessOfWorkflow} then answers optimistically,
-   * which is right while this is the only BPMS and a guess as soon as it is not. Saying
-   * so here is what lets the core refuse that combination while it boots.
+   * Normally yes: the deployment ends the boot on a cluster which refuses to be searched,
+   * see decision 20 in the repository's DECISIONS.md. One case survives that, and it is
+   * the reason this reads the probe instead of answering <code>true</code> from a
+   * constant: an adapter which is not the first-priority adapter of its workflow module
+   * and carries <code>deployment-failure: warn</code> boots DEGRADED against such a
+   * cluster. It serves nothing, and the core has to hear that it cannot locate a workflow
+   * before it builds a migration on it.
    *
    * @return Whether the query API answers
    */
@@ -767,9 +760,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final Object workflowAggregateId) {
 
     // Zeebe offers NO engine command answering "does an instance for this
-    // aggregate exist" - only the eventually-consistent query API (requires
-    // secondary storage, standard in any real Camunda 8 setup). The search
-    // filters by the aggregate-ID process variable.
+    // aggregate exist" - only the eventually-consistent query API, which is why this
+    // adapter requires a cluster it can search. The search filters by the aggregate-ID
+    // process variable.
     //
     // It does NOT filter by state, although only an ACTIVE instance can be advanced:
     // an ended workflow is COMPLETED, not UNKNOWN_TO_BPMS. The difference is the whole
@@ -804,29 +797,17 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               ? WorkflowAwareness.ACTIVE
               : WorkflowAwareness.COMPLETED;
     } catch (final Exception e) {
-      if (!clientFactory.getQueryApi().answers()) {
-        // OPTIMISTIC fallback: a cluster which cannot be searched cannot be asked
-        // whether the instance exists. Correlation publishes are buffered by the engine
-        // anyway (message TTL); in MULTI-BPMS migration setups this answer may
-        // route an operation to the wrong BPMS - which is what the WARN below is about.
-        // Whether THIS request failed for that reason is not asked: the capability was
-        // settled by a probe of its own, and a failure of a cluster which can be
-        // searched is an outage rather than a missing feature
-        if (cannotSearchWarned.compareAndSet(false, true)) {
-          log.warn(
-              "Camunda8[{}]: the cluster REFUSES to be searched, so workflow awareness cannot be "
-                  + "probed and is answered OPTIMISTICALLY (ACTIVE). Fine for single-BPMS setups; "
-                  + "for BPMS migration scenarios the query API has to answer - {}.",
-              adapterId,
-              Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED);
-        }
-        return WorkflowAwareness.ACTIVE;
-      }
+      // a cluster of this adapter can be searched (the deployment refuses one which
+      // cannot), so a search failing here is an outage - never a guess about what the
+      // cluster holds, which in a migration setup would route the operation to the
+      // wrong BPMS. The credentials are named because one which loses its read
+      // permission mid-run arrives here looking exactly like an outage
       log.warn(
           "Camunda8[{}]: could not determine awareness of the workflow of aggregate '{}' - "
-              + "reporting BPMS_UNAVAILABLE",
+              + "reporting BPMS_UNAVAILABLE ({})",
           adapterId,
           workflowAggregateId,
+          Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED,
           e);
       return WorkflowAwareness.BPMS_UNAVAILABLE;
     }
@@ -842,9 +823,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * <ul>
    * <li>no state filter - a workflow COMPLETED since the crashed start still
    * proves the start succeeded;</li>
-   * <li>where the cluster cannot be searched the answer is an honest
-   * {@link WorkflowAwareness#UNKNOWN_TO_BPMS} (instead of the election's
-   * optimistic ACTIVE): the start proceeds under the at-least-once contract of
+   * <li>a failed search is {@link WorkflowAwareness#BPMS_UNAVAILABLE} and never an
+   * optimistic ACTIVE, so the outbox entry is retried instead of a recovered start
+   * being skipped under the at-least-once contract of
    * {@link PhaseOperationHandler#phaseTwo}.</li>
    * </ul>
    */
@@ -873,14 +854,6 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               ? WorkflowAwareness.UNKNOWN_TO_BPMS
               : WorkflowAwareness.ACTIVE;
     } catch (final Exception e) {
-      if (!clientFactory.getQueryApi().answers()) {
-        log.debug(
-            "Camunda8[{}]: the cluster cannot be searched - the re-dispatch mitigation cannot "
-                + "probe, the start proceeds (duplicates within the documented at-least-once "
-                + "residual are possible)",
-            adapterId);
-        return WorkflowAwareness.UNKNOWN_TO_BPMS;
-      }
       log.warn(
           "Camunda8[{}]: could not probe the workflow of aggregate '{}' before re-dispatching "
               + "its start - reporting BPMS_UNAVAILABLE (the outbox entry is retried)",
@@ -1435,29 +1408,28 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final AggregatePersistenceAware<A> aggregatePersistence,
       final Object workflowAggregateId) {
 
-    try {
-      final var found = clientFactory
-          .getClient()
-          .newProcessInstanceSearchRequest()
-          .filter(filter -> filter
-              .state(ProcessInstanceState.ACTIVE)
-              .variables(Map
-                  .of(aggregateIdVariableName(aggregatePersistence),
-                      Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
-          .send()
-          .join();
-      // Writing into the instance of ANOTHER adapter id of this cluster would
-      // put the values of one migration half into the other one
-      return found
-          .items()
-          .stream()
-          .filter(instance -> isInScope(scope, instance.getTenantId(), instance.getProcessDefinitionId()))
-          .findFirst()
-          .map(instance -> instance.getProcessInstanceKey())
-          .orElse(null);
-    } catch (final Exception e) {
-      throw queryApiRequired(e, "the workflow of aggregate '%s'".formatted(workflowAggregateId));
-    }
+    // A failing search is not caught here on purpose. The adapter's cluster can be
+    // searched - the deployment refuses one which cannot - so a failure is an outage, and
+    // an outage of the push is what the outbox entry behind it is retried for
+    final var found = clientFactory
+        .getClient()
+        .newProcessInstanceSearchRequest()
+        .filter(filter -> filter
+            .state(ProcessInstanceState.ACTIVE)
+            .variables(Map
+                .of(aggregateIdVariableName(aggregatePersistence),
+                    Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
+        .send()
+        .join();
+    // Writing into the instance of ANOTHER adapter id of this cluster would
+    // put the values of one migration half into the other one
+    return found
+        .items()
+        .stream()
+        .filter(instance -> isInScope(scope, instance.getTenantId(), instance.getProcessDefinitionId()))
+        .findFirst()
+        .map(instance -> instance.getProcessInstanceKey())
+        .orElse(null);
 
   }
 
@@ -1636,51 +1608,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   private Job jobOf(
       final String taskId) {
 
-    try {
-      final var found = clientFactory
-          .getClient()
-          .newJobSearchRequest()
-          .filter(filter -> filter.jobKey(taskKeyOf(taskId)))
-          .send()
-          .join();
-      return found.items().isEmpty()
-          ? null
-          : found.items().getFirst();
-    } catch (final Exception e) {
-      throw queryApiRequired(e, "the task '%s'".formatted(taskId));
-    }
-
-  }
-
-  /**
-   * The guiding failure of a push which cannot find WHERE to write. Camunda 8 has
-   * neither a business key nor a command addressing a workflow by one of its
-   * variables, so the query API is the only way from an aggregate ID to the keys
-   * {@code SetVariables} needs - a cluster which refuses to be searched cannot serve
-   * this feature at all.
-   *
-   * @param cause What the search failed with
-   * @param subject What was searched for
-   * @return The exception to throw
-   */
-  private RuntimeException queryApiRequired(
-      final Exception cause,
-      final String subject) {
-
-    if (!clientFactory.getQueryApi().answers()) {
-      return new UnsupportedOperationException(
-          ("Camunda8[%s]: cannot push a changed workflow-aggregate - %s cannot be located because "
-              + "the cluster REFUSES to be searched (%s). Camunda 8 addresses variables by "
-              + "process-instance and element-instance keys only, and the query API is what "
-              + "translates the aggregate's ID into them: make the query API answer, or push the "
-              + "aggregate by completing a task instead.")
-              .formatted(adapterId, subject,
-                  Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED), cause);
-    }
-    if (cause instanceof RuntimeException runtimeException) {
-      return runtimeException;
-    }
-    return new RuntimeException(cause);
+    final var found = clientFactory
+        .getClient()
+        .newJobSearchRequest()
+        .filter(filter -> filter.jobKey(taskKeyOf(taskId)))
+        .send()
+        .join();
+    return found.items().isEmpty()
+        ? null
+        : found.items().getFirst();
 
   }
 

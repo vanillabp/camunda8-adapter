@@ -6,7 +6,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -18,7 +17,6 @@ import io.camunda.client.api.search.filter.ProcessDefinitionFilter;
 import io.camunda.client.api.search.response.ProcessDefinition;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
-import io.vanillabp.camunda8.client.Camunda8QueryApi;
 import io.vanillabp.integration.adapter.spi.version.CachingProcessVersionCatalog;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
@@ -31,10 +29,9 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * The version itself travels with every job ({@code ActivatedJob#getProcessDefinitionVersion}),
  * so nothing here is needed for version specifications made of numbers. Version TAGS
- * are a different matter: a job does not carry one, and the cluster only tells which
- * version carries which tag through the query API. Where a cluster refuses to be
- * searched, the tag stays unknown and is reported once - version specifications made of
- * numbers keep working.
+ * are a different matter: a job does not carry one, and which version carries which tag
+ * can only be read by searching the cluster - one of the reasons this adapter requires a
+ * cluster it can search, see decision 20 in the repository's DECISIONS.md.
  * <p>
  * What the deployment reported is recorded without any query
  * ({@link #recordDeployed(String, String, int, String)}): the deploy command
@@ -51,13 +48,6 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   private final Supplier<CamundaClient> client;
 
   /**
-   * Whether this adapter's cluster answers query-API requests at all - settled once
-   * while the adapter starts processing, and the reason a failed search here is either
-   * "this cluster cannot tell" or a failure worth throwing.
-   */
-  private final Camunda8QueryApi queryApi;
-
-  /**
    * The BPMN process id as the CLUSTER knows it for a (workflow module, plain BPMN
    * process id) - the identifiers may be prefixed.
    */
@@ -67,8 +57,6 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
    * The tenant a workflow module is deployed to, or <code>null</code>.
    */
   private final Function<String, String> tenants;
-
-  private final AtomicBoolean noQueryApiWarned = new AtomicBoolean();
 
   /**
    * The cluster's process definition key per (workflow module, BPMN process, version).
@@ -126,8 +114,9 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
     }
     final var definitionKey = definitionKeyOf(workflowModuleId, bpmnProcessId, version);
     if (definitionKey == null) {
-      // no query API, or the cluster does not hold that version any more - the core
-      // says once that this BPMS cannot tell
+      // the cluster does not hold that version any more, which is the only way there is
+      // no key: a cluster answering no search at all never gets the adapter this far.
+      // The core says once that this BPMS cannot tell
       return null;
     }
     try {
@@ -162,34 +151,27 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
     if (definitionKey == null) {
       return null;
     }
-    try {
-      // the TOTAL, not the page: a search answers one page of items, so counting what
-      // came back would cap every answer at the page size and quietly turn "5000 still
-      // run on this version" into the page size. One item is fetched because the count
-      // is what is wanted, not the instances
-      final var found = client
-          .get()
-          .newProcessInstanceSearchRequest()
-          .filter(filter -> filter
-              .state(ProcessInstanceState.ACTIVE)
-              .processDefinitionKey(definitionKey))
-          .page(page -> page.limit(1))
-          .send()
-          .join();
-      return found.page().totalItems();
-    } catch (final RuntimeException e) {
-      if (!queryApi.answers()) {
-        return null;
-      }
-      throw e;
-    }
+    // the TOTAL, not the page: a search answers one page of items, so counting what
+    // came back would cap every answer at the page size and quietly turn "5000 still
+    // run on this version" into the page size. One item is fetched because the count
+    // is what is wanted, not the instances
+    final var found = client
+        .get()
+        .newProcessInstanceSearchRequest()
+        .filter(filter -> filter
+            .state(ProcessInstanceState.ACTIVE)
+            .processDefinitionKey(definitionKey))
+        .page(page -> page.limit(1))
+        .send()
+        .join();
+    return found.page().totalItems();
 
   }
 
   /**
    * The cluster's process definition key of ONE version of a process - the handle both
    * the model and the instance count are read by. From what the version list already
-   * brought back, and only otherwise from a search of its own, which needs the query API.
+   * brought back, and only otherwise from a search of its own.
    */
   private Long definitionKeyOf(
       final String workflowModuleId,
@@ -266,44 +248,35 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
     final var scopedProcessId = scopedProcessIds.apply(workflowModuleId, bpmnProcessId);
     final var tenantId = tenants.apply(workflowModuleId);
-    try {
-      return client
-          .get()
-          .newProcessDefinitionSearchRequest()
-          .filter(filter -> {
-            onlyDefinitionsWhichStillCount(filter);
-            filter.processDefinitionId(scopedProcessId);
-            filter.version(Integer.valueOf(version));
-            if (tenantId != null) {
-              filter.tenantId(tenantId);
-            }
-          })
-          .send()
-          .join()
-          .items()
-          .stream()
-          .findFirst()
-          .map(definition -> remember(workflowModuleId, bpmnProcessId, definition))
-          .orElse(null);
-    } catch (final RuntimeException e) {
-      if (!queryApi.answers()) {
-        return null;
-      }
-      throw e;
-    }
+    return client
+        .get()
+        .newProcessDefinitionSearchRequest()
+        .filter(filter -> {
+          onlyDefinitionsWhichStillCount(filter);
+          filter.processDefinitionId(scopedProcessId);
+          filter.version(Integer.valueOf(version));
+          if (tenantId != null) {
+            filter.tenantId(tenantId);
+          }
+        })
+        .send()
+        .join()
+        .items()
+        .stream()
+        .findFirst()
+        .map(definition -> remember(workflowModuleId, bpmnProcessId, definition))
+        .orElse(null);
 
   }
 
   public Camunda8ProcessVersions(
       final String adapterId,
       final Supplier<CamundaClient> client,
-      final Camunda8QueryApi queryApi,
       final BiFunction<String, String, String> scopedProcessIds,
       final Function<String, String> tenants) {
 
     this.adapterId = adapterId;
     this.client = client;
-    this.queryApi = queryApi;
     this.scopedProcessIds = scopedProcessIds;
     this.tenants = tenants;
 
@@ -379,47 +352,28 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
     final var scopedProcessId = scopedProcessIds.apply(workflowModuleId, bpmnProcessId);
     final var tenantId = tenants.apply(workflowModuleId);
-    try {
-      final var definitions = client
-          .get()
-          .newProcessDefinitionSearchRequest()
-          .filter(filter -> {
-            onlyDefinitionsWhichStillCount(filter);
-            filter.processDefinitionId(scopedProcessId);
-            if (tenantId != null) {
-              filter.tenantId(tenantId);
-            }
-          })
-          .sort(sort -> sort.version().asc())
-          .send()
-          .join()
-          .items();
-      // this one search holds what every later question about an older version needs, and
-      // keeping the keys is what spares those questions a search each
-      definitions.forEach(definition -> remember(workflowModuleId, bpmnProcessId, definition));
-      return definitions
-          .stream()
-          .map(definition -> DeployedProcessVersion
-              .of(String.valueOf(definition.getVersion()), definition.getVersionTag()))
-          .toList();
-    } catch (final RuntimeException e) {
-      if (!queryApi.answers()) {
-        if (noQueryApiWarned.compareAndSet(false, true)) {
-          log.warn(
-              """
-                  Camunda8[{}]: the cluster REFUSES to be searched, so the versions of BPMN \
-                  process '{}' (workflow module '{}') cannot be asked for. Version specifications \
-                  made of numbers (e.g. '>2') keep working - specifications naming a version TAG \
-                  match nothing until the query API answers ({}).""",
-              adapterId,
-              bpmnProcessId,
-              workflowModuleId,
-              Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED);
-        }
-        return List.of();
-      }
-      throw e;
-    }
+    final var definitions = client
+        .get()
+        .newProcessDefinitionSearchRequest()
+        .filter(filter -> {
+          onlyDefinitionsWhichStillCount(filter);
+          filter.processDefinitionId(scopedProcessId);
+          if (tenantId != null) {
+            filter.tenantId(tenantId);
+          }
+        })
+        .sort(sort -> sort.version().asc())
+        .send()
+        .join()
+        .items();
+    // this one search holds what every later question about an older version needs, and
+    // keeping the keys is what spares those questions a search each
+    definitions.forEach(definition -> remember(workflowModuleId, bpmnProcessId, definition));
+    return definitions
+        .stream()
+        .map(definition -> DeployedProcessVersion
+            .of(String.valueOf(definition.getVersion()), definition.getVersionTag()))
+        .toList();
 
   }
 

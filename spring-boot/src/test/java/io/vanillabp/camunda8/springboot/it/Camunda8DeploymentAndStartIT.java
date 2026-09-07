@@ -16,6 +16,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -29,7 +30,7 @@ import io.vanillabp.spi.process.ProcessService;
 
 /**
  * End-to-end integration test of the Camunda 8 adapter against a real Camunda 8 cluster
- * (Testcontainers, the cluster of the active release line, standalone broker without Elasticsearch,
+ * (Testcontainers, the cluster of the active release line with its Elasticsearch,
  * unprotected API). It drives the <b>full two-phase workflow start through
  * {@code ProcessService#startWorkflow}</b> inside a JPA transaction with the gruelbox
  * phase-two outbox:
@@ -45,11 +46,6 @@ import io.vanillabp.spi.process.ProcessService;
  * </ul>
  * The class is skipped when Docker is unavailable
  * ({@code @Testcontainers(disabledWithoutDocker = true)}).
- * <p>
- * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
- * awareness probe answers optimistically - what this test exercises is that fallback.
- * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
- * Elasticsearch.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -74,8 +70,13 @@ public class Camunda8DeploymentAndStartIT {
 
   private static final String COUNT_OUTBOX_ENTRIES = "select count(*) from TXNO_OUTBOX";
 
+  static final Network NETWORK = Network.newNetwork();
+
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
+
+  @Container
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
 
   @DynamicPropertySource
@@ -111,9 +112,8 @@ public class Camunda8DeploymentAndStartIT {
   private Camunda8ProcessService<DockerAggregate> camunda8ProcessService;
 
   /**
-   * The probes take the aggregate's persistence because the aggregate-ID VARIABLE
-   * is named after its ID attribute - this cluster runs without secondary storage,
-   * so nothing is searched here, but the name has to be answerable.
+   * The probes take the aggregate's persistence because the aggregate-ID VARIABLE is
+   * named after its ID attribute, and that name is what the search below filters by.
    */
   private static final AggregatePersistenceAware<DockerAggregate> AGGREGATE_PERSISTENCE = new AggregatePersistenceAware<>() {
 
@@ -209,23 +209,19 @@ public class Camunda8DeploymentAndStartIT {
   }
 
   @Test
-  @DisplayName("the re-dispatch probe never claims to know an unstarted workflow - unlike the election's awareness")
-  public void redispatchProbeIsNeverOptimistic() {
+  @DisplayName("a workflow nobody started is unknown to both probes, because the cluster really is searched")
+  public void aWorkflowNobodyStartedIsUnknownToBothProbes() {
 
-    // this cluster runs WITHOUT secondary storage (see the container's
-    // CAMUNDA_DATA_SECONDARYSTORAGE_TYPE), so the query API is unavailable - the
-    // situation in which the two probes deliberately differ:
     final var neverStartedAggregateId = "no-such-aggregate";
 
-    // the ELECTION probe answers optimistically, so message correlation keeps
-    // working on a plain broker (documented as unsafe for multi-BPMS setups)
+    // both probes search, and an empty result is an answer: no BPMS knows this
+    // workflow, which is what lets the core try the next adapter. Neither of them may
+    // guess an ACTIVE here - the election would route an operation to a BPMS which
+    // never held the workflow, and the re-dispatch probe would SKIP a recovered start
+    // and thereby lose it
     assertEquals(
-        WorkflowAwareness.ACTIVE,
+        WorkflowAwareness.UNKNOWN_TO_BPMS,
         camunda8ProcessService.awarenessOfWorkflow(SCOPE, AGGREGATE_PERSISTENCE, neverStartedAggregateId));
-
-    // the START RE-DISPATCH probe must never do that: an optimistic "known" would
-    // skip a recovered start and thereby LOSE the workflow, whereas proceeding
-    // only risks the documented at-least-once duplicate
     assertEquals(
         WorkflowAwareness.UNKNOWN_TO_BPMS,
         camunda8ProcessService.awarenessOfWorkflowForRedispatch(SCOPE, AGGREGATE_PERSISTENCE, neverStartedAggregateId));

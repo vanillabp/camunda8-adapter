@@ -12,6 +12,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -23,9 +24,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * task of the process has the cluster evaluate it, and the task after it receives what
  * the decision produced.
  * <p>
- * The cluster runs without secondary storage, so nothing here queries what was deployed -
- * the proof is that the workflow reaches the second task at all and carries the value one
- * rule of the table produced.
+ * Nothing here queries what was deployed: the proof is that the workflow reaches the
+ * second task at all and carries the value one rule of the table produced.
  * <p>
  * The class is skipped when Docker is unavailable
  * ({@code @Testcontainers(disabledWithoutDocker = true)}).
@@ -49,8 +49,13 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @DirtiesContext
 public class Camunda8DecisionTableIT {
 
+  static final Network NETWORK = Network.newNetwork();
+
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
+
+  @Container
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   @DynamicPropertySource
   static void camunda8Properties(

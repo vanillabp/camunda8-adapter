@@ -45,8 +45,8 @@ import lombok.extern.slf4j.Slf4j;
  * <li><b>The cluster's query API</b> - which version a
  * RUNNING workflow actually uses, the workflow timeline, and definitions deployed
  * by PREVIOUS application versions (a long-running workflow surviving a
- * redeployment). Where the cluster refuses to be searched the adapter degrades honestly: the
- * definitions of the currently deployed version are reported and the element
+ * redeployment). A cluster which does not ANSWER costs the second source and nothing
+ * else: the definitions of the currently deployed version are reported and the element
  * history is <code>null</code> (the SPI's documented "not supported by the
  * underlying BPMS"), never an error.</li>
  * </ol>
@@ -83,9 +83,11 @@ public class Camunda8WorkflowViewer {
   private final UnaryOperator<String> tenantIdOf;
 
   /**
-   * Logged once per adapter: the viewer needs the query API for instance-related data.
+   * Whether a viewer query which the cluster did not answer was already reported for this
+   * adapter id - the rest of them is a DEBUG line, so an outage costs one warning rather
+   * than one per read.
    */
-  private final AtomicBoolean cannotSearchWarned = new AtomicBoolean();
+  private final AtomicBoolean viewerQueryFailureWarned = new AtomicBoolean();
 
   /**
    * The process definitions of the addressed (sub-)workflow.
@@ -165,10 +167,11 @@ public class Camunda8WorkflowViewer {
     } catch (final Exception e) {
       log.info(
           "Camunda8[{}]: the process definition '{}' was not deployed by this application version "
-              + "and could not be read from the cluster - if the cluster runs without secondary "
-              + "storage, only definitions of the RUNNING application version are available",
+              + "and the cluster did not answer for it, so only the definitions of the RUNNING "
+              + "application version are available until it does ({})",
           adapterId,
           processDefinitionId,
+          Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED,
           e);
       return null;
     }
@@ -199,9 +202,9 @@ public class Camunda8WorkflowViewer {
       if (historyContext != null) {
         return null;
       }
-      // no query API (or the workflow is not visible yet): report the definition
-      // which would be executed - the element history is unavailable, which the
-      // SPI expresses as null (NOT an error, see the class comment)
+      // the workflow is not visible yet, or the cluster did not answer: report the
+      // definition which would be executed - the element history is unavailable, which
+      // the SPI expresses as null (NOT an error, see the class comment)
       final var deployed = deployedDefinition(workflowModuleId, bpmnProcessId);
       return deployed == null
           ? null
@@ -236,9 +239,8 @@ public class Camunda8WorkflowViewer {
    * @param processDefinitionKey The adapter-native definition id
    * @param bpmnProcessId The BPMN process id
    * @param version The version
-   * @param model The BPMN model or <code>null</code> if unavailable (a definition
-   *        of a previous application version on a cluster without secondary
-   *        storage)
+   * @param model The BPMN model, or <code>null</code> where a definition of a previous
+   *        application version could not be read from the cluster
    */
   private record Definition(
                             String processDefinitionKey,
@@ -469,15 +471,16 @@ public class Camunda8WorkflowViewer {
           .findFirst()
           .orElse(null);
     } catch (final Exception e) {
-      warnTheClusterCannotBeSearched(e, "process instances");
+      theClusterDidNotAnswerTheViewer(e, "process instances");
       return null;
     }
 
   }
 
   /**
-   * @return The element instances in execution order or <code>null</code> if the
-   *         query API is unavailable (the SPI's "history not supported")
+   * @return The element instances in execution order, or <code>null</code> where the
+   *         cluster did not answer - which the SPI reads as "this BPMS serves no
+   *         history", never as an error
    */
   private List<ElementInstance> elementInstancesOf(
       final Long processInstanceKey) {
@@ -494,7 +497,7 @@ public class Camunda8WorkflowViewer {
           .join()
           .items();
     } catch (final Exception e) {
-      warnTheClusterCannotBeSearched(e, "element instances");
+      theClusterDidNotAnswerTheViewer(e, "element instances");
       return null;
     }
 
@@ -547,17 +550,27 @@ public class Camunda8WorkflowViewer {
 
   }
 
-  private void warnTheClusterCannotBeSearched(
+  /**
+   * One WARN per adapter id for a viewer query the cluster did not answer.
+   * <p>
+   * This says outage and nothing else. Whether the cluster CAN be searched was settled
+   * while the adapter deployed, and one which cannot never got that far, so there is no
+   * missing capability left for a failed query here to assert - which it must not do
+   * anyway: the cluster answers the same 403 for a refused endpoint and for a request the
+   * credentials may not make, and only the probe of {@link Camunda8QueryApi} tells those
+   * apart. The credentials are named because one which loses its read permission while
+   * the application runs arrives here and nowhere else.
+   */
+  private void theClusterDidNotAnswerTheViewer(
       final Exception exception,
       final String subject) {
 
-    if (cannotSearchWarned.compareAndSet(false, true)) {
+    if (viewerQueryFailureWarned.compareAndSet(false, true)) {
       log.warn(
-          "Camunda8[{}]: the viewer/history API could not query {} - where the cluster refuses to "
-              + "be searched ({}), process definitions are served from what this application "
-              + "version deployed and the element history stays unavailable (reported as 'no "
-              + "history', never as an error). Make the query API answer for the full viewer "
-              + "experience.",
+          "Camunda8[{}]: the viewer/history API could not query {}, so the element history is "
+              + "reported as unavailable ('no history', never an error) and process definitions "
+              + "are served from what this application version deployed. Retried on the next "
+              + "call - unless the cluster stopped answering searches for good ({}).",
           adapterId,
           subject,
           Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED,
