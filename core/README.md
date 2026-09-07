@@ -190,17 +190,16 @@ The ONE deliberate gap is `cancelUserTask`, which Camunda 8.8 offers no command 
 throws a guiding `UnsupportedOperationException` instead of pretending to work (expected
 to arrive with the 8.10 listener support). The election awareness probes are
 implemented: `awarenessOfTask` (job-timeout refresh), `awarenessOfUserTask` (empty
-user-task update), `awarenessOfWorkflow` (instance search; optimistic ACTIVE where the
-cluster refuses to be searched) and the stricter `awarenessOfWorkflowForRedispatch`
-(instance search without state filter; honest UNKNOWN on such a cluster - never
-optimistic, see the root README's idempotency section). Whether the cluster can be
-searched is asked once at `startWorkflowProcessing` and remembered per adapter id
-(`Camunda8QueryApi`), so a search failing later is an outage rather than a missing
-feature.
+user-task update), `awarenessOfWorkflow` (instance search) and the stricter
+`awarenessOfWorkflowForRedispatch` (instance search without state filter, and never an
+optimistic answer, see the root README's idempotency section). Whether the cluster can be
+searched is asked once while a workflow module deploys and remembered per adapter id
+(`Camunda8QueryApi`); the deployment REQUIRES a yes
+(`Camunda8SearchableClusterCheck`), so a search failing later is an outage and nothing else.
 
 `Camunda8DeploymentServiceTest` pins the pipeline calls, `Camunda8ProcessServiceTest` the two
-phases, `Camunda8AwarenessWhenSearchFailsTest` the probes and `Camunda8QueryApiTest` the
-question asked once.
+phases, `Camunda8AwarenessWhenSearchFailsTest` the probes, `Camunda8QueryApiTest` the question
+asked once and `Camunda8SearchableClusterCheckTest` the refusal which follows a no.
 
 ## BPMN model type
 

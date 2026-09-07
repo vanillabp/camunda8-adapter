@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.DisplayName;
@@ -19,10 +18,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
@@ -61,19 +58,7 @@ public class Camunda8AuthenticationIT {
   static final Network NETWORK = Network.newNetwork();
 
   @Container
-  static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
-      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
-      .withNetwork(NETWORK)
-      .withNetworkAliases("elasticsearch")
-      .withEnv("discovery.type", "single-node")
-      .withEnv("xpack.security.enabled", "false")
-      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
-      .withExposedPorts(9200)
-      .waitingFor(Wait
-          .forHttp("/_cluster/health")
-          .forPort(9200)
-          .forStatusCode(200)
-          .withStartupTimeout(Duration.ofMinutes(3)));
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
 
   @Container
   static final GenericContainer<?> CAMUNDA = ClusterUnderTest.withAuthentication(NETWORK, ELASTICSEARCH);

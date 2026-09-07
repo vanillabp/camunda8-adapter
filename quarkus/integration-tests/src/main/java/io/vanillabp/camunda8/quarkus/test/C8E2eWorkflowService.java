@@ -513,8 +513,8 @@ public class C8E2eWorkflowService {
   /**
    * This one by the <code>zeebe:versionTag</code> of the second version,
    * which is deployed while the application runs - the way another node of a rolling
-   * deployment does it. Which version carries which tag is a query-API question, so
-   * this half of the feature needs a cluster with secondary storage.
+   * deployment does it. Which version carries which tag is read by searching the cluster,
+   * which is one of the reasons the adapter requires one it can search.
    *
    * @param aggregate The workflow aggregate
    */

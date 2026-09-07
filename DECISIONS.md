@@ -46,6 +46,11 @@ task probes read the job respectively the user task to learn its scope. That rea
 query-API call, which is why two ids on a cluster without secondary storage end the boot
 rather than misrouting silently.
 
+Since decision 20 the boot ends for ONE adapter id on such a cluster as well, so the check
+which counted the ids is gone and the requirement is what refuses that setup. What this entry
+decided is untouched: ownership is decided by the scope a workflow was deployed under, never
+by a key.
+
 ### 4. A class opens its fields one by one, not as a whole
 
 The process service, the deployment service and the client classes of this adapter hold dozens
@@ -287,6 +292,12 @@ on a cluster which refuses it is the missing capability and the probe answers op
 Both reasons for a refusal are permanent and cost the adapter the same thing, so the messages
 naming this state name both rather than guessing which one it was.
 
+Since decision 20 the remembered answer decides ONE thing instead of five, because the
+adapter requires a `true` and the deployment ends the boot on anything else. The reasoning
+above is untouched by that, and it is the reason the answer is still remembered: a search
+which fails after the deployment is an outage, and nothing but the probe can tell that apart
+from a cluster which cannot serve a search at all.
+
 One place keeps reading a wording, and it decides nothing the adapter does: a tenant request
 which fails because the cluster has multi-tenancy switched off is answered with the same
 `400` as any other rejected argument, so `Camunda8TenantCheck` picks the sharper of two
@@ -410,6 +421,50 @@ For the same reason the multi-instance context of such a task is not reported: t
 filled from the models the module deploys, and this one is not among them. A rename whose old
 model has a multi-instance task therefore stays a case for keeping both models deployed.
 
+Since decision 20 the reason the alternative was rejected has fallen away: the adapter requires
+a cluster it can search, so reading the models is no longer a feature which would work on one
+cluster and do nothing on another. What this entry decided stands as it is - the composed form is
+what ships, and everything above about what composing costs is still what it costs. Reading the
+models is an open alternative rather than a rejected one, and picking it up is its own piece of
+work.
+
 `Camunda8DeclaredProcessWorkersTest` holds which workers are opened per mode and what the start
 says; `Camunda8RenamedProcessIT` proves the whole thing against a cluster with prefixed
 identifiers.
+
+### 20. A cluster which cannot be searched is not a cluster this adapter serves
+
+Finding a workflow by its aggregate's id is a search, and so is everything the viewer asks and
+everything the version catalog asks. A cluster started without secondary storage refuses all of
+them, and so does a cluster whose credentials are not allowed to read what the adapter asks for.
+The adapter used to have an answer per question for that state: the election probe answered
+optimistically and warned once, the push of a changed aggregate failed with a guiding message, the
+version list came back empty, the viewer served what this application version deployed and reported
+no element history, and two adapter ids on one such cluster ended the boot. Five behaviours, five
+messages, and two kinds of cluster in the integration tests to keep all of it measured.
+
+None of it buys a capability. It buys the ability to boot against a cluster which cannot answer what
+VanillaBP asks, and it costs a second behaviour behind every question the adapter answers, each of
+which has to be documented and tested. One feature fewer that nobody has asked for is a better trade
+than a set of internal gaps, and the version-1 applications we know all run a searchable cluster.
+From 1.7.0 on they had no choice: version 1 read every active process definition of its tenant
+through the search API while it started, with no way to switch it off and no fallback, so a cluster
+which refused that search kept the application from coming up. What 2.0 does is name the requirement
+instead of leaving it to the first thing which fails.
+
+The requirement is therefore checked once per workflow module, while that module deploys, after the
+start has waited for its cluster and next to the tenant check. Waiting first is what makes the check
+honest: a cluster which cannot be REACHED is still not declared incapable, the answer stays open, and
+the next question asks again. Throwing from the deployment is what makes it fair: an adapter which is
+not the first-priority adapter of the module and carries `deployment-failure: warn` boots degraded
+with a guiding warning, which is what the old BPMS of a migration off such a cluster needs.
+
+One place decides the capability and one place reads it, so letting such a cluster back in later is
+one decision rather than fifteen. `Camunda8QueryApi` keeps the remembered answer, because telling an
+outage apart from a cluster which cannot serve a search is still what every message about a failed
+search depends on, and it keeps naming both reasons for a refusal: the cluster answers `403` for
+either and separates them in prose only.
+
+`Camunda8SearchableClusterCheckTest` holds the message and what it names,
+`Camunda8UnsearchableClusterIT` the boot which ends against a real cluster refusing a real search,
+and the same class the warning an adapter allowed to degrade gets instead.

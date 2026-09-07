@@ -21,7 +21,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * A job key, a user-task key and a process-instance key are unique per cluster and not
  * per tenant, so two ids sharing a cluster are handed each other's keys. Their awareness
  * probes therefore have to ask which scope a key belongs to before they claim it, and
- * that question costs a query-API round trip nobody should pay who has one adapter.
+ * that question costs a search per claimed task, which is why it is asked only where two
+ * ids really do share a cluster.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8SharedClusterTest {
@@ -64,7 +65,8 @@ public class Camunda8SharedClusterTest {
         registry
             .getFactory("c8-prefix")
             .getAdapterIdsSharingTheCluster(),
-        "and each id knows who it shares with, which is what the boot check names");
+        "and each id knows WHICH id it shares with, not merely that it shares - a registry "
+            + "pairing everything with everything would pass the assertion above");
     assertEquals(
         List.of("c8-prefix"),
         registry

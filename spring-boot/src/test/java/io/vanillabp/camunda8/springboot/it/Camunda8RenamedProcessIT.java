@@ -18,6 +18,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -41,10 +42,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * the cluster knows and the id the core is keyed by would show up, and neither can be
  * faked.
  * <p>
- * The cluster runs WITHOUT secondary storage on purpose: what is asked here is whether the
- * workflows keep running, not what the startup check reports about their versions - that
- * report needs the query API and is held by {@code Camunda8OldProcessVersionsIT} and by
- * the platform's own {@code RenamedBpmnProcessTest}.
+ * What is asked here is whether the workflows keep running, not what the startup check
+ * reports about their versions - that report is held by
+ * {@code Camunda8OldProcessVersionsIT} and by the platform's own
+ * {@code RenamedBpmnProcessTest}.
  * <p>
  * The second generation's file carries a SECOND executable process which no workflow
  * service of this application claims, waiting for a message whose correlation key its
@@ -70,8 +71,13 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class Camunda8RenamedProcessIT {
 
+  static final Network NETWORK = Network.newNetwork();
+
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
+
+  @Container
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   /**
    * The workflow started by the first application, read by the second one from the same

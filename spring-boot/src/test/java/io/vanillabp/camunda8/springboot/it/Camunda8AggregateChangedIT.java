@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -21,10 +20,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.search.response.Variable;
@@ -34,12 +31,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 /**
  * End-to-end test of pushing a changed aggregate against a real Camunda 8.
  * <p>
- * Unlike the other Camunda 8 tests this cluster runs WITH secondary storage (an
- * Elasticsearch of its own): Camunda 8 has no business key and no command addressing
- * a workflow by one of its variables, so the query API is the only way from an
- * aggregate ID to the process-instance and element-instance keys
- * {@code SetVariables} needs. A cluster without it cannot serve this feature - the
- * adapter says so instead of pretending.
+ * Camunda 8 has no business key and no command addressing a workflow by one of its
+ * variables, so a search is the only way from an aggregate ID to the process-instance and
+ * element-instance keys {@code SetVariables} needs. Which is one of the reasons the
+ * adapter requires a cluster it can search rather than serving half of this.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -57,22 +52,10 @@ public class Camunda8AggregateChangedIT {
   static final Network NETWORK = Network.newNetwork();
 
   @Container
-  static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
-      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
-      .withNetwork(NETWORK)
-      .withNetworkAliases("elasticsearch")
-      .withEnv("discovery.type", "single-node")
-      .withEnv("xpack.security.enabled", "false")
-      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
-      .withExposedPorts(9200)
-      .waitingFor(Wait
-          .forHttp("/_cluster/health")
-          .forPort(9200)
-          .forStatusCode(200)
-          .withStartupTimeout(Duration.ofMinutes(3)));
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
 
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.withSecondaryStorage(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   @DynamicPropertySource
   static void camunda8Properties(

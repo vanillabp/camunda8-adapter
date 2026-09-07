@@ -2,7 +2,6 @@ package io.vanillabp.camunda8.springboot.it;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import java.time.Duration;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
@@ -16,10 +15,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import io.camunda.client.CamundaClient;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
@@ -31,9 +28,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * is served by the method specifying that version, and a workflow started after a second,
  * TAGGED version was deployed is served by the method naming that tag.
  * <p>
- * The cluster brings secondary storage, because a job carries the version NUMBER and
- * never the version tag: which version carries which tag is a query-API question. The
- * numeric half of the feature needs none of that and works on any cluster.
+ * The version TAG is read by searching the cluster, because a job carries the NUMBER and
+ * never the version tag: which version carries which tag is a question only the cluster
+ * can answer. The numeric half of the feature needs no search at all.
  * <p>
  * The second version is deployed while the application runs, the way another node of a
  * rolling deployment deploys it - so this also exercises the on-demand lookup of a version
@@ -63,22 +60,10 @@ public class Camunda8ProcessVersionIT {
   static final Network NETWORK = Network.newNetwork();
 
   @Container
-  static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
-      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
-      .withNetwork(NETWORK)
-      .withNetworkAliases("elasticsearch")
-      .withEnv("discovery.type", "single-node")
-      .withEnv("xpack.security.enabled", "false")
-      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
-      .withExposedPorts(9200)
-      .waitingFor(Wait
-          .forHttp("/_cluster/health")
-          .forPort(9200)
-          .forStatusCode(200)
-          .withStartupTimeout(Duration.ofMinutes(3)));
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
 
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.withSecondaryStorage(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   @DynamicPropertySource
   static void camunda8Properties(

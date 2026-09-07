@@ -12,18 +12,17 @@ import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
  * {@link Camunda8DeploymentService#deployResources} at every boot.
  * <p>
  * <b>Why the adapter keeps this:</b> Camunda 8 is remote and its process
- * definitions/XML are only readable through the query API (secondary storage,
- * eventually consistent). VanillaBP's deployment pipeline reads every workflow
- * module's BPMN at EVERY boot anyway, so the adapter can serve the viewer API's
- * definitions and BPMN XML from these freshly read models - no cluster round trip,
- * no consistency lag, and it works on clusters without secondary storage.
+ * definitions/XML are only readable through the query API, which is eventually
+ * consistent. VanillaBP's deployment pipeline reads every workflow module's BPMN at
+ * EVERY boot anyway, so the adapter can serve the viewer API's definitions and BPMN XML
+ * from these freshly read models: no cluster round trip and no consistency lag.
  * <p>
  * <b>The boundary:</b> only definitions deployed by the RUNNING application version
  * are held here. A workflow still running on a definition deployed by a PREVIOUS
  * application version (a long-running workflow surviving a redeployment) is served
- * from the cluster instead ({@code ProcessDefinitionGetXmlRequest}), which needs the
- * query API. Without it, the viewer falls back to the version deployed now - see the
- * README.
+ * from the cluster instead ({@code ProcessDefinitionGetXmlRequest}), which is one of the
+ * reasons the adapter requires a cluster it can search - see decision 20 in the
+ * repository's DECISIONS.md.
  * <p>
  * Why the probes compare against what THIS adapter id deployed rather than trusting a cluster key
  * is decision 3 in the repository's DECISIONS.md.

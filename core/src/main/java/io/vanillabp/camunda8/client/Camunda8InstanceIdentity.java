@@ -30,13 +30,14 @@ import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
  * Two ids whose relevant keys are identical are the same instance - configuring
  * them as separate adapters is an error.
  * <p>
- * Two ids which ARE distinct and still address one CLUSTER need something more: the
- * query API of that cluster. Job keys, user-task keys and
- * process-instance keys are unique per cluster and carry neither tenant nor prefix, so
- * the election has to look a key up to learn which of the two scopes it belongs to.
- * Such a setup on a cluster which refuses to be searched ends the boot; what counts as one
- * cluster there is {@link #clusterIdentityOf}, which deliberately ignores the tenant and
- * the credentials this identity includes.
+ * Two ids which ARE distinct and still address one CLUSTER pay for it. Job keys,
+ * user-task keys and process-instance keys are unique per cluster and carry neither tenant
+ * nor prefix, so the election has to look a key up to learn which of the two scopes it
+ * belongs to, which is one search per elected task. What counts as one cluster there is
+ * {@link #clusterIdentityOf}, which deliberately ignores the tenant and the credentials
+ * this identity includes. That the cluster answers such a search at all is a requirement of
+ * the adapter rather than a property of this setup, see decision 20 in the repository's
+ * DECISIONS.md.
  */
 public final class Camunda8InstanceIdentity {
 

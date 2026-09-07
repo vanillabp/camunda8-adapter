@@ -18,30 +18,25 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.process.ProcessDefinitionNotFoundException;
 import io.vanillabp.spi.process.ProcessService;
+import io.vanillabp.spi.process.WorkflowElementHistory;
 
 /**
- * The viewer/history API against a real Camunda 8 cluster running
- * <b>without secondary storage</b> (the standalone broker of all Camunda 8
- * integration tests) - the documented degradation:
+ * The viewer/history API against a real Camunda 8 cluster:
  * <ul>
- * <li>process definitions and BPMN XML are served from what THIS application
- * version deployed, carrying the cluster's real process definition key and
- * version;</li>
- * <li>the element history stays unavailable and is reported as <code>null</code>
- * (the SPI's "not supported by the underlying BPMS"), NEVER as an error.</li>
+ * <li>process definitions and BPMN XML come from what THIS application version deployed,
+ * carrying the cluster's real process definition key and version - a round trip the
+ * adapter can spare itself even where the cluster would answer, and one it could not
+ * answer consistently right after a deployment;</li>
+ * <li>the element history comes from the cluster, which is what the adapter requires a
+ * searchable one for.</li>
  * </ul>
- * The full history requires the query API - see the README.
- * <p>
- * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
- * awareness probe answers optimistically - what this test exercises is that fallback.
- * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
- * Elasticsearch.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -56,8 +51,13 @@ import io.vanillabp.spi.process.ProcessService;
 @DirtiesContext
 public class Camunda8ViewerApiIT {
 
+  static final Network NETWORK = Network.newNetwork();
+
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
+
+  @Container
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   @DynamicPropertySource
   static void camunda8Properties(
@@ -131,17 +131,35 @@ public class Camunda8ViewerApiIT {
   }
 
   @Test
-  @DisplayName("Without secondary storage the history reports no elements instead of failing")
-  public void historyDegradesWithoutSecondaryStorage() {
+  @DisplayName("The element history comes from the cluster, which is what a search is required for")
+  public void theElementHistoryComesFromTheCluster() throws Exception {
 
     final var aggregate = startWorkflow();
 
-    final var history = processService.getWorkflowHistory(aggregate, null);
+    // the exporter feeds the search the history is read by, so the elements arrive a
+    // moment after the workflow does
+    final var deadline = System.currentTimeMillis() + 240_000;
+    var history = processService.getWorkflowHistory(aggregate, null);
+    while ((history == null) || (history.elementsHistory() == null) || history
+        .elementsHistory()
+        .isEmpty()) {
+      if (System.currentTimeMillis() > deadline) {
+        throw new AssertionError("timed out waiting for the element history of the started workflow");
+      }
+      Thread.sleep(500);
+      history = processService.getWorkflowHistory(aggregate, null);
+    }
 
     assertNotNull(history.processDefinitionId());
-    assertNull(
-        history.elementsHistory(),
-        "without the query API the element history is reported as 'not supported', never as an error");
+    final var elementIds = history
+        .elementsHistory()
+        .stream()
+        .map(WorkflowElementHistory::elementId)
+        .toList();
+    assertTrue(
+        elementIds.contains("start"),
+        () -> "the start event the workflow came through is reported but got: "
+            + elementIds);
 
   }
 

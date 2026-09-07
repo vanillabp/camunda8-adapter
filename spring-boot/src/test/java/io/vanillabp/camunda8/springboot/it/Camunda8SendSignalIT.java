@@ -19,6 +19,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -34,11 +35,6 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * The cluster is deployed with prefixed identifiers (the module's
  * name-clash-avoidance mode), so the signal reaches its subscription only if the
  * adapter scopes the plain name the application passed.
- * <p>
- * Runs WITHOUT secondary storage, so the query API is unavailable and the adapter's
- * awareness probe answers optimistically - what this test exercises is that fallback.
- * The query path is covered by {@code Camunda8SecondaryStorageIT}, which brings its own
- * Elasticsearch.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -60,8 +56,13 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @DirtiesContext
 public class Camunda8SendSignalIT {
 
+  static final Network NETWORK = Network.newNetwork();
+
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
+
+  @Container
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   @DynamicPropertySource
   static void camunda8Properties(

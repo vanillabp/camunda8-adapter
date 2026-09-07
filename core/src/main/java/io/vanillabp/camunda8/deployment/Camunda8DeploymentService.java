@@ -11,7 +11,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -30,7 +29,7 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.camunda8.client.Camunda8InstanceIdentity;
-import io.vanillabp.camunda8.client.Camunda8QueryApi;
+import io.vanillabp.camunda8.client.Camunda8SearchableClusterCheck;
 import io.vanillabp.camunda8.client.Camunda8TenantCheck;
 import io.vanillabp.camunda8.health.Camunda8Health;
 import io.vanillabp.camunda8.observability.Camunda8Metrics;
@@ -417,7 +416,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // What the cluster's process definitions are versioned as - the version
     // travels with every job, the version TAGS come from here
     this.processVersions = new Camunda8ProcessVersions(
-        adapterId, clientFactory::getClient, clientFactory.getQueryApi(), this::scopedProcessId, this::tenantIdOf);
+        adapterId, clientFactory::getClient, this::scopedProcessId, this::tenantIdOf);
 
   }
 
@@ -970,8 +969,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * the defect; ending the boot over it would be the other one.
    * <p>
    * Two numbers are reported and only the first one is certain. The elements come from
-   * the model this boot deploys and are what has to reach zero; the count of open tasks
-   * needs the query API and is left out where the cluster refuses to be searched.
+   * the model this boot deploys and are what has to reach zero; the count of open tasks is
+   * a search, and this report runs while the module is wired, which is before the start
+   * has waited for its cluster - so a cluster which is not up yet costs the number.
    *
    * @param workflowModuleId The workflow module id
    * @param bpmnProcessId The plain BPMN process id
@@ -1009,7 +1009,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         Camunda8TaskWiring.TASKDEFINITION_USERTASK_WORKER_V1,
         String.join("', '", elementIds.stream().map("'%s'"::formatted).toList()),
         openTasks == null
-            ? "This cluster cannot be asked how many of them are open right now (it refuses to be searched)."
+            ? "The cluster did not answer how many of them are open right now."
             : "Open right now: %d.".formatted(openTasks));
 
   }
@@ -1098,10 +1098,17 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     // A cluster booting together with the application lets every round of the start fail,
     // so it is waited for here: once per adapter instance, and right before the first
-    // round which decides anything - the tenant check below (see
+    // round which decides anything - the searchable-cluster check below, which would end
+    // the boot of an application whose cluster is merely coming up with it (see
     // io.vanillabp.camunda8.client.Camunda8ClusterWait). An adapter with nothing to
     // deploy makes no such round and therefore waits for nothing
     clientFactory.waitUntilTheClusterAnswers();
+
+    // and now that a cluster HAS answered, whether it answers a SEARCH: this adapter
+    // serves no other kind. Per module rather than once per adapter id, because the
+    // throw is what the deployment-failure policy of THIS module reads
+    Camunda8SearchableClusterCheck
+        .requireAClusterWhichCanBeSearched(adapterId, clientFactory.getQueryApi());
 
     // one DeployResourceCommand per workflow module with all its models
     final var client = clientFactory.getClient();
@@ -1214,61 +1221,6 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           "Failed to deploy BPMN resources of workflow module '%s' to Camunda 8 (adapter '%s')!"
               .formatted(workflowModuleId, adapterId), e);
     }
-
-    // after ALL processes of the module were wired: methods matching no task of
-    // any wired process are a defect (per-module check, honors the policy)
-
-    // The deployment is done, so the version tags the application's
-    // annotations name can be resolved against what the cluster has now
-
-    // Two adapter ids on one cluster are told apart by the scope a workflow
-    // was deployed under, and asking a KEY for its scope needs the query API
-    failIfTwoAdapterIdsShareAClusterWithoutQueryApi();
-
-  }
-
-  /**
-   * Whether the check below already ran for this adapter id.
-   */
-  private final AtomicBoolean sharedClusterChecked = new AtomicBoolean();
-
-  /**
-   * Ends the boot where two <code>camunda8</code> adapter ids address one cluster whose
-   * query API is unavailable.
-   * <p>
-   * On a shared cluster every key is global, so the election has to ask which scope a job
-   * respectively a user task belongs to before an adapter claims it, and that question can
-   * only be answered by the query API. Where the cluster refuses to be searched the two ids
-   * are indistinguishable and the first entry of <code>prioritized-adapters</code> silently
-   * wins every operation of both, which routes messages into the wrong scope and writes a
-   * changed aggregate into the wrong instance. An application with ONE Camunda 8 adapter is
-   * not affected and keeps working on such a cluster.
-   */
-  private void failIfTwoAdapterIdsShareAClusterWithoutQueryApi() {
-
-    if (!clientFactory.sharesItsCluster() || !sharedClusterChecked.compareAndSet(false, true)) {
-      return;
-    }
-    // the capability, not a failure of a request of this check's own: a cluster which
-    // was merely unreachable while it was asked leaves the answer open, and an
-    // unreachable cluster is no reason to end the boot
-    if (clientFactory.getQueryApi().answers()) {
-      return;
-    }
-    throw new IllegalStateException(
-        """
-            Camunda 8 adapter '%s' shares its cluster with the adapter id(s) '%s', and that cluster \
-            REFUSES to be searched (%s). Two adapter ids on one cluster are told apart by the \
-            scope they deployed under (the tenant respectively the prefixed process id), and the \
-            key of a job or user task carries neither - the query API is what maps a key to its \
-            scope. Without it VanillaBP would route every operation to the first entry of \
-            'vanillabp.prioritized-adapters', which sends messages into the wrong scope and writes \
-            a changed workflow aggregate into the wrong instance, all without an error. Make the \
-            query API answer for this adapter, or give each adapter id a cluster of its own."""
-            .formatted(
-                adapterId,
-                String.join("', '", clientFactory.getAdapterIdsSharingTheCluster()),
-                Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED));
 
   }
 
@@ -1507,11 +1459,6 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // what each worker serves, which is what its fetch list is the union over
     final var servedByJobType = new LinkedHashMap<String, List<ServedElement>>();
     final var client = clientFactory.getClient();
-    // whether this cluster can be searched is settled HERE, once per adapter id, by a
-    // request whose only purpose it is: from now on every probe, every version question
-    // and every push reads the remembered answer instead of guessing at a failure of
-    // its own
-    clientFactory.getQueryApi().answers();
     // what this module has in flight, and later whether it is going down: every handler
     // registers its delivery here, and stopWorkflowProcessing waits for them
     final var drain = freshDrainOf(workflowModuleId);

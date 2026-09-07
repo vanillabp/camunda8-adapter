@@ -51,15 +51,12 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * agent is forwarded into it, otherwise the run would prove the features and count as
  * nothing.
  * <p>
- * One cluster carries all of it. A prod-mode test boots its application once per
- * test class, and on Camunda 8 that boot drags a container pair along - the
- * orchestration cluster plus the Elasticsearch it exports to. So this is deliberately
- * ONE class with many tests instead of a class per feature: the Spring Boot module
- * pays for seven clusters, this one pays for one. The cluster brings secondary storage
- * because three of the features below are query-API questions (which version carries
- * which tag, where a pushed value landed, what the history holds), and because
- * everything the adapter answers optimistically WITHOUT it is covered by the core's
- * own tests.
+ * One cluster carries all of it. A prod-mode test boots its application once per test
+ * class, and on Camunda 8 that boot drags a container pair along - the orchestration
+ * cluster plus the Elasticsearch it exports to, which is what every cluster of this
+ * adapter's tests is, because the adapter serves no cluster it cannot search. So this is
+ * deliberately ONE class with many tests instead of a class per feature: the Spring Boot
+ * module pays for one pair per class, this one pays for one pair in total.
  * <p>
  * Three things of the Spring Boot suite are deliberately NOT repeated here:
  * <ul>
@@ -1297,8 +1294,8 @@ public class Camunda8WorkflowLifecycleTest {
         + xml);
     assertTrue(xml.contains("happyTask"), "the XML is the model AS DEPLOYED, VanillaBP's wiring included");
 
-    // with secondary storage the element history is served instead of reported as
-    // unsupported
+    // the exporter feeds the search the history is read by, so the elements arrive a
+    // moment after the workflow does
     await(
         () -> {
           final var history = object("introspect/viewer/history/"

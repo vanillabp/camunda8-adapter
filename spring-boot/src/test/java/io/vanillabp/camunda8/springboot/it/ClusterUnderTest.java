@@ -28,11 +28,12 @@ import org.testcontainers.utility.DockerImageName;
  * <p>
  * The image is {@code camunda/camunda}, the orchestration cluster of Camunda 8, and not
  * the older {@code camunda/zeebe}: the latter received no tags beyond 8.9.11 and none at
- * all for 8.10, so a per-line matrix cannot be built on it. The orchestration cluster
- * boots the whole application, which without secondary storage fails on its own
- * authentication ("Basic Authentication is not supported when secondary storage is
- * disabled"). The Spring profile {@code broker} is what the tests here need: broker plus
- * gateway plus the v2 API, and no user data.
+ * all for 8.10, so a per-line matrix cannot be built on it.
+ * <p>
+ * Every cluster here brings secondary storage, because the adapter serves no other kind:
+ * a cluster which cannot be searched ends the boot of the application under test. So
+ * there is no flavour to choose any more, only whether the cluster's authentication is
+ * switched on, and every class pays for an Elasticsearch beside its Zeebe.
  */
 public final class ClusterUnderTest {
 
@@ -56,45 +57,49 @@ public final class ClusterUnderTest {
   }
 
   /**
-   * A cluster WITHOUT secondary storage: the query API is unavailable, which is what the
-   * adapter's optimistic fallbacks are tested against.
+   * The secondary storage of the cluster, reachable in {@code network} under the alias
+   * {@code elasticsearch}. Every integration test class of this module declares one as a
+   * {@code @Container} field of its own and hands it to {@link #cluster} or
+   * {@link #withAuthentication}, which is what makes the pair start in the right order.
    *
+   * @param network The network shared with the cluster container.
    * @return A container to be used as a Testcontainers {@code @Container} field.
    */
-  public static GenericContainer<?> standaloneBroker() {
+  public static GenericContainer<?> elasticsearch(
+      final Network network) {
 
-    return new GenericContainer<>(image())
-        .withLogConsumer(ClusterLog.of("broker"))
-        .withExposedPorts(8080, 26500, 9600)
-        .withEnv("SPRING_PROFILES_ACTIVE", "broker")
-        .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
-        // an unprotected API keeps an authentication provider out of the test
-        .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
-        // the readiness probe turns UP only once the partition leader accepts
-        // deployments, which avoids a transient 503 on the first deploy at startup
+    return new GenericContainer<>(
+        DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
+        .withNetwork(network)
+        .withNetworkAliases("elasticsearch")
+        .withEnv("discovery.type", "single-node")
+        .withEnv("xpack.security.enabled", "false")
+        .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
+        .withExposedPorts(9200)
         .waitingFor(Wait
-            .forHttp("/actuator/health/readiness")
-            .forPort(9600)
+            .forHttp("/_cluster/health")
+            .forPort(9200)
             .forStatusCode(200)
             .withStartupTimeout(STARTUP_TIMEOUT));
 
   }
 
   /**
-   * A cluster WITH secondary storage, exporting into an Elasticsearch reachable in
-   * {@code network} under the alias {@code elasticsearch}. Needed by every test using the
-   * query API (workflow awareness, the viewer, process versions).
+   * The cluster of a test, exporting into the Elasticsearch of {@link #elasticsearch}.
+   * <p>
+   * The readiness probe turns UP only once the partition leader accepts deployments,
+   * which avoids a transient 503 on the first deploy at startup.
    *
    * @param network      The network shared with the Elasticsearch container.
    * @param elasticsearch The Elasticsearch container, started first.
    * @return A container to be used as a Testcontainers {@code @Container} field.
    */
-  public static GenericContainer<?> withSecondaryStorage(
+  public static GenericContainer<?> cluster(
       final Network network,
       final Startable elasticsearch) {
 
     return new GenericContainer<>(image())
-        .withLogConsumer(ClusterLog.of("secondary-storage"))
+        .withLogConsumer(ClusterLog.of("cluster"))
         .withNetwork(network)
         .dependsOn(elasticsearch)
         .withExposedPorts(8080, 26500, 9600)
@@ -123,10 +128,8 @@ public final class ClusterUnderTest {
 
   /**
    * A cluster with its authentication SWITCHED ON - what a self-managed installation
-   * normally looks like, and what every other cluster here deliberately is not.
-   * Secondary storage comes with it: the orchestration cluster refuses basic
-   * authentication without it ("Basic Authentication is not supported when secondary
-   * storage is disabled"), so an authenticated cluster is an Elasticsearch cluster.
+   * normally looks like, and what every other cluster here deliberately is not, so that
+   * an authentication provider stays out of the tests which are about something else.
    *
    * @param network      The network shared with the Elasticsearch container.
    * @param elasticsearch The Elasticsearch container, started first.

@@ -3,7 +3,6 @@ package io.vanillabp.camunda8.springboot.it;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
@@ -19,10 +18,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.search.enums.ProcessDefinitionState;
@@ -34,8 +31,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * The old-versions startup check against a REAL cluster: the application deploys version
  * 1 of a process and boots again with a model which dropped one of its tasks. Reading
  * the model of the older version and counting the workflows running on it are the two
- * things only Camunda 8 can answer here, and both need the query API - which is why
- * this cluster runs WITH secondary storage.
+ * things only Camunda 8 can answer here, and both are read by searching the cluster.
  * <p>
  * Every case is a full boot, because the question is what a START reports, and the
  * findings are read from the captured output: Spring Boot resets the logging context
@@ -53,22 +49,10 @@ public class Camunda8OldProcessVersionsIT {
   static final Network NETWORK = Network.newNetwork();
 
   @Container
-  static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
-      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
-      .withNetwork(NETWORK)
-      .withNetworkAliases("elasticsearch")
-      .withEnv("discovery.type", "single-node")
-      .withEnv("xpack.security.enabled", "false")
-      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
-      .withExposedPorts(9200)
-      .waitingFor(Wait
-          .forHttp("/_cluster/health")
-          .forPort(9200)
-          .forStatusCode(200)
-          .withStartupTimeout(Duration.ofMinutes(3)));
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
 
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.withSecondaryStorage(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   @Test
   @Order(1)

@@ -78,7 +78,7 @@ public class Camunda8SharedClusterElectionIT {
    * which is the other half of the rule.
    */
   @Container
-  static final GenericContainer<?> CAMUNDA = ElectionCluster.withSecondaryStorage(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> CAMUNDA = ElectionCluster.cluster(NETWORK, ELASTICSEARCH);
 
   private ConfigurableApplicationContext application;
 

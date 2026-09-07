@@ -26,8 +26,8 @@ aggregate's shared attributes as process variables and answers the viewer/histor
 
 What this adapter cannot deliver is listed under [Known deviations](#known-deviations),
 `cancelUserTask` being the most prominent one. Everything that cannot be answered honestly
-(e.g. workflow awareness on a cluster without secondary storage) is documented as such
-rather than guessed.
+(e.g. cancelling a Camunda-managed user task by BPMN error, which no cluster up to 8.9
+offers a command for) is documented as such rather than guessed.
 
 ## Documentation and supported platforms
 
@@ -648,7 +648,9 @@ waits once, before the first of those rounds, and repeats none of them
 [(why)](./DECISIONS.md#17-a-start-waits-once-for-its-cluster-instead-of-repeating-each-round).
 
 `Camunda8ClusterWait` asks for the topology, the same question the health check asks, and it is
-answered by any cluster without secondary storage and without a tenant. What ends the waiting is
+answered by a cluster which has neither secondary storage nor a tenant - which is exactly why it
+is the question asked first: the requirement of a searchable cluster comes after it, and a cluster
+which is merely booting must not fail that requirement. What ends the waiting is
 the cluster answering, `vanillabp.adapters.<id>.startup-wait` running out, or an answer
 `Camunda8Errors` classifies as permanent - the last one ends the start at once, which is what lets
 the default be as long as ten minutes. Before the first attempt a line names the address and the
@@ -656,11 +658,11 @@ deadline, and every few seconds another one carries the time gone and the cluste
 so a typo in the address reads as "connection refused" from the start rather than as ten silent
 minutes.
 
-The rounds a start makes to the cluster are four, and the wait sits in front of all of them:
-`Camunda8TenantCheck` asking whether the tenant can be used, the deploy command itself, the
-question whether this cluster can be searched (`Camunda8QueryApi`, asked where two adapter ids
-share a cluster), and the version queries of `Camunda8ProcessVersions` for the process versions
-the cluster still holds. A fifth request exists and deliberately stays in front of the wait: while
+The rounds a start makes to the cluster are four, and the wait sits in front of all of them, in
+this order: the question whether this cluster can be searched at all (`Camunda8QueryApi`, asked
+once per adapter id and required to answer yes), `Camunda8TenantCheck` asking whether the tenant
+can be used, the deploy command itself, and the version queries of `Camunda8ProcessVersions` for
+the process versions the cluster still holds. A fifth request exists and deliberately stays in front of the wait: while
 wiring, a process which still carries version 1's user tasks is counted against the cluster for
 the warning naming them. That one swallows every failure and decides nothing, so a cluster which
 is not up yet costs it one debug line.
@@ -703,18 +705,17 @@ workflow already exists via the process-instance search; if so, the entry is con
 without a second `CreateProcessInstance`). A **residual window remains and is
 accepted** as an eventual-consistency property: after a hard crash between a
 successful `CreateProcessInstance` and recording the dispatch, the retry's probe may
-not see the instance yet (query-API lag), and without secondary storage the probe
-cannot run at all (it then answers honestly "unknown" and the idempotent start
-proceeds — deliberately NOT the optimistic ACTIVE of the election probe, which would
-skip and thereby LOSE workflows). Do not build on exactly-once semantics.
+not see the instance yet (query-API lag), which the probe answers honestly with
+"unknown" so the idempotent start proceeds — deliberately NOT an optimistic ACTIVE,
+which would skip and thereby LOSE workflows. Do not build on exactly-once semantics.
 
 The layers have their tests: `Camunda8InboundIdempotencyIT#redeliveredJobsSkipTheHandler` for a
 repeated delivery, `Camunda8RestartDeliveryIT` with its Quarkus twin
 `Camunda8RestartDeliveryTest` for a delivery which survives a restart, and
 `Camunda8ProcessServiceTest#redispatchProbeIsNeverOptimisticOnFailure`,
-`Camunda8AwarenessWhenSearchFailsTest#theRedispatchProbeStaysHonest` and
-`Camunda8DeploymentAndStartIT#redispatchProbeIsNeverOptimistic` for the probe which must not
-guess. The residual window itself is an assumption and stays one: producing it needs a crash
+`Camunda8AwarenessWhenSearchFailsTest#theRedispatchProbeReportsAnOutage` and
+`Camunda8DeploymentAndStartIT#aWorkflowNobodyStartedIsUnknownToBothProbes` for the probe which
+must not guess. The residual window itself is an assumption and stays one: producing it needs a crash
 between a successful `CreateProcessInstance` and the record of it, and a run in which the
 second dispatch of such a start finds the instance every time would disprove it.
 
@@ -1111,10 +1112,11 @@ default; a redelivery after the TTL could correlate again - the documented
 uniqueness window). WITHOUT one, deduplication is deliberately absent.
 `startWorkflowByMessage` publishes with an empty correlation key, the start's
 idempotency key as `messageId` and ONLY the aggregate-ID variable.
-`awarenessOfWorkflow` uses the process-instance search (query API): where the
-cluster refuses to be searched the adapter answers OPTIMISTICALLY (one-time
-guiding WARN) - fine for single-BPMS setups, and a guess in migration scenarios,
-see [What needs a cluster which can be searched](#what-needs-a-cluster-which-can-be-searched).
+`awarenessOfWorkflow` locates the workflow with a process-instance search, which is
+one of the reasons the adapter requires a cluster it can search, see
+[What needs a cluster which can be searched](#what-needs-a-cluster-which-can-be-searched).
+A search which fails is `BPMS_UNAVAILABLE` and never a guess, because a wrong yes
+routes the correlation to the wrong BPMS.
 `Camunda8TaskProcessingIT#correlateMessageResumesInstanceViaInjectedSubscription`,
 `#duplicateCorrelationDispatchIsDeduplicated` and `#startWorkflowByMessageStartsInstance` hold
 the three commands, `Camunda8WorkflowLifecycleTest` the Quarkus half.
@@ -1187,21 +1189,21 @@ from two sources:
 1. **What this application version deployed** - VanillaBP's deployment pipeline reads every
    workflow module's BPMN at each boot, so the adapter keeps those models (per adapter id,
    with the process definition key and version the CLUSTER assigned at deployment) and serves
-   definitions and BPMN XML from them: no cluster round trip, no consistency lag, and it works
-   on clusters WITHOUT secondary storage.
-2. **The cluster's query API** (secondary storage) for everything instance-related: which
-   version a running workflow actually uses, the element history, and definitions deployed by
-   PREVIOUS application versions (a long-running workflow surviving a redeployment).
+   definitions and BPMN XML from them: no cluster round trip and no consistency lag, which is
+   what a viewer opened right after a deployment would otherwise run into.
+2. **The cluster's query API** for everything instance-related: which version a running
+   workflow actually uses, the element history, and definitions deployed by PREVIOUS
+   application versions (a long-running workflow surviving a redeployment).
 
 **Consistency caveats - by design, never errors:**
 
-- Without secondary storage the element history is reported as `null` (the SPI's "not
-  supported by the underlying BPMS") and the definitions of the currently deployed version
-  are reported; a guiding WARN naming the reason is logged once per adapter id.
 - The query API is eventually consistent: a workflow started moments ago may not be visible
-  yet. The adapter reports what is visible - a viewer polling shortly after sees the data.
-- Definitions of previous application versions are only resolvable through the cluster;
-  without the query API `getBpmnXml` answers with the core's guiding
+  yet. The adapter reports what is visible - a viewer polling shortly after sees the data. A
+  cluster which did not answer at all costs the element history, reported as `null` (the SPI's
+  "not supported by the underlying BPMS") with a WARN naming the reason once per adapter id,
+  and never as an error.
+- Definitions of previous application versions are only resolvable through the cluster, so a
+  cluster which did not answer makes `getBpmnXml` answer with the core's guiding
   `ProcessDefinitionNotFoundException`.
 
 The adapter-native process definition id is the **process definition key**, the history
@@ -1209,10 +1211,10 @@ context of a call activity its called **process instance key**, and the XML retu
 model AS DEPLOYED (VanillaBP's wiring modifications included).
 
 `Camunda8WorkflowViewerTest` covers what comes from the deployment, `Camunda8ViewerQueryTest`
-what comes from the cluster and how each answer degrades without it, and `Camunda8ViewerApiIT`,
-`Camunda8SecondaryStorageIT#theViewerFindsTheWorkflow` and
-`Camunda8WorkflowLifecycleTest#theViewerServesTheDeployedModelAndItsHistory` the two kinds of
-cluster.
+what comes from the cluster and what each answer does where the cluster stops answering, and
+`Camunda8ViewerApiIT`, `Camunda8LocatingWorkflowsIT#theViewerFindsTheWorkflow` and
+`Camunda8WorkflowLifecycleTest#theViewerServesTheDeployedModelAndItsHistory` the whole thing
+against a real cluster on both platforms.
 
 ### Decision tables
 
@@ -1275,9 +1277,10 @@ failed under the `warn` policy, a test) answers as before.
 
 The workflow probes filter the result they already have, which is free. The two task probes
 have to READ the job respectively the user task to learn its scope, so they do that only
-where `Camunda8ClientFactoryRegistry` saw a second adapter id on the same cluster. That
-read is a query-API call, which is why two ids on a cluster WITHOUT secondary storage fail
-the boot: they cannot be told apart at all, and the alternative is silent misrouting.
+where `Camunda8ClientFactoryRegistry` saw a second adapter id on the same cluster. That read
+is a search, and a cluster which serves none is refused while the adapter deploys, for one
+adapter id as well as for two - see
+[What needs a cluster which can be searched](#what-needs-a-cluster-which-can-be-searched).
 `Camunda8WorkflowViewer` and `Camunda8ProcessVersions` were scope-correct from the start
 and are what the probes now copy.
 
@@ -1290,8 +1293,8 @@ longer answer for each other, which mattered because aggregate ids are unique pe
 aggregate type and not across an application.
 
 One case stays coarse on purpose. The two task probes only READ the job respectively the
-user task where a second adapter id shares the cluster, because that read is a query-API
-round trip on every task election. Without a second id the key of another workflow module
+user task where a second adapter id shares the cluster, because that read is a search on
+every task election. Without a second id the key of another workflow module
 of the same application is still claimed, and it costs nothing: completing or cancelling
 addresses that same key, so the operation acts on the task the key names, and a key of
 another BPMS is not a Camunda 8 key at all. The workflow probes, whose answer routes a
@@ -1307,9 +1310,8 @@ problem it is.
 
 `Camunda8DeploymentServiceTest` holds the three modes and the default, `Camunda8TenantCheckTest`
 the two ways `by-adapter` fails, `Camunda8SharedClusterTest` and `Camunda8InstanceIdentityTest`
-which ids count as one, and `Camunda8SharedClusterElectionIT` with
-`Camunda8SharedClusterWithoutQueryApiIT#twoIdsWithoutSecondaryStorageDoNotBoot` the two adapter
-ids on one cluster, with secondary storage and without.
+which ids count as one, and `Camunda8SharedClusterElectionIT` the election of two adapter ids
+on one cluster.
 
 ### Sharing the workflow aggregate
 
@@ -1548,8 +1550,8 @@ an assumption about Camunda 8, disproved by a model which deploys with one.
   failure aborts the boot (the adapter is first-priority) - proving the pipeline mechanics
   without a cluster.
 - **Quarkus** `Camunda8WorkflowLifecycleTest` (`quarkus/integration-tests`, real cluster):
-  the same documented features the Spring Boot suite runs, on a booted application against
-  a cluster with secondary storage. The duplication is deliberate - a correct
+  the same documented features the Spring Boot suite runs, on a booted application. The
+  duplication is deliberate - a correct
   platform-neutral core says nothing about a platform's glue ever calling it, which is why
   coverage is measured per platform. `QuarkusProdModeTest` runs the application in a forked
   JVM, so the tests observe it through its own `introspect/...` endpoints and the JaCoCo
@@ -1595,54 +1597,57 @@ remote BPMS looks like in VanillaBP, see [Behavior](#behavior).
 
 ### What needs a cluster which can be searched
 
-Finding a workflow by its aggregate's ID is a query-API search
-(`newProcessInstanceSearchRequest` filtered by the aggregate-ID variable), and a cluster
-refuses every query endpoint where it was started without secondary storage. Four
-capabilities depend on it:
+This adapter requires one. A cluster answers searches where it brings secondary storage
+(`camunda.data.secondary-storage.type`) and where the adapter's credentials may read what it
+asks for; where either is missing the adapter says so while it deploys and the boot ends, see
+decision 20 in [`DECISIONS.md`](./DECISIONS.md). What follows is what the adapter uses those
+searches FOR, which is what a reader sizing their cluster needs:
 
 1. `awarenessOfWorkflow`, the BPMS-election probe, which also carries `completeTask`,
    `cancelTask`, the user-task operations, message correlation, `aggregateChanged` and the
-   viewer. Without the query API the adapter answers OPTIMISTICALLY with a one-time guiding
-   WARN, which is honest for a single-BPMS setup and unsafe in a migration setup, where a
-   wrong "yes" routes the operation to the wrong BPMS.
+   viewer. Finding a workflow by its aggregate's ID is a search
+   (`newProcessInstanceSearchRequest` filtered by the aggregate-ID variable).
 2. `aggregateChanged`, which needs the process-instance respectively element-instance key
-   `SetVariables` addresses. It fails with a guiding message instead of pretending the push
-   happened, and a task completion remains the way to push the shared values.
+   `SetVariables` addresses. Camunda 8 has neither a business key nor a command addressing a
+   workflow by one of its variables, so a search is the only way from the aggregate's ID to
+   those keys.
 3. Version boundaries naming a `zeebe:versionTag`, since resolving a tag to a version is a
-   definition search. The adapter says so once, and boundaries made of numbers keep working.
+   definition search. Boundaries made of numbers need no search: a job carries its version.
 4. The viewer's instance-related answers: which version a running workflow uses, the element
-   history and the definitions of previous application versions. Without them the adapter
-   reports what THIS application version deployed plus a `null` element history.
+   history and the definitions of previous application versions. The definitions of the
+   RUNNING version come from the deployment record instead, which spares a round trip and a
+   consistency window rather than a capability.
 
-The redispatch probe of a start (`awarenessOfWorkflowForRedispatch`) is the deliberate
-exception: it answers "unknown" rather than optimistically, because an optimistic answer
-would skip the start and thereby LOSE the workflow, see
+The redispatch probe of a start (`awarenessOfWorkflowForRedispatch`) reads the same searches
+under a stricter contract: it never answers optimistically, because an optimistic answer would
+skip the start and thereby LOSE the workflow, see
 [Idempotency limitation](#idempotency-limitation).
 
-**How the adapter knows.** It asks once, in `startWorkflowProcessing`, with a search of one
-page holding one item, and remembers the answer per adapter id (`Camunda8QueryApi`). Every
-later failure of a search is read against that answer rather than examined itself: on a
-cluster which can be searched a failing search is an outage and the probe reports
-`BPMS_UNAVAILABLE`, on a cluster which refuses it is the missing capability and the four
-degradations above apply. A cluster which is merely unreachable while the probe runs is not
-declared incapable, so the answer stays open and the next question asks again.
+**How the adapter knows.** It asks once, while it deploys a workflow module and after the
+start has waited for its cluster, with a search of one page holding one item, and remembers
+the answer per adapter id (`Camunda8QueryApi`). Every later failure of a search is read
+against that answer rather than examined itself: it is an outage, and the probe reports
+`BPMS_UNAVAILABLE`. A cluster which is merely unreachable while the probe runs is not declared
+incapable, so the answer stays open and the next question asks again - which is why the
+requirement is checked after the wait and not among the configuration checks of the start.
 
 A refusal is an HTTP `403`, and that code covers two cases the cluster separates in prose
 only: no secondary storage, or credentials which are not allowed to read. Both are permanent
 and cost the adapter the same thing, so every message about this state names both instead of
-picking the likelier one. Reading the prose was how the adapter used to decide, and a
-reworded message would have turned "this cluster cannot tell" into "this cluster is down",
-after which every operation of the adapter fails after a second instead of proceeding, see
-decision 16 in [`DECISIONS.md`](./DECISIONS.md).
+picking the likelier one - including the messages about an outage, because a credential losing
+its read permission while the application runs looks exactly like one. Reading the prose was
+how the adapter used to decide, and a reworded message would have turned "this cluster cannot
+tell" into "this cluster is down", after which every operation of the adapter fails after a
+second instead of proceeding, see decision 16 in [`DECISIONS.md`](./DECISIONS.md).
 
 `Camunda8QueryApiTest` pins the one question and the memory of its answer,
-`Camunda8AwarenessWhenSearchFailsTest` the four answers which follow from it, and
+`Camunda8SearchableClusterCheckTest` the refusal and what its message names,
 `Camunda8ErrorsTest#aRefusedSearchIsRecognisedByItsStatus` that the code decides and not the
-prose. The two kinds of cluster stand against each other in
-`Camunda8TaskProcessingIT#withoutSecondaryStorageWorkflowsCannotBeLocated` and
-`Camunda8SecondaryStorageIT#withSecondaryStorageWorkflowsCanBeLocated`, with
-`Camunda8ViewerApiIT#historyDegradesWithoutSecondaryStorage` and
-`Camunda8SharedClusterWithoutQueryApiIT#twoIdsWithoutSecondaryStorageDoNotBoot` for the rest.
+prose, and `Camunda8AwarenessWhenSearchFailsTest` that a failed search after that is an outage
+whatever it says. Against a real cluster refusing a real search it is
+`Camunda8UnsearchableClusterIT`, which also holds the warning an adapter allowed to degrade
+gets instead of the boot ending; `Camunda8LocatingWorkflowsIT` is the other side, where the
+search answers.
 
 ### Eventual consistency of the query API
 
@@ -1671,7 +1676,7 @@ altogether. The alternative - asking the phase-two outbox whether a start for th
 is open or was just dispatched - was weighed and dropped; the reasoning is in
 [`migration-adapter/README.md`](https://github.com/vanillabp/adapter-platform-integration/blob/main/migration-adapter/README.md).
 
-The window is `Camunda8SecondaryStorageIT`, in `#theProbeFindsTheWorkflow`,
+The window is `Camunda8LocatingWorkflowsIT`, in `#theProbeFindsTheWorkflow`,
 `#correlatingRightAfterTheStartWorks` and `#theViewerRightAfterTheStartWorks`. The residual of
 the paragraph above is an assumption: it needs an application on several nodes without a shared
 adapter cache, and an operation waiting on a node which never heard of the workflow would
@@ -1968,11 +1973,11 @@ platform never runs.
 The two platforms still reach different numbers, by what one suite can produce and the other
 cannot. The startup check for old process versions needs several boots against one cluster, each
 deploying a different model, and a Quarkus prod-mode test boots its application once per test class - which is
-why `Camunda8ProcessVersions` stands at 27 % on Quarkus against 79 % on Spring Boot. The other half
-is the cluster itself: the Quarkus suite runs against one WITH secondary storage, so what the adapter
-answers optimistically without it is covered on Spring Boot only, and `cancelUserTask` is answered by
-the release line, which belongs to a per-line test source rather than to a prod-mode test. The
-Quarkus suite's class comment lists all of it. Everything else is at parity, `Camunda8DeploymentService`
+why `Camunda8ProcessVersions` stands at 27 % on Quarkus against 79 % on Spring Boot. The rest is
+what one suite can produce and the other cannot at all: `cancelUserTask` is answered by the release
+line, which belongs to a per-line test source rather than to a prod-mode test, and the refusal of a
+cluster which cannot be searched needs an application booted per configuration. The Quarkus suite's
+class comment lists all of it. Everything else is at parity, `Camunda8DeploymentService`
 above the Spring Boot number.
 
 ## Noteworthy & Contributors

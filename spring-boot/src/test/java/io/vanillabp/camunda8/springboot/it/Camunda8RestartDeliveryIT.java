@@ -19,6 +19,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -33,7 +34,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * with changed configuration looks like. The first one works one workflow, so its workers
  * have an activation request parked at the cluster, and is then closed. The second one
  * starts a workflow, and the time until its handler is reached is the number this test
- * exists for.
+ * exists for. Both talk to the same pair of containers: the Testcontainers extension
+ * starts them before the class and stops them after it, so the cluster and its
+ * Elasticsearch outlive both applications.
  * <p>
  * <b>What it guards.</b> An activation request which is parked at the cluster when its
  * client is closed stays parked, and a job created afterwards is activated into it and
@@ -74,8 +77,13 @@ public class Camunda8RestartDeliveryIT {
    */
   private static final Duration DELIVERED_IN_SECONDS = Duration.ofSeconds(8);
 
+  static final Network NETWORK = Network.newNetwork();
+
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
+
+  @Container
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   private ConfigurableApplicationContext application;
 

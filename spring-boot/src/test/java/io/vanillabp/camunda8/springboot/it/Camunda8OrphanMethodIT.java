@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -20,16 +21,24 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * The check belongs to the platform's core - this adapter used to call it itself, and
  * Camunda 7 used to forget it. What this test adds is the proof that it still fires for
  * Camunda 8 now that nobody calls it here: the model reaches a REAL cluster, so the
- * deployment really finishes, which is the moment the core is waiting for. The cluster
- * needs no secondary storage for it; wiring a model and reporting a method are questions
- * of the model and the application, not of the query API.
+ * deployment really finishes, which is the moment the core is waiting for.
+ * <p>
+ * Which is also why the assertions name the orphan method rather than just any refusal.
+ * The adapter has a second reason to end a boot against a cluster it cannot search, and
+ * that one fires BEFORE the deployment; a test which only asked whether the boot failed
+ * would pass on a cluster that never saw the model at all.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @Testcontainers(disabledWithoutDocker = true)
 public class Camunda8OrphanMethodIT {
 
+  static final Network NETWORK = Network.newNetwork();
+
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.standaloneBroker();
+  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
+
+  @Container
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
 
   @Test
   @DisplayName("A method matching no task ends the boot, naming the method and the fix")
@@ -51,7 +60,10 @@ public class Camunda8OrphanMethodIT {
             .close());
 
     final var message = rootMessage(failure);
-    assertTrue(message.contains("orphanTypo"), message);
+    assertTrue(
+        message.contains("orphanTypo"),
+        "this is the orphan method's refusal and not the adapter's requirement of a searchable cluster: "
+            + message);
     assertTrue(message.contains("activityNobodyModelled"), message);
     assertTrue(message.contains("fix the annotation"), message);
 

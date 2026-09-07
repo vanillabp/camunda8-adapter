@@ -362,8 +362,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * <p>
    * What it decides: keys are unique per cluster and not per tenant or prefix, so where
    * this list is not empty an awareness probe has to find out which scope a key belongs
-   * to before it claims the task. That answer costs a query-API round trip, which is why
-   * it is only paid where two ids can actually be confused.
+   * to before it claims the task. That answer costs a search, which is why it is only paid
+   * where two ids can actually be confused.
    */
   private List<String> adapterIdsSharingTheCluster = List.of();
 
