@@ -193,6 +193,10 @@ public class Camunda8UnsearchableClusterIT {
             "--vanillabp.adapters.c8-plain.grpc-address="
                 + grpcAddress(BROKER_ALONE),
             "--vanillabp.adapters.c8-plain.deployment-failure=warn",
+            // the second half of the way out, and the core asks for it in a message of its
+            // own: an adapter which deployed nothing cannot answer the election either, so
+            // routing by list order has to be accepted deliberately rather than by accident
+            "--vanillabp.workflow-modules.election-app.election.guessing-adapters=ACCEPTED",
             "--vanillabp.prioritized-adapters[0]=c8-prefix",
             "--vanillabp.prioritized-adapters[1]=c8-plain");
 
@@ -206,6 +210,52 @@ public class Camunda8UnsearchableClusterIT {
         logged.contains("deployment-failure") && logged.contains("'warn'"),
         () -> "naming the policy which let it boot: "
             + logged);
+    assertTrue(
+        logged.contains("cannot ask their BPMS whether it holds a workflow"),
+        () -> "and the core says what the degraded adapter costs the election, which is why "
+            + "'canLocateWorkflows' still reads the probe: "
+            + logged);
+
+  }
+
+  @Test
+  @DisplayName("Without accepting the routing by list order the degraded adapter still ends the boot")
+  public void aDegradedAdapterAloneIsNotEnoughForAMigrationSetup() {
+
+    final var failure = assertThrows(
+        Exception.class,
+        () -> application = new SpringApplicationBuilder(ElectionTestApplication.class)
+            .run(
+                "--spring.config.name=camunda8-election-it",
+                "--spring.main.web-application-type=none",
+                "--vanillabp.adapters.c8-prefix.type=camunda8",
+                "--vanillabp.adapters.c8-prefix.name-clash-avoidance=use-prefix",
+                "--vanillabp.adapters.c8-prefix.rest-address="
+                    + restAddress(SEARCHABLE_CLUSTER),
+                "--vanillabp.adapters.c8-prefix.grpc-address="
+                    + grpcAddress(SEARCHABLE_CLUSTER),
+                "--vanillabp.workflow-modules.election-app.adapters.c8-prefix.resources-location=classpath:it-election",
+                "--vanillabp.adapters.c8-plain.rest-address="
+                    + restAddress(BROKER_ALONE),
+                "--vanillabp.adapters.c8-plain.grpc-address="
+                    + grpcAddress(BROKER_ALONE),
+                "--vanillabp.adapters.c8-plain.deployment-failure=warn",
+                "--vanillabp.prioritized-adapters[0]=c8-prefix",
+                "--vanillabp.prioritized-adapters[1]=c8-plain"));
+
+    // the deployment warned rather than failing, and the core then refused the SETUP: an
+    // adapter reporting that it cannot locate a workflow is what a migration must not be
+    // built on unquestioned. This is why 'canLocateWorkflows' reads the probe instead of
+    // answering true from a constant now that the requirement exists
+    final var message = messageContaining(failure, "cannot ask their BPMS whether it holds a workflow");
+    assertTrue(
+        message.contains("cannot ask their BPMS whether it holds a workflow"),
+        () -> "the core's refusal, not the adapter's: "
+            + message);
+    assertTrue(
+        message.contains("guessing-adapters"),
+        () -> "naming the way out this test leaves unconfigured: "
+            + message);
 
   }
 
@@ -216,15 +266,28 @@ public class Camunda8UnsearchableClusterIT {
   private static String refusalIn(
       final Throwable failure) {
 
+    return messageContaining(failure, "needs a cluster which can be SEARCHED");
+
+  }
+
+  /**
+   * @param failure What the boot threw
+   * @param phrase What the message looked for says
+   * @return The message of the cause carrying that phrase, or the outermost message
+   */
+  private static String messageContaining(
+      final Throwable failure,
+      final String phrase) {
+
     var current = failure;
     while (current != null) {
       final var message = current.getMessage();
-      if ((message != null) && message.contains("needs a cluster which can be SEARCHED")) {
+      if ((message != null) && message.contains(phrase)) {
         return message;
       }
       current = current.getCause();
     }
-    return failure.getMessage();
+    return String.valueOf(failure.getMessage());
 
   }
 

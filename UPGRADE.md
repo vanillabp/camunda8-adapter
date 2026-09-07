@@ -43,8 +43,10 @@ answer is the cluster, and it has to be askable.
 An adapter which is not the first-priority adapter of a workflow module and carries
 `vanillabp.adapters.<id>.deployment-failure: warn` boots degraded against such a cluster with a
 guiding warning rather than ending the start. That is the way out for the old BPMS of a migration
-AWAY from a cluster like this: the new one serves the workflows, the old one serves nothing, and the
-application comes up.
+AWAY from a cluster like this, and it takes one more property: an adapter which deployed nothing
+cannot answer the BPMS election either, so a workflow module serving two adapters also needs
+`vanillabp.workflow-modules.<id>.election.guessing-adapters: ACCEPTED`. The application says both,
+one message per step, and comes up once both are set.
 
 ## A worker asks for work only while an execution slot is free (2026-08-31)
 

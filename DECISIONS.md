@@ -459,6 +459,14 @@ the next question asks again. Throwing from the deployment is what makes it fair
 not the first-priority adapter of the module and carries `deployment-failure: warn` boots degraded
 with a guiding warning, which is what the old BPMS of a migration off such a cluster needs.
 
+That warning is the first half of the way out and not the whole of it. An adapter which deployed
+nothing cannot answer the election either, and `canLocateWorkflows` says so, which is why it still
+reads the probe rather than answering `true` from a constant. A workflow module serving two adapters
+therefore also has to accept the routing by list order
+(`vanillabp.workflow-modules.<id>.election.guessing-adapters: ACCEPTED`), which the core asks for in a
+message of its own. Two messages, each guiding to the next step, is what a migration off such a
+cluster costs - and it is the whole cost, because nothing after them is silent.
+
 One place decides the capability and one place reads it, so letting such a cluster back in later is
 one decision rather than fifteen. `Camunda8QueryApi` keeps the remembered answer, because telling an
 outage apart from a cluster which cannot serve a search is still what every message about a failed
