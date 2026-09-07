@@ -55,12 +55,14 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * the whole file, so the deployment refuses such a file rather than writing a correlation
  * key into a process this application does not serve.
  * <p>
- * The workflow module of this scenario deliberately scopes nothing
- * ('name-clash-avoidance: none'), unlike every other integration test of this module: with
- * 'use-prefix' a task definition carries the BPMN process id it was deployed with, so the
- * jobs of the workflows under the old id are named after the OLD id and the workers of the
- * renamed application never ask for them. The adapter reports that while starting, and it
- * is the one thing a rename has to know about prefixed identifiers.
+ * The workflow module of this scenario scopes its identifiers by prefix
+ * ('name-clash-avoidance: use-prefix'), which is the case a rename is hard in: a task
+ * definition is deployed as '&lt;module&gt;__&lt;process&gt;__&lt;task&gt;', so the jobs of
+ * the workflows under the old id are named after the OLD id and the workers of the deployed
+ * processes ask for none of them. The renamed application opens a worker per task
+ * definition of the declared id for exactly that reason, and this test is what says it
+ * works. Under every other mode a job of the old id is named like any other and those extra
+ * workers are not opened at all, which {@code Camunda8DeclaredProcessWorkersTest} holds.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -134,6 +136,14 @@ public class Camunda8RenamedProcessIT {
           "the methods of the renamed application served the workflow of the old id");
 
       final var logged = output.getOut() + output.getErr();
+      assertTrue(
+          logged.contains("declared BPMN process 'RenamedProcessOld'"),
+          () -> "the start has to say which workers reach the workflows of the old id: "
+              + logged);
+      assertTrue(
+          logged.contains("test-app__RenamedProcessOld__renameFinished"),
+          () -> "and name the job type the jobs of those workflows carry: "
+              + logged);
       assertTrue(
           logged.contains("RenameNeighbour"),
           () -> "the process no workflow service claims has to be named while starting: "
@@ -280,12 +290,11 @@ public class Camunda8RenamedProcessIT {
             CAMUNDA.getHost(),
             CAMUNDA.getMappedPort(26500)));
     boot.add("--vanillabp.adapters.c8.workflow-visibility-timeout=PT60S");
-    // this scenario does not prefix its identifiers, and that is not a detail: under
-    // 'use-prefix' a task definition carries the BPMN process id, so the jobs of the
-    // workflows running under the OLD id are named after that id and no worker of the
-    // renamed application asks for them. The adapter says so while starting, and the
-    // wiki page about renaming a process is where the ways out are written down
-    boot.add("--vanillabp.workflow-modules.test-app.adapters.c8.name-clash-avoidance=none");
+    // prefixed identifiers, which is what makes this test worth a cluster: a task
+    // definition then carries the BPMN process id it was deployed with, so the jobs of the
+    // workflows running under the OLD id are named after that id and only a worker opened
+    // for the declared id reaches them
+    boot.add("--vanillabp.workflow-modules.test-app.adapters.c8.name-clash-avoidance=use-prefix");
     boot
         .add("--vanillabp.workflow-modules.test-app.adapters.c8.resources-location=classpath*:renamed-process/%s"
             .formatted(bpmnVersion));

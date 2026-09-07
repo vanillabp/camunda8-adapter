@@ -1418,13 +1418,31 @@ the catalog of such an id once the module was deployed
 cluster still holds under it, so the startup check reaches the workflows which are still
 running there.
 
-Whether the workflows under such a declared id keep RUNNING is a second question, and here it
-depends on the scoping of the workflow module. A job worker asks for one task definition, and
+Whether the workflows under such a declared id keep RUNNING is a second question, and it is
+answered by workers rather than by queries. A job worker asks for one task definition, and
 under `use-prefix` that name carries the id of the process the task was deployed with
 (`prefix-task-definitions-per-process`), so the jobs of the old id reach no worker of the
-renamed application and their workflows stand still without an incident. The adapter reports
-that where it applies, together with the two ways out, and says nothing where the task
-definitions carry no process id, since those workers serve the old id as they always did.
+deployed processes and their workflows used to stand still without an incident. So
+`startWorkflowProcessing` asks the core which ids the module declares without a model and what
+it serves for each of them
+(`WorkflowTaskWiring#taskWiringOfProcessesNobodyDeployed`) and opens one more worker per
+name those jobs carry, composed the way the deployed ones were: the task definition, scoped by
+the declared process id. Where a name is already served nothing is opened, which is every mode
+but `use-prefix` and `use-prefix` without `prefix-task-definitions-per-process`, so an
+application which does not scope task definitions per process notices none of it.
+
+Two things about those workers are worth knowing, and
+[decision 19](./DECISIONS.md#19-the-workers-of-a-declared-process-id-are-composed-from-what-the-application-serves)
+carries the reasoning for both. A served task definition may belong to a service task or to a
+user task, and which of the two cannot be told without the model this application no longer
+brings, so both subscriptions are opened and the one whose kind the task never was stays idle.
+And such a worker asks for every variable rather than a derived list, because deriving one
+needs the elements of that model. What cannot be reached at all is a `@WorkflowTask` method
+wired to a BPMN element id: composing a job type from an element needs the model, and the start
+says so with the two ways out.
+
+`Camunda8DeclaredProcessWorkersTest` holds which workers are opened per mode,
+`Camunda8RenamedProcessIT` the same against a cluster with prefixed identifiers.
 
 `Camunda8ProcessVersionIT#theVersionDecidesWhichMethodRuns` and `Camunda8OldProcessVersionsIT`
 say which method serves which version, `Camunda8DeletedProcessVersionsTest` a version the
