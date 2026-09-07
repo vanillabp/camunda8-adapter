@@ -366,3 +366,50 @@ minus that number, and asks for more as soon as the number is down to thirty per
 thirty-two, two of eight. Meanwhile the workers of one adapter id share the execution slots, so
 fifteen workers may hold fifteen times `max-jobs-active` jobs in front of four of them. That gap is
 what the rule above is for.
+
+### 19. The workers of a declared process id are composed from what the application serves
+
+A workflow module may declare a BPMN process id it deploys nothing under, which is how a renamed
+process keeps being served. Under `use-prefix` a task definition is deployed as
+`<module>__<process>__<task>`, so the jobs of the workflows under the old id carry a name no
+worker of the deployed processes asks for, and nobody notices: an unfetched job is not a failed
+one, it is a workflow standing still. Those workflows need one more subscription each, and the
+question is where the names come from.
+
+They are COMPOSED from what the application serves. The core names it
+(`taskWiringOfProcessesNobodyDeployed`, decision 34 of the platform's own DECISIONS.md), today
+the task definition of every `@WorkflowTask` method registered for the declared id, and the
+adapter scopes each of them by that id, exactly as the deployment scoped the ones it deployed.
+What an entry holds is what to compose from rather than a job type, so this is the one place
+which turns it into one. The alternative was to READ them:
+the cluster holds the models of every version under the old id, and the catalog already fetches
+their XML for the check of old process versions, so the job types could be taken from the models
+verbatim, together with the element ids and the multi-instance elements around them.
+
+Reading was rejected because it needs the query API. A cluster without secondary storage cannot
+be searched at all, and that is exactly the cluster an application using `use-prefix` may be
+running on - prefixes are what a module reaches for when a tenant is not available. A feature
+which works on one cluster and silently does nothing on another is worse than one whose limits
+are written down, so the composed form is the one which ships and the limits are named at
+startup.
+
+What composing costs shows in three places, and every one of them is a price paid on purpose:
+
+- a task definition may belong to a service task or to a Camunda-managed user task, and nothing
+  outside the model says which. Both subscriptions are opened, and the one whose kind the task
+  never was stays idle. An idle worker costs one activation request;
+- such a worker asks for every variable instead of a derived list, since deriving one needs the
+  elements of the model and the multi-instance elements enclosing them. It fetches more than
+  necessary, which is never wrong, only more expensive;
+- a `@WorkflowTask` method wired to a BPMN element id (`@WorkflowTask(id = ...)`) names no task
+  definition, so no job type can be composed for it. Those workflows are the one case which
+  stands still after all, and the start says so, naming both ways out: wire the method by task
+  definition, or keep deploying the old model under its old id until its workflows have ended.
+
+For the same reason the multi-instance context of such a task is not reported: the registry is
+filled from the models the module deploys, and this one is not among them. A rename whose old
+model has a multi-instance task therefore stays a case for keeping both models deployed.
+
+`Camunda8DeclaredProcessWorkersTest` holds which workers are opened per mode and what the start
+says; `Camunda8RenamedProcessIT` proves the whole thing against a cluster with prefixed
+identifiers.

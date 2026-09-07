@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import io.camunda.client.CamundaClient;
 import io.camunda.client.api.command.DeployResourceCommandStep1;
 import io.camunda.client.api.command.DeployResourceCommandStep1.DeployResourceCommandStep2;
 import io.camunda.client.api.worker.JobWorker;
@@ -441,70 +442,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final String bpmnProcessId) {
 
-    reportJobsOfADeclaredIdNoWorkerAsksFor(workflowModuleId, bpmnProcessId);
     return processVersions;
-
-  }
-
-  /**
-   * The workflow modules already told about their prefixed task definitions, so a
-   * declared id is spoken about once.
-   */
-  private final Set<String> reportedAsPrefixedPerProcess = ConcurrentHashMap.newKeySet();
-
-  /**
-   * Says that the workflows still running under a declared id will NOT be served, where
-   * the task definitions of the workflow module carry the BPMN process id.
-   * <p>
-   * A worker asks the cluster for one task definition, and under
-   * <code>use-prefix</code> that name contains the id of the process it was deployed with.
-   * The jobs of the workflows under the old id therefore carry a name this application
-   * does not subscribe to any more, and nobody notices: an unfetched job is not an
-   * incident, it is a workflow which stands still. Which is why this is said while the
-   * application starts, where the declaration is right in front of the developer.
-   *
-   * @param workflowModuleId The workflow module ID
-   * @param bpmnProcessId The declared BPMN process ID nothing was deployed under
-   */
-  private void reportJobsOfADeclaredIdNoWorkerAsksFor(
-      final String workflowModuleId,
-      final String bpmnProcessId) {
-
-    if (scoping == null) {
-      return;
-    }
-    final var probe = "aTaskDefinition";
-    final var underThisId = scoping.scopedTaskDefinition(workflowModuleId, bpmnProcessId, probe, adapterId);
-    // the same task definition under another process id: a different name means the
-    // process id is part of it
-    final var underAnotherId = scoping
-        .scopedTaskDefinition(workflowModuleId, bpmnProcessId
-            + "-another", probe, adapterId);
-    if (java.util.Objects.equals(underThisId, underAnotherId)) {
-      return;
-    }
-    if (!reportedAsPrefixedPerProcess.add(workflowModuleId
-        + "|"
-        + bpmnProcessId)) {
-      return;
-    }
-    log.warn(
-        """
-            Camunda8[{}]: workflow module '{}' declares BPMN process '{}' without deploying a model \
-            under it, while its task definitions carry the BPMN process id ('name-clash-avoidance: \
-            use-prefix'). The jobs of the workflows still running under that id are named '{}' and no \
-            worker of this application asks for them, so those workflows stand still at their next \
-            task - without an incident, because an unfetched job is not a failed one. Keep deploying \
-            the old model under its old id until those workflows have ended, or take the process id \
-            off the task definitions ('vanillabp.workflow-modules.{}.adapters.{}\
-            .prefix-task-definitions-per-process: false', which renames the task definitions of every \
-            process of this module and is a change of its own).""",
-        adapterId,
-        workflowModuleId,
-        bpmnProcessId,
-        underThisId,
-        workflowModuleId,
-        adapterId);
 
   }
 
@@ -1794,6 +1732,307 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           workflowModuleId,
           timeout);
     });
+
+    openTheWorkersOfTheProcessesNobodyDeployed(
+        workflowModuleId,
+        bpmsProcessingContext,
+        client,
+        drain,
+        jobTypesAWorkerIsAlreadyOpenFor(servedByJobType.keySet(), bpmsProcessingContext));
+
+  }
+
+  /**
+   * The job types this workflow module already has a worker for - the task definitions and
+   * user-task listeners of its deployed processes, plus the ends of the processes whose end
+   * is reported. What is in here needs no second worker for a declared BPMN process id: the
+   * name is what a worker subscribes to, so wherever the name does not carry the process id,
+   * the workers of the deployed processes reach the workflows of the old id as well.
+   *
+   * @param servedJobTypes The job types the tasks and user tasks produced
+   * @param bpmsProcessingContext The context of the module being started
+   * @return The job types, in no particular order
+   */
+  private static Set<String> jobTypesAWorkerIsAlreadyOpenFor(
+      final Set<String> servedJobTypes,
+      final Camunda8ProcessingContext bpmsProcessingContext) {
+
+    final var jobTypes = new java.util.HashSet<>(servedJobTypes);
+    bpmsProcessingContext
+        .getWorkflowEndedProcessesToWire()
+        .forEach(scopedProcessId -> jobTypes.add(Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId)));
+    return jobTypes;
+
+  }
+
+  /**
+   * Opens the workers which reach the workflows of a BPMN process this application DECLARES
+   * without deploying a model under it - the old id of a renamed process.
+   * <p>
+   * A worker subscribes to a job type, and under <code>use-prefix</code> a job type carries
+   * the id of the process it was deployed with: the jobs of the workflows under the old id
+   * are named after the OLD id, so no worker of the deployed processes asks for them and
+   * nobody notices, because an unfetched job is not a failed one. What the workflows need is
+   * therefore one more subscription per name they produce, and the names are composed the
+   * same way the deployed ones were: the task definitions the application serves for that id,
+   * scoped by it.
+   * <p>
+   * Where a job type is already served nothing is opened, which is every mode but
+   * <code>use-prefix</code> and <code>use-prefix</code> with
+   * <code>prefix-task-definitions-per-process: false</code>. So an application which does not
+   * scope task definitions by their process notices none of this, as it did before.
+   *
+   * @param workflowModuleId The workflow module which is about to process workflows
+   * @param bpmsProcessingContext The context whose open workers are closed on shutdown
+   * @param client The client of this adapter id
+   * @param drain What the module has in flight, handed to every handler
+   * @param jobTypesAlreadyServed The job types the deployed processes opened a worker for
+   */
+  private void openTheWorkersOfTheProcessesNobodyDeployed(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext bpmsProcessingContext,
+      final CamundaClient client,
+      final Camunda8Drain drain,
+      final Set<String> jobTypesAlreadyServed) {
+
+    workflowTaskWiring
+        .taskWiringOfProcessesNobodyDeployed(workflowModuleId)
+        .forEach((
+            bpmnProcessId,
+            taskDefinitions) -> {
+          final var openedJobTypes = new TreeSet<String>();
+          taskDefinitions
+              .forEach(taskDefinition -> {
+                final var jobType = scoping == null
+                    ? taskDefinition
+                    : scoping.scopedTaskDefinition(workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
+                if (jobTypesAlreadyServed.contains(jobType)) {
+                  return;
+                }
+                openTaskWorker(workflowModuleId, bpmnProcessId, jobType, bpmsProcessingContext, client, drain);
+                openedJobTypes.add(jobType);
+                // a served task definition is either a service task's or a user task's,
+                // and which of the two cannot be told without the model this application
+                // no longer has. Both subscriptions are opened therefore, and the one
+                // whose kind the task never was stays idle - see decision 19 in the
+                // repository's DECISIONS.md
+                final var listenerJobType = Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE + jobType;
+                openUserTaskListenerWorker(
+                    workflowModuleId,
+                    bpmnProcessId,
+                    listenerJobType,
+                    bpmsProcessingContext,
+                    client,
+                    drain);
+                openedJobTypes.add(listenerJobType);
+              });
+          openWorkflowEndWorkerOfADeclaredId(
+              workflowModuleId,
+              bpmnProcessId,
+              bpmsProcessingContext,
+              client,
+              drain,
+              jobTypesAlreadyServed,
+              openedJobTypes);
+          reportWhatADeclaredIdIsServedWith(workflowModuleId, bpmnProcessId, taskDefinitions, openedJobTypes);
+        });
+
+  }
+
+  /**
+   * One polling worker for the tasks of a declared BPMN process id. It asks for every
+   * variable rather than a derived list: deriving one needs the elements of the model, and
+   * the model of that id is what this application does not have.
+   */
+  private void openTaskWorker(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String jobType,
+      final Camunda8ProcessingContext bpmsProcessingContext,
+      final CamundaClient client,
+      final Camunda8Drain drain) {
+
+    final var plainTaskDefinition = plainTaskDefinition(workflowModuleId, bpmnProcessId, jobType);
+    var workerBuilder = applyFetchVariables(applyWorkerOptions(client
+        .newWorker()
+        .jobType(jobType)
+        .handler(Camunda8JobHandler
+            .builder()
+            .adapterId(adapterId)
+            .workflowModuleId(workflowModuleId)
+            .camundaClient(client)
+            .workflowTaskInvoker(workflowTaskInvoker)
+            .asyncTaskLockRenewal(asyncTaskLockRenewal)
+            .scoping(scoping)
+            .multiInstanceRegistry(multiInstanceRegistry)
+            .asyncTaskMaxAgeAction(asyncTaskMaxAgeAction())
+            .drain(drain)
+            .retryBackoffResolver(retryBackoffResolver)
+            .fetchVariables(Camunda8FetchVariables.Selection.everything())
+            .predatesDeployedVersion(processVersions::predatesDeployedVersion)
+            .build())
+        .timeout(jobTimeoutResolver.jobTimeoutFor(workflowModuleId, bpmnProcessId, plainTaskDefinition))
+        .name("vanillabp-%s-%s".formatted(adapterId, jobType)), jobType),
+        workflowModuleId,
+        "task",
+        jobType,
+        Camunda8FetchVariables.Selection.everything());
+    final var tenantId = tenantIdOf(workflowModuleId);
+    if (tenantId != null) {
+      workerBuilder = workerBuilder.tenantId(tenantId);
+    }
+    bpmsProcessingContext.getOpenWorkers().add(workerBuilder.open());
+
+  }
+
+  /**
+   * One worker for the user-task lifecycle listeners of a declared BPMN process id, opened
+   * next to the task worker of the same task definition because nothing outside the model
+   * says which of the two kinds that definition belonged to. Whichever of the pair the task
+   * never was stays idle, which costs one activation request.
+   */
+  private void openUserTaskListenerWorker(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String listenerJobType,
+      final Camunda8ProcessingContext bpmsProcessingContext,
+      final CamundaClient client,
+      final Camunda8Drain drain) {
+
+    var workerBuilder = applyFetchVariables(applyWorkerOptions(client
+        .newWorker()
+        .jobType(listenerJobType)
+        .handler(Camunda8UserTaskListenerHandler
+            .builder()
+            .adapterId(adapterId)
+            .workflowModuleId(workflowModuleId)
+            .workflowTaskInvoker(workflowTaskInvoker)
+            .scoping(scoping)
+            .multiInstanceRegistry(multiInstanceRegistry)
+            .drain(drain)
+            .fetchVariables(Camunda8FetchVariables.Selection.everything())
+            .build())
+        .timeout(
+            listenerLockOf(
+                workflowModuleId,
+                List.of(scopedProcessId(workflowModuleId, bpmnProcessId)),
+                "user-task listener",
+                listenerJobType))
+        .name("vanillabp-%s-%s".formatted(adapterId, listenerJobType)), listenerJobType),
+        workflowModuleId,
+        "user-task listener",
+        listenerJobType,
+        Camunda8FetchVariables.Selection.everything());
+    final var tenantId = tenantIdOf(workflowModuleId);
+    if (tenantId != null) {
+      workerBuilder = workerBuilder.tenantId(tenantId);
+    }
+    bpmsProcessingContext.getOpenWorkers().add(workerBuilder.open());
+
+  }
+
+  /**
+   * The worker which reports the end of a workflow running under a declared BPMN process
+   * id, opened only where the application has a <code>&#64;WorkflowEnded</code> method for
+   * that id. The job type is composed from the process id alone, so this one is exact
+   * without any model.
+   */
+  private void openWorkflowEndWorkerOfADeclaredId(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final Camunda8ProcessingContext bpmsProcessingContext,
+      final CamundaClient client,
+      final Camunda8Drain drain,
+      final Set<String> jobTypesAlreadyServed,
+      final Set<String> openedJobTypes) {
+
+    if ((workflowEndedInvoker == null) || !workflowEndedInvoker
+        .workflowEndedHandlerExists(workflowModuleId, bpmnProcessId)) {
+      return;
+    }
+    final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
+    final var jobType = Camunda8TaskWiring.workflowEndedJobTypeOf(scopedBpmnProcessId);
+    if (jobTypesAlreadyServed.contains(jobType)) {
+      return;
+    }
+    final var aggregateIdName = aggregateIdNameOf(workflowModuleId, bpmnProcessId);
+    if (aggregateIdName == null) {
+      return;
+    }
+    var workerBuilder = applyFetchVariables(applyWorkerOptions(client
+        .newWorker()
+        .jobType(jobType)
+        .handler(new Camunda8WorkflowEndedHandler(
+            adapterId, workflowModuleId, bpmnProcessId, aggregateIdName, workflowEndedInvoker, drain, retryBackoffResolver))
+        .timeout(listenerLockOf(workflowModuleId, List.of(scopedBpmnProcessId), "workflow-end", jobType))
+        .name("vanillabp-%s-%s".formatted(adapterId, scopedBpmnProcessId)), jobType),
+        workflowModuleId,
+        "workflow-end",
+        jobType,
+        Camunda8FetchVariables.Selection.everything());
+    final var tenantId = tenantIdOf(workflowModuleId);
+    if (tenantId != null) {
+      workerBuilder = workerBuilder.tenantId(tenantId);
+    }
+    bpmsProcessingContext.getOpenWorkers().add(workerBuilder.open());
+    openedJobTypes.add(jobType);
+
+  }
+
+  /**
+   * Says what the workflows of a declared BPMN process id are served with, once per start
+   * and per id: the job types which were opened for it, or that nothing had to be opened
+   * because the deployed processes already reach them.
+   * <p>
+   * A declared id whose methods name no task definition at all is the one case worth a
+   * warning. A <code>&#64;WorkflowTask</code> method wired to a BPMN element id
+   * (<code>&#64;WorkflowTask(id = ...)</code>) is matched through the model, and the model
+   * of that id is what this application does not have, so its job type cannot be composed
+   * and those workflows stand still without an incident.
+   */
+  private void reportWhatADeclaredIdIsServedWith(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final Collection<String> taskDefinitions,
+      final Set<String> openedJobTypes) {
+
+    if (openedJobTypes.isEmpty() && !taskDefinitions.isEmpty()) {
+      log.info(
+          "Camunda8[{}]: the workflows of the declared BPMN process '{}' (workflow module '{}') are "
+              + "served by the workers of the deployed processes - the task definitions of this module "
+              + "do not carry the BPMN process id, so a job of the old id is named like any other",
+          adapterId,
+          bpmnProcessId,
+          workflowModuleId);
+      return;
+    }
+    if (!openedJobTypes.isEmpty()) {
+      log.info(
+          "Camunda8[{}]: opened {} worker(s) for the declared BPMN process '{}' of workflow module "
+              + "'{}', so the workflows still running under that id keep being served: {}",
+          adapterId,
+          openedJobTypes.size(),
+          bpmnProcessId,
+          workflowModuleId,
+          String.join(", ", openedJobTypes));
+    }
+    if (!taskDefinitions.isEmpty()) {
+      return;
+    }
+    log.warn(
+        """
+            Camunda8[{}]: workflow module '{}' declares BPMN process '{}' without deploying a model \
+            under it, and no @WorkflowTask method serving that id names a task definition - every one \
+            of them is wired to a BPMN element id instead. A worker subscribes to a task definition, \
+            and composing one needs the model of that process, which this application does not bring \
+            any more. The workflows still running under that id therefore stand still at their next \
+            task, without an incident, because an unfetched job is not a failed one. Either wire those \
+            methods by task definition ('@WorkflowTask(taskDefinition = ...)', which is what the \
+            model's 'zeebe:taskDefinition' carries), or keep deploying the old model under its old id \
+            until those workflows have ended.""",
+        adapterId,
+        workflowModuleId,
+        bpmnProcessId);
 
   }
 

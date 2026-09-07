@@ -1,0 +1,296 @@
+package io.vanillabp.camunda8.deployment;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.time.Duration;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+
+import io.vanillabp.camunda8.Camunda8ProcessingContext;
+import io.vanillabp.camunda8.TestCollaborators;
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
+import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+import io.vanillabp.integration.test.utils.CapturedOutput;
+import io.vanillabp.integration.test.utils.SuppressOutputExtension;
+
+/**
+ * Which workers a workflow module opens for a BPMN process id it DECLARES without
+ * deploying a model under it - the old id of a renamed process.
+ * <p>
+ * The whole point of those workers is the name a job carries. Under
+ * <code>use-prefix</code> a task definition is deployed as
+ * <code>&lt;module&gt;__&lt;process&gt;__&lt;task&gt;</code>, so the jobs of the workflows
+ * under the old id are named after the OLD id and no worker of the deployed processes asks
+ * for them; under every other mode the same job is named like any other and there is
+ * nothing to open. Both cases are here, and so is the one an application cannot be helped
+ * with: a method wired to a BPMN element id names no task definition, and a job type
+ * cannot be composed from a model this application no longer has.
+ * <p>
+ * The cluster is an address nothing listens on, which is enough: opening a worker
+ * contacts nobody, and what is asked here is which job types were subscribed to.
+ * {@code Camunda8RenamedProcessIT} is the same question against a real cluster.
+ */
+@ExtendWith(SuppressOutputExtension.class)
+@SuppressOutputExtension.SuppressBackgroundOutput
+public class Camunda8DeclaredProcessWorkersTest {
+
+  private static final String MODULE = "test-module";
+
+  private static final String OLD_ID = "order_approval";
+
+  private static final String TASK_DEFINITION = "approve";
+
+  @Test
+  @DisplayName("Prefixed task definitions get a worker per name the old id's jobs carry")
+  public void prefixedTaskDefinitionsGetTheirOwnWorkers(
+      final CapturedOutput output) {
+
+    final var service = adapterServing(Map.of(OLD_ID, List.of(TASK_DEFINITION)), NameClashAvoidance.USE_PREFIX);
+    final var context = new Camunda8ProcessingContext(MODULE);
+
+    try {
+      service.startWorkflowProcessing(MODULE, context);
+
+      final var logged = output.getOut() + output.getErr();
+      assertTrue(
+          logged.contains("test-module__order_approval__approve"),
+          () -> "a worker for the job type the tasks of the old id produce: "
+              + logged);
+      assertTrue(
+          logged.contains(Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE
+              + "test-module__order_approval__approve"),
+          () -> "and one for the case that task definition belongs to a user task: "
+              + logged);
+      assertTrue(
+          logged.contains("declared BPMN process 'order_approval'"),
+          () -> "the report names the id those workers were opened for: "
+              + logged);
+    } finally {
+      service.stopWorkflowProcessing(MODULE, context);
+    }
+
+  }
+
+  @Test
+  @DisplayName("An unprefixed task definition needs no worker of its own")
+  public void anUnprefixedTaskDefinitionNeedsNothing(
+      final CapturedOutput output) {
+
+    final var service = adapterServing(Map.of(OLD_ID, List.of(TASK_DEFINITION)), NameClashAvoidance.NONE);
+    final var context = new Camunda8ProcessingContext(MODULE);
+    // the deployed processes of the module already subscribe to that name
+    context
+        .getTasksToWire()
+        .add(new Camunda8TaskWiring.Camunda8TaskToWire("OrderApproval", "Activity_approve", TASK_DEFINITION));
+
+    try {
+      service.startWorkflowProcessing(MODULE, context);
+
+      final var logged = output.getOut() + output.getErr();
+      assertTrue(
+          logged.contains("served by the workers of the deployed processes"),
+          () -> "the start says that the old id needs nothing of its own: "
+              + logged);
+      assertFalse(
+          logged.contains(Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE + TASK_DEFINITION),
+          () -> "and no second subscription was opened for it: "
+              + logged);
+    } finally {
+      service.stopWorkflowProcessing(MODULE, context);
+    }
+
+  }
+
+  @Test
+  @DisplayName("A declared id whose methods name no task definition is a warning naming both ways out")
+  public void aDeclaredIdWithoutATaskDefinitionIsReported(
+      final CapturedOutput output) {
+
+    final var service = adapterServing(Map.of(OLD_ID, List.of()), NameClashAvoidance.USE_PREFIX);
+    final var context = new Camunda8ProcessingContext(MODULE);
+
+    try {
+      service.startWorkflowProcessing(MODULE, context);
+
+      final var logged = output.getOut() + output.getErr();
+      assertTrue(
+          logged.contains("no @WorkflowTask method serving that id names a task definition"),
+          () -> "what cannot be reached has to be read before the rename is deployed: "
+              + logged);
+      assertTrue(
+          logged.contains("@WorkflowTask(taskDefinition = ...)"),
+          () -> "and the way out is part of it: "
+              + logged);
+      assertTrue(
+          logged.contains("keep deploying the old model under its old id"),
+          () -> "as is the way which asks nothing of the cluster: "
+              + logged);
+    } finally {
+      service.stopWorkflowProcessing(MODULE, context);
+    }
+
+  }
+
+  /**
+   * An adapter whose core declares the given task definitions per BPMN process id nothing
+   * was deployed under, and whose workflow modules are scoped by the given mode.
+   */
+  private static Camunda8DeploymentService adapterServing(
+      final Map<String, Collection<String>> declaredWithoutAModel,
+      final NameClashAvoidance mode) {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setShutdownGrace(Duration.ofMillis(200));
+    // an address nothing listens on: a worker is opened without contacting anybody
+    configuration.setRestAddress("http://localhost:65535");
+    final var core = new Camunda8DeploymentServiceTest.NoOpInvoker() {
+
+      @Override
+      public Map<String, Collection<String>> taskWiringOfProcessesNobodyDeployed(
+          final String workflowModuleId) {
+
+        return MODULE.equals(workflowModuleId)
+            ? declaredWithoutAModel
+            : Map.of();
+
+      }
+
+    };
+    final var scoping = scoping(mode);
+    return new Camunda8DeploymentService(
+        "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
+            .of(core, scoping), (
+                module,
+                process,
+                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
+                    .ofHours(1), adapterId -> configuration, scoping);
+
+  }
+
+  /**
+   * The core's name-clash avoidance reduced to what opening those workers reads: the
+   * scoped forms of a task definition and of a process id.
+   */
+  private static NameClashAvoidanceSupport scoping(
+      final NameClashAvoidance mode) {
+
+    return new NameClashAvoidanceSupport() {
+
+      @Override
+      public NameClashAvoidance modeFor(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String adapterId) {
+
+        return mode;
+
+      }
+
+      @Override
+      public String scopedProcessId(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String adapterId) {
+
+        return mode == NameClashAvoidance.USE_PREFIX
+            ? String.join(SEPARATOR, workflowModuleId, bpmnProcessId)
+            : bpmnProcessId;
+
+      }
+
+      @Override
+      public String scopedIdentifier(
+          final String workflowModuleId,
+          final String identifier,
+          final String adapterId) {
+
+        return scopedProcessId(workflowModuleId, identifier, adapterId);
+
+      }
+
+      @Override
+      public String scopedTaskDefinition(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String taskDefinition,
+          final String adapterId) {
+
+        return mode == NameClashAvoidance.USE_PREFIX
+            ? String.join(SEPARATOR, workflowModuleId, bpmnProcessId, taskDefinition)
+            : taskDefinition;
+
+      }
+
+      @Override
+      public String plainProcessId(
+          final String workflowModuleId,
+          final String scopedBpmnProcessId,
+          final String adapterId) {
+
+        return scopedBpmnProcessId.startsWith(workflowModuleId + SEPARATOR)
+            ? scopedBpmnProcessId.substring(workflowModuleId.length() + SEPARATOR.length())
+            : scopedBpmnProcessId;
+
+      }
+
+      @Override
+      public String plainIdentifier(
+          final String workflowModuleId,
+          final String scopedIdentifier,
+          final String adapterId) {
+
+        return plainProcessId(workflowModuleId, scopedIdentifier, adapterId);
+
+      }
+
+      @Override
+      public String plainTaskDefinition(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String scopedTaskDefinition,
+          final String adapterId) {
+
+        final var prefix = String.join(SEPARATOR, workflowModuleId, bpmnProcessId, "");
+        return scopedTaskDefinition.startsWith(prefix)
+            ? scopedTaskDefinition.substring(prefix.length())
+            : scopedTaskDefinition;
+
+      }
+
+      @Override
+      public void validateNoneNameClashStrategy(
+          final String adapterId,
+          final String byAdapterOnlyPropertyKey) {
+
+      }
+
+      @Override
+      public void validateNativeIsolationSupported(
+          final String adapterId,
+          final String workflowModuleId,
+          final String bpmsDescription) {
+
+      }
+
+      @Override
+      public void validateNoCollidingProcessIds(
+          final String adapterId,
+          final Collection<DeployedProcess> deployedProcesses) {
+
+      }
+
+    };
+
+  }
+
+}
