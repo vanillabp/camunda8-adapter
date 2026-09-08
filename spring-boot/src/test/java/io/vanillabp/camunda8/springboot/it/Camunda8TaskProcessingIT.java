@@ -947,10 +947,7 @@ public class Camunda8TaskProcessingIT {
         .getId());
     startSecondaryProcess("MessageProcess", aggregateId);
 
-    // waiting for the exporter to report the catch event would be a test of the
-    // exporter - correlate instead, buffered by the engine's message TTL, so the timing
-    // is not critical
-    Thread.sleep(2000);
+    awaitTheQueryApiKnowingTheStartedInstance(aggregateId);
     transactionTemplate.executeWithoutResult(status -> {
       final var aggregate = repository.findById(aggregateId).orElseThrow();
       aggregate.appendResult("correlating");
@@ -1242,6 +1239,36 @@ public class Camunda8TaskProcessingIT {
 
   @Autowired
   private Camunda8ClientFactoryRegistry clientFactoryRegistry;
+
+  /**
+   * Waits until the query API answers with the instance the test just started against the
+   * cluster.
+   * <p>
+   * A correlation taking the platform's path asks this adapter first whether it knows the
+   * workflow, and the adapter answers that from a search for the aggregate-ID variable.
+   * The platform waits the visibility window out for the workflows it started itself, and
+   * an instance created directly against the cluster is not one of those, so waiting for
+   * the export is the fixture's job here rather than something this test measures.
+   */
+  private void awaitTheQueryApiKnowingTheStartedInstance(
+      final Long aggregateId) throws InterruptedException {
+
+    final Long startedInstanceKey = lastStartedInstanceKey;
+    awaitUntil(
+        () -> workflowServiceClient()
+            .newProcessInstanceSearchRequest()
+            // variable values are stored as JSON: a String value is searched WITH its quotes
+            .filter(filter -> filter.variables(Map.of("id", "\"%s\"".formatted(aggregateId))))
+            .send()
+            .join()
+            .items()
+            .stream()
+            .anyMatch(instance -> startedInstanceKey.equals(instance.getProcessInstanceKey())),
+        30000,
+        "the query API to know the instance started for aggregate "
+            + aggregateId);
+
+  }
 
   private CamundaClient workflowServiceClient() {
 
