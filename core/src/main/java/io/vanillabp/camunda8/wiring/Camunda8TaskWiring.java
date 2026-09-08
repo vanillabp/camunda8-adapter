@@ -557,6 +557,49 @@ public final class Camunda8TaskWiring {
   }
 
   /**
+   * The Camunda-managed user tasks of a model the CLUSTER already runs - read for
+   * checks about versions an earlier application deployed, never for deploying.
+   * Nothing is validated and nothing is added here: the cluster accepted the model
+   * as it stands, and a check may not refuse what is being read on its behalf - a
+   * model nobody can change any more. A user task without an external form
+   * reference is read by version 1's convention instead (its formKey WAS the task
+   * definition up to release 1.6.3), and one naming neither is skipped: VanillaBP
+   * serves it under no convention, whatever the application does.
+   *
+   * @param model The model as the cluster holds it
+   * @param bpmnProcessId The process id as the CLUSTER knows it
+   * @return The user tasks the model declares
+   */
+  public static List<Camunda8UserTaskToWire> userTasksOfHeldModel(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    return model
+        .getModelElementsByType(UserTask.class)
+        .stream()
+        .filter(task -> bpmnProcessId.equals(owningProcessId(task)))
+        .filter(task -> task.getSingleExtensionElement(ZeebeUserTask.class) != null)
+        .map(task -> {
+          final var formDefinition = task.getSingleExtensionElement(ZeebeFormDefinition.class);
+          if (formDefinition == null) {
+            return null;
+          }
+          final var externalFormReference = formDefinition.getExternalReference();
+          if ((externalFormReference != null) && !externalFormReference.isBlank()) {
+            return new Camunda8UserTaskToWire(bpmnProcessId, task.getId(), externalFormReference);
+          }
+          final var formKey = formDefinition.getFormKey();
+          if ((formKey != null) && !formKey.isBlank()) {
+            return new Camunda8UserTaskToWire(bpmnProcessId, task.getId(), formKey);
+          }
+          return null;
+        })
+        .filter(java.util.Objects::nonNull)
+        .toList();
+
+  }
+
+  /**
    * V1 listener order per element: VanillaBP <code>creating</code> FIRST, any
    * custom listeners in between, VanillaBP <code>canceling</code> LAST. Listeners
    * already carrying the VanillaBP prefix are not duplicated (re-wiring an

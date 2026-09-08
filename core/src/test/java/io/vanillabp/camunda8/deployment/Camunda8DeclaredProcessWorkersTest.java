@@ -141,11 +141,93 @@ public class Camunda8DeclaredProcessWorkersTest {
 
   }
 
+  @Test
+  @DisplayName("The multi-instance chains of the models the cluster holds reach the registry")
+  public void theChainsOfTheClusterHeldModelsAreRegistered() {
+
+    final var adapter = adapter(Map.of(OLD_ID, List.of(TASK_DEFINITION)), NameClashAvoidance.USE_PREFIX);
+    final var service = adapter.service();
+    final var context = new Camunda8ProcessingContext(MODULE);
+    // the cluster still holds the old id's model, and its task sits inside a
+    // multi-instance element - the iteration context of its jobs comes from here
+    final var scopedOldId = "test-module__order_approval";
+    adapter
+        .clientFactory()
+        .provideModelsTheClusterHolds(
+            new Camunda8ModelsTheClusterHolds(
+                "c8", adapter.clientFactory().getDeployedProcesses(), (
+                    module,
+                    bpmnProcessId) -> OLD_ID.equals(bpmnProcessId)
+                        ? List.of(new Camunda8ModelsTheClusterHolds.HeldModel(
+                            OLD_ID, "1", heldModelWithAMultiInstanceTask(scopedOldId)))
+                        : List.of()));
+
+    try {
+      service.startWorkflowProcessing(MODULE, context);
+
+      final var chain = service.multiInstanceRegistry().chainOf(scopedOldId, "Approve");
+      assertFalse(
+          chain.isEmpty(),
+          "a job of the old id's multi-instance task has to get its iteration context");
+    } finally {
+      service.stopWorkflowProcessing(MODULE, context);
+    }
+
+  }
+
+  /**
+   * A model as the cluster holds it: the process id is the SCOPED one, and one task
+   * carries multi-instance loop characteristics.
+   */
+  private static io.camunda.zeebe.model.bpmn.BpmnModelInstance heldModelWithAMultiInstanceTask(
+      final String scopedBpmnProcessId) {
+
+    final var xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+          <bpmn:process id="%s" isExecutable="true">
+            <bpmn:serviceTask id="Approve">
+              <bpmn:extensionElements>
+                <zeebe:taskDefinition type="test-module__order_approval__approve" />
+              </bpmn:extensionElements>
+              <bpmn:multiInstanceLoopCharacteristics>
+                <bpmn:extensionElements>
+                  <zeebe:loopCharacteristics inputCollection="=items" inputElement="item" />
+                </bpmn:extensionElements>
+              </bpmn:multiInstanceLoopCharacteristics>
+            </bpmn:serviceTask>
+          </bpmn:process>
+        </bpmn:definitions>
+        """
+        .formatted(scopedBpmnProcessId);
+    return io.camunda.zeebe.model.bpmn.Bpmn
+        .readModelFromStream(
+            new java.io.ByteArrayInputStream(xml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+  }
+
+  /**
+   * The adapter under test together with its client factory, which is where the picture
+   * of the cluster-held models lives.
+   */
+  private record Adapter(
+                         Camunda8DeploymentService service,
+                         Camunda8ClientFactory clientFactory) {
+  }
+
   /**
    * An adapter whose core declares the given task definitions per BPMN process id nothing
    * was deployed under, and whose workflow modules are scoped by the given mode.
    */
   private static Camunda8DeploymentService adapterServing(
+      final Map<String, Collection<String>> declaredWithoutAModel,
+      final NameClashAvoidance mode) {
+
+    return adapter(declaredWithoutAModel, mode).service();
+
+  }
+
+  private static Adapter adapter(
       final Map<String, Collection<String>> declaredWithoutAModel,
       final NameClashAvoidance mode) {
 
@@ -167,13 +249,15 @@ public class Camunda8DeclaredProcessWorkersTest {
 
     };
     final var scoping = scoping(mode);
-    return new Camunda8DeploymentService(
-        "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
+    final var clientFactory = new Camunda8ClientFactory("c8", configuration);
+    final var service = new Camunda8DeploymentService(
+        "c8", clientFactory, TestCollaborators
             .of(core, scoping), (
                 module,
                 process,
                 task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                     .ofHours(1), adapterId -> configuration, scoping);
+    return new Adapter(service, clientFactory);
 
   }
 

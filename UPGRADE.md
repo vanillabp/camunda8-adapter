@@ -5,6 +5,23 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## The message check reads the models the cluster holds (2026-09-08)
+
+If you renamed a BPMN process and a `correlateMessage` for one of its old workflows failed with
+"No BPMN model of workflow module ... declares a message ...", this is the entry for you. The
+check used to read only the models this application version deployed, so a message declared by
+the old id's model alone was refused - inside your transaction, while the workflow waited in
+the cluster for exactly that name.
+
+The check now reads the models the cluster holds for every BPMN process id the application
+declares, the versions of a renamed process' old id included, and it refuses only after
+reading the cluster in that very call. Where those models cannot be read the check says
+nothing and phase two publishes as asked: a check which cannot see every model that could
+carry the answer must stay silent, never refuse. On a degraded adapter against a cluster
+without secondary storage (the `deployment-failure: warn` way out below) that silence is the
+permanent state - a genuinely mistyped message name is then buffered by the cluster until its
+time-to-live passes, which is what such a cluster costs.
+
 ## The cluster has to be one the adapter can search (2026-09-07)
 
 The Camunda 8 adapter of 2.0 requires a cluster which answers searches, and it says so while it

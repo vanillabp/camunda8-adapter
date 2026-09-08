@@ -41,7 +41,18 @@ public class RenamedAfterDockerWorkflowService {
   public void continueWorkflow(
       final Long orderId) {
 
+    // the OLD name: this generation's model declares 'RenameContinueV2' only, so the
+    // name below lives in the model the cluster still holds under the old id - which
+    // is exactly what a workflow started before the rename waits for
     processService.correlateMessage(repository.findById(orderId).orElseThrow(), "RenameContinue");
+
+  }
+
+  public void correlateAMessageNoModelDeclares(
+      final Long orderId) {
+
+    processService
+        .correlateMessage(repository.findById(orderId).orElseThrow(), "DeclaredByNoModelAtAll");
 
   }
 

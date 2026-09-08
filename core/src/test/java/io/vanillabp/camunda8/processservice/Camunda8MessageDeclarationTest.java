@@ -15,6 +15,7 @@ import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses;
+import io.vanillabp.camunda8.deployment.Camunda8ModelsTheClusterHolds;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import io.vanillabp.integration.spi.PhaseOperation;
 import io.vanillabp.integration.spi.PhaseTwoCall;
@@ -151,6 +152,184 @@ public class Camunda8MessageDeclarationTest {
             PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
             new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
                 "AnyMessage", PhaseTwoCall.ARG_CORRELATION_ID, null)));
+
+  }
+
+  @Test
+  @DisplayName("A module declaring an id nothing was deployed under refuses nothing, whatever the name")
+  public void aModuleWithADeclaredOnlyIdRefusesNothing() {
+
+    final var clientFactory = clientFactory();
+    deploy(clientFactory, "module", modelWaitingFor("PaymentReceived"));
+    // the old id of a renamed process: the message a waiting workflow needs may be
+    // declared only by a model the cluster holds, so the declared names are unknown
+    // rather than absent
+    clientFactory
+        .getDeployedProcesses()
+        .recordDeclaredWithoutDeployment("module", "OldProcess");
+
+    assertDoesNotThrow(
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "DeclaredNowhereAmongTheDeployedModels", PhaseTwoCall.ARG_CORRELATION_ID, null)));
+
+  }
+
+  /**
+   * A picture answering from the given models, next to the deployed ones - what the
+   * deployment service assembles from the cluster at runtime.
+   */
+  private static void pictureAnswering(
+      final Camunda8ClientFactory clientFactory,
+      final java.util.function.BiFunction<String, String, java.util.List<Camunda8ModelsTheClusterHolds.HeldModel>> modelsOfProcess) {
+
+    clientFactory
+        .provideModelsTheClusterHolds(
+            new Camunda8ModelsTheClusterHolds(
+                "c8", clientFactory.getDeployedProcesses(), modelsOfProcess::apply));
+
+  }
+
+  @Test
+  @DisplayName("A message only a model of the RENAMED process declares passes: the cluster's models count")
+  public void aMessageOnlyTheClusterHeldModelDeclaresPasses() {
+
+    final var clientFactory = clientFactory();
+    deploy(clientFactory, "module", modelWaitingFor("PaymentReceived"));
+    clientFactory
+        .getDeployedProcesses()
+        .recordDeclaredWithoutDeployment("module", "OldProcess");
+    // the model the cluster still holds under the old id declares the message the
+    // waiting workflow needs - the current deployment does not
+    pictureAnswering(clientFactory, (
+        module,
+        bpmnProcessId) -> "OldProcess".equals(bpmnProcessId)
+            ? java.util.List.of(new Camunda8ModelsTheClusterHolds.HeldModel(
+                "OldProcess", "1", modelWaitingFor("RenameContinue")))
+            : java.util.List.of());
+
+    assertDoesNotThrow(
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "RenameContinue", PhaseTwoCall.ARG_CORRELATION_ID, null)));
+
+  }
+
+  @Test
+  @DisplayName("A name NO model declares still fails, naming what the cluster holds")
+  public void aNameNoModelDeclaresFailsNamingWhatTheClusterHolds() {
+
+    final var clientFactory = clientFactory();
+    deploy(clientFactory, "module", modelWaitingFor("PaymentReceived"));
+    clientFactory
+        .getDeployedProcesses()
+        .recordDeclaredWithoutDeployment("module", "OldProcess");
+    pictureAnswering(clientFactory, (
+        module,
+        bpmnProcessId) -> "OldProcess".equals(bpmnProcessId)
+            ? java.util.List.of(new Camunda8ModelsTheClusterHolds.HeldModel(
+                "OldProcess", "1", modelWaitingFor("RenameContinue")))
+            : java.util.List.of(new Camunda8ModelsTheClusterHolds.HeldModel(
+                "Process", "1", modelWaitingFor("PaymentReceived"))));
+
+    final var failure = assertThrows(
+        IllegalArgumentException.class,
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "DeclaredNowhereAtAll", PhaseTwoCall.ARG_CORRELATION_ID, null)));
+
+    assertTrue(failure.getMessage().contains("DeclaredNowhereAtAll"), failure.getMessage());
+    // the remedy names the messages of the models the CLUSTER holds, the renamed
+    // process' old model included
+    assertTrue(failure.getMessage().contains("RenameContinue"), failure.getMessage());
+    assertTrue(failure.getMessage().contains("PaymentReceived"), failure.getMessage());
+
+  }
+
+  @Test
+  @DisplayName("Where the cluster cannot be asked, the check stays silent instead of refusing")
+  public void whereTheClusterCannotBeAskedTheCheckStaysSilent() {
+
+    final var clientFactory = clientFactory();
+    deploy(clientFactory, "module", modelWaitingFor("PaymentReceived"));
+    clientFactory
+        .getDeployedProcesses()
+        .recordDeclaredWithoutDeployment("module", "OldProcess");
+    pictureAnswering(clientFactory, (
+        module,
+        bpmnProcessId) -> null);
+
+    assertDoesNotThrow(
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "AnyMessage", PhaseTwoCall.ARG_CORRELATION_ID, null)));
+
+  }
+
+  @Test
+  @DisplayName("A refusal reads the cluster again first, so another node's deployment is seen")
+  public void aRefusalRestsOnAFreshRead() {
+
+    final var clientFactory = clientFactory();
+    deploy(clientFactory, "module", modelWaitingFor("PaymentReceived"));
+    clientFactory
+        .getDeployedProcesses()
+        .recordDeclaredWithoutDeployment("module", "OldProcess");
+    final var whatTheClusterHolds = new java.util.concurrent.atomic.AtomicReference<>(
+        java.util.List.of(new Camunda8ModelsTheClusterHolds.HeldModel(
+            "OldProcess", "1", modelWaitingFor("RenameContinue"))));
+    pictureAnswering(clientFactory, (
+        module,
+        bpmnProcessId) -> "OldProcess".equals(bpmnProcessId)
+            ? whatTheClusterHolds.get()
+            : java.util.List.of());
+    final var service = serviceOf(clientFactory);
+
+    // settles the picture with the models of today
+    assertDoesNotThrow(
+        () -> PhaseOperations.phaseOne(service,
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "RenameContinue", PhaseTwoCall.ARG_CORRELATION_ID, null)));
+
+    // another node deploys a version declaring a new message - the kept picture
+    // does not carry it, so refusing from the kept picture would be wrong
+    whatTheClusterHolds
+        .set(
+            java.util.List.of(
+                new Camunda8ModelsTheClusterHolds.HeldModel(
+                    "OldProcess", "1", modelWaitingFor("RenameContinue")),
+                new Camunda8ModelsTheClusterHolds.HeldModel(
+                    "OldProcess", "2", modelWaitingFor("AddedElsewhere"))));
+
+    assertDoesNotThrow(
+        () -> PhaseOperations.phaseOne(service,
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "AddedElsewhere", PhaseTwoCall.ARG_CORRELATION_ID, null)));
+
+  }
+
+  @Test
+  @DisplayName("A declared-only id of ANOTHER module does not silence the check")
+  public void aDeclaredOnlyIdOfAnotherModuleChangesNothing() {
+
+    final var clientFactory = clientFactory();
+    deploy(clientFactory, "module", modelWaitingFor("PaymentReceived"));
+    clientFactory
+        .getDeployedProcesses()
+        .recordDeclaredWithoutDeployment("another-module", "OldProcess");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "PaymentRecieved", PhaseTwoCall.ARG_CORRELATION_ID, null)));
 
   }
 

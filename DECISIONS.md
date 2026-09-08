@@ -476,3 +476,39 @@ either and separates them in prose only.
 `Camunda8SearchableClusterCheckTest` holds the message and what it names,
 `Camunda8UnsearchableClusterIT` the boot which ends against a real cluster refusing a real search,
 and the same class the warning an adapter allowed to degrade gets instead.
+
+### 21. One picture of the models the cluster holds, and every check asks it
+
+A check against a BPMN model must not care whether the model comes from the current deployment
+or was already in the cluster - the platform's decision 38 carries the rule, this entry carries
+what it costs on Camunda 8. The case which forced it: `correlateMessage` validated the message
+name against the models THIS application version deployed, and after a rename the name a
+waiting workflow needs is declared only by the old id's model in the cluster. The check threw
+inside the caller's transaction while the workflow sat right there, waiting for exactly that
+name.
+
+The adapter keeps one picture per adapter id (`Camunda8ModelsTheClusterHolds`) instead of
+giving every check a query of its own: the models the cluster holds for every BPMN process id
+the application declares. The models of the current deployment cost nothing, everything else
+is read through `Camunda8ProcessVersions` on first use and kept, because a definition's model
+never changes. The answer carries "cannot tell" as a value - a check reading it does not have
+to invent that case, and it stays silent on it. "Cannot tell" itself is never kept: an
+unreachable cluster says nothing about the next call, while the settled "cannot be searched"
+of decision 20 answers without a request.
+
+A refusal is allowed to rest on the picture only after reading the cluster again in the same
+call. The kept picture may be outdated by another node's deployment (a rolling upgrade), and a
+message declared moments ago must not be refused over yesterday's read - so the error path
+pays one search, and the everyday path pays none.
+
+The same picture hands the workers of a declared-only id (decision 19) the multi-instance
+chains of the models the cluster runs, so a job of those workflows carries its iteration
+context. And the mirror image of the rule ended a refusal of its own: a user task without an
+external form reference used to cost the old-version startup check its whole answer when it
+sat in a model an earlier application deployed - such a model is only being read, so it is
+read by version 1's formKey convention where the reference is missing, and a task following
+no convention is skipped rather than fought over.
+
+`Camunda8MessageDeclarationTest` holds the check's answers, `Camunda8RenamedProcessIT`
+correlates a message only the old id's model declares against a real cluster and proves the
+refusal names what the cluster holds.

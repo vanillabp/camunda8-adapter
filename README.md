@@ -685,14 +685,22 @@ correlating before the subscription exists is legitimate, and a search would rej
 that case. The search also reads the eventually consistent secondary storage, whose window the
 caller would wait out inside their own transaction.
 
-What phase one does check is the MODEL: if no BPMN model of the workflow module deployed by
-this application version declares the message, the correlation fails where the application
-called it. That is the mistake a preflight could have caught - a typo, or a message renamed in
-the model - and without the check phase two would publish into the void: the cluster accepts
-the publication, the time-to-live passes, nothing correlates and nothing fails. Where this
-application version deployed no process of the workflow module (a workflow still running on a
-definition of a previous version), the declared names are unknown rather than absent and the
-check stays silent. All three cases are `Camunda8MessageDeclarationTest`.
+What phase one does check is the MODEL: if no BPMN model declares the message, the correlation
+fails where the application called it. That is the mistake a preflight could have caught - a
+typo, or a message renamed in the model - and without the check phase two would publish into
+the void: the cluster accepts the publication, the time-to-live passes, nothing correlates and
+nothing fails.
+
+Which models is the point, and it must not matter who deployed them (decision 21). The check
+reads the models of the current deployment first, for nothing, and where the name is not among
+them it asks `Camunda8ModelsTheClusterHolds`: the models the cluster holds for every BPMN
+process id the application declares, versions of a renamed process' old id included. A refusal
+rests on a read made in that very call, so a version another node deployed moments ago is seen.
+Where the models cannot be read - the module deployed nothing, the picture was never built, or
+the cluster does not answer - the declared names are unknown rather than absent and the check
+stays silent, never refusing a correlation the application may have made correctly. All of it
+is `Camunda8MessageDeclarationTest`, and `Camunda8RenamedProcessIT` correlates a message only
+the old id's model declares against a real cluster.
 
 ### Idempotency limitation
 

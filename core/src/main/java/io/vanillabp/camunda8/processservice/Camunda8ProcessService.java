@@ -21,6 +21,7 @@ import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.client.Camunda8QueryApi;
+import io.vanillabp.camunda8.deployment.Camunda8ModelsTheClusterHolds;
 import io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver;
 import io.vanillabp.camunda8.wiring.Camunda8Scoping;
 import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
@@ -1053,10 +1054,14 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * the publication, the TTL passes, nothing ever correlates. So the mistake is
    * reported where the application made the call.
    * <p>
-   * The check stays silent where this application version deployed no process of the
-   * workflow module (a workflow still running on a definition of a previous version -
-   * see {@code Camunda8DeployedProcesses}), because then the declared names are
-   * unknown rather than absent.
+   * The check stays silent where its set of models is incomplete: where this
+   * application version deployed no process of the workflow module (a workflow still
+   * running on a definition of a previous version - see
+   * {@code Camunda8DeployedProcesses}), and where the module declares a BPMN process
+   * id nothing was deployed under (the old id of a renamed process, whose models the
+   * cluster holds). In both cases the declared names are unknown rather than absent,
+   * and a check which cannot see every model that could carry the answer must stay
+   * silent, never refuse.
    */
   private void preflightCorrelateMessage(
       final PhaseOneRequest<A> request) {
@@ -1067,7 +1072,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
-   * Reports a message name the deployed models of the workflow module do not declare.
+   * Reports a message name no model of the workflow module declares - reading the
+   * models the CLUSTER holds for the ids this application declares, not only what
+   * this application version deployed, so the verdict does not depend on which
+   * application version deployed the model carrying the name (see decision 21 in
+   * the repository's DECISIONS.md). Where those models cannot be read, the check
+   * stays silent.
    *
    * @param workflowModuleId The workflow module of the correlation
    * @param messageName The message name the application passed
@@ -1076,34 +1086,109 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final String workflowModuleId,
       final String messageName) {
 
-    final var deployed = clientFactory
-        .getDeployedProcesses()
-        .ofWorkflowModule(workflowModuleId);
-    if (deployed.isEmpty()) {
+    final var deployedProcesses = clientFactory.getDeployedProcesses();
+    final var deployed = deployedProcesses.ofWorkflowModule(workflowModuleId);
+    final var declaresUndeployedIds = deployedProcesses
+        .declaresProcessesNobodyDeployed(workflowModuleId);
+    if (deployed.isEmpty() && !declaresUndeployedIds) {
+      // a workflow still running on a definition of a previous version, in a module
+      // this boot deployed nothing for: the declared names are unknown rather than
+      // absent
       return;
     }
     // the models carry the SCOPED names - messages are renamed while deploying - so
     // the name of the call is scoped the same way the publication scopes it
     final var scopedMessageName = scopedIdentifier(workflowModuleId, messageName);
-    final var declared = deployed
+    // the models of the current deployment answer without any request
+    final var declaredByThisDeployment = deployed
         .stream()
         .flatMap(process -> declaredMessageNames(process.model()).stream())
         .collect(Collectors.toCollection(TreeSet::new));
+    if (declaredByThisDeployment.contains(scopedMessageName)) {
+      return;
+    }
+    final var modelsTheClusterHolds = clientFactory.getModelsTheClusterHolds();
+    if (modelsTheClusterHolds == null) {
+      // no deployment service provided the picture (tests, an adapter which booted
+      // unconfigured): the models beyond the current deployment cannot be read, so
+      // a module whose ids were not all deployed is answered with silence
+      if (declaresUndeployedIds) {
+        return;
+      }
+      throw undeclaredMessage(
+          workflowModuleId,
+          messageName,
+          scopedMessageName,
+          "Read were the models this application version deployed",
+          declaredByThisDeployment);
+    }
+    var answer = modelsTheClusterHolds.heldFor(workflowModuleId);
+    if ((answer instanceof Camunda8ModelsTheClusterHolds.Answer.Known kept) && !kept
+        .freshlyRead() && !declaredMessageNamesOf(kept).contains(scopedMessageName)) {
+      // the kept picture may be outdated by another node's deployment (rolling
+      // upgrade), and a refusal may only rest on models read now
+      answer = modelsTheClusterHolds.heldForAfterReadingAgain(workflowModuleId);
+    }
+    if (!(answer instanceof Camunda8ModelsTheClusterHolds.Answer.Known known)) {
+      // the cluster could not be asked, so the set of models is incomplete: the
+      // check says nothing rather than refusing a correlation the application may
+      // have made correctly
+      return;
+    }
+    final var declared = declaredMessageNamesOf(known);
     if (declared.contains(scopedMessageName)) {
       return;
     }
-    throw new IllegalArgumentException(
+    throw undeclaredMessage(
+        workflowModuleId,
+        messageName,
+        scopedMessageName,
+        "Read was every model the cluster holds for the BPMN processes this workflow module declares",
+        declared);
+
+  }
+
+  /**
+   * The message names declared by the models the cluster holds.
+   *
+   * @param known What the picture answered
+   * @return The declared names, sorted
+   */
+  private static TreeSet<String> declaredMessageNamesOf(
+      final Camunda8ModelsTheClusterHolds.Answer.Known known) {
+
+    return known
+        .models()
+        .stream()
+        .flatMap(heldModel -> declaredMessageNames(heldModel.model()).stream())
+        .collect(Collectors.toCollection(TreeSet::new));
+
+  }
+
+  /**
+   * The refusal of {@link #validateMessageIsDeclared}, built where the caller can say
+   * which models were read.
+   */
+  private static IllegalArgumentException undeclaredMessage(
+      final String workflowModuleId,
+      final String messageName,
+      final String scopedMessageName,
+      final String whatWasRead,
+      final java.util.Set<String> declared) {
+
+    return new IllegalArgumentException(
         """
             No BPMN model of workflow module '%s' declares a message '%s'! Camunda 8 would accept \
             the publication and buffer the message until its time-to-live passed, so nothing would \
-            ever correlate and nothing would fail. The messages declared by the models this \
-            application deployed are: %s. Correct the name passed to correlateMessage, or declare \
-            the message at the event which waits for it."""
+            ever correlate and nothing would fail. %s, and the messages they declare are: %s. \
+            Correct the name passed to correlateMessage, or declare the message at the event which \
+            waits for it."""
             .formatted(
                 workflowModuleId,
                 scopedMessageName.equals(messageName)
                     ? messageName
                     : "%s (scoped: '%s')".formatted(messageName, scopedMessageName),
+                whatWasRead,
                 declared.isEmpty()
                     ? "none"
                     : declared));

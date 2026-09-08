@@ -417,6 +417,52 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // travels with every job, the version TAGS come from here
     this.processVersions = new Camunda8ProcessVersions(
         adapterId, clientFactory::getClient, this::scopedProcessId, this::tenantIdOf);
+    // which models the cluster holds for the ids this application declares - the
+    // picture every check judging a model asks, so no verdict depends on which
+    // application version deployed the model it judges (see decision 21 in the
+    // repository's DECISIONS.md). Assembled here because only the deployment
+    // service can read its cluster; handed to the factory because the process
+    // service's message check reads it
+    clientFactory
+        .provideModelsTheClusterHolds(
+            new Camunda8ModelsTheClusterHolds(
+                adapterId, clientFactory.getDeployedProcesses(), this::readModelsTheClusterHolds));
+
+  }
+
+  /**
+   * Reads the models of every version the cluster holds under one BPMN process id -
+   * what the picture of {@link Camunda8ModelsTheClusterHolds} is assembled from. The
+   * version this boot deployed is served from the local record instead of being
+   * fetched again.
+   */
+  private List<Camunda8ModelsTheClusterHolds.HeldModel> readModelsTheClusterHolds(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    if (!clientFactory.getQueryApi().answers()) {
+      // that this cluster cannot be searched was said while the module deployed
+      // (see decision 20 in the repository's DECISIONS.md); an adapter degraded to
+      // 'warn' keeps booting, and every check reading the picture stays silent
+      return null;
+    }
+    final var deployed = clientFactory
+        .getDeployedProcesses()
+        .deployedVersionOf(workflowModuleId, bpmnProcessId);
+    return processVersions
+        .versionsHeldUnder(workflowModuleId, bpmnProcessId)
+        .stream()
+        .map(version -> {
+          if ((deployed != null) && String.valueOf(deployed.version()).equals(version)) {
+            return new Camunda8ModelsTheClusterHolds.HeldModel(bpmnProcessId, version, deployed.model());
+          }
+          final var model = processVersions.modelOfVersion(workflowModuleId, bpmnProcessId, version);
+          return model == null
+              ? null
+              : new Camunda8ModelsTheClusterHolds.HeldModel(bpmnProcessId, version, model);
+        })
+        .filter(java.util.Objects::nonNull)
+        .toList();
 
   }
 
@@ -1050,8 +1096,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
-   * The tasks of ONE model as the core validates them - used for the model this boot
-   * deploys and for the models of older versions the cluster still holds.
+   * The tasks of ONE model the cluster holds, as the core validates them - the
+   * startup check about older versions reads them through the version catalog. The
+   * user tasks are read without any refusal: the check's subject is a model an
+   * earlier application deployed, and refusing what is only being read would cost
+   * the check its answer over a model nobody can change any more.
    *
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The PLAIN BPMN process ID
@@ -1074,7 +1123,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             task.activityId(), plainTaskDefinition(workflowModuleId, bpmnProcessId, task.taskDefinition())))
         .forEach(specs::add);
     Camunda8TaskWiring
-        .userTasksOf(model, scopedBpmnProcessId, workflowModuleId, "version %s".formatted(version))
+        .userTasksOfHeldModel(model, scopedBpmnProcessId)
         .stream()
         .map(userTask -> BpmnTaskSpec.userTask(
             userTask.activityId(),
@@ -1746,6 +1795,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .forEach((
             bpmnProcessId,
             taskDefinitions) -> {
+          // whatever scoping decides about extra workers below, the message check of
+          // correlateMessage has to know that models of this module live in the
+          // cluster only - so the declared id is recorded in every mode
+          clientFactory
+              .getDeployedProcesses()
+              .recordDeclaredWithoutDeployment(workflowModuleId, bpmnProcessId);
+          registerMultiInstanceChainsOf(workflowModuleId, bpmnProcessId);
           final var openedJobTypes = new TreeSet<String>();
           taskDefinitions
               .forEach(taskDefinition -> {
@@ -1782,6 +1838,44 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               openedJobTypes);
           reportWhatADeclaredIdIsServedWith(workflowModuleId, bpmnProcessId, taskDefinitions, openedJobTypes);
         });
+
+  }
+
+  /**
+   * Registers the multi-instance chains of the models the cluster holds under a
+   * declared BPMN process id, so a job of those workflows gets its iteration context -
+   * index, total and current element - the way a job of a deployed process does. The
+   * chains are read from the models the CLUSTER runs, which carry the input mappings
+   * VanillaBP wired into them when they were deployed. Where the cluster cannot be
+   * asked, the jobs are still served and a task inside an iteration misses its
+   * multi-instance values; the picture reported the failed read once.
+   */
+  private void registerMultiInstanceChainsOf(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    final var modelsTheClusterHolds = clientFactory.getModelsTheClusterHolds();
+    if (modelsTheClusterHolds == null) {
+      return;
+    }
+    final var answer = modelsTheClusterHolds.heldFor(workflowModuleId, bpmnProcessId);
+    if (!(answer instanceof Camunda8ModelsTheClusterHolds.Answer.Known known)) {
+      return;
+    }
+    final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
+    known
+        .models()
+        .forEach(heldModel -> Camunda8MultiInstance
+            .wire(heldModel.model(), scopedBpmnProcessId, multiInstanceRegistry));
+
+  }
+
+  /**
+   * The multi-instance chains this adapter registered. Visible for tests.
+   */
+  Camunda8MultiInstance.Registry multiInstanceRegistry() {
+
+    return multiInstanceRegistry;
 
   }
 
