@@ -807,7 +807,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               + "reporting BPMS_UNAVAILABLE ({})",
           adapterId,
           workflowAggregateId,
-          Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED,
+          Camunda8QueryApi.WHY_A_SEARCH_FAILS_AFTER_THE_DEPLOYMENT,
           e);
       return WorkflowAwareness.BPMS_UNAVAILABLE;
     }
@@ -917,9 +917,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * addresses the same cluster, because a key is unique per cluster and the two ids would
    * otherwise answer for each other's tasks.
    * <p>
-   * The answer needs the query API, which is why an application configuring two ids on
-   * one cluster which cannot be searched does not boot (see
-   * {@code Camunda8DeploymentService}). A task the query API does not know is left to the
+   * The answer is a search, which every cluster this adapter serves answers: one which
+   * does not is refused while the adapter deploys, whether one adapter id addresses it or
+   * two (see {@code Camunda8SearchableClusterCheck}). A task no search knows is left to the
    * probe itself: it is either gone or not exported yet, and both are answered by the
    * command which follows.
    * <p>

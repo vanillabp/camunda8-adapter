@@ -706,7 +706,7 @@ without a second `CreateProcessInstance`). A **residual window remains and is
 accepted** as an eventual-consistency property: after a hard crash between a
 successful `CreateProcessInstance` and recording the dispatch, the retry's probe may
 not see the instance yet (query-API lag), which the probe answers honestly with
-"unknown" so the idempotent start proceeds — deliberately NOT an optimistic ACTIVE,
+"unknown" so the idempotent start proceeds, deliberately NOT an optimistic ACTIVE,
 which would skip and thereby LOSE workflows. Do not build on exactly-once semantics.
 
 The layers have their tests: `Camunda8InboundIdempotencyIT#redeliveredJobsSkipTheHandler` for a

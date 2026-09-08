@@ -93,7 +93,7 @@ public class Camunda8WorkflowViewerTest {
   }
 
   @Test
-  @DisplayName("Without the query API the definitions of the deployed version are reported, incl. call activities")
+  @DisplayName("Where the cluster does not answer the definitions of the deployed version are reported, incl. call activities")
   public void definitionsAreServedFromTheDeployedVersion() {
 
     final var viewer = new Camunda8WorkflowViewer("c8", clientFactoryWithDeployedProcesses(), (
@@ -139,7 +139,7 @@ public class Camunda8WorkflowViewerTest {
   }
 
   @Test
-  @DisplayName("Without the query API a history without elements is reported - never an error")
+  @DisplayName("Where the cluster does not answer a history without elements is reported - never an error")
   public void historyDegradesToNoElements() {
 
     final var viewer = new Camunda8WorkflowViewer("c8", clientFactoryWithDeployedProcesses(), (
@@ -153,8 +153,8 @@ public class Camunda8WorkflowViewerTest {
     assertNull(history.endTime());
     assertNull(history.elementsHistory(), "the SPI expresses 'no element history' as null");
 
-    // a secondary history context cannot be resolved without the query API - the
-    // core turns that into its guiding WorkflowNotFoundException
+    // a secondary history context cannot be resolved where the cluster does not
+    // answer - the core turns that into its guiding WorkflowNotFoundException
     assertNull(viewer.getWorkflowHistory("test-module", "ParentProcess", "id", "42", "12345"));
     assertEquals(
         List.of(),
