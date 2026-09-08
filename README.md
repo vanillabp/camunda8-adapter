@@ -1437,6 +1437,12 @@ held versions declares stayed silent for the life of the application, while the 
 firing the old model's timer every day. Where the cluster cannot be asked, the adapter says
 so and the check stays silent instead of judging the method by an answer nobody has.
 
+The same picture answers which elements of a held version can put a second token into one of
+its workflows, so a version whose parallel gateway the newest model dropped is named by the
+concurrent-token report as well. Those workflows keep forking the way they did when that
+version was deployed, and they are the ones which run longest, which is why a report reading
+this boot's model alone missed exactly the case which lasts.
+
 Whether the workflows under such a declared id keep RUNNING is a second question, and it is
 answered by workers rather than by queries. A job worker asks for one task definition, and
 under `use-prefix` that name carries the id of the process the task was deployed with
@@ -1467,8 +1473,8 @@ says so with the two ways out.
 say which method serves which version, `Camunda8DeletedProcessVersionsTest` a version the
 cluster no longer has, `Camunda8RenamedProcessTest` with `Camunda8RenamedProcessIT` the
 declared id and a workflow which outlives the rename, `Camunda8StartEventsOfHeldVersionsTest`
-what a held version starts on, and `Camunda8StartupQuestionCostTest` counts the queries the
-claim above is about.
+what a held version starts on and `Camunda8ConcurrentTokensOfHeldVersionsTest` what it forks
+into, and `Camunda8StartupQuestionCostTest` counts the queries the claim above is about.
 
 ### Multi-instance
 

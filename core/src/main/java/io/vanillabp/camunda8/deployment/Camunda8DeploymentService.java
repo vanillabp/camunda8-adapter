@@ -432,6 +432,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // this application wires nothing for
     processVersions.setHeldModelOfVersion(this::heldModelOfVersion);
     processVersions.setStartEventsOfModel(this::startEventSpecsOf);
+    processVersions.setConcurrentTokenElementsOfModel(this::concurrentTokenElementIdsOf);
 
   }
 
@@ -491,6 +492,22 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .map(startEvent -> new BpmsInitiatedStartSpec(
             startEvent.startEventId(), startEvent.kind(), startEvent.signalName(), null))
         .toList();
+
+  }
+
+  /**
+   * The elements which can put a SECOND token into a workflow of a model the cluster
+   * holds - the same walk the wiring runs over the model being deployed. The versions
+   * which run longest are the ones a walk over this boot's model never reaches: a parallel
+   * gateway the newest model dropped keeps forking every workflow started before it.
+   */
+  private Collection<String> concurrentTokenElementIdsOf(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final BpmnModelInstance model) {
+
+    return Camunda8TaskWiring
+        .concurrentTokenElementIdsOf(model, scopedProcessId(workflowModuleId, bpmnProcessId));
 
   }
 

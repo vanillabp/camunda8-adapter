@@ -177,6 +177,33 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   }
 
+  private WhatAModelDeclares<String> concurrentTokenElementsOfModel;
+
+  /**
+   * @param concurrentTokenElementsOfModel How the deployment service reads the elements
+   *          which can put a second token into a workflow of a model
+   */
+  public void setConcurrentTokenElementsOfModel(
+      final WhatAModelDeclares<String> concurrentTokenElementsOfModel) {
+
+    this.concurrentTokenElementsOfModel = concurrentTokenElementsOfModel;
+
+  }
+
+  @Override
+  public Collection<String> concurrentTokenElementsOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    return whatTheHeldModelDeclares(
+        workflowModuleId,
+        bpmnProcessId,
+        version,
+        concurrentTokenElementsOfModel);
+
+  }
+
   /**
    * What one version's model declares, or that this adapter cannot say.
    * <p>
