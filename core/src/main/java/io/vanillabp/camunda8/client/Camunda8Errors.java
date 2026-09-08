@@ -23,17 +23,25 @@ public final class Camunda8Errors {
   }
 
   /**
-   * Whether the given failure means "this job does not exist (anymore)".
+   * Whether the cluster answered "I do not hold that" - the one answer which means the
+   * addressed key is not there, whatever was addressed by it.
    * <p>
-   * Both transports say it with a code of their own: the REST gateway answers a job
-   * command addressing a key it cannot find with HTTP <code>404</code>, the gRPC gateway
-   * with the status <code>NOT_FOUND</code>. Nothing here reads the message text - the
-   * words the cluster wraps around that code are the cluster's to change.
+   * Both transports say it with a code of their own: the REST gateway answers with HTTP
+   * <code>404</code> (a {@link ProblemException} carries it as well, it extends
+   * {@link ClientHttpException}), the gRPC gateway with the status
+   * <code>NOT_FOUND</code>. Nothing here reads the message text - the words the cluster
+   * wraps around that code are the cluster's to change.
+   * <p>
+   * Public because the answer means different things to different callers and every one
+   * of them has to recognise it first: for a job command it is a job which is gone (see
+   * {@link #jobAlreadyGone(Throwable)}), for a read of something just written it is the
+   * exporter which has not caught up yet, and reading either from ONE of the two codes
+   * turns the other transport's answer into a hard failure.
    *
-   * @param throwable The failure of a job-based command
-   * @return Whether the job is gone
+   * @param throwable What the command or the request failed with
+   * @return Whether the cluster does not (or does not yet) hold what was addressed
    */
-  public static boolean jobAlreadyGone(
+  public static boolean notFound(
       final Throwable throwable) {
 
     var current = throwable;
@@ -50,6 +58,23 @@ public final class Camunda8Errors {
           : current.getCause();
     }
     return false;
+
+  }
+
+  /**
+   * Whether the given failure means "this job does not exist (anymore)".
+   * <p>
+   * A job command addresses one key and nothing else, so the cluster not holding that key
+   * is the whole answer: {@link #notFound(Throwable)} is what it reads, and what it adds
+   * is the meaning, which is that the job was completed, canceled or otherwise moved on.
+   *
+   * @param throwable The failure of a job-based command
+   * @return Whether the job is gone
+   */
+  public static boolean jobAlreadyGone(
+      final Throwable throwable) {
+
+    return notFound(throwable);
 
   }
 

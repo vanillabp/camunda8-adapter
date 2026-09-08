@@ -40,8 +40,10 @@ handlers:
 
 - `Camunda8Errors` classifies a failure. `permanentFailure` answers the outbox,
   `repeatableJobCommandFailure` answers a job command and adds the one case which is
-  permanent only there, a job which is gone. `incidentMessage` builds the text an operator
-  reads in Operate, with the exception's type in front of its message.
+  permanent only there, a job which is gone. That case is `notFound` read for what it means
+  to a job command, so both transports' way of saying it is recognised in one place.
+  `incidentMessage` builds the text an operator reads in Operate, with the exception's type
+  in front of its message.
 - `Camunda8CommandRetry` repeats a rejected command. It is bounded by the job's
   remaining lock (`ActivatedJob#getDeadline()`), by five attempts and by the shutdown, and
   its waits are the client's own activation backoff numbers. Nothing about the outcome
@@ -181,8 +183,8 @@ without a registry, `Camunda8HealthTest` the two timeouts and the UNKNOWN above.
   version), carrying the values the aggregate shares plus the technical variable named
   after the aggregate's ID property.
 - `Camunda8ProcessingContext` - the adapter-specific processing context threaded through
-  the deployment pipeline: workflow-module ID, deployable resources (per filename) and the
-  discovered BPMN process IDs.
+  the deployment pipeline: the adapter id and the workflow-module ID of the run, the
+  deployable resources (per filename) and the discovered BPMN process IDs.
 
 The adapter SPI is served completely - deployment, workflow start (two-phase), task
 processing, user tasks, message correlation, aggregate sync and the viewer/history API.
@@ -200,6 +202,33 @@ searched is asked once while a workflow module deploys and remembered per adapte
 `Camunda8DeploymentServiceTest` pins the pipeline calls, `Camunda8ProcessServiceTest` the two
 phases, `Camunda8AwarenessWhenSearchFailsTest` the probes, `Camunda8QueryApiTest` the question
 asked once and `Camunda8SearchableClusterCheckTest` the refusal which follows a no.
+
+## What an extension of the pipeline is told
+
+An extension implementing `ExtensionWiringService` runs inside this deployment pipeline,
+on the same BPMN files, and what it needs to place its own wiring is the adapter's to hand
+over rather than to work out a second time.
+
+`Camunda8ProcessingContext` names the adapter id and the workflow module of the run it
+belongs to. The pipeline calls every extension once per configured Camunda 8 adapter with
+the same file, and the model handed over carries the identifiers of THAT adapter, which
+name-clash avoidance may have rewritten. Without the id an extension cannot say whose call
+it is looking at, and reading it back off the model's identifiers is no substitute: two
+adapter ids may avoid name clashes differently, and then the identifiers do not decide it.
+
+`Camunda8VariableFilters.aggregateIdSearchValue` is how a search value for the workflow
+aggregate's id has to look, quoted as the JSON the cluster stores. It is public rather than
+copied because it is one expression: a second spelling of it returns an empty result, which
+reads like a workflow the cluster does not hold.
+
+`Camunda8Errors.notFound` reads the cluster's "I do not hold that" off both transports, the
+REST `404` and the gRPC `NOT_FOUND`. An extension reading something the cluster was told
+about a moment ago meets that answer as exporter lag rather than as a failure, and
+recognising only one of the two codes turns the other transport's answer into a hard one.
+
+`Camunda8ErrorsTest` holds both transports and the wrapped answer, `Camunda8VariableFilterTest`
+the quoting, and `Camunda8DeploymentServiceTest` that a context knows which adapter and which
+workflow module its run is for.
 
 ## BPMN model type
 

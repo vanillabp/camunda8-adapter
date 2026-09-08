@@ -20,9 +20,30 @@ import lombok.Getter;
  * several executable processes is deployed only once) together with the discovered
  * executable BPMN process IDs. {@code Camunda8DeploymentService#deployResources} sends all
  * collected resources of the module to Camunda 8 in a single deployment.
+ * <p>
+ * An extension of the deployment pipeline receives this context in its own
+ * {@code wireBpmn}, and the two ids below are what tell it whose call it is looking at.
+ * The pipeline runs once per configured Camunda 8 adapter, with the same BPMN file and the
+ * same workflow module each time, so an extension which does not read
+ * {@link #getAdapterId()} cannot tell the runs apart - and the model it is handed carries
+ * the identifiers of THAT adapter, which name-clash avoidance may have rewritten. Both ids
+ * are stated here rather than left to be read back off those identifiers, which stops
+ * answering as soon as two adapter ids avoid name clashes differently.
  */
 public class Camunda8ProcessingContext {
 
+  /**
+   * The id of the Camunda 8 adapter this pipeline run belongs to - the id under
+   * {@code vanillabp.adapters.<adapter-id>} the application configured, not the adapter
+   * TYPE, of which several instances may be configured at once.
+   */
+  @Getter
+  private final String adapterId;
+
+  /**
+   * The workflow module whose BPMN files this run deploys.
+   */
+  @Getter
   private final String workflowModuleId;
 
   /**
@@ -94,8 +115,10 @@ public class Camunda8ProcessingContext {
   private final List<JobWorker> openWorkers = new LinkedList<>();
 
   public Camunda8ProcessingContext(
+      final String adapterId,
       final String workflowModuleId) {
 
+    this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
 
   }

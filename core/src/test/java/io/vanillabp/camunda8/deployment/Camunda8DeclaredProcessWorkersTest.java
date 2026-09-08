@@ -56,7 +56,7 @@ public class Camunda8DeclaredProcessWorkersTest {
       final CapturedOutput output) {
 
     final var service = adapterServing(Map.of(OLD_ID, List.of(TASK_DEFINITION)), NameClashAvoidance.USE_PREFIX);
-    final var context = new Camunda8ProcessingContext(MODULE);
+    final var context = new Camunda8ProcessingContext("c8", MODULE);
 
     try {
       service.startWorkflowProcessing(MODULE, context);
@@ -87,7 +87,7 @@ public class Camunda8DeclaredProcessWorkersTest {
       final CapturedOutput output) {
 
     final var service = adapterServing(Map.of(OLD_ID, List.of(TASK_DEFINITION)), NameClashAvoidance.NONE);
-    final var context = new Camunda8ProcessingContext(MODULE);
+    final var context = new Camunda8ProcessingContext("c8", MODULE);
     // the deployed processes of the module already subscribe to that name
     context
         .getTasksToWire()
@@ -117,7 +117,7 @@ public class Camunda8DeclaredProcessWorkersTest {
       final CapturedOutput output) {
 
     final var service = adapterServing(Map.of(OLD_ID, List.of()), NameClashAvoidance.USE_PREFIX);
-    final var context = new Camunda8ProcessingContext(MODULE);
+    final var context = new Camunda8ProcessingContext("c8", MODULE);
 
     try {
       service.startWorkflowProcessing(MODULE, context);
@@ -147,7 +147,7 @@ public class Camunda8DeclaredProcessWorkersTest {
 
     final var adapter = adapter(Map.of(OLD_ID, List.of(TASK_DEFINITION)), NameClashAvoidance.USE_PREFIX);
     final var service = adapter.service();
-    final var context = new Camunda8ProcessingContext(MODULE);
+    final var context = new Camunda8ProcessingContext("c8", MODULE);
     // the cluster still holds the old id's model, and its task sits inside a
     // multi-instance element - the iteration context of its jobs comes from here
     final var scopedOldId = "test-module__order_approval";

@@ -107,7 +107,7 @@ public class Camunda8ShutdownDrainTest {
   public void stoppingMarksTheModuleAndClosesItsWorkers() {
 
     final var service = deploymentService(GRACE);
-    final var context = new Camunda8ProcessingContext("test-module");
+    final var context = new Camunda8ProcessingContext("c8", "test-module");
     final var worker = openWorker();
     context.getOpenWorkers().add(worker);
 
@@ -126,7 +126,7 @@ public class Camunda8ShutdownDrainTest {
   public void aHandlerWithinTheGraceIsWaitedFor() {
 
     final var service = deploymentService(GRACE);
-    final var context = new Camunda8ProcessingContext("test-module");
+    final var context = new Camunda8ProcessingContext("c8", "test-module");
     context.getOpenWorkers().add(openWorker());
     final var drain = service.drainOf("test-module");
     drain.jobStarted(4711L, "task", "someTask", "TestProcess");
@@ -162,7 +162,7 @@ public class Camunda8ShutdownDrainTest {
       final CapturedOutput output) {
 
     final var service = deploymentService(Duration.ofMillis(300));
-    final var context = new Camunda8ProcessingContext("test-module");
+    final var context = new Camunda8ProcessingContext("c8", "test-module");
     context.getOpenWorkers().add(openWorker());
     final var drain = service.drainOf("test-module");
     drain.jobStarted(4711L, "task", "someTask", "TestProcess");
@@ -183,7 +183,7 @@ public class Camunda8ShutdownDrainTest {
   public void aRestartedModuleIsNotShuttingDown() {
 
     final var service = deploymentServiceWithClient();
-    final var context = new Camunda8ProcessingContext("test-module");
+    final var context = new Camunda8ProcessingContext("c8", "test-module");
 
     service.stopWorkflowProcessing("test-module", context);
     assertTrue(service.drainOf("test-module").isShuttingDown());
@@ -203,7 +203,7 @@ public class Camunda8ShutdownDrainTest {
   public void anIdleModuleIsStoppedImmediately() {
 
     final var service = deploymentService(Duration.ofSeconds(20));
-    final var context = new Camunda8ProcessingContext("test-module");
+    final var context = new Camunda8ProcessingContext("c8", "test-module");
     context.getOpenWorkers().add(openWorker());
 
     final var startedAt = System.nanoTime();
@@ -222,7 +222,7 @@ public class Camunda8ShutdownDrainTest {
       final CapturedOutput output) {
 
     final var service = deploymentService(Duration.ofMillis(400));
-    final var context = new Camunda8ProcessingContext("test-module");
+    final var context = new Camunda8ProcessingContext("c8", "test-module");
     context.getOpenWorkers().add(workerWithAnActivationRequestInFlight());
 
     final var startedAt = System.nanoTime();
@@ -259,7 +259,7 @@ public class Camunda8ShutdownDrainTest {
                 process,
                 task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                     .ofHours(1), adapterId -> configuration);
-    final var context = new Camunda8ProcessingContext("test-module");
+    final var context = new Camunda8ProcessingContext("c8", "test-module");
     service.startWorkflowProcessing("test-module", context);
     // a platform whose shutdown never reaches the adapter: the module is open, and the
     // next thing which happens is the client going down
@@ -297,7 +297,7 @@ public class Camunda8ShutdownDrainTest {
                 process,
                 task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                     .ofHours(1), adapterId -> configuration);
-    final var context = new Camunda8ProcessingContext("test-module");
+    final var context = new Camunda8ProcessingContext("c8", "test-module");
     service.startWorkflowProcessing("test-module", context);
     service.stopWorkflowProcessing("test-module", context);
 

@@ -216,6 +216,48 @@ public class Camunda8ErrorsTest {
   }
 
   @Test
+  @DisplayName("A cluster which does not hold what was addressed says so on the REST transport")
+  public void aRestNotFoundIsRecognised() {
+
+    // the answer as the REST client hands it on, with and without a problem detail
+    assertTrue(Camunda8Errors.notFound(problem(404, "NOT FOUND")));
+    assertTrue(Camunda8Errors.notFound(new ClientHttpException(404, "Not Found")));
+    // and it is read from the code alone: another rejection is not this one, and neither
+    // is a failure which only carries the words
+    assertFalse(Camunda8Errors.notFound(problem(403, "FORBIDDEN")));
+    assertFalse(Camunda8Errors.notFound(new IllegalStateException("404 not found")));
+    assertFalse(Camunda8Errors.notFound(null));
+
+  }
+
+  @Test
+  @DisplayName("A cluster which does not hold what was addressed says so on the gRPC transport")
+  public void aGrpcNotFoundIsRecognised() {
+
+    assertTrue(Camunda8Errors.notFound(new ClientStatusException(Status.NOT_FOUND, null)));
+    assertFalse(
+        Camunda8Errors.notFound(new ClientStatusException(Status.PERMISSION_DENIED, null)));
+
+  }
+
+  @Test
+  @DisplayName("Either transport's answer is found however deep the client wrapped it")
+  public void aWrappedNotFoundIsRecognised() {
+
+    // the client hands an asynchronous command's failure over wrapped, so the answer of
+    // an inner cause is the answer of the whole
+    assertTrue(
+        Camunda8Errors
+            .notFound(new CompletionException(new ClientException("failed", problem(404, "NOT FOUND")))));
+    assertTrue(
+        Camunda8Errors
+            .notFound(
+                new CompletionException(
+                    new ClientException("failed", new ClientStatusException(Status.NOT_FOUND, null)))));
+
+  }
+
+  @Test
   @DisplayName("A message published twice is recognised on both transports, by their codes")
   public void aRepeatedPublicationIsRecognisedOnBothTransports() {
 

@@ -16,8 +16,13 @@ package io.vanillabp.camunda8.processservice;
  * ID attribute has. The filter has to follow that decision rather than the Java type
  * at hand, which is why this class quotes unconditionally - the two belong together
  * and a test pins them.
+ * <p>
+ * Public because an extension searching the cluster for a workflow by its aggregate id
+ * has to spell the filter value the same way this adapter does. It is one expression, which
+ * is the reason it must not be written twice rather than a reason it may be: a divergence
+ * returns an empty result, and that reads like "no such workflow".
  */
-final class Camunda8VariableFilters {
+public final class Camunda8VariableFilters {
 
   private Camunda8VariableFilters() {
   }
@@ -28,7 +33,7 @@ final class Camunda8VariableFilters {
    * @param workflowAggregateId The aggregate's ID
    * @return The quoted, escaped JSON string
    */
-  static String aggregateIdSearchValue(
+  public static String aggregateIdSearchValue(
       final Object workflowAggregateId) {
 
     return "\"%s\"".formatted(
