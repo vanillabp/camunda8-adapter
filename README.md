@@ -1869,8 +1869,17 @@ The reasoning behind the shape of it - why the client's Micrometer implementatio
 used, why the health check has a timeout of its own and where the slot gauges are read from -
 is in [`core/README.md`](./core/README.md).
 
+A task probe answering that the BPMS does not know the task writes one INFO line saying which
+of its two branches decided. Either the cluster reports the key in another scope, and the line
+carries the scope it reported next to the scopes the probe was asked about, or the cluster
+refused the probe's own command, and the line carries the code and the reason it refused with.
+The platform turns that answer into a `WorkflowNotFoundException` on the spot, a task being an
+exact question with no visibility window, so a run which ends there used to leave the
+platform's exception and not one word from the adapter.
+
 `MicrometerCamunda8MetricsTest` covers the meters and the gauges, `Camunda8HealthTest` the
-health contribution with its own timeout, and `Camunda8HealthBootTest` with
+health contribution with its own timeout, `Camunda8UnknownTaskProbeTest` both lines of the
+probe, and `Camunda8HealthBootTest` with
 `Camunda8AdapterDiscoveryTest#anAdapterWithoutAConnectionIsNotUnhealthy` the booted
 application's side of it.
 

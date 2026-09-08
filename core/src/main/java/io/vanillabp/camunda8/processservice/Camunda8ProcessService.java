@@ -444,6 +444,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       return WorkflowAwareness.ACTIVE;
     } catch (final Exception e) {
       if (Camunda8Errors.jobAlreadyGone(e)) {
+        // the platform throws on this answer at once, so the rejection which produced it
+        // is said out loud rather than left to a level nobody had turned on - the same
+        // reason answersForTheScopeOf gives for the other branch
+        log.info(
+            "Camunda8[{}]: task '{}' is unknown to the cluster - it refused the probe's "
+                + "UpdateJobTimeout with {}",
+            adapterId,
+            taskId,
+            Camunda8Errors.rejection(e));
         return WorkflowAwareness.UNKNOWN_TO_BPMS;
       }
       log.warn(
@@ -554,6 +563,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       return WorkflowAwareness.ACTIVE;
     } catch (final Exception e) {
       if (Camunda8Errors.jobAlreadyGone(e)) {
+        log.info(
+            "Camunda8[{}]: user task '{}' is unknown to the cluster - it refused the probe's "
+                + "UpdateUserTask with {}",
+            adapterId,
+            taskId,
+            Camunda8Errors.rejection(e));
         return WorkflowAwareness.UNKNOWN_TO_BPMS;
       }
       log.warn(
@@ -951,10 +966,14 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
             .newUserTaskGetRequest(taskKeyOf(taskId))
             .send()
             .join();
-        return isInScope(scope, task.getTenantId(), task.getBpmnProcessId());
+        return answersForTheScopeOf(scope, taskId, task.getTenantId(), task.getBpmnProcessId());
       }
       final var job = jobOf(taskId);
-      return (job == null) || isInScope(scope, job.getTenantId(), job.getProcessDefinitionId());
+      return (job == null) || answersForTheScopeOf(
+          scope,
+          taskId,
+          job.getTenantId(),
+          job.getProcessDefinitionId());
     } catch (final Exception e) {
       if (Camunda8Errors.jobAlreadyGone(e)) {
         // not exported yet or gone - the probe's own command answers that
@@ -968,6 +987,44 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           e);
       return true;
     }
+
+  }
+
+  /**
+   * Whether the scope the cluster reports for a task is one the probe was asked about, and
+   * where it is not, the line which says why the task is unknown.
+   * <p>
+   * <b>Why this is not a DEBUG line.</b> The caller answers UNKNOWN_TO_BPMS on a
+   * <code>false</code>, and the platform turns that into a
+   * {@code WorkflowNotFoundException} at once: a task is an exact question, so there is no
+   * visibility window and no second attempt. A run which ends that way used to leave the
+   * platform's exception and not one word from the adapter, and the next one would have
+   * looked exactly the same. So both values which decided it are collected rather than
+   * filtered away by a level nobody had turned on.
+   *
+   * @param scope What the probe was asked about
+   * @param taskId The task id, which is the job respectively user-task key
+   * @param tenantId The tenant the cluster reports for the task
+   * @param processDefinitionId The process id the cluster reports for the task
+   * @return Whether the probe may claim the task
+   */
+  private boolean answersForTheScopeOf(
+      final WorkflowScope scope,
+      final String taskId,
+      final String tenantId,
+      final String processDefinitionId) {
+
+    if (isInScope(scope, tenantId, processDefinitionId)) {
+      return true;
+    }
+    log.info(
+        "Camunda8[{}]: task '{}' is not this adapter id's to answer for - the cluster reports it "
+            + "in scope '{}', while the probe asks about {}",
+        adapterId,
+        taskId,
+        scopeKey(tenantId, processDefinitionId),
+        scopeKeysOf(scope));
+    return false;
 
   }
 

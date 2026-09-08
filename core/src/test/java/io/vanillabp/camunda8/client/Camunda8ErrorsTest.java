@@ -271,4 +271,29 @@ public class Camunda8ErrorsTest {
 
   }
 
+  @Test
+  @DisplayName("A rejection is named by the code it arrived on and the words around it")
+  public void aRejectionCarriesItsCodeAndItsReason() {
+
+    assertEquals(
+        "HTTP 404, job not found",
+        Camunda8Errors.rejection(new ClientHttpException("Failed with code 404", 404, "job not found")));
+    assertEquals(
+        "gRPC NOT_FOUND, no such job",
+        Camunda8Errors
+            .rejection(new ClientStatusException(Status.NOT_FOUND.withDescription("no such job"), null)));
+    // a problem detail arrives with line breaks in it, and a log line which brings its own
+    // is a log line nothing greps
+    assertEquals(
+        "HTTP 409, the message was published before",
+        Camunda8Errors
+            .rejection(
+                new ClientHttpException("conflict", 409, "the message\n  was published\n  before")));
+    // and a failure of neither transport still says what it was
+    assertEquals(
+        "java.lang.IllegalStateException: connection reset",
+        Camunda8Errors.rejection(new IllegalStateException("connection reset")));
+
+  }
+
 }
