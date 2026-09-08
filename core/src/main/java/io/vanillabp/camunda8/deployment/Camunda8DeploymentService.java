@@ -433,8 +433,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * <p>
    * It is the same catalog every deployed process of this adapter is registered with: it
    * searches by the process id as the cluster knows it, so a prefix and a tenant reach the
-   * old id like any other, and a cluster without its query API answers nothing and says so
-   * once.
+   * old id like any other.
    */
   @Override
   public io.vanillabp.integration.adapter.spi.version.ProcessVersionCatalog processVersionCatalogOf(
@@ -1019,7 +1018,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * the number which goes to zero as those tasks are finished.
    *
    * @param scopedBpmnProcessId The process id as the cluster knows it
-   * @return The count, or <code>null</code> where the query API cannot be asked
+   * @return The count, or <code>null</code> where the cluster did not answer
    */
   private Long countOpenLegacyUserTasks(
       final String scopedBpmnProcessId) {

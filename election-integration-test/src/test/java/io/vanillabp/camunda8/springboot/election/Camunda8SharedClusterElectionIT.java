@@ -73,9 +73,9 @@ public class Camunda8SharedClusterElectionIT {
           .withStartupTimeout(Duration.ofMinutes(3)));
 
   /**
-   * The election probes ask the query API, so this cluster exports to Elasticsearch.
-   * Without it an application configuring two ids on one cluster does not boot at all,
-   * which is the other half of the rule.
+   * The election probes search the cluster, so this cluster exports to Elasticsearch.
+   * A cluster which answers no search is refused while the adapter deploys, for one
+   * adapter id as well as for two, which {@code Camunda8UnsearchableClusterIT} proves.
    */
   @Container
   static final GenericContainer<?> CAMUNDA = ElectionCluster.cluster(NETWORK, ELASTICSEARCH);

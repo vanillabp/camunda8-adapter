@@ -114,8 +114,8 @@ public class Camunda8WorkflowViewer {
     if (instance != null) {
       definition = definitionOf(instance);
     } else if (historyContext != null) {
-      // a context which cannot be resolved (query API unavailable or the instance
-      // is gone) must not silently answer with the primary process's definitions
+      // a context which cannot be resolved (the cluster did not answer, or the
+      // instance is gone) must not silently answer with the primary process's definitions
       return List.of();
     } else {
       definition = deployedDefinition(workflowModuleId, bpmnProcessId);
@@ -171,7 +171,7 @@ public class Camunda8WorkflowViewer {
               + "application version are available until it does ({})",
           adapterId,
           processDefinitionId,
-          Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED,
+          Camunda8QueryApi.WHY_A_SEARCH_FAILS_AFTER_THE_DEPLOYMENT,
           e);
       return null;
     }
@@ -373,8 +373,8 @@ public class Camunda8WorkflowViewer {
    * aggregate-ID variable) or - for a history context - the called instance,
    * accepted ONLY if its root instance is that very workflow.
    *
-   * @return The instance or <code>null</code> (unknown, not visible yet, or no
-   *         query API)
+   * @return The instance or <code>null</code> (unknown, not visible yet, or the cluster
+   *         did not answer)
    */
   private ProcessInstance findInstance(
       final String workflowModuleId,
@@ -573,7 +573,7 @@ public class Camunda8WorkflowViewer {
               + "call - unless the cluster stopped answering searches for good ({}).",
           adapterId,
           subject,
-          Camunda8QueryApi.WHY_THE_CLUSTER_CANNOT_BE_SEARCHED,
+          Camunda8QueryApi.WHY_A_SEARCH_FAILS_AFTER_THE_DEPLOYMENT,
           exception);
     } else {
       log.debug(

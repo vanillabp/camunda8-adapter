@@ -101,7 +101,7 @@ public class Camunda8QueryApiTest {
     assertEquals(
         1,
         searches.get(),
-        "neither secondary storage nor the credentials change while the application runs");
+        "the answer is remembered rather than asked again");
 
   }
 

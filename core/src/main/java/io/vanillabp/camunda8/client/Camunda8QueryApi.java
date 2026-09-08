@@ -39,15 +39,25 @@ import lombok.extern.slf4j.Slf4j;
 public class Camunda8QueryApi {
 
   /**
-   * What every message about a cluster refusing to be searched says about the reason,
+   * What the message about a cluster refusing to be searched says about the reason,
    * because the cluster refuses for two reasons and separates them in prose only. The
-   * deployment's requirement pastes it, and so do the messages about a search which
-   * failed at runtime: a credential losing its read permission while the application
-   * runs looks exactly like an outage.
+   * requirement the deployment enforces is the one place which says this, and it says it
+   * while both reasons are still open.
    */
   public static final String WHY_THE_CLUSTER_CANNOT_BE_SEARCHED = "either the cluster runs WITHOUT "
       + "secondary storage (camunda.data.secondary-storage.type), or this adapter's credentials "
       + "are not allowed to read what it asks for";
+
+  /**
+   * What every message about a search which failed AFTER the deployment says about the
+   * reason. One of the two reasons above is not a candidate by then: the deployment
+   * proved this cluster answers searches, and a cluster neither gains nor loses its
+   * secondary storage while it runs. Naming the property here would send a reader to
+   * check the one thing which cannot be the cause, so what is named is what can: the
+   * cluster is unreachable, or a read permission was revoked underneath the application.
+   */
+  public static final String WHY_A_SEARCH_FAILS_AFTER_THE_DEPLOYMENT = "the cluster is not "
+      + "answering, or this adapter's credentials lost their permission to read what it asks for";
 
   private final String adapterId;
 
