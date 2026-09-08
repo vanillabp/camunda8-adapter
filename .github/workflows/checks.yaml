@@ -58,6 +58,12 @@ jobs:
   # is not compiled by a build of line 8.9, so an update of it would be merged unbuilt and
   # show up in the night. When a pull request touches one of the pins, the whole matrix runs
   # here, and that is what makes an automerged client patch honest.
+  #
+  # Only the ADDED and REMOVED lines carry that decision. A diff carries three lines of
+  # context around every hunk, so reading the whole diff made every change near a pin a pin
+  # move: a property added to the line-8.8 profile below its pin pulled 8.8 and 8.10 into a
+  # pull request which moved nothing, and the preview line stood in the way of a story for
+  # half an hour. The +++/--- file headers never carry the pattern, so the anchor is enough.
   pin-change:
     runs-on: ubuntu-latest
     outputs:
@@ -70,7 +76,7 @@ jobs:
         name: Does this pull request move a client pin
         run: |
           if git diff "origin/${{ github.base_ref }}...HEAD" -- pom.xml \
-            | grep -q 'camunda8\.version\.line-'; then
+            | grep -q '^[+-].*camunda8\.version\.line-'; then
             echo "pins=true" >> "$GITHUB_OUTPUT"
             echo "A client pin moves, so every line is built."
           else

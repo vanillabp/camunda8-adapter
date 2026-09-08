@@ -91,7 +91,9 @@
          newer, the lowest cluster version the artifacts accept. Every line is built from
          THIS source tree, so a fix exists on every line the moment it is committed.
          The properties below are what Renovate maintains, one per line, and what the
-         line-* profiles select. Their values are the pins the CI matrix runs. -->
+         line-* profiles select. Their values are the pins the CI matrix runs, and a pull
+         request which moves one of them builds every line instead of the current GA
+         alone (the job 'pin-change' in .github/workflows/checks.yaml). -->
     <camunda8.line>8.9</camunda8.line>
     <camunda8.version>${camunda8.version.line-8.9}</camunda8.version>
     <camunda8.version.line-8.8>8.8.37</camunda8.version.line-8.8>

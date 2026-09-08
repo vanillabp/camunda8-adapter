@@ -205,6 +205,56 @@ public final class Camunda8Errors {
   }
 
   /**
+   * How the cluster named a rejection, in the few words a log line can carry: the code of
+   * the transport it arrived on and the sentence the cluster wrote around it.
+   * <p>
+   * The classifications above read a code and nothing else, because a decision may not rest
+   * on words the cluster is free to reword (see decision 16 in the repository's
+   * DECISIONS.md). This one decides nothing. It is read by a reader, who wants both halves
+   * of what came back and wants them without turning on a stack trace first.
+   *
+   * @param throwable What the command failed with
+   * @return One phrase naming the rejection, never <code>null</code>
+   */
+  public static String rejection(
+      final Throwable throwable) {
+
+    var current = throwable;
+    while (current != null) {
+      if (current instanceof ClientHttpException http) {
+        return "HTTP %d, %s".formatted(Integer.valueOf(http.code()), inOneLine(http.reason(), http));
+      }
+      if (current instanceof ClientStatusException status) {
+        return "gRPC %s, %s"
+            .formatted(status.getStatusCode(), inOneLine(status.getStatus().getDescription(), status));
+      }
+      current = current.getCause() == current
+          ? null
+          : current.getCause();
+    }
+    return incidentMessage(throwable);
+
+  }
+
+  /**
+   * What the cluster wrote around a code, as one line: the reason the transport carries, and
+   * the exception's message where it carries none. A problem detail arrives with line breaks
+   * in it, and a log line which brings its own is a log line nothing greps.
+   */
+  private static String inOneLine(
+      final String reason,
+      final Throwable throwable) {
+
+    final var words = (reason == null) || reason.isBlank()
+        ? throwable.getMessage()
+        : reason;
+    return (words == null) || words.isBlank()
+        ? "no reason given"
+        : words.replaceAll("\\s+", " ").trim();
+
+  }
+
+  /**
    * What a failed job reports as its error message - the text an operator reads in the
    * incident, so it carries the exception's TYPE next to its message. Camunda's own advice
    * is that this message is what a human sees, and the plain message alone says

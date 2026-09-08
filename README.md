@@ -205,9 +205,11 @@ pull request does run for all lines is the API identity check, which needs no cl
 
 One pull request pays for every line anyway: the one which moves a client pin. A build of
 line 8.9 never compiles the pin of 8.8, so the change nobody built is exactly the one being
-proposed. `checks.yaml` notices a pin in the diff and calls the matrix, and the result reports
-as `line-pins-verified`, which is green without a matrix run when no pin moved. This is what a
-client patch merging itself rests on.
+proposed. `checks.yaml` notices a pin among the lines a pull request adds or removes and calls
+the matrix, and the result reports as `line-pins-verified`, which is green without a matrix run
+when no pin moved. Only the added and removed lines count: a diff carries three lines of context
+around every hunk, so reading all of it made every change near a pin buy the whole matrix. This
+is what a client patch merging itself rests on.
 
 ### Release and CI plumbing
 
@@ -1428,6 +1430,21 @@ the catalog of such an id once the module was deployed
 cluster still holds under it, so the startup check reaches the workflows which are still
 running there.
 
+What that catalog says about ONE of those versions is read from the models the cluster holds
+(`Camunda8ModelsTheClusterHolds`), the picture every check judging a model asks. Next to the
+tasks of a version it answers the start events the cluster fires on its own there, and that
+answer is what judges a `@WorkflowStartedByBpms` method kept for a declared-only id. Nothing
+wires such an id while the application boots, so a method naming a start event none of the
+held versions declares stayed silent for the life of the application, while the cluster kept
+firing the old model's timer every day. Where the cluster cannot be asked, the adapter says
+so and the check stays silent instead of judging the method by an answer nobody has.
+
+The same picture answers which elements of a held version can put a second token into one of
+its workflows, so a version whose parallel gateway the newest model dropped is named by the
+concurrent-token report as well. Those workflows keep forking the way they did when that
+version was deployed, and they are the ones which run longest, which is why a report reading
+this boot's model alone missed exactly the case which lasts.
+
 Whether the workflows under such a declared id keep RUNNING is a second question, and it is
 answered by workers rather than by queries. A job worker asks for one task definition, and
 under `use-prefix` that name carries the id of the process the task was deployed with
@@ -1457,8 +1474,9 @@ says so with the two ways out.
 `Camunda8ProcessVersionIT#theVersionDecidesWhichMethodRuns` and `Camunda8OldProcessVersionsIT`
 say which method serves which version, `Camunda8DeletedProcessVersionsTest` a version the
 cluster no longer has, `Camunda8RenamedProcessTest` with `Camunda8RenamedProcessIT` the
-declared id and a workflow which outlives the rename, and `Camunda8StartupQuestionCostTest`
-counts the queries the claim above is about.
+declared id and a workflow which outlives the rename, `Camunda8StartEventsOfHeldVersionsTest`
+what a held version starts on and `Camunda8ConcurrentTokensOfHeldVersionsTest` what it forks
+into, and `Camunda8StartupQuestionCostTest` counts the queries the claim above is about.
 
 ### Multi-instance
 
@@ -1851,8 +1869,17 @@ The reasoning behind the shape of it - why the client's Micrometer implementatio
 used, why the health check has a timeout of its own and where the slot gauges are read from -
 is in [`core/README.md`](./core/README.md).
 
+A task probe answering that the BPMS does not know the task writes one INFO line saying which
+of its two branches decided. Either the cluster reports the key in another scope, and the line
+carries the scope it reported next to the scopes the probe was asked about, or the cluster
+refused the probe's own command, and the line carries the code and the reason it refused with.
+The platform turns that answer into a `WorkflowNotFoundException` on the spot, a task being an
+exact question with no visibility window, so a run which ends there used to leave the
+platform's exception and not one word from the adapter.
+
 `MicrometerCamunda8MetricsTest` covers the meters and the gauges, `Camunda8HealthTest` the
-health contribution with its own timeout, and `Camunda8HealthBootTest` with
+health contribution with its own timeout, `Camunda8UnknownTaskProbeTest` both lines of the
+probe, and `Camunda8HealthBootTest` with
 `Camunda8AdapterDiscoveryTest#anAdapterWithoutAConnectionIsNotUnhealthy` the booted
 application's side of it.
 

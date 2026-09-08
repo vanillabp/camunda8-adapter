@@ -19,6 +19,7 @@ import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.integration.adapter.spi.version.CachingProcessVersionCatalog;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
+import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartSpec;
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 import lombok.extern.slf4j.Slf4j;
 
@@ -100,6 +101,145 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
       final TasksOfModel tasksOfModel) {
 
     this.tasksOfModel = tasksOfModel;
+
+  }
+
+  /**
+   * Reads one kind of finding out of a model the cluster holds - the walk the deployment
+   * service already runs over the model it deploys, run over a model it never brought.
+   *
+   * @param <T> What the walk finds
+   */
+  @FunctionalInterface
+  public interface WhatAModelDeclares<T> {
+
+    Collection<T> of(
+        String workflowModuleId,
+        String bpmnProcessId,
+        BpmnModelInstance model);
+
+  }
+
+  /**
+   * The model of ONE version the cluster holds, out of the picture every check judging a
+   * model asks - see decision 21 in the repository's DECISIONS.md.
+   */
+  @FunctionalInterface
+  public interface HeldModelOfVersion {
+
+    /**
+     * @param workflowModuleId The workflow module ID
+     * @param bpmnProcessId The PLAIN BPMN process ID
+     * @param version The version the cluster assigned
+     * @return The model, or <code>null</code> where the cluster could not be asked or
+     *         does not hold that version any more
+     */
+    BpmnModelInstance of(
+        String workflowModuleId,
+        String bpmnProcessId,
+        String version);
+
+  }
+
+  private HeldModelOfVersion heldModelOfVersion;
+
+  private WhatAModelDeclares<BpmsInitiatedStartSpec> startEventsOfModel;
+
+  /**
+   * @param heldModelOfVersion How the deployment service gets at a model the cluster
+   *          holds
+   */
+  public void setHeldModelOfVersion(
+      final HeldModelOfVersion heldModelOfVersion) {
+
+    this.heldModelOfVersion = heldModelOfVersion;
+
+  }
+
+  /**
+   * @param startEventsOfModel How the deployment service reads the start events a model
+   *          declares
+   */
+  public void setStartEventsOfModel(
+      final WhatAModelDeclares<BpmsInitiatedStartSpec> startEventsOfModel) {
+
+    this.startEventsOfModel = startEventsOfModel;
+
+  }
+
+  @Override
+  public Collection<BpmsInitiatedStartSpec> startEventsOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    return whatTheHeldModelDeclares(workflowModuleId, bpmnProcessId, version, startEventsOfModel);
+
+  }
+
+  private WhatAModelDeclares<String> concurrentTokenElementsOfModel;
+
+  /**
+   * @param concurrentTokenElementsOfModel How the deployment service reads the elements
+   *          which can put a second token into a workflow of a model
+   */
+  public void setConcurrentTokenElementsOfModel(
+      final WhatAModelDeclares<String> concurrentTokenElementsOfModel) {
+
+    this.concurrentTokenElementsOfModel = concurrentTokenElementsOfModel;
+
+  }
+
+  @Override
+  public Collection<String> concurrentTokenElementsOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    return whatTheHeldModelDeclares(
+        workflowModuleId,
+        bpmnProcessId,
+        version,
+        concurrentTokenElementsOfModel);
+
+  }
+
+  /**
+   * What one version's model declares, or that this adapter cannot say.
+   * <p>
+   * The model comes from the picture of what the cluster holds rather than from a read of
+   * its own, so the answers this adapter gives about a held version and the checks it makes
+   * against one see the same models, read once (decision 21 in the repository's
+   * DECISIONS.md). Where the picture cannot tell, and where the cluster does not hold that
+   * version any more, the answer is <code>null</code>: both are a model nobody read, and
+   * an empty answer would claim that the model has no such element.
+   */
+  private <T> Collection<T> whatTheHeldModelDeclares(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version,
+      final WhatAModelDeclares<T> walk) {
+
+    if ((walk == null) || (heldModelOfVersion == null)) {
+      return null;
+    }
+    final BpmnModelInstance model;
+    try {
+      model = heldModelOfVersion.of(workflowModuleId, bpmnProcessId, version);
+    } catch (final RuntimeException e) {
+      log.warn(
+          "Camunda8[{}]: the model of version {} of BPMN process '{}' (workflow module '{}') could not be read, "
+              + "so VanillaBP says nothing about that version",
+          adapterId,
+          version,
+          bpmnProcessId,
+          workflowModuleId,
+          e);
+      return null;
+    }
+    return model == null
+        ? null
+        : walk.of(workflowModuleId, bpmnProcessId, model);
 
   }
 
