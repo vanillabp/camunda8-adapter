@@ -42,6 +42,13 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * the cluster knows and the id the core is keyed by would show up, and neither can be
  * faked.
  * <p>
+ * The message of that wait state carries a name only the FIRST generation's model
+ * declares - the second generation renamed it. So the correlation passes phase one only
+ * where the message check reads the models the cluster holds for the ids this
+ * application declares, instead of the models this application version deployed; and a
+ * name no model of either generation declares is still refused, with a remedy naming
+ * what the cluster holds. Both are what this class measures about the check.
+ * <p>
  * What is asked here is whether the workflows keep running, not what the startup check
  * reports about their versions - that report is held by
  * {@code Camunda8OldProcessVersionsIT} and by the platform's own
@@ -127,8 +134,27 @@ public class Camunda8RenamedProcessIT {
       final var workflowService = application.getBean(RenamedAfterDockerWorkflowService.class);
       final var repository = application.getBean(RenamedDockerAggregateRepository.class);
 
+      // a name NO model of either generation declares is still refused, and the
+      // refusal proves the message check read the models the CLUSTER holds: the
+      // remedy names 'RenameContinue', which only the old id's model declares
+      final var refused = assertThrows(
+          RuntimeException.class,
+          () -> application
+              .getBean(TransactionTemplate.class)
+              .executeWithoutResult(status -> workflowService.correlateAMessageNoModelDeclares(orderId)));
+      assertTrue(
+          refused.getMessage().contains("DeclaredByNoModelAtAll"),
+          () -> "the refusal has to name the message the application passed: "
+              + refused.getMessage());
+      assertTrue(
+          refused.getMessage().contains("RenameContinue"),
+          () -> "and what IS declared, the old id's model in the cluster included: "
+              + refused.getMessage());
+
       // the message reaches a subscription the FIRST application created, under the id
-      // this application does not deploy any more
+      // this application does not deploy any more - and its name is declared only by
+      // the model the cluster holds under that old id, so the check has to read it
+      // there instead of refusing the correlation
       application
           .getBean(TransactionTemplate.class)
           .executeWithoutResult(status -> workflowService.continueWorkflow(orderId));

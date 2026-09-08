@@ -3,7 +3,12 @@
                   xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
                   id="Definitions_RenamedProcess_v2"
                   targetNamespace="http://bpmn.io/schema/bpmn">
-  <bpmn:message id="Msg_RenameContinue" name="RenameContinue" />
+  <!-- the message of the rename's wait state got a NEW name in this generation: the
+       workflow started before the rename waits for 'RenameContinue', a name only the
+       old id's model in the cluster still declares - correlating it is the proof that
+       the message check reads the models the cluster holds rather than the models
+       this application version deployed -->
+  <bpmn:message id="Msg_RenameContinueV2" name="RenameContinueV2" />
   <!-- the message of the process nobody serves carries the correlation key its modeller
        wrote: no workflow aggregate of this application can supply one, and Camunda 8
        demands it of every executable process, so without it the whole file would be
@@ -31,7 +36,7 @@
     <bpmn:intermediateCatchEvent id="RN_Wait">
       <bpmn:incoming>RN_ToWait</bpmn:incoming>
       <bpmn:outgoing>RN_ToFinished</bpmn:outgoing>
-      <bpmn:messageEventDefinition id="RN_MsgDef" messageRef="Msg_RenameContinue" />
+      <bpmn:messageEventDefinition id="RN_MsgDef" messageRef="Msg_RenameContinueV2" />
     </bpmn:intermediateCatchEvent>
     <bpmn:sequenceFlow id="RN_ToFinished" sourceRef="RN_Wait" targetRef="RN_Finished" />
     <bpmn:serviceTask id="RN_Finished">
