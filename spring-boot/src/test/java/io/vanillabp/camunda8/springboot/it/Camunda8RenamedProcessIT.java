@@ -18,7 +18,6 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -78,13 +77,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class Camunda8RenamedProcessIT {
 
-  static final Network NETWORK = Network.newNetwork();
-
   @Container
-  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
 
   /**
    * The workflow started by the first application, read by the second one from the same

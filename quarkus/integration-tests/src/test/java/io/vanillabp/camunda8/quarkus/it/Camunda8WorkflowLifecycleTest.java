@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -23,9 +22,6 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 import io.quarkus.test.QuarkusProdModeTest;
 import io.restassured.RestAssured;
@@ -52,11 +48,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * nothing.
  * <p>
  * One cluster carries all of it. A prod-mode test boots its application once per test
- * class, and on Camunda 8 that boot drags a container pair along - the orchestration
- * cluster plus the Elasticsearch it exports to, which is what every cluster of this
- * adapter's tests is, because the adapter serves no cluster it cannot search. So this is
- * deliberately ONE class with many tests instead of a class per feature: the Spring Boot
- * module pays for one pair per class, this one pays for one pair in total.
+ * class, and on Camunda 8 that boot drags a cluster along, because the adapter serves no
+ * cluster it cannot search. So this is deliberately ONE class with many tests instead of
+ * a class per feature: the Spring Boot module pays for one cluster per class, this one
+ * pays for one in total.
  * <p>
  * Three things of the Spring Boot suite are deliberately NOT repeated here:
  * <ul>
@@ -104,8 +99,6 @@ public class Camunda8WorkflowLifecycleTest {
    */
   private static final long QUERY_TIMEOUT_MS = 240_000;
 
-  private static final Duration CONTAINER_STARTUP = Duration.ofMinutes(5);
-
   /**
    * The two tests carrying this tag wait for a notification of a user-task LISTENER job, and on
    * the preview line such jobs never reach their worker: the REST gateway of
@@ -119,47 +112,15 @@ public class Camunda8WorkflowLifecycleTest {
 
   // --- the cluster under test ---
 
-  static final Network NETWORK = Network.newNetwork();
-
-  static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
-      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
-      .withNetwork(NETWORK)
-      .withNetworkAliases("elasticsearch")
-      .withEnv("discovery.type", "single-node")
-      .withEnv("xpack.security.enabled", "false")
-      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
-      .withExposedPorts(9200)
-      .waitingFor(Wait
-          .forHttp("/_cluster/health")
-          .forPort(9200)
-          .forStatusCode(200)
-          .withStartupTimeout(CONTAINER_STARTUP));
-
-  static final GenericContainer<?> CAMUNDA = new GenericContainer<>(ClusterImage.of())
-      .withLogConsumer(ClusterLog.of("lifecycle-cluster"))
-      .withNetwork(NETWORK)
-      .withExposedPorts(8080, 26500, 9600)
-      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "elasticsearch")
-      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_ELASTICSEARCH_URL", "http://elasticsearch:9200")
-      // an unprotected API keeps an authentication provider out of this test - what
-      // credentials reaching the cluster look like has a test of its own
-      .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
-      // the readiness probe turns UP only once the partition leader accepts
-      // deployments, which avoids a transient 503 on the first deploy at startup
-      .waitingFor(Wait
-          .forHttp("/actuator/health/readiness")
-          .forPort(9600)
-          .forStatusCode(200)
-          .withStartupTimeout(CONTAINER_STARTUP));
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster("lifecycle-cluster");
 
   /*
-   * The containers are started HERE and not by the Testcontainers extension: the
+   * The cluster is started HERE and not by the Testcontainers extension: the
    * application's configuration needs the mapped ports, and a prod-mode test reads its
    * runtime properties while the field below is initialized - which happens before any
-   * extension callback runs. Ryuk removes them when this JVM exits.
+   * extension callback runs. Ryuk removes what is left when this JVM exits.
    */
   static {
-    ELASTICSEARCH.start();
     CAMUNDA.start();
   }
 

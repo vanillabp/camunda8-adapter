@@ -13,9 +13,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -39,39 +36,7 @@ public class Camunda8NativeImageIT {
    */
   private static final Duration UNTIL_EXITED = Duration.ofMinutes(4);
 
-  private static final Duration CONTAINER_STARTUP = Duration.ofMinutes(5);
-
-  private static final Network NETWORK = Network.newNetwork();
-
-  private static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
-      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
-      .withNetwork(NETWORK)
-      .withNetworkAliases("elasticsearch")
-      .withEnv("discovery.type", "single-node")
-      .withEnv("xpack.security.enabled", "false")
-      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
-      .withExposedPorts(9200)
-      .waitingFor(Wait
-          .forHttp("/_cluster/health")
-          .forPort(9200)
-          .forStatusCode(200)
-          .withStartupTimeout(CONTAINER_STARTUP));
-
-  private static final GenericContainer<?> CAMUNDA = new GenericContainer<>(ClusterImage.of())
-      .withNetwork(NETWORK)
-      .withExposedPorts(8080, 9600)
-      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "elasticsearch")
-      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_ELASTICSEARCH_URL", "http://elasticsearch:9200")
-      // an unprotected API keeps an authentication provider out of this test - what
-      // credentials reaching the cluster look like has tests of its own
-      .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
-      // the readiness probe turns UP only once the partition leader accepts
-      // deployments, which avoids a transient 503 on the first deploy at startup
-      .waitingFor(Wait
-          .forHttp("/actuator/health/readiness")
-          .forPort(9600)
-          .forStatusCode(200)
-          .withStartupTimeout(CONTAINER_STARTUP));
+  private static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
 
   @Test
   @DisplayName("The native binary boots, deploys its workflow module and runs a workflow")
@@ -86,7 +51,6 @@ public class Camunda8NativeImageIT {
             'mvn -Dnative -pl quarkus/native-image-tests verify'."""
             .formatted(binary));
 
-    ELASTICSEARCH.start();
     CAMUNDA.start();
     try {
       final var output = runBinary(binary);
@@ -103,7 +67,6 @@ public class Camunda8NativeImageIT {
               .formatted(output.text()));
     } finally {
       CAMUNDA.stop();
-      ELASTICSEARCH.stop();
     }
 
   }

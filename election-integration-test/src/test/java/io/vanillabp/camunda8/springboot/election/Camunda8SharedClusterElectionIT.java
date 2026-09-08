@@ -17,11 +17,8 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -55,30 +52,13 @@ import io.vanillabp.spi.process.WorkflowNotFoundException;
 @Testcontainers(disabledWithoutDocker = true)
 public class Camunda8SharedClusterElectionIT {
 
-  static final Network NETWORK = Network.newNetwork();
-
-  @Container
-  static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
-      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
-      .withNetwork(NETWORK)
-      .withNetworkAliases("elasticsearch")
-      .withEnv("discovery.type", "single-node")
-      .withEnv("xpack.security.enabled", "false")
-      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
-      .withExposedPorts(9200)
-      .waitingFor(Wait
-          .forHttp("/_cluster/health")
-          .forPort(9200)
-          .forStatusCode(200)
-          .withStartupTimeout(Duration.ofMinutes(3)));
-
   /**
-   * The election probes search the cluster, so this cluster exports to Elasticsearch.
+   * The election probes search the cluster, so this cluster brings secondary storage.
    * A cluster which answers no search is refused while the adapter deploys, for one
    * adapter id as well as for two, which {@code Camunda8UnsearchableClusterIT} proves.
    */
   @Container
-  static final GenericContainer<?> CAMUNDA = ElectionCluster.cluster(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> CAMUNDA = ElectionCluster.cluster();
 
   private ConfigurableApplicationContext application;
 

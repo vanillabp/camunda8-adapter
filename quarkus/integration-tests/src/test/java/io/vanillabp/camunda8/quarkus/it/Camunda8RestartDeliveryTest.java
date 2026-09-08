@@ -19,9 +19,6 @@ import org.junit.jupiter.api.TestReporter;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 import io.quarkus.test.QuarkusProdModeTest;
 import io.restassured.RestAssured;
@@ -74,45 +71,16 @@ public class Camunda8RestartDeliveryTest {
    */
   private static final Duration DELIVERED_IN_SECONDS = Duration.ofSeconds(8);
 
-  private static final Duration CONTAINER_STARTUP = Duration.ofMinutes(5);
-
   private static final Path LOG_FILE = Path
       .of("target", "c8-restart-application.log")
       .toAbsolutePath();
 
-  static final Network NETWORK = Network.newNetwork();
-
-  static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
-      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
-      .withNetwork(NETWORK)
-      .withNetworkAliases("elasticsearch")
-      .withEnv("discovery.type", "single-node")
-      .withEnv("xpack.security.enabled", "false")
-      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
-      .withExposedPorts(9200)
-      .waitingFor(Wait
-          .forHttp("/_cluster/health")
-          .forPort(9200)
-          .forStatusCode(200)
-          .withStartupTimeout(CONTAINER_STARTUP));
-
   /**
-   * The cluster of this test. It exports to Elasticsearch because the adapter serves no
+   * The cluster of this test. It brings secondary storage because the adapter serves no
    * cluster it cannot search: the application under test would refuse to deploy into a
    * broker alone, whatever the test is actually about.
    */
-  static final GenericContainer<?> CAMUNDA = new GenericContainer<>(ClusterImage.of())
-      .withLogConsumer(ClusterLog.of("restart-cluster"))
-      .withNetwork(NETWORK)
-      .withExposedPorts(8080, 26500, 9600)
-      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "elasticsearch")
-      .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_ELASTICSEARCH_URL", "http://elasticsearch:9200")
-      .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
-      .waitingFor(Wait
-          .forHttp("/actuator/health/readiness")
-          .forPort(9600)
-          .forStatusCode(200)
-          .withStartupTimeout(CONTAINER_STARTUP));
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster("restart-cluster");
 
   /*
    * Started here rather than by the Testcontainers extension: the application's runtime
@@ -120,7 +88,6 @@ public class Camunda8RestartDeliveryTest {
    * initialized. The cluster outlives BOTH runs of the application this test makes.
    */
   static {
-    ELASTICSEARCH.start();
     CAMUNDA.start();
   }
 
