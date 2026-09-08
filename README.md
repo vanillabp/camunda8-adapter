@@ -205,9 +205,11 @@ pull request does run for all lines is the API identity check, which needs no cl
 
 One pull request pays for every line anyway: the one which moves a client pin. A build of
 line 8.9 never compiles the pin of 8.8, so the change nobody built is exactly the one being
-proposed. `checks.yaml` notices a pin in the diff and calls the matrix, and the result reports
-as `line-pins-verified`, which is green without a matrix run when no pin moved. This is what a
-client patch merging itself rests on.
+proposed. `checks.yaml` notices a pin among the lines a pull request adds or removes and calls
+the matrix, and the result reports as `line-pins-verified`, which is green without a matrix run
+when no pin moved. Only the added and removed lines count: a diff carries three lines of context
+around every hunk, so reading all of it made every change near a pin buy the whole matrix. This
+is what a client patch merging itself rests on.
 
 ### Release and CI plumbing
 
