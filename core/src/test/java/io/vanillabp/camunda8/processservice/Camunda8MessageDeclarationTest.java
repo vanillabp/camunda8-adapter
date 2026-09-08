@@ -155,6 +155,46 @@ public class Camunda8MessageDeclarationTest {
   }
 
   @Test
+  @DisplayName("A module declaring an id nothing was deployed under refuses nothing, whatever the name")
+  public void aModuleWithADeclaredOnlyIdRefusesNothing() {
+
+    final var clientFactory = clientFactory();
+    deploy(clientFactory, "module", modelWaitingFor("PaymentReceived"));
+    // the old id of a renamed process: the message a waiting workflow needs may be
+    // declared only by a model the cluster holds, so the declared names are unknown
+    // rather than absent
+    clientFactory
+        .getDeployedProcesses()
+        .recordDeclaredWithoutDeployment("module", "OldProcess");
+
+    assertDoesNotThrow(
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "DeclaredNowhereAmongTheDeployedModels", PhaseTwoCall.ARG_CORRELATION_ID, null)));
+
+  }
+
+  @Test
+  @DisplayName("A declared-only id of ANOTHER module does not silence the check")
+  public void aDeclaredOnlyIdOfAnotherModuleChangesNothing() {
+
+    final var clientFactory = clientFactory();
+    deploy(clientFactory, "module", modelWaitingFor("PaymentReceived"));
+    clientFactory
+        .getDeployedProcesses()
+        .recordDeclaredWithoutDeployment("another-module", "OldProcess");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> PhaseOperations.phaseOne(serviceOf(clientFactory),
+            PhaseOperation.CORRELATE_MESSAGE, "module", "Process", persistence(),
+            new Aggregate("agg-1"), PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME,
+                "PaymentRecieved", PhaseTwoCall.ARG_CORRELATION_ID, null)));
+
+  }
+
+  @Test
   @DisplayName("Messages of every deployed process of the module count, not only the calling one")
   public void everyProcessOfTheModuleCounts() {
 

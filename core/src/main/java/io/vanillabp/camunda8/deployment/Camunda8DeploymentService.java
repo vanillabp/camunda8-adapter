@@ -1746,6 +1746,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .forEach((
             bpmnProcessId,
             taskDefinitions) -> {
+          // whatever scoping decides about extra workers below, the message check of
+          // correlateMessage has to know that models of this module live in the
+          // cluster only - so the declared id is recorded in every mode
+          clientFactory
+              .getDeployedProcesses()
+              .recordDeclaredWithoutDeployment(workflowModuleId, bpmnProcessId);
           final var openedJobTypes = new TreeSet<String>();
           taskDefinitions
               .forEach(taskDefinition -> {

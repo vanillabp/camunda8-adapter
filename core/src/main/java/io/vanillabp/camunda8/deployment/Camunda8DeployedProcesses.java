@@ -1,8 +1,8 @@
 package io.vanillabp.camunda8.deployment;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
@@ -59,6 +59,14 @@ public class Camunda8DeployedProcesses {
    */
   private final Map<String, DeployedProcess> byProcess = new ConcurrentHashMap<>();
 
+  /**
+   * The PLAIN BPMN process ids a workflow module DECLARES while this application
+   * version deployed nothing under them - the old id of a renamed process, whose
+   * models live in the cluster only. Recorded when the module starts processing,
+   * which is when the difference between declared and deployed is settled.
+   */
+  private final Map<String, Set<String>> declaredWithoutDeployment = new ConcurrentHashMap<>();
+
   public void record(
       final DeployedProcess deployedProcess) {
 
@@ -92,15 +100,49 @@ public class Camunda8DeployedProcesses {
   }
 
   /**
-   * Every process this application version deployed through this adapter id - the set the
-   * awareness probes derive the adapter's SCOPE from.
+   * Records a BPMN process id the workflow module declares without this application
+   * version deploying anything under it.
    *
-   * @return The deployed processes, empty where nothing was deployed (a module whose
-   *         deployment failed under the 'warn' policy, or a test)
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The PLAIN BPMN process id nothing was deployed under
    */
-  public Collection<DeployedProcess> all() {
+  public void recordDeclaredWithoutDeployment(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
 
-    return List.copyOf(byProcess.values());
+    declaredWithoutDeployment
+        .computeIfAbsent(workflowModuleId, module -> ConcurrentHashMap.newKeySet())
+        .add(bpmnProcessId);
+
+  }
+
+  /**
+   * Whether the workflow module declares at least one BPMN process id nothing was
+   * deployed under. The message check of {@code correlateMessage} reads this as "the
+   * declared names are unknown rather than absent": the models which could carry the
+   * answer live in the cluster only.
+   *
+   * @param workflowModuleId The workflow module
+   * @return Whether such an id exists
+   */
+  public boolean declaresProcessesNobodyDeployed(
+      final String workflowModuleId) {
+
+    return !processesNobodyDeployedOf(workflowModuleId).isEmpty();
+
+  }
+
+  /**
+   * The PLAIN BPMN process ids the workflow module declares without this application
+   * version deploying anything under them.
+   *
+   * @param workflowModuleId The workflow module
+   * @return The ids, empty where every declared id was deployed
+   */
+  public Collection<String> processesNobodyDeployedOf(
+      final String workflowModuleId) {
+
+    return Set.copyOf(declaredWithoutDeployment.getOrDefault(workflowModuleId, Set.of()));
 
   }
 

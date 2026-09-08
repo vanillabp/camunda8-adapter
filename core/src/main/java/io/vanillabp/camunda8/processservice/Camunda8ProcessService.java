@@ -1053,10 +1053,14 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * the publication, the TTL passes, nothing ever correlates. So the mistake is
    * reported where the application made the call.
    * <p>
-   * The check stays silent where this application version deployed no process of the
-   * workflow module (a workflow still running on a definition of a previous version -
-   * see {@code Camunda8DeployedProcesses}), because then the declared names are
-   * unknown rather than absent.
+   * The check stays silent where its set of models is incomplete: where this
+   * application version deployed no process of the workflow module (a workflow still
+   * running on a definition of a previous version - see
+   * {@code Camunda8DeployedProcesses}), and where the module declares a BPMN process
+   * id nothing was deployed under (the old id of a renamed process, whose models the
+   * cluster holds). In both cases the declared names are unknown rather than absent,
+   * and a check which cannot see every model that could carry the answer must stay
+   * silent, never refuse.
    */
   private void preflightCorrelateMessage(
       final PhaseOneRequest<A> request) {
@@ -1080,6 +1084,16 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
         .getDeployedProcesses()
         .ofWorkflowModule(workflowModuleId);
     if (deployed.isEmpty()) {
+      return;
+    }
+    if (clientFactory
+        .getDeployedProcesses()
+        .declaresProcessesNobodyDeployed(workflowModuleId)) {
+      // the module declares an id nothing was deployed under - the old id of a
+      // renamed process. The message a waiting workflow needs may be declared only
+      // by a model the cluster holds, so the declared names are unknown rather than
+      // absent, and the check stays as silent as it does where this application
+      // version deployed nothing at all
       return;
     }
     // the models carry the SCOPED names - messages are renamed while deploying - so
