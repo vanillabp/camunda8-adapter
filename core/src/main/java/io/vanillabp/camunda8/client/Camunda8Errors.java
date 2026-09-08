@@ -1,6 +1,9 @@
 package io.vanillabp.camunda8.client;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import io.camunda.client.api.command.ClientHttpException;
 import io.camunda.client.api.command.ClientStatusException;
@@ -8,18 +11,67 @@ import io.camunda.client.api.command.ProblemException;
 import io.grpc.Status;
 
 /**
- * Shared classification of Camunda 8 client errors: whether a job-based command
- * failed because the job is GONE (already completed, canceled by a boundary event,
- * or the workflow moved on) - the at-least-once residual tolerated by completions
- * and mapped to UNKNOWN_TO_BPMS by awareness probes. Everything else is treated as
- * an infrastructure failure.
+ * Shared classification of Camunda 8 client errors. Two kinds of caller ask.
  * <p>
- * Why a job which is gone is final even though the classification is otherwise generous is decision
- * 9 in the repository's DECISIONS.md.
+ * A caller which SENT something asks whether another attempt can change the answer:
+ * whether a job-based command failed because the job is GONE (already completed, canceled
+ * by a boundary event, or the workflow moved on) - the at-least-once residual tolerated by
+ * completions and mapped to UNKNOWN_TO_BPMS by awareness probes - and whether a phase-two
+ * operation is refused the same way every time. Everything else is treated as an
+ * infrastructure failure.
+ * <p>
+ * A caller which READ something asks what the cluster's answer means about the state it
+ * asked for: {@link #notFound(Throwable)} is the reading side of the same code, where it
+ * is usually the exporter which has not caught up rather than a failure. That side is what
+ * this class is public for.
+ * <p>
+ * Every question is answered from the codes of the two transports, down the failure's
+ * cause chain, and never from the words the cluster wraps around them. Why a job which is
+ * gone is final even though the classification is otherwise generous is decision 9 in the
+ * repository's DECISIONS.md.
  */
 public final class Camunda8Errors {
 
   private Camunda8Errors() {
+  }
+
+  /**
+   * The first failure in the chain of causes which answers the question, or
+   * <code>null</code> where none does.
+   * <p>
+   * Every classification here reads a cause chain, and a cause chain is not guaranteed to
+   * end. A client which wraps a failure it already wrapped hands over a ring, and the walk
+   * would then run forever inside a job handler or an outbox dispatch, which is worse than
+   * any answer it could have given. Remembering the failures already seen, by identity
+   * rather than by <code>equals</code>, ends the walk on the second sight of one - a self
+   * reference and a longer ring alike.
+   */
+  private static Throwable firstCauseAnswering(
+      final Throwable throwable,
+      final Predicate<Throwable> question) {
+
+    final var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+    var current = throwable;
+    while ((current != null) && seen.add(current)) {
+      if (question.test(current)) {
+        return current;
+      }
+      current = current.getCause();
+    }
+    return null;
+
+  }
+
+  /**
+   * Whether any failure in the chain of causes answers the question, bounded as
+   * {@link #firstCauseAnswering(Throwable, Predicate)} describes.
+   */
+  private static boolean anyCauseAnswers(
+      final Throwable throwable,
+      final Predicate<Throwable> question) {
+
+    return firstCauseAnswering(throwable, question) != null;
+
   }
 
   /**
@@ -44,20 +96,11 @@ public final class Camunda8Errors {
   public static boolean notFound(
       final Throwable throwable) {
 
-    var current = throwable;
-    while (current != null) {
-      if ((current instanceof ClientHttpException http) && (http.code() == 404)) {
-        return true;
-      }
-      if ((current instanceof ClientStatusException status) && (status
-          .getStatusCode() == Status.Code.NOT_FOUND)) {
-        return true;
-      }
-      current = current.getCause() == current
-          ? null
-          : current.getCause();
-    }
-    return false;
+    return anyCauseAnswers(
+        throwable,
+        cause -> ((cause instanceof ClientHttpException http) && (http
+            .code() == 404)) || ((cause instanceof ClientStatusException status) && (status
+                .getStatusCode() == Status.Code.NOT_FOUND)));
 
   }
 
@@ -97,20 +140,11 @@ public final class Camunda8Errors {
   public static boolean messageAlreadyPublished(
       final Throwable throwable) {
 
-    var current = throwable;
-    while (current != null) {
-      if ((current instanceof ClientHttpException http) && (http.code() == 409)) {
-        return true;
-      }
-      if ((current instanceof ClientStatusException status) && (status
-          .getStatusCode() == Status.Code.ALREADY_EXISTS)) {
-        return true;
-      }
-      current = current.getCause() == current
-          ? null
-          : current.getCause();
-    }
-    return false;
+    return anyCauseAnswers(
+        throwable,
+        cause -> ((cause instanceof ClientHttpException http) && (http
+            .code() == 409)) || ((cause instanceof ClientStatusException status) && (status
+                .getStatusCode() == Status.Code.ALREADY_EXISTS)));
 
   }
 
@@ -129,16 +163,9 @@ public final class Camunda8Errors {
   public static boolean queryApiRefused(
       final Throwable throwable) {
 
-    var current = throwable;
-    while (current != null) {
-      if ((current instanceof ClientHttpException http) && (http.code() == 403)) {
-        return true;
-      }
-      current = current.getCause() == current
-          ? null
-          : current.getCause();
-    }
-    return false;
+    return anyCauseAnswers(
+        throwable,
+        cause -> (cause instanceof ClientHttpException http) && (http.code() == 403));
 
   }
 
@@ -185,25 +212,13 @@ public final class Camunda8Errors {
   public static boolean permanentFailure(
       final Throwable throwable) {
 
-    var current = throwable;
-    while (current != null) {
-      // the task or instance key of the outbox entry is not a number, and it will not
-      // become one
-      if (current instanceof NumberFormatException) {
-        return true;
-      }
-      if ((current instanceof ClientHttpException http) && PERMANENT_HTTP_STATUS.contains(http.code())) {
-        return true;
-      }
-      if ((current instanceof ClientStatusException status) && PERMANENT_GRPC_CODES
-          .contains(status.getStatusCode())) {
-        return true;
-      }
-      current = current.getCause() == current
-          ? null
-          : current.getCause();
-    }
-    return false;
+    return anyCauseAnswers(
+        throwable,
+        // the task or instance key of the outbox entry is not a number, and it will not
+        // become one
+        cause -> (cause instanceof NumberFormatException) || ((cause instanceof ClientHttpException http) && PERMANENT_HTTP_STATUS
+            .contains(http.code())) || ((cause instanceof ClientStatusException status) && PERMANENT_GRPC_CODES
+                .contains(status.getStatusCode())));
 
   }
 
@@ -244,18 +259,15 @@ public final class Camunda8Errors {
   public static String rejection(
       final Throwable throwable) {
 
-    var current = throwable;
-    while (current != null) {
-      if (current instanceof ClientHttpException http) {
-        return "HTTP %d, %s".formatted(Integer.valueOf(http.code()), inOneLine(http.reason(), http));
-      }
-      if (current instanceof ClientStatusException status) {
-        return "gRPC %s, %s"
-            .formatted(status.getStatusCode(), inOneLine(status.getStatus().getDescription(), status));
-      }
-      current = current.getCause() == current
-          ? null
-          : current.getCause();
+    final var rejected = firstCauseAnswering(
+        throwable,
+        cause -> (cause instanceof ClientHttpException) || (cause instanceof ClientStatusException));
+    if (rejected instanceof ClientHttpException http) {
+      return "HTTP %d, %s".formatted(Integer.valueOf(http.code()), inOneLine(http.reason(), http));
+    }
+    if (rejected instanceof ClientStatusException status) {
+      return "gRPC %s, %s"
+          .formatted(status.getStatusCode(), inOneLine(status.getStatus().getDescription(), status));
     }
     return incidentMessage(throwable);
 

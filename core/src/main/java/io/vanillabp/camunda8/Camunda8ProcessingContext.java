@@ -23,8 +23,8 @@ import lombok.Getter;
  * <p>
  * An extension of the deployment pipeline receives this context in its own
  * {@code wireBpmn}, and the two ids below are what tell it whose call it is looking at.
- * The pipeline runs once per configured Camunda 8 adapter, with the same BPMN file and the
- * same workflow module each time, so an extension which does not read
+ * The pipeline runs once per configured Camunda 8 adapter, each run over that adapter's
+ * own copy of the workflow module's files, so an extension which does not read
  * {@link #getAdapterId()} cannot tell the runs apart - and the model it is handed carries
  * the identifiers of THAT adapter, which name-clash avoidance may have rewritten. Both ids
  * are stated here rather than left to be read back off those identifiers, which stops

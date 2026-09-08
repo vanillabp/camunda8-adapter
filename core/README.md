@@ -210,11 +210,13 @@ on the same BPMN files, and what it needs to place its own wiring is the adapter
 over rather than to work out a second time.
 
 `Camunda8ProcessingContext` names the adapter id and the workflow module of the run it
-belongs to. The pipeline calls every extension once per configured Camunda 8 adapter with
-the same file, and the model handed over carries the identifiers of THAT adapter, which
-name-clash avoidance may have rewritten. Without the id an extension cannot say whose call
-it is looking at, and reading it back off the model's identifiers is no substitute: two
-adapter ids may avoid name clashes differently, and then the identifiers do not decide it.
+belongs to. The pipeline calls every extension once per configured Camunda 8 adapter, each
+run over that adapter's own copy of the module's files - the resource location is
+configured per adapter - and the model handed over carries the identifiers of THAT adapter,
+which name-clash avoidance may have rewritten. Without the id an extension cannot say whose
+call it is looking at, and reading it back off the model's identifiers is no substitute:
+two adapter ids may avoid name clashes differently, and then the identifiers do not decide
+it.
 
 `Camunda8VariableFilters.aggregateIdSearchValue` is how a search value for the workflow
 aggregate's id has to look, quoted as the JSON the cluster stores. It is public rather than

@@ -29,13 +29,26 @@ public final class Camunda8VariableFilters {
 
   /**
    * The JSON representation of an aggregate ID as the cluster holds it.
+   * <p>
+   * A missing ID is refused rather than quoted. <code>null</code> is a perfectly
+   * searchable JSON value, so quoting it would send the cluster a filter matching
+   * variables which really hold the four letters, and the empty answer to that search is
+   * the one this class exists to prevent. The caller has an ID it did not resolve.
    *
    * @param workflowAggregateId The aggregate's ID
    * @return The quoted, escaped JSON string
+   * @throws IllegalArgumentException Where no ID was given
    */
   public static String aggregateIdSearchValue(
       final Object workflowAggregateId) {
 
+    if (workflowAggregateId == null) {
+      throw new IllegalArgumentException(
+          "Cannot build a Camunda 8 variable filter for a workflow aggregate ID which is null. "
+              + "The filter would search for the JSON value \"null\" and answer nothing, which "
+              + "cannot be told apart from a workflow the cluster does not hold. Resolve the "
+              + "aggregate's ID before searching for it.");
+    }
     return "\"%s\"".formatted(
         String
             .valueOf(workflowAggregateId)
