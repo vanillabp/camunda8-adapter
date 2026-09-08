@@ -427,6 +427,70 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .provideModelsTheClusterHolds(
             new Camunda8ModelsTheClusterHolds(
                 adapterId, clientFactory.getDeployedProcesses(), this::readModelsTheClusterHolds));
+    // and how the version catalog reaches one model out of that picture. Set here rather
+    // than while a process is wired, because the questions it serves are asked about ids
+    // this application wires nothing for
+    processVersions.setHeldModelOfVersion(this::heldModelOfVersion);
+    processVersions.setStartEventsOfModel(this::startEventSpecsOf);
+
+  }
+
+  /**
+   * The model of ONE version the cluster holds, taken from the picture of what it holds
+   * for the ids this application declares (see decision 21 in the repository's
+   * DECISIONS.md) - so a question about a held version and a check against one read the
+   * same models.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param version The version the cluster assigned
+   * @return The model, or <code>null</code> where the cluster could not be asked or does
+   *         not hold that version any more
+   */
+  private BpmnModelInstance heldModelOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    final var modelsTheClusterHolds = clientFactory.getModelsTheClusterHolds();
+    if (modelsTheClusterHolds == null) {
+      return null;
+    }
+    final var answer = modelsTheClusterHolds.heldFor(workflowModuleId, bpmnProcessId);
+    if (!(answer instanceof Camunda8ModelsTheClusterHolds.Answer.Known known)) {
+      return null;
+    }
+    return known
+        .models()
+        .stream()
+        .filter(heldModel -> heldModel.version().equals(version))
+        .map(Camunda8ModelsTheClusterHolds.HeldModel::model)
+        .findFirst()
+        .orElse(null);
+
+  }
+
+  /**
+   * The start events the cluster fires on its own in a model it holds - the same
+   * extraction the wiring runs over the model being deployed, so both directions speak
+   * about the same thing. The model is only read: it carries the execution listener of
+   * the deployment which brought it, and nothing here adds one.
+   */
+  private Collection<BpmsInitiatedStartSpec> startEventSpecsOf(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final BpmnModelInstance model) {
+
+    final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
+    return Camunda8TaskWiring
+        .bpmsInitiatedStartsOfHeldModel(
+            model,
+            scopedBpmnProcessId,
+            signalName -> plainIdentifier(workflowModuleId, signalName))
+        .stream()
+        .map(startEvent -> new BpmsInitiatedStartSpec(
+            startEvent.startEventId(), startEvent.kind(), startEvent.signalName(), null))
+        .toList();
 
   }
 

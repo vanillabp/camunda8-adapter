@@ -1428,6 +1428,15 @@ the catalog of such an id once the module was deployed
 cluster still holds under it, so the startup check reaches the workflows which are still
 running there.
 
+What that catalog says about ONE of those versions is read from the models the cluster holds
+(`Camunda8ModelsTheClusterHolds`), the picture every check judging a model asks. Next to the
+tasks of a version it answers the start events the cluster fires on its own there, and that
+answer is what judges a `@WorkflowStartedByBpms` method kept for a declared-only id. Nothing
+wires such an id while the application boots, so a method naming a start event none of the
+held versions declares stayed silent for the life of the application, while the cluster kept
+firing the old model's timer every day. Where the cluster cannot be asked, the adapter says
+so and the check stays silent instead of judging the method by an answer nobody has.
+
 Whether the workflows under such a declared id keep RUNNING is a second question, and it is
 answered by workers rather than by queries. A job worker asks for one task definition, and
 under `use-prefix` that name carries the id of the process the task was deployed with
@@ -1457,8 +1466,9 @@ says so with the two ways out.
 `Camunda8ProcessVersionIT#theVersionDecidesWhichMethodRuns` and `Camunda8OldProcessVersionsIT`
 say which method serves which version, `Camunda8DeletedProcessVersionsTest` a version the
 cluster no longer has, `Camunda8RenamedProcessTest` with `Camunda8RenamedProcessIT` the
-declared id and a workflow which outlives the rename, and `Camunda8StartupQuestionCostTest`
-counts the queries the claim above is about.
+declared id and a workflow which outlives the rename, `Camunda8StartEventsOfHeldVersionsTest`
+what a held version starts on, and `Camunda8StartupQuestionCostTest` counts the queries the
+claim above is about.
 
 ### Multi-instance
 

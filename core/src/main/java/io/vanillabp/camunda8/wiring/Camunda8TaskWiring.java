@@ -312,6 +312,38 @@ public final class Camunda8TaskWiring {
       final String bpmnProcessId,
       final UnaryOperator<String> signalNameResolver) {
 
+    return bpmsInitiatedStartsOf(model, bpmnProcessId, signalNameResolver, true);
+
+  }
+
+  /**
+   * The start events the CLUSTER fires on its own in a model it already runs - read for
+   * checks about versions an earlier application deployed, never for deploying. Nothing
+   * is added here: the cluster accepted the model as it stands and carries the execution
+   * listener of the deployment which brought it, so a read on its behalf leaves it
+   * exactly as it is.
+   *
+   * @param model The model as the cluster holds it
+   * @param bpmnProcessId The process id as the CLUSTER knows it
+   * @param signalNameResolver Turns the scoped signal name of the model into the
+   *          plain one the application modelled
+   * @return The start events the model declares
+   */
+  public static List<Camunda8BpmsInitiatedStartToWire> bpmsInitiatedStartsOfHeldModel(
+      final BpmnModelInstance model,
+      final String bpmnProcessId,
+      final UnaryOperator<String> signalNameResolver) {
+
+    return bpmsInitiatedStartsOf(model, bpmnProcessId, signalNameResolver, false);
+
+  }
+
+  private static List<Camunda8BpmsInitiatedStartToWire> bpmsInitiatedStartsOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId,
+      final UnaryOperator<String> signalNameResolver,
+      final boolean attachTheStartListener) {
+
     final var startEvents = new LinkedList<Camunda8BpmsInitiatedStartToWire>();
     model
         .getModelElementsByType(StartEvent.class)
@@ -351,7 +383,9 @@ public final class Camunda8TaskWiring {
             return;
           }
 
-          addStartExecutionListener(startEvent, listenerJobTypeOf(bpmnProcessId, startEvent.getId()));
+          if (attachTheStartListener) {
+            addStartExecutionListener(startEvent, listenerJobTypeOf(bpmnProcessId, startEvent.getId()));
+          }
           startEvents
               .add(
                   new Camunda8BpmsInitiatedStartToWire(
