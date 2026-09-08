@@ -1,4 +1,4 @@
-package io.vanillabp.camunda8.springboot.election;
+package io.vanillabp.camunda8.quarkus.it;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -11,38 +11,38 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * The Camunda 8 cluster the two election tests of this module run against - the same
- * mechanism the Spring Boot module's {@code ClusterUnderTest} and the Quarkus module's
- * {@code ClusterUnderTest} use, kept local like theirs: image and secondary storage are
- * filtered into {@code camunda8-cluster.properties} at build time from the release line
- * the build activated, so activating another line moves the client, the cluster and the
- * storage together.
+ * The Camunda 8 cluster the integration tests of this module run against.
  * <p>
- * Two flavours, which is all these tests need: a cluster which refuses to be searched,
- * where the boot has to say so, and one which answers, where the election finds the
- * workflow of the older scope. Which of the two containers the answering one costs is
- * the line's business and not the test's, see decision 22 in the repository's
- * DECISIONS.md.
+ * Image and secondary storage are filtered into {@code camunda8-cluster.properties} at
+ * build time from the release line the build activated, the same mechanism the Spring
+ * Boot module uses: activating another line moves the client and the cluster together, so
+ * a line's tests meet the oldest cluster its artifacts accept.
+ * <p>
+ * Every cluster here brings secondary storage, because the adapter serves no other kind.
+ * Where it lives belongs to the line: a cluster which can keep it in a database of its
+ * own process is one container, an older line's cluster brings an Elasticsearch along and
+ * stops it again with itself. A test asks for a cluster and gets one - see decision 22 in
+ * the repository's DECISIONS.md.
  */
-public final class ElectionCluster {
+public final class ClusterUnderTest {
 
   private static final String RESOURCE = "/camunda8-cluster.properties";
 
   private static final Properties PROPERTIES = read();
 
   /**
-   * What {@code camunda.data.secondary-storage.type} of an answering cluster is set to.
-   * Only the two values these tests know are expected here: {@code rdbms}, which the
-   * cluster serves from an embedded H2 inside its own container, and
-   * {@code elasticsearch}, which needs a container of its own.
+   * What {@code camunda.data.secondary-storage.type} of the cluster is set to. Only the
+   * two values these tests know are expected here: {@code rdbms}, which the cluster
+   * serves from an embedded H2 inside its own container, and {@code elasticsearch}, which
+   * needs a container of its own.
    */
   private static final String SECONDARY_STORAGE = property("cluster.secondary-storage");
 
   private static final String ELASTICSEARCH = "elasticsearch";
 
-  private static final Duration STARTUP_TIMEOUT = Duration.ofMinutes(3);
+  private static final Duration STARTUP_TIMEOUT = Duration.ofMinutes(5);
 
-  private ElectionCluster() {
+  private ClusterUnderTest() {
     // static helper
   }
 
@@ -56,45 +56,20 @@ public final class ElectionCluster {
   }
 
   /**
-   * A cluster WITHOUT secondary storage: it refuses every search with HTTP 403, which is
-   * what the adapter's requirement is refused by, and the only cluster of that kind left
-   * in the suites.
+   * The cluster of a test, ready to be searched.
    *
-   * @return A container to be used as a Testcontainers {@code @Container} field
+   * @param logName How the cluster's own output is prefixed in the test's log
+   * @return A container, to be started by whoever declared it
    */
-  public static GenericContainer<?> clusterWhichRefusesSearches() {
-
-    return new GenericContainer<>(image())
-        .withExposedPorts(8080, 26500, 9600)
-        .withEnv("SPRING_PROFILES_ACTIVE", "broker")
-        .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
-        // an unprotected API keeps an authentication provider out of the test
-        .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
-        // the readiness probe turns UP only once the partition leader accepts
-        // deployments, which avoids a transient 503 on the first deploy at startup
-        .waitingFor(Wait
-            .forHttp("/actuator/health/readiness")
-            .forPort(9600)
-            .forStatusCode(200)
-            .withStartupTimeout(STARTUP_TIMEOUT));
-
-  }
-
-  /**
-   * A cluster which answers searches - what the election needs to map a key to the scope
-   * it belongs to, and what this adapter requires of every cluster.
-   * <p>
-   * Where the release line's cluster can keep its secondary storage in a database of its
-   * own process this is one container; on an older line it brings an Elasticsearch along
-   * and stops it again with itself. Either way the test declares one field.
-   *
-   * @return A container to be used as a Testcontainers {@code @Container} field
-   */
-  public static GenericContainer<?> cluster() {
+  public static GenericContainer<?> cluster(
+      final String logName) {
 
     final var container = new ClusterContainer(image())
+        .withLogConsumer(ClusterLog.of(logName))
         .withExposedPorts(8080, 26500, 9600)
         .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", SECONDARY_STORAGE)
+        // an unprotected API keeps an authentication provider out of these tests - what
+        // credentials reaching the cluster look like has a test of its own
         .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
         // the readiness probe turns UP only once the partition leader accepts
         // deployments, which avoids a transient 503 on the first deploy at startup
@@ -130,8 +105,8 @@ public final class ElectionCluster {
 
   /**
    * A cluster which takes its Elasticsearch along where it needs one, and stops it again
-   * with itself: Testcontainers starts what a container depends on, but it stops only
-   * what a test class declared.
+   * with itself: Testcontainers starts what a container depends on, but stopping is left
+   * to whoever holds the container.
    */
   private static final class ClusterContainer extends GenericContainer<ClusterContainer> {
 
@@ -187,10 +162,10 @@ public final class ElectionCluster {
   private static Properties read() {
 
     final var properties = new Properties();
-    try (var resource = ElectionCluster.class.getResourceAsStream(RESOURCE)) {
+    try (var resource = ClusterUnderTest.class.getResourceAsStream(RESOURCE)) {
       if (resource == null) {
         throw new IllegalStateException(
-            "'%s' is missing from the test classpath. Maven filters it, so build the module once ('mvn test-compile') before running an integration test from the IDE."
+            "'%s' is missing from the test classpath. Maven filters it, so build the module once ('mvn test-compile') before running this test from the IDE."
                 .formatted(RESOURCE));
       }
       properties.load(resource);
@@ -207,8 +182,8 @@ public final class ElectionCluster {
     final var value = PROPERTIES.getProperty(name);
     if ((value == null) || value.isBlank() || value.contains("${")) {
       throw new IllegalStateException(
-          "'%s' of '%s' is '%s' instead of a value. The test resources of this module have to be filtered: check the 'testResources' section of the module's pom.xml and the properties 'camunda8.cluster.image' and 'camunda8.cluster.secondary-storage' of the parent pom."
-              .formatted(name, RESOURCE, value));
+          "'%s' is '%s' instead of a value - the test resources of this module have to be filtered."
+              .formatted(name, value));
     }
     return value;
 

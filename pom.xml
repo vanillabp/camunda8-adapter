@@ -107,6 +107,13 @@
          client a build was compiled against IS the minimum cluster version of that
          build, so testing anything newer would prove nothing about it -->
     <camunda8.cluster.image>camunda/camunda:${camunda8.version}</camunda8.cluster.image>
+    <!-- where that cluster keeps its secondary storage, and with it how many containers a
+         test class starts. 'rdbms' is served by an H2 in the cluster's own JVM, whose
+         driver the image ships, so one container is the whole cluster; 'elasticsearch'
+         needs a second one beside it. This is a property of the line rather than a taste:
+         the storage a line's cluster can do is what its tests may use. It is filtered into
+         'camunda8-cluster.properties' next to the image, see ClusterUnderTest -->
+    <camunda8.cluster.secondary-storage>rdbms</camunda8.cluster.secondary-storage>
     <testcontainers.version>2.0.5</testcontainers.version>
   </properties>
 
@@ -443,6 +450,11 @@
       <properties>
         <camunda8.line>8.8</camunda8.line>
         <camunda8.version>${camunda8.version.line-8.8}</camunda8.version>
+        <!-- the cluster of this line keeps its secondary storage in an Elasticsearch, so
+             its tests pay for a second container per class. Moving it onto the embedded
+             database the newer lines use would change what this line is tested against,
+             which is the one thing a previous-GA line may not do -->
+        <camunda8.cluster.secondary-storage>elasticsearch</camunda8.cluster.secondary-storage>
       </properties>
     </profile>
     <profile>

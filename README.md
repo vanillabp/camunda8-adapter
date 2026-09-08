@@ -1522,18 +1522,26 @@ an assumption about Camunda 8, disproved by a model which deploys with one.
 
 ### Testing
 
+Every integration test here starts the cluster of the active release line through
+`ClusterUnderTest` (`ElectionCluster` in the election module), which decides from
+`camunda8-cluster.properties` what that costs. On the lines whose cluster keeps its
+secondary storage in a database of its own process a test class starts ONE container, an
+embedded H2 inside the cluster serving every search; line 8.8 exports to an Elasticsearch
+and the cluster takes that container along and stops it again with itself. The test asks
+for a cluster either way and declares one field, see decision 22 in
+[`DECISIONS.md`](./DECISIONS.md).
+
 - **Core unit tests** (no Docker): BPMN parsing / executable-process extraction, client
   configuration validation (missing-property messages, self-managed/SaaS), and the
   process-service phase behavior.
-- **Spring Boot** `Camunda8DeploymentAndStartIT` (real Camunda 8 via Testcontainers,
-  the cluster image of `ClusterUnderTest`, standalone broker without Elasticsearch): boots the
-  application (deploying the BPMN to the cluster on startup) and drives the full two-phase
-  start through `ProcessService#startWorkflow` inside a JPA transaction with the gruelbox
-  outbox. It asserts that the process instance appears only **after** the transaction
-  commits, carrying the aggregate's ID as the `id` variable (named after the test
-  aggregate's ID property; observed by a raw Camunda 8 job worker on
-  the service task), and **never** after a rollback (the outbox entry is gone and no job
-  is ever activated). Skipped automatically when Docker is unavailable
+- **Spring Boot** `Camunda8DeploymentAndStartIT` (real Camunda 8 via Testcontainers, the
+  cluster of `ClusterUnderTest`): boots the application (deploying the BPMN to the cluster
+  on startup) and drives the full two-phase start through `ProcessService#startWorkflow`
+  inside a JPA transaction with the gruelbox outbox. It asserts that the process instance
+  appears only **after** the transaction commits, carrying the aggregate's ID as the `id`
+  variable (named after the test aggregate's ID property; observed by a raw Camunda 8 job
+  worker on the service task), and **never** after a rollback (the outbox entry is gone
+  and no job is ever activated). Skipped automatically when Docker is unavailable
   (`@Testcontainers(disabledWithoutDocker = true)`).
 - **Spring Boot** `Camunda8WorkerThreadsIT` and `Camunda8VirtualThreadsIT` (real cluster): the
   acceptance test of the execution slots. A handler blocks its slot for four seconds while a
@@ -1565,7 +1573,7 @@ an assumption about Camunda 8, disproved by a model which deploys with one.
   JVM, so the tests observe it through its own `introspect/...` endpoints and the JaCoCo
   agent is forwarded into that JVM, otherwise the run would prove the features and count as
   nothing. One class carries all of it because a prod-mode test boots its application once
-  per class and every boot costs a container pair. What it does NOT repeat is named in its
+  per class and every boot costs a cluster. What it does NOT repeat is named in its
   class comment: the startup check for old process versions (several boots against one
   cluster), authentication and the shutdown drain (a cluster respectively a lifecycle of
   their own) and `cancelUserTask` (answered by the release line, so it belongs to a

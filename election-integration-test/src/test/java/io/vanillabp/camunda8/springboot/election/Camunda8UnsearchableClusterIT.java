@@ -4,8 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Duration;
-
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,11 +11,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.Network;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -46,30 +41,13 @@ public class Camunda8UnsearchableClusterIT {
   @Container
   static final GenericContainer<?> BROKER_ALONE = ElectionCluster.clusterWhichRefusesSearches();
 
-  static final Network NETWORK = Network.newNetwork();
-
-  @Container
-  static final GenericContainer<?> ELASTICSEARCH = new GenericContainer<>(
-      DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.17.0"))
-      .withNetwork(NETWORK)
-      .withNetworkAliases("elasticsearch")
-      .withEnv("discovery.type", "single-node")
-      .withEnv("xpack.security.enabled", "false")
-      .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")
-      .withExposedPorts(9200)
-      .waitingFor(Wait
-          .forHttp("/_cluster/health")
-          .forPort(9200)
-          .forStatusCode(200)
-          .withStartupTimeout(Duration.ofMinutes(3)));
-
   /**
    * The cluster of the adapter which IS first priority in the warn test below - the
    * application has to come up for that test to say anything, and it only comes up if its
    * primary adapter has a cluster it can search.
    */
   @Container
-  static final GenericContainer<?> SEARCHABLE_CLUSTER = ElectionCluster.cluster(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> SEARCHABLE_CLUSTER = ElectionCluster.cluster();
 
   private ConfigurableApplicationContext application;
 

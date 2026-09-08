@@ -19,7 +19,6 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -61,13 +60,8 @@ public class Camunda8ShutdownDrainIT {
    */
   private static final int RETRIES_OF_A_FRESH_JOB = 3;
 
-  static final Network NETWORK = Network.newNetwork();
-
   @Container
-  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
 
   private ConfigurableApplicationContext application;
 

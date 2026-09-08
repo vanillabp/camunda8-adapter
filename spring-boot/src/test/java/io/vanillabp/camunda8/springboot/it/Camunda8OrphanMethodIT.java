@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.Network;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -32,13 +31,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @Testcontainers(disabledWithoutDocker = true)
 public class Camunda8OrphanMethodIT {
 
-  static final Network NETWORK = Network.newNetwork();
-
   @Container
-  static final GenericContainer<?> ELASTICSEARCH = ClusterUnderTest.elasticsearch(NETWORK);
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster(NETWORK, ELASTICSEARCH);
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
 
   @Test
   @DisplayName("A method matching no task ends the boot, naming the method and the fix")

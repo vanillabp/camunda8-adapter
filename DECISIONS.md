@@ -512,3 +512,38 @@ no convention is skipped rather than fought over.
 `Camunda8MessageDeclarationTest` holds the check's answers, `Camunda8RenamedProcessIT`
 correlates a message only the old id's model declares against a real cluster and proves the
 refusal names what the cluster holds.
+
+### 22. A test asks for a cluster, and the release line decides what that cluster costs
+
+Every integration test of this repository needs a cluster which answers searches, because
+decision 20 leaves it no other kind. Until Camunda 8.9 that meant a second container: the
+cluster exported to an Elasticsearch beside it, so each of the twenty-odd test classes started
+a pair, and the Elasticsearch alone asked for a gigabyte of heap it then filled with the four
+documents one test wrote. From 8.9 on the cluster can keep its secondary storage in a database
+instead, and the image ships an H2 driver, so an embedded in-memory database inside the
+cluster's own process answers the same searches with no container beside it and nothing to
+clean up afterwards.
+
+Which of the two a line uses is a property of the LINE and not of a test:
+`camunda8.cluster.secondary-storage` sits next to `camunda8.cluster.image` in the parent POM and
+travels the same way, filtered into `camunda8-cluster.properties` of every module which starts a
+cluster. The `line-8.8` profile sets it to `elasticsearch`, because moving the previous-GA line
+onto a storage its own cluster serves differently would change what that line is tested against,
+which is the one thing a bugfix-only line may not do. The current GA and the preview line take
+the default, `rdbms`.
+
+A test class sees none of this. It declares one field, `ClusterUnderTest.cluster()`
+(`ElectionCluster.cluster()` in the election module, `ClusterUnderTest.cluster(logName)` on
+Quarkus), and gets a container it can ask for its mapped ports. Where the line needs an
+Elasticsearch, the cluster container creates the network and that Elasticsearch itself, depends
+on it so Testcontainers starts it first, and stops both again in its own `stop()`. That last
+part is the reason the storage is not simply a second `@Container` field the way it used to be:
+Testcontainers starts what a container depends on but stops only what a class declared, and a
+module runs all its classes in one JVM, so an Elasticsearch nobody declared would outlive its
+cluster and the module would hold twenty of them by the end of a run.
+
+`Camunda8TaskProcessingIT` is the everyday proof of the database storage and
+`Camunda8LocatingWorkflowsIT` of the searches on top of it. Both run the other half when they are
+given `-Dcamunda8.cluster.secondary-storage=elasticsearch`, and that is how a change to this
+mechanism is checked as long as 8.8 is alive: the pull request builds the current GA line only, so
+nothing else would compile the Elasticsearch path before the nightly matrix does.
