@@ -1871,6 +1871,15 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
+   * The multi-instance chains this adapter registered. Visible for tests.
+   */
+  Camunda8MultiInstance.Registry multiInstanceRegistry() {
+
+    return multiInstanceRegistry;
+
+  }
+
+  /**
    * One polling worker for the tasks of a declared BPMN process id. It asks for every
    * variable rather than a derived list: deriving one needs the elements of the model, and
    * the model of that id is what this application does not have.
