@@ -68,6 +68,31 @@ public class Camunda8ClientFactory implements AutoCloseable {
   @Getter
   private final Camunda8QueryApi queryApi;
 
+  /**
+   * Which models the cluster holds for the BPMN process ids the application declares -
+   * here for the same reason as the record above: the deployment service assembles it,
+   * because only it can read its cluster, and the process service's message check
+   * reads it. <code>null</code> until the deployment service provided it (tests, and
+   * an adapter which booted unconfigured): the checks reading it then fall back to
+   * staying silent wherever a model outside the current deployment could carry the
+   * answer.
+   */
+  @Getter
+  private volatile io.vanillabp.camunda8.deployment.Camunda8ModelsTheClusterHolds modelsTheClusterHolds;
+
+  /**
+   * Hands over the picture of what the cluster holds, called by the deployment
+   * service while it is created.
+   *
+   * @param modelsTheClusterHolds The picture
+   */
+  public void provideModelsTheClusterHolds(
+      final io.vanillabp.camunda8.deployment.Camunda8ModelsTheClusterHolds modelsTheClusterHolds) {
+
+    this.modelsTheClusterHolds = modelsTheClusterHolds;
+
+  }
+
   private CamundaClient client;
 
   public Camunda8ClientFactory(

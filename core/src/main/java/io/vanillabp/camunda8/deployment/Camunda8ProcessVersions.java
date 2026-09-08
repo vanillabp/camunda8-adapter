@@ -120,12 +120,10 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
       return null;
     }
     try {
-      final var xml = client.get().newProcessDefinitionGetXmlRequest(definitionKey).send().join();
-      if (xml == null) {
+      final var model = readModel(definitionKey);
+      if (model == null) {
         return List.of();
       }
-      final var model = Bpmn
-          .readModelFromStream(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
       return tasksOfModel.of(workflowModuleId, bpmnProcessId, version, model);
     } catch (final RuntimeException e) {
       log.warn(
@@ -165,6 +163,70 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
         .send()
         .join();
     return found.page().totalItems();
+
+  }
+
+  /**
+   * The model of one definition, read out of the cluster.
+   *
+   * @param definitionKey The cluster's process definition key
+   * @return The model, or <code>null</code> where the cluster answered nothing for
+   *         the key
+   */
+  private BpmnModelInstance readModel(
+      final long definitionKey) {
+
+    final var xml = client.get().newProcessDefinitionGetXmlRequest(definitionKey).send().join();
+    if (xml == null) {
+      return null;
+    }
+    return Bpmn
+        .readModelFromStream(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+
+  }
+
+  /**
+   * The versions the cluster still holds under one BPMN process id, oldest first -
+   * read fresh rather than from the resolution cache, because the caller keeps the
+   * answer itself and a swallowed failure would make an empty cluster look like an
+   * unreachable one.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @return The version numbers, oldest first
+   * @throws RuntimeException If the cluster could not be asked
+   */
+  public List<String> versionsHeldUnder(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    return fetchDeployedVersions(workflowModuleId, bpmnProcessId)
+        .stream()
+        .map(DeployedProcessVersion::version)
+        .toList();
+
+  }
+
+  /**
+   * The model of one version the cluster holds.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param version The version the cluster assigned
+   * @return The model, or <code>null</code> where the cluster does not hold that
+   *         version any more
+   * @throws RuntimeException If the cluster could not be asked
+   */
+  public BpmnModelInstance modelOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    final var definitionKey = definitionKeyOf(workflowModuleId, bpmnProcessId, version);
+    if (definitionKey == null) {
+      return null;
+    }
+    return readModel(definitionKey);
 
   }
 
