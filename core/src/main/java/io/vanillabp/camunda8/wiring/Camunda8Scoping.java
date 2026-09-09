@@ -33,9 +33,9 @@ import lombok.extern.slf4j.Slf4j;
  * </table>
  *
  * <p>
- * The one exception is an element another runtime serves, see {@link Camunda8Connectors}:
- * its job type is left as the modeller wrote it, because it names a runtime somebody else
- * deployed rather than an identifier of this workflow module.
+ * An element another runtime serves, see {@link Camunda8Connectors}, never enters that
+ * table: its job type names a runtime somebody else deployed rather than an identifier of
+ * this workflow module, so it is left as the modeller wrote it under every mode.
  * <p>
  * The rewriting happens in <code>prepareBpmn</code>, BEFORE wiring: everything after
  * it - the wiring validation, the listener injection, the workers - therefore sees
@@ -227,8 +227,9 @@ public final class Camunda8Scoping {
    * Whether the element carrying this extension element is one a runtime other than this
    * application serves, and connectors are allowed for its process.
    * <p>
-   * Its job type names a runtime somebody else deployed, cluster-wide, so prefixing it
-   * would rename something this application does not own. The price is stated rather than
+   * Its job type was never an identifier of this workflow module. It names a runtime
+   * somebody else deployed, cluster-wide, so prefixing it would rename something this
+   * application does not own. The price is stated rather than
    * hidden: under {@code use-prefix} such a job type reaches the cluster unscoped, which is
    * the very clash the mode exists to avoid. It costs nothing here, because a connector
    * runtime subscribes to that type globally anyway and two workflow modules carrying the

@@ -32,6 +32,13 @@ ones, and everything coming back from the cluster is translated before the core 
 shape scoping takes is the workflow module's configuration: a tenant, a prefix, or nothing at
 all, so no code may assume either. Two processes must not end up under the same scoped
 identifier, which is what the collision check while preparing a model is for.
+
+The task definition of a connector is none of these identifiers. Its implementation does not come
+from the workflow module, it comes from a runtime somebody else deployed cluster-wide, so there is
+nothing in that name for a prefix to keep apart and the adapter leaves it as the modeller wrote it.
+Under a tenant the model is still deployed into the module's tenant, so a connector runtime has to
+be able to see that tenant. Decision 23 says which elements carry such a name and what allowing
+them costs.
 See [Keeping workflow modules apart](./README.md#keeping-workflow-modules-apart).
 
 ### 3. A cluster key never says which scope it belongs to
@@ -565,12 +572,13 @@ most specific configured value winning in both directions, and it has no task le
 keyed by the task definition, and a connector's task definition is the connector's own type, shared
 by every element using that connector.
 
-Prefixing leaves such an element's job type as the modeller wrote it rather than refusing the
-combination. The job type names a runtime somebody else deployed cluster-wide, so prefixing it would
-rename something this application does not own; refusing `use-prefix` instead would take the only
-isolation mode which works without a multi-tenant cluster away from every application that wants one
-connector. The price is real and stated rather than hidden: such a job type reaches the cluster
-unscoped, which costs nothing here because a connector runtime subscribes to it globally anyway.
+Such an element's job type is left as the modeller wrote it, because it was never an identifier
+this workflow module owns. It names a runtime somebody else deployed cluster-wide, and prefixing it
+would rename something this application does not own. The alternative would have been to refuse
+`use-prefix` wherever a connector sits in a model, which takes the only isolation mode working
+without a multi-tenant cluster away from every application that wants one connector. The price is
+real and stated rather than hidden: such a job type reaches the cluster unscoped, which costs
+nothing here because a connector runtime subscribes to it globally anyway.
 
 No key silences the warning a boot with the switch on writes. `accept-unscoped-identifiers` is the
 precedent for acknowledging a warning away, and it exists because the application can state a fact
