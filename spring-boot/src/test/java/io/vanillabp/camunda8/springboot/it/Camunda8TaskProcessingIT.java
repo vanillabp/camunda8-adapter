@@ -34,6 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.camunda.client.CamundaClient;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
@@ -136,6 +137,16 @@ public class Camunda8TaskProcessingIT {
 
   @Autowired
   private VanillaBpCamunda8Properties overlay;
+
+  /**
+   * Borrowed from the aggregateChanged fixture, whose PRIMARY process parks in a
+   * {@code @TaskId} task - the one shape this class's own workflow service does not have.
+   */
+  @Autowired
+  private PushDockerWorkflowService pushWorkflowService;
+
+  @Autowired
+  private PushDockerAggregateRepository pushRepository;
 
   private Long start(
       final String bpmnProcessId) {
@@ -675,29 +686,12 @@ public class Camunda8TaskProcessingIT {
       workflowService.completeAsyncTask(aggregate, aggregate.getTaskId());
     });
 
-    // phase two completes the job through the outbox after the commit; proven
-    // deterministically WITHOUT the eventually-consistent search API: once the
-    // job is gone, a further completion attempt probes UNKNOWN everywhere and
-    // raises the documented TaskNotFoundException
+    // phase two completes the job through the outbox after the commit; the cluster
+    // is asked about that job DIRECTLY, with a command rather than the eventually
+    // consistent search API
     final var taskId = repository.findById(aggregateId).orElseThrow().getTaskId();
     awaitUntil(
-        () -> {
-          try {
-            transactionTemplate.executeWithoutResult(status -> {
-              final var aggregate = repository.findById(aggregateId).orElseThrow();
-              workflowService.completeAsyncTask(aggregate, taskId);
-            });
-            return false; // job still there - phase two has not run yet
-          } catch (final TaskNotFoundException e) {
-            return true; // job gone: the outbox-dispatched completion succeeded
-          } catch (final IllegalStateException e) {
-            // the job disappeared BETWEEN the awareness probe and the pre-commit
-            // check (the outbox dispatch of a previous loop iteration completed
-            // it) - the check aborted the commit, which equally proves the job
-            // is gone
-            return (e.getMessage() != null) && e.getMessage().contains("is gone");
-          }
-        },
+        () -> theClusterNoLongerKnowsTheJob(taskId),
         60000,
         "the dormant job to be completed through the outbox");
     assertTrue(results(aggregateId).startsWith("async-open|completing"));
@@ -737,8 +731,8 @@ public class Camunda8TaskProcessingIT {
   }
 
   @Test
-  @DisplayName("A stale completion converges: the task is gone, the operation is a warned no-op")
-  public void staleCompletionIsToleratedNoOp() throws Exception {
+  @DisplayName("A stale completion aborts the transaction with the documented TaskNotFoundException")
+  public void aStaleCompletionRaisesTheGuidingException() throws Exception {
 
     final var aggregateId = transactionTemplate.execute(status -> repository
         .save(new TaskDockerAggregate())
@@ -757,14 +751,50 @@ public class Camunda8TaskProcessingIT {
         .send()
         .join();
 
-    // the probe answers UNKNOWN for the gone job - completeTask converges as the
-    // documented TaskNotFoundException (no adapter knows the task anymore)
+    // the delivery record still says this adapter holds an open task, so the call
+    // reaches the adapter rather than a probe, and the pre-commit check is what meets
+    // the cluster's 404. The transaction is aborted, and the caller reads the type the
+    // SPI documents for a task no BPMS knows any more
     Assertions.assertThrows(
         TaskNotFoundException.class,
         () -> transactionTemplate.executeWithoutResult(status -> {
           final var aggregate = repository.findById(aggregateId).orElseThrow();
           workflowService.completeAsyncTask(aggregate, taskId);
         }));
+
+  }
+
+  /**
+   * The same stale completion, on a PRIMARY process.
+   * <p>
+   * The platform elects the adapter from the delivery record before it probes any BPMS, and
+   * it looks for that record under every BPMN process id the workflow service serves. Every
+   * parking process of this class's own workflow service is a secondary one, so the test
+   * above asks only the longer of those two lookups. This one asks the short one, with the
+   * fixture whose PRIMARY process parks in a {@code @TaskId} task.
+   */
+  @Test
+  @DisplayName("A stale completion of a primary process's task raises the same exception")
+  public void aStaleCompletionOnAPrimaryProcessRaisesTheGuidingException() throws Exception {
+
+    final var aggregateId = transactionTemplate
+        .execute(status -> pushWorkflowService.startWorkflow().getId());
+
+    awaitUntil(
+        () -> pushRepository.findById(aggregateId).map(PushDockerAggregate::getTaskIds).orElse(null) != null,
+        60000,
+        "the parking task of the primary process to report its job key");
+    final var taskId = pushRepository.findById(aggregateId).orElseThrow().getTaskIds();
+
+    workflowServiceClient()
+        .newCompleteCommand(Long.parseLong(taskId))
+        .send()
+        .join();
+
+    Assertions.assertThrows(
+        TaskNotFoundException.class,
+        () -> transactionTemplate
+            .executeWithoutResult(status -> pushWorkflowService.completeAwaitPush(aggregateId, taskId)));
 
   }
 
@@ -796,22 +826,10 @@ public class Camunda8TaskProcessingIT {
       workflowService.completeUserTask(aggregate, taskId);
     });
 
-    // deterministic completion proof: once the user task is gone, further
-    // completion attempts raise TaskNotFoundException
+    // the cluster is asked about that user task DIRECTLY, with a command rather than
+    // the eventually consistent search API
     awaitUntil(
-        () -> {
-          try {
-            transactionTemplate.executeWithoutResult(status -> {
-              final var aggregate = repository.findById(aggregateId).orElseThrow();
-              workflowService.completeUserTask(aggregate, taskId);
-            });
-            return false;
-          } catch (final TaskNotFoundException e) {
-            return true;
-          } catch (final IllegalStateException e) {
-            return (e.getMessage() != null) && e.getMessage().contains("is gone");
-          }
-        },
+        () -> theClusterNoLongerKnowsTheUserTask(taskId),
         60000,
         "the user task to be completed through the outbox");
     // completing a user task is not an event of its own: what the aggregate holds is the
@@ -1261,6 +1279,65 @@ public class Camunda8TaskProcessingIT {
         30000,
         "the query API to know the instance started for aggregate "
             + aggregateId);
+
+  }
+
+  /**
+   * Whether the cluster has forgotten the job, asked with an engine COMMAND.
+   * <p>
+   * A completion which travelled through the outbox is over when the job is gone, and a
+   * test which wants to know that has two ways to ask. The search API answers from the
+   * exporter, which is why these tests avoid it. An UpdateJobTimeout is answered from the
+   * partition, exactly, and it advances nothing: while the job is there it renews the lock
+   * the adapter renews anyway, and once the job is gone the cluster refuses it with a 404.
+   * That refusal is the answer this waits for.
+   *
+   * @param taskId The job key the handler reported
+   * @return Whether the cluster refused the command because the job is gone
+   */
+  private boolean theClusterNoLongerKnowsTheJob(
+      final String taskId) {
+
+    try {
+      workflowServiceClient()
+          .newUpdateTimeoutCommand(Long.parseLong(taskId))
+          .timeout(Duration.ofMinutes(2))
+          .send()
+          .join();
+      return false;
+    } catch (final RuntimeException e) {
+      if (Camunda8Errors.jobAlreadyGone(e)) {
+        return true;
+      }
+      throw e;
+    }
+
+  }
+
+  /**
+   * The same question about a user task, asked with the command the adapter's own
+   * awareness probe uses: an update carrying nothing but an audit action changes no
+   * attribute, and a user task which is over answers it with a 404.
+   *
+   * @param taskId The user-task key the creating listener reported
+   * @return Whether the cluster refused the command because the user task is gone
+   */
+  private boolean theClusterNoLongerKnowsTheUserTask(
+      final String taskId) {
+
+    try {
+      workflowServiceClient()
+          .newUpdateUserTaskCommand(Long.parseLong(taskId))
+          .action("io.vanillabp:it-probe")
+          .send()
+          .join();
+      return false;
+    } catch (final RuntimeException e) {
+      if (Camunda8Errors.jobAlreadyGone(e)) {
+        return true;
+      }
+      throw e;
+    }
 
   }
 
