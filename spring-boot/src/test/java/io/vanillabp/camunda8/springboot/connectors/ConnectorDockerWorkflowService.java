@@ -1,4 +1,4 @@
-package io.vanillabp.camunda8.springboot.it;
+package io.vanillabp.camunda8.springboot.connectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;

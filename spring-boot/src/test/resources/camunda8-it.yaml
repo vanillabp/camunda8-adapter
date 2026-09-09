@@ -24,10 +24,6 @@ vanillabp:
           retry-backoff: PT20S
           message-time-to-live: PT5H
       workflows:
-        ConnectorProcess:
-          adapters:
-            c8:
-              allow-connectors: true
         FailProcess:
           adapters:
             c8:

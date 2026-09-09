@@ -1,4 +1,4 @@
-package io.vanillabp.camunda8.springboot.it;
+package io.vanillabp.camunda8.springboot.connectors;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 

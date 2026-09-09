@@ -1,4 +1,4 @@
-package io.vanillabp.camunda8.springboot.it;
+package io.vanillabp.camunda8.springboot.connectors;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -18,6 +18,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.springboot.it.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -32,6 +33,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * UNPREFIXED although this workflow module runs with name-clash avoidance
  * {@code use-prefix}.
  * <p>
+ * The scenario brings its own application, its own configuration file and its own
+ * resources location, see {@link ConnectorTestApplication}: a process which no
+ * {@code @WorkflowTask} method serves is exactly the kind of thing the other integration
+ * tests of this module must not be made to deploy.
+ * <p>
  * The class is skipped when Docker is unavailable
  * ({@code @Testcontainers(disabledWithoutDocker = true)}).
  */
@@ -39,8 +45,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @SuppressOutputExtension.SuppressBackgroundOutput
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
-    classes = DockerTestApplication.class,
-    properties = "spring.config.name=camunda8-it")
+    classes = ConnectorTestApplication.class,
+    properties = "spring.config.name=camunda8-connectors-it")
 @DirtiesContext
 public class Camunda8ConnectorsIT {
 
