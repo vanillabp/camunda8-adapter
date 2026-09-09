@@ -1203,6 +1203,50 @@ levels per platform, and `Camunda8ConnectorsIT` with
 `Camunda8WorkflowLifecycleTest#aConnectorElementIsLeftToItsOwnRuntime` the same against a cluster on
 both platforms.
 
+### Ad-hoc subprocesses
+
+An ad-hoc subprocess holds activities without sequence flows between them and runs the ones somebody
+picked. Nothing was written here to support it, and that is the point: `Camunda8TaskWiring#tasksOf`
+reads service, send, business rule and script tasks, an `adHocSubProcess` is none of them, and
+`owningProcessId` walks the parent chain up to the `bpmn:process`, straight through the element. So
+an activity inside it lands in the task specs like any other task, is validated as mandatory, gets a
+worker and is served through the ordinary path. There is deliberately no `@WorkflowTask` method for
+the element itself.
+
+What the model reads is `zeebe:adHoc activeElementsCollection`, a FEEL expression over a process
+variable, evaluated once when the workflow enters the element. VanillaBP shares the attributes of the
+workflow aggregate with every command it sends, and a collection travels as a list, so a
+`List<String>` attribute holding element ids is all an application needs. Who filled that attribute
+is none of the adapter's business: a user task, a decision table the cluster evaluated, or a model
+provider.
+
+Two things the element brings are not visible in the model and are therefore reported.
+
+`Camunda8TaskWiring#concurrentTokenElementIdsOf` names the element. `AdHocSubProcessImpl extends
+SubProcessImpl`, so it reaches the `SubProcess` branch and is dropped there by
+`triggeredByEvent()` - it is read as an `AdHocSubProcess` of its own instead. It is named whichever
+flavour the model uses and however short the list looks, because the collection is an expression: a
+list of one today is a list of two as soon as the data behind it changes. The activities INSIDE the
+element are not named, since the element is where the second token comes from and five inner ids
+would make the warning unreadable.
+
+`Camunda8TaskWiring#unservedAdHocSubProcessIdsOf` names the flavour this adapter does not serve. An
+ad-hoc subprocess carrying a `zeebe:taskDefinition` of its own expects a worker which decides round
+by round which activities to activate, by completing the job with
+`newCompleteJobCommand(key).withResult(r -> r.forAdHocSubProcess().activateElement(...))`. Neither
+the `@WorkflowTask` contract nor the adapter SPI can express that outcome, so no worker is opened,
+the workflow stops at the element and the job ends in an incident once its retries are used up. One
+WARN per BPMN process says so, and the boot goes on, see
+[decision 24](./DECISIONS.md#24-an-ad-hoc-subprocess-nothing-serves-is-named-and-the-boot-goes-on).
+An element carrying a `zeebe:modelerTemplate` as well is left out of that report, through
+`Camunda8Connectors#elementTemplateOf`: the Camunda AI agent is an element template on exactly this
+element, and a connector runtime fetches its job.
+
+`Camunda8ConcurrentTokensTest` and `Camunda8AdHocSubProcessTest` hold both readers and the message,
+and `Camunda8AdHocSubProcessIT` runs the served flavour against a cluster: two of three activities
+are named by the aggregate, the two run, the third does not, and the workflow leaves the element
+with no completion condition modelled.
+
 ### What a worker fetches
 
 A Camunda 8 worker which names no variables receives the complete variable scope of the
@@ -1787,6 +1831,20 @@ The window is `Camunda8LocatingWorkflowsIT`, in `#theProbeFindsTheWorkflow`,
 the paragraph above is an assumption: it needs an application on several nodes without a shared
 adapter cache, and an operation waiting on a node which never heard of the workflow would
 disprove it.
+
+### The job worker flavour of an ad-hoc subprocess
+
+An ad-hoc subprocess whose activities are named by the model
+(`zeebe:adHoc activeElementsCollection`) is served like any other part of a process, see
+[Ad-hoc subprocesses](#ad-hoc-subprocesses). The other flavour is not: where the element carries a
+`zeebe:taskDefinition` of its own, a worker has to complete that job with a result naming the
+elements to activate, and a `@WorkflowTask` method has no way to say that. Serving it would mean a
+new outcome of a workflow task, which is a design of its own rather than something this element
+gets on the side.
+
+A model using that flavour deploys and its workflow stops at the element, so the deployment writes
+one WARN per BPMN process naming it, what it costs and the two ways out. An element built from an
+element template is left alone there, because then a connector runtime owns it.
 
 ### Cancel user task
 

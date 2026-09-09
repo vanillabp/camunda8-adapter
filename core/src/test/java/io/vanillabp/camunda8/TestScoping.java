@@ -108,6 +108,11 @@ public final class TestScoping {
           final String scopedTaskDefinition,
           final String adapterId) {
 
+        if (scopedTaskDefinition == null) {
+          // like the core's implementation: a task carrying no task definition keeps its
+          // null all the way to the wiring validation, which is what reports it
+          return null;
+        }
         final var prefix = String.join(SEPARATOR, workflowModuleId, bpmnProcessId, "");
         return scopedTaskDefinition.startsWith(prefix)
             ? scopedTaskDefinition.substring(prefix.length())

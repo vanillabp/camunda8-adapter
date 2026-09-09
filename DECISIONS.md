@@ -587,3 +587,36 @@ what the warning says stays true for as long as the connector is in the model, a
 off would only make the loss invisible.
 
 See [Elements another runtime serves](./README.md#elements-another-runtime-serves).
+
+### 24. An ad-hoc subprocess nothing serves is named, and the boot goes on
+
+Camunda 8 knows two flavours of the element. The one where the model names the activities to run is
+served by this adapter without anything having been written for it: the activities inside are
+ordinary tasks and the list of ids is an attribute of the workflow aggregate. The one where the
+element carries a `zeebe:taskDefinition` of its own is not, and cannot be. Completing such a job
+means answering with the elements to activate, and a `@WorkflowTask` method has no way to say that.
+Giving it one is a story about the outcome of a workflow task, not about this element.
+
+What was decided is what happens to a model which uses that flavour anyway. It deploys, the workflow
+reaches the element and stops there, and the job the cluster activated ends in an incident once its
+retries are used up. Nothing later in the boot detects it, because the element is none the wiring
+collects: it produces no task spec, so no validation misses a method. So the deployment says it
+itself, once per BPMN process, naming the element, what it costs and the two ways out.
+
+It is a warning rather than a refused deployment, for the same reason a BPMN process nobody serves
+is one. The other processes of that workflow module are fine, and a file travels to the cluster as a
+whole, so ending the boot would take an application down over one element of one model. A developer
+has to see the defect, and the message is where they see it.
+
+The element template is what tells the two cases apart. An ad-hoc subprocess carrying
+`zeebe:modelerTemplate` is left out of the report, because then somebody else's runtime owns it: the
+Camunda AI agent is an element template on exactly this element and a connector runtime fetches its
+job. That is the marker of decision 23 and it is read through the same class rather than looked for
+a second time.
+
+Separately from all this the element is reported as a source of concurrent tokens, whichever flavour
+it uses and however short the list of activities looks. `activeElementsCollection` is an expression
+evaluated when the workflow enters the element, so the model cannot promise the list stays one entry
+long, and a warning appearing only after a data change is worse than one appearing always.
+
+See [Ad-hoc subprocesses](./README.md#ad-hoc-subprocesses).

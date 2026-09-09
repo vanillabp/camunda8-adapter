@@ -151,6 +151,78 @@ public class Camunda8ConcurrentTokensTest {
   }
 
   @Test
+  @DisplayName("An ad-hoc subprocess is reported, and the activities inside it are not")
+  public void adHocSubProcess() {
+
+    final var found = elementsOf("""
+            <bpmn:adHocSubProcess id="AdHoc_AdditionalChecks">
+              <bpmn:extensionElements>
+                <zeebe:adHoc activeElementsCollection="=checksToRun" />
+              </bpmn:extensionElements>
+              <bpmn:serviceTask id="Activity_CheckFraud">
+                <bpmn:extensionElements>
+                  <zeebe:taskDefinition type="checkFraud" />
+                </bpmn:extensionElements>
+              </bpmn:serviceTask>
+              <bpmn:serviceTask id="Activity_CheckIncome">
+                <bpmn:extensionElements>
+                  <zeebe:taskDefinition type="checkIncome" />
+                </bpmn:extensionElements>
+              </bpmn:serviceTask>
+            </bpmn:adHocSubProcess>
+        """);
+
+    assertEquals(List.of("AdHoc_AdditionalChecks"), found);
+
+  }
+
+  @Test
+  @DisplayName("An ad-hoc subprocess activating exactly one activity is reported all the same")
+  public void adHocSubProcessActivatingOneActivity() {
+
+    // the collection is an expression evaluated when the workflow enters the element, so
+    // a list of one today is a list of two as soon as the data behind it changes
+    final var found = elementsOf("""
+            <bpmn:adHocSubProcess id="AdHoc_OneCheck">
+              <bpmn:extensionElements>
+                <zeebe:adHoc activeElementsCollection="=[&quot;Activity_CheckFraud&quot;]" />
+              </bpmn:extensionElements>
+              <bpmn:serviceTask id="Activity_CheckFraud">
+                <bpmn:extensionElements>
+                  <zeebe:taskDefinition type="checkFraud" />
+                </bpmn:extensionElements>
+              </bpmn:serviceTask>
+            </bpmn:adHocSubProcess>
+        """);
+
+    assertEquals(List.of("AdHoc_OneCheck"), found);
+
+  }
+
+  @Test
+  @DisplayName("An ad-hoc subprocess of the job worker flavour is reported as well")
+  public void adHocSubProcessServedByAWorker() {
+
+    // a worker may activate several elements in one result, so this flavour produces
+    // concurrent tokens too - whether or not anything serves the job
+    final var found = elementsOf("""
+            <bpmn:adHocSubProcess id="AdHoc_AgentTools">
+              <bpmn:extensionElements>
+                <zeebe:taskDefinition type="io.camunda.agenticai:aiagent:subprocess:2" />
+              </bpmn:extensionElements>
+              <bpmn:serviceTask id="Activity_LookUp">
+                <bpmn:extensionElements>
+                  <zeebe:taskDefinition type="lookUp" />
+                </bpmn:extensionElements>
+              </bpmn:serviceTask>
+            </bpmn:adHocSubProcess>
+        """);
+
+    assertEquals(List.of("AdHoc_AgentTools"), found);
+
+  }
+
+  @Test
   @DisplayName("A sequential model reports nothing, and another process' elements never leak in")
   public void aSequentialProcessReportsNothing() {
 
