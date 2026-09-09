@@ -2,6 +2,7 @@ package io.vanillabp.camunda8.quarkus.runtime;
 
 import java.time.Duration;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -13,6 +14,8 @@ import io.quarkus.runtime.annotations.StaticInitSafe;
 import io.smallrye.config.ConfigMapping;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
+import io.vanillabp.camunda8.wiring.Camunda8AllowConnectorsResolver;
+import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
@@ -256,6 +259,91 @@ public interface VanillaBpCamunda8Properties {
   }
 
   /**
+   * Resolves whether an element built from an element template is left to the runtime which
+   * owns it, over THREE levels rather than four: workflow, workflow module, adapter, the
+   * most specific configured value winning in both directions. Which is the deliberate
+   * difference to version 1, whose primitive booleans let a more specific level turn the
+   * flag on and never off.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param adapterId The adapter ID
+   * @return The most specific configured setting together with the key it stands in
+   */
+  default Camunda8AllowConnectorsResolver.Setting allowConnectorsFor(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String adapterId) {
+
+    final var module = workflowModuleId != null
+        ? workflowModules().get(workflowModuleId)
+        : null;
+    final var workflow = (module != null) && (bpmnProcessId != null)
+        ? module.workflows().get(bpmnProcessId)
+        : null;
+    final var perWorkflow = workflow != null
+        ? workflow.adapters().get(adapterId)
+        : null;
+    if ((perWorkflow != null) && perWorkflow.allowConnectors().isPresent()) {
+      return new Camunda8AllowConnectorsResolver.Setting(
+          perWorkflow.allowConnectors().get(), "vanillabp.workflow-modules.%s.workflows.%s.adapters.%s.%s"
+              .formatted(
+                  workflowModuleId, bpmnProcessId, adapterId, Camunda8Connectors.ALLOW_CONNECTORS_KEY));
+    }
+    final var perModule = module != null
+        ? module.adapters().get(adapterId)
+        : null;
+    if ((perModule != null) && perModule.allowConnectors().isPresent()) {
+      return new Camunda8AllowConnectorsResolver.Setting(
+          perModule.allowConnectors().get(), "vanillabp.workflow-modules.%s.adapters.%s.%s"
+              .formatted(workflowModuleId, adapterId, Camunda8Connectors.ALLOW_CONNECTORS_KEY));
+    }
+    final var adapter = adapters().get(adapterId);
+    if ((adapter != null) && adapter.allowConnectors().orElse(Boolean.FALSE)) {
+      return new Camunda8AllowConnectorsResolver.Setting(
+          true, Camunda8Connectors.propertyKeyOf(adapterId));
+    }
+    return Camunda8AllowConnectorsResolver.Setting.NOTHING_CONFIGURED;
+
+  }
+
+  /**
+   * Every <code>allow-connectors</code> this configuration puts at TASK level, fully
+   * spelled out - the level which does not resolve this key, and where saying so is the
+   * only thing the boot can do about it.
+   *
+   * @param adapterId The adapter ID
+   * @return The keys found
+   */
+  default List<String> allowConnectorsKeysAtTaskLevel(
+      final String adapterId) {
+
+    return workflowModules()
+        .entrySet()
+        .stream()
+        .flatMap(module -> module
+            .getValue()
+            .workflows()
+            .entrySet()
+            .stream()
+            .flatMap(workflow -> workflow
+                .getValue()
+                .tasks()
+                .entrySet()
+                .stream()
+                .filter(task -> {
+                  final var keys = task.getValue().adapters().get(adapterId);
+                  return (keys != null) && keys.allowConnectors().isPresent();
+                })
+                .map(task -> "vanillabp.workflow-modules.%s.workflows.%s.tasks.%s.adapters.%s.%s"
+                    .formatted(
+                        module.getKey(), workflow.getKey(), task.getKey(), adapterId,
+                        Camunda8Connectors.ALLOW_CONNECTORS_KEY))))
+        .toList();
+
+  }
+
+  /**
    * The <code>adapters.&lt;id&gt;</code> sections of the three levels below the adapter for
    * a MESSAGE, most specific first. Separate from
    * {@link #scopedKeysMostSpecificFirst} because the most specific level is a different
@@ -397,6 +485,17 @@ public interface VanillaBpCamunda8Properties {
      * @return Whether unscoped identifiers are accepted deliberately
      */
     Optional<Boolean> acceptUnscopedIdentifiers();
+
+    /**
+     * OPTIONAL: whether an element built from an element template is left to the runtime
+     * which owns it, a Camunda connector in almost every case. Adapter-level base of a
+     * resolution over three levels (workflow &gt; workflow-module &gt; adapter), default
+     * <code>false</code>, see
+     * {@link io.vanillabp.camunda8.wiring.Camunda8AllowConnectorsResolver}.
+     *
+     * @return Whether connectors are allowed for this adapter instance
+     */
+    Optional<Boolean> allowConnectors();
 
     /**
      * The worker's job timeout (lock duration) - adapter-level base of the
@@ -747,6 +846,15 @@ public interface VanillaBpCamunda8Properties {
      * @return The message time-to-live
      */
     Optional<Duration> messageTimeToLive();
+
+    /**
+     * Whether an element built from an element template is left to the runtime which owns
+     * it, at this level. Empty rather than <code>false</code> where nothing is configured,
+     * which is what lets a workflow module switch OFF what the adapter switched on.
+     *
+     * @return Whether connectors are allowed here
+     */
+    Optional<Boolean> allowConnectors();
 
   }
 

@@ -15,6 +15,7 @@ import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8StartupValidation;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics;
+import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy;
 import io.vanillabp.integration.config.VanillaBpConfigurationProperties;
 import lombok.extern.slf4j.Slf4j;
@@ -64,6 +65,12 @@ public class Camunda8ClientAutoConfiguration {
               coreProperties.getDeploymentFailureFor(
                   adapterId) == DeploymentFailurePolicy.WARN,
               coreProperties.resolvedDeliveryRetention(),
+              log::warn);
+          // a key at a level which does not resolve it changes nothing and would be
+          // silent, which is worse than a line saying where the key is read
+          Camunda8Connectors.reportKeysSetAtTaskLevel(
+              adapterId,
+              overlay.allowConnectorsKeysAtTaskLevel(adapterId),
               log::warn);
           configurations.put(adapterId, configuration);
         });

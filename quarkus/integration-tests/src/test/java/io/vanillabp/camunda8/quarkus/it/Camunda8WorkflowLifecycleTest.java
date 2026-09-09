@@ -137,6 +137,7 @@ public class Camunda8WorkflowLifecycleTest {
           .addAsResource("c8-e2e/processes/timer-start.bpmn")
           .addAsResource("c8-e2e/processes/versioned-process.bpmn")
           .addAsResource("c8-e2e/processes/aggregate-changed.bpmn")
+          .addAsResource("c8-e2e/processes/connector-process.bpmn")
           // deployed by the test WHILE the application runs, so it must travel with it
           // but must not sit in the workflow module's resources location
           .addAsResource("c8-e2e/versioned/versioned-process-v2.bpmn")
@@ -650,6 +651,34 @@ public class Camunda8WorkflowLifecycleTest {
         0,
         invocations("happyTask", aggregateId),
         "the outbox record was written in the same transaction, so no workflow may have run");
+
+  }
+
+  @Test
+  @DisplayName("A connector element is left to its own runtime, unprefixed and unserved")
+  public void aConnectorElementIsLeftToItsOwnRuntime() throws Exception {
+
+    final var aggregateId = aggregateIdOf(startProcess("ConnectorProcess"));
+
+    // no connector runtime runs here, so the job waits: which is the point. The job type
+    // it waits under is the one the modeller wrote, although this workflow module runs
+    // with name-clash avoidance 'use-prefix' and every job type of its own carries the
+    // module and the process
+    await(
+        () -> !text("introspect/cluster/element-waiting-for-job-type/io.camunda:http-json:1").isEmpty(),
+        "the cluster to hold a job of the connector's unprefixed job type");
+    assertEquals(
+        "Activity_Connector",
+        text("introspect/cluster/element-waiting-for-job-type/io.camunda:http-json:1"),
+        "the waiting job belongs to the connector element");
+
+    // and nothing of this application served it, so the task behind the element was
+    // never reached
+    Thread.sleep(5000);
+    assertEquals(
+        0,
+        invocations("afterConnector", aggregateId),
+        "no worker of this application may serve a job type belonging to a connector runtime");
 
   }
 

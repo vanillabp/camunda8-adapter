@@ -668,7 +668,7 @@ public class Camunda8DeploymentServiceTest {
 
       assertEquals(
           List.of(),
-          io.vanillabp.camunda8.wiring.Camunda8TaskWiring.tasksOf(callingADecision, "Rating"),
+          io.vanillabp.camunda8.wiring.Camunda8TaskWiring.tasksOf(callingADecision, "Rating", false),
           "the cluster evaluates the decision, so no @WorkflowTask method is expected");
 
       // one wired by a task definition is an ordinary VanillaBP task
@@ -681,7 +681,7 @@ public class Camunda8DeploymentServiceTest {
 
       assertEquals(
           1,
-          io.vanillabp.camunda8.wiring.Camunda8TaskWiring.tasksOf(callingAWorker, "Rating").size());
+          io.vanillabp.camunda8.wiring.Camunda8TaskWiring.tasksOf(callingAWorker, "Rating", false).size());
 
     }
 

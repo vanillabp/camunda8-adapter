@@ -734,6 +734,33 @@ public class C8E2eIntrospectionController {
 
   }
 
+  /**
+   * The element a job of the given type waits at, or nothing where the cluster holds no
+   * such job. Asked with the job type as the modeller wrote it, which is what proves that
+   * a connector's job type was not prefixed although the module runs under
+   * {@code use-prefix}.
+   *
+   * @param type The job type
+   * @return The element id of the first such job, or the empty string
+   */
+  @GET
+  @Path("/cluster/element-waiting-for-job-type/{type}")
+  @Produces(MediaType.TEXT_PLAIN)
+  public String elementWaitingForJobType(
+      @PathParam("type") final String type) {
+
+    final var found = client()
+        .newJobSearchRequest()
+        .filter(filter -> filter.type(type))
+        .send()
+        .join()
+        .items();
+    return found.isEmpty()
+        ? ""
+        : found.getFirst().getElementId();
+
+  }
+
   @POST
   @Path("/cluster/instances/{processInstanceKey}/cancel")
   public void cancelInstance(

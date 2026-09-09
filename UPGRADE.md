@@ -5,6 +5,48 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## `allow-connectors` moved under the adapter (2026-09-09)
+
+Version 1 read `vanillabp.allow-connectors` at the root of the tree, with a workflow-module and a
+workflow level below it. The key is back and does the same thing, but it sits where it belongs now:
+
+```
+vanillabp.adapters.<id>.allow-connectors
+vanillabp.workflow-modules.<m>.adapters.<id>.allow-connectors
+vanillabp.workflow-modules.<m>.workflows.<w>.adapters.<id>.allow-connectors
+```
+
+Connectors are a Camunda 8 concept and no other BPMS has anything to do with the marker, so the key
+belongs to this adapter. The three levels are the ones version 1 had, and the default is `false` as
+before. Four things an upgrading application has to act on.
+
+**The resolution changed direction.** Version 1 held the flag in primitive booleans, so a more
+specific level could only turn it ON: a global `true` plus a module `false` still yielded `true`. Now
+the most specific configured value wins in both directions, like every other key of this adapter. If
+you relied on the old OR, read your configuration once: a module or workflow which says `false`
+under an adapter which says `true` now switches the rule off for itself.
+
+**A user task built from an element template stays wired.** Version 1 passed a user task carrying
+`zeebe:modelerTemplate` over together with the service tasks. This version does not. There is no
+user-task connector: a `zeebe:userTask` is served by the cluster's task list, and a template on it
+presets an assignee or a form. Passing it over would take away its lifecycle listeners, its CREATED
+and CANCELED notifications and the ability of `ProcessService#completeUserTask` to complete it, for
+a marker which says nothing about who serves the task. If a user task of yours was passed over in
+version 1, it is wired here and needs a `@WorkflowTask` method or the model has to stop claiming it.
+
+**Every boot with the switch on writes a warning.** Version 1 logged nothing at all near the
+property, so switching it on was silent and a typo in a task definition was indistinguishable from
+an intentional connector. This version writes one framed WARN per workflow module which allows
+connectors, naming the key, the module, every element it handed over with its element template, and
+what that costs. No key silences it, and that is deliberate: what it says stays true for as long as
+the connector is in the model.
+
+**Under `use-prefix` a connector's job type stays unprefixed.** Version 1 had no prefixing mode, so
+the question could not arise there. Here the job type of such an element is left as the modeller
+wrote it, because it names a runtime somebody else deployed cluster-wide. Under `by-adapter` the
+module is kept apart by a tenant instead, and a connector runtime then has to be able to see that
+tenant, which is a condition on your cluster rather than something the adapter arranges.
+
 ## The message check reads the models the cluster holds (2026-09-08)
 
 If you renamed a BPMN process and a `correlateMessage` for one of its old workflows failed with

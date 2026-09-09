@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.quarkus.smoke;
 
 import java.time.Duration;
+import java.util.List;
 
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -199,6 +200,56 @@ public class Camunda8JobTimeoutOverlayTest {
             .getConfiguration()
             .resolvedFetchVariables(),
         "the adapter-level value reaches the configuration as well");
+
+  }
+
+  @Test
+  public void allowConnectorsResolvesThroughItsThreeLevels() {
+
+    final var overlay = overlay();
+
+    // the workflow says yes where its module said no, which is the case version 1
+    // could not express: its primitive booleans could only turn the flag on
+    final var perWorkflow = overlay.allowConnectorsFor("test-app", "TaskProcess", "c8");
+    Assertions.assertTrue(perWorkflow.allowed());
+    Assertions.assertEquals(
+        "vanillabp.workflow-modules.test-app.workflows.TaskProcess.adapters.c8.allow-connectors",
+        perWorkflow.propertyKey(),
+        "the report has to name the line the reader can find in their configuration");
+
+    // the module switches OFF what the adapter switched on
+    final var perModule = overlay.allowConnectorsFor("test-app", "OtherProcess", "c8");
+    Assertions.assertFalse(perModule.allowed());
+    Assertions.assertEquals(
+        "vanillabp.workflow-modules.test-app.adapters.c8.allow-connectors",
+        perModule.propertyKey());
+
+    // and everything the module says nothing about follows the adapter
+    final var perAdapter = overlay.allowConnectorsFor("unknown-module", "SomeProcess", "c8");
+    Assertions.assertTrue(perAdapter.allowed());
+    Assertions.assertEquals("vanillabp.adapters.c8.allow-connectors", perAdapter.propertyKey());
+
+    final var nothingConfigured = overlay
+        .allowConnectorsFor("test-app", "TaskProcess", "unknown-adapter");
+    Assertions.assertFalse(nothingConfigured.allowed(), "the default wires every element");
+    Assertions.assertNull(nothingConfigured.propertyKey());
+
+  }
+
+  @Test
+  public void aValueAtTaskLevelIsFoundAndChangesNoAnswer() {
+
+    final var overlay = overlay();
+
+    Assertions.assertEquals(
+        List
+            .of(
+                "vanillabp.workflow-modules.test-app.workflows.TaskProcess.tasks.happyTask.adapters.c8.allow-connectors"),
+        overlay.allowConnectorsKeysAtTaskLevel("c8"),
+        "the boot names the key it cannot honour instead of ignoring it silently");
+    Assertions.assertTrue(
+        overlay.allowConnectorsFor("test-app", "TaskProcess", "c8").allowed(),
+        "and the answer still comes from the workflow level");
 
   }
 

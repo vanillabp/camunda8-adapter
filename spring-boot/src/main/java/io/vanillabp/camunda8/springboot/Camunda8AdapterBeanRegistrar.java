@@ -102,6 +102,12 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                     bpmnProcessId,
                     taskDefinition) -> overlay.fetchVariablesFor(
                         workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
+                // Which elements of a model this application leaves to the runtime
+                // which owns them, resolvable down to the workflow
+                deploymentService.setAllowConnectorsResolver((
+                    workflowModuleId,
+                    bpmnProcessId) -> overlay
+                        .allowConnectorsFor(workflowModuleId, bpmnProcessId, adapterId));
                 // The client's job counters and this adapter's execution slots,
                 // where the application brings Micrometer
                 deploymentService.setMetrics(
