@@ -837,7 +837,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // the core passes null for the first BPMN process of a workflow module
     final var context = existingContext != null
         ? existingContext
-        : new Camunda8ProcessingContext(workflowModuleId);
+        : new Camunda8ProcessingContext(adapterId, workflowModuleId);
     // Rewrite the identifiers the cluster resolves globally BEFORE wiring,
     // so everything downstream (wiring validation, listener injection, workers) sees
     // what the cluster will see. A no-op unless the mode is 'use-prefix'. The core

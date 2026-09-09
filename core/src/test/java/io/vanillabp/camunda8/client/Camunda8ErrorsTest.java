@@ -12,6 +12,7 @@ import java.util.concurrent.TimeoutException;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.camunda.client.api.ProblemDetail;
@@ -212,6 +213,86 @@ public class Camunda8ErrorsTest {
     // the words around the code are the cluster's to reword, so they decide nothing
     assertFalse(Camunda8Errors.jobAlreadyGone(new IllegalStateException("no such job was NOT_FOUND")));
     assertFalse(Camunda8Errors.jobAlreadyGone(problem(409, "ALREADY_EXISTS")));
+
+  }
+
+  @Test
+  @DisplayName("A cluster which does not hold what was addressed says so on the REST transport")
+  public void aRestNotFoundIsRecognised() {
+
+    // the answer as the REST client hands it on, with and without a problem detail
+    assertTrue(Camunda8Errors.notFound(problem(404, "NOT FOUND")));
+    assertTrue(Camunda8Errors.notFound(new ClientHttpException(404, "Not Found")));
+    // and it is read from the code alone: another rejection is not this one, and neither
+    // is a failure which only carries the words
+    assertFalse(Camunda8Errors.notFound(problem(403, "FORBIDDEN")));
+    assertFalse(Camunda8Errors.notFound(new IllegalStateException("404 not found")));
+    assertFalse(Camunda8Errors.notFound(null));
+
+  }
+
+  @Test
+  @DisplayName("A cluster which does not hold what was addressed says so on the gRPC transport")
+  public void aGrpcNotFoundIsRecognised() {
+
+    assertTrue(Camunda8Errors.notFound(new ClientStatusException(Status.NOT_FOUND, null)));
+    assertFalse(
+        Camunda8Errors.notFound(new ClientStatusException(Status.PERMISSION_DENIED, null)));
+
+  }
+
+  @Test
+  @Timeout(value = 10, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  @DisplayName("A cause chain which closes into a ring is walked once, not forever")
+  public void aRingOfCausesEndsTheWalk() {
+
+    // two failures naming each other as their cause - a shape a client produces by
+    // wrapping a failure it wrapped before, and one which a walk guarding only the
+    // self-reference never leaves. Every classification reads such a chain, so all of
+    // them are asked here
+    final var outer = new IllegalStateException("the outer failure");
+    final var inner = new IllegalStateException("the inner failure", outer);
+    outer.initCause(inner);
+
+    assertFalse(Camunda8Errors.notFound(outer));
+    assertFalse(Camunda8Errors.jobAlreadyGone(outer));
+    assertFalse(Camunda8Errors.messageAlreadyPublished(outer));
+    assertFalse(Camunda8Errors.queryApiRefused(outer));
+    assertFalse(Camunda8Errors.permanentFailure(outer));
+    assertEquals(
+        "java.lang.IllegalStateException: the outer failure",
+        Camunda8Errors.rejection(outer));
+
+  }
+
+  @Test
+  @Timeout(value = 10, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  @DisplayName("An answer inside a ring of causes is still the answer")
+  public void aRingOfCausesStillCarriesItsAnswer() {
+
+    final var wrapped = new IllegalStateException("the failure it wrapped before");
+    final var rejected = new ClientHttpException("failed", 404, "Not Found", wrapped);
+    wrapped.initCause(rejected);
+
+    assertTrue(Camunda8Errors.notFound(wrapped));
+    assertEquals("HTTP 404, Not Found", Camunda8Errors.rejection(wrapped));
+
+  }
+
+  @Test
+  @DisplayName("Either transport's answer is found however deep the client wrapped it")
+  public void aWrappedNotFoundIsRecognised() {
+
+    // the client hands an asynchronous command's failure over wrapped, so the answer of
+    // an inner cause is the answer of the whole
+    assertTrue(
+        Camunda8Errors
+            .notFound(new CompletionException(new ClientException("failed", problem(404, "NOT FOUND")))));
+    assertTrue(
+        Camunda8Errors
+            .notFound(
+                new CompletionException(
+                    new ClientException("failed", new ClientStatusException(Status.NOT_FOUND, null)))));
 
   }
 

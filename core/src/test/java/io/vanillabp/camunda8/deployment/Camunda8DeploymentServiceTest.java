@@ -180,6 +180,27 @@ public class Camunda8DeploymentServiceTest {
   }
 
   @Test
+  @DisplayName("the context names the adapter and the workflow module the pipeline runs for")
+  public void theContextNamesItsAdapterAndItsWorkflowModule() {
+
+    final var service = newDeploymentService();
+    final var model = Bpmn
+        .createExecutableProcess("P1")
+        .startEvent()
+        .endEvent()
+        .done();
+
+    final var context = service.prepareBpmn("module", null, "a.bpmn", "P1", model);
+
+    // an extension of the pipeline sees this context and nothing else of the run, so
+    // without these two it cannot tell one adapter's call from another's - and every
+    // configured Camunda 8 adapter makes the same call with the same file
+    assertEquals("c8", context.getAdapterId());
+    assertEquals("module", context.getWorkflowModuleId());
+
+  }
+
+  @Test
   @DisplayName("deploying an empty module does not touch the (unconfigured) client")
   public void deployEmptyModuleDoesNotTouchClient() {
 
@@ -187,7 +208,7 @@ public class Camunda8DeploymentServiceTest {
 
     // null context (no BPMN files at all) and empty context must not build a client
     assertDoesNotThrow(() -> service.deployResources("module", null));
-    assertDoesNotThrow(() -> service.deployResources("module", new Camunda8ProcessingContext("module")));
+    assertDoesNotThrow(() -> service.deployResources("module", new Camunda8ProcessingContext("c8", "module")));
 
   }
 
@@ -280,7 +301,7 @@ public class Camunda8DeploymentServiceTest {
                   workflowModuleId,
                   bpmnProcessId,
                   taskDefinition) -> locks.next(), Duration.ofDays(14));
-      final var context = new Camunda8ProcessingContext("m");
+      final var context = new Camunda8ProcessingContext("c8", "m");
       context
           .getTasksToWire()
           .add(new Camunda8TaskWiring.Camunda8TaskToWire("Fast", "assessRisk", "assessRisk"));

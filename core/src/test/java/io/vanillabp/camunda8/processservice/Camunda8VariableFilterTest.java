@@ -1,6 +1,8 @@
 package io.vanillabp.camunda8.processservice;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
 
@@ -43,6 +45,23 @@ public class Camunda8VariableFilterTest {
 
     assertEquals("\"a\\\"b\"", Camunda8VariableFilters.aggregateIdSearchValue("a\"b"));
     assertEquals("\"a\\\\b\"", Camunda8VariableFilters.aggregateIdSearchValue("a\\b"));
+
+  }
+
+  @Test
+  @DisplayName("An ID which is missing is refused instead of searched for")
+  public void aMissingIdIsRefused() {
+
+    // "null" is a searchable value like any other, so quoting it would ask the cluster
+    // for workflows whose aggregate id really is those four letters - and the empty
+    // answer to that is the failure this class exists to prevent
+    final var refused = assertThrows(
+        IllegalArgumentException.class,
+        () -> Camunda8VariableFilters.aggregateIdSearchValue(null));
+    assertTrue(
+        refused.getMessage().contains("Resolve the aggregate's ID before searching for it"),
+        "the refusal says what the caller has to do: "
+            + refused.getMessage());
 
   }
 
