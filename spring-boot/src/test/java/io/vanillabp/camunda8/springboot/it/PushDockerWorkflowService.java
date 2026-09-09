@@ -90,6 +90,22 @@ public class PushDockerWorkflowService {
 
   }
 
+  /**
+   * Completes the parked task of the PRIMARY process, which is what
+   * {@code Camunda8TaskProcessingIT} needs a primary process for: a stale completion has
+   * to raise the same exception there as on a secondary one.
+   *
+   * @param aggregateId The aggregate's id
+   * @param taskId The parked task
+   */
+  public void completeAwaitPush(
+      final Long aggregateId,
+      final String taskId) {
+
+    processService.completeTask(repository.findById(aggregateId).orElseThrow(), taskId);
+
+  }
+
   @WorkflowTask(taskDefinition = "awaitPush")
   public void awaitPush(
       final PushDockerAggregate aggregate,

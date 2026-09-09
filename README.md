@@ -472,8 +472,21 @@ asks the transaction runner of that aggregate - which may be a unit of work the
 application brought. A runner which cannot offer a pre-commit hook runs the check immediately,
 the behaviour this adapter had before.
 
-`Camunda8PreCommitCheckTest` pins both halves: phase one registers without contacting the
-cluster, and the check reaches the cluster when the hook fires.
+A check which meets a task the cluster no longer knows throws
+`io.vanillabp.spi.process.TaskNotFoundException`, the type the SPI documents for a task no
+BPMS knows any more. Whether that was found out by probing the configured BPMS or by this
+check is the adapter's business, and an application catching the documented exception
+catches both. The message names the task; the cluster's own words about the rejection go to
+the log, because that exception carries a message and no cause.
+
+`Camunda8PreCommitCheckTest` pins both halves of the timing: phase one registers without
+contacting the cluster, and the check reaches the cluster when the hook fires. The type is
+held against a real cluster by
+`Camunda8TaskProcessingIT#aStaleCompletionRaisesTheGuidingException`, once more on a
+primary process in `#aStaleCompletionOnAPrimaryProcessRaisesTheGuidingException`, and on
+Quarkus by `Camunda8WorkflowLifecycleTest#aStaleCompletionRaisesTheGuidingException`. The
+Quarkus one reads the exception out of the `RollbackException` that JTA wraps a failed
+`beforeCompletion` in.
 
 ### The delivery identity is a job key, so it belongs to one cluster
 

@@ -38,6 +38,7 @@ import io.vanillabp.integration.adapter.spi.WorkflowVisibilityDelay;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import io.vanillabp.integration.spi.PhaseOperation;
 import io.vanillabp.spi.process.ProcessDefinition;
+import io.vanillabp.spi.process.TaskNotFoundException;
 import io.vanillabp.spi.process.WorkflowHistory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -530,15 +531,46 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
         updateJobTimeout(taskId);
       } catch (final Exception e) {
         if (Camunda8Errors.jobAlreadyGone(e)) {
-          throw new IllegalStateException(
+          throw newTaskNotFound(
+              taskId,
               ("The task '%s' is gone (completed or canceled meanwhile) - aborting the transaction "
                   + "%s it! If this task was completed by a concurrent redelivery, retrying the "
                   + "business operation will end in the documented no-op.")
-                  .formatted(taskId, operationDescription), e);
+                  .formatted(taskId, operationDescription),
+              e);
         }
         throw e;
       }
     });
+
+  }
+
+  /**
+   * What a pre-commit check throws once the cluster has said the task is gone.
+   * <p>
+   * The type is the one the SPI documents for exactly this outcome, so an application
+   * catching {@link TaskNotFoundException} catches it here as well - whether the task
+   * turned out to be gone while a BPMS was probed or while this check ran is the
+   * adapter's business, not the caller's. That exception carries a message and nothing
+   * else, so the cluster's own words about the rejection are written to the log before
+   * it is thrown; the awareness probe says them for the same reason.
+   *
+   * @param taskId The task the cluster no longer knows
+   * @param message What the caller reads, including what to do about it
+   * @param rejection What the cluster answered the check with
+   * @return The exception to throw
+   */
+  private TaskNotFoundException newTaskNotFound(
+      final String taskId,
+      final String message,
+      final Exception rejection) {
+
+    log.info(
+        "Camunda8[{}]: the pre-commit check found task '{}' gone - the cluster refused it with {}",
+        adapterId,
+        taskId,
+        Camunda8Errors.rejection(rejection));
+    return new TaskNotFoundException(message);
 
   }
 
@@ -605,10 +637,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
         updateUserTask(request.taskId());
       } catch (final Exception e) {
         if (Camunda8Errors.jobAlreadyGone(e)) {
-          throw new IllegalStateException(
+          throw newTaskNotFound(
+              request.taskId(),
               ("The user task '%s' is gone (completed or canceled meanwhile) - aborting the "
                   + "transaction completing it!")
-                  .formatted(request.taskId()), e);
+                  .formatted(request.taskId()),
+              e);
         }
         throw e;
       }
