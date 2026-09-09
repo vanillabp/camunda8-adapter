@@ -27,6 +27,10 @@ vanillabp:
           job-timeout: PT20S
           retry-backoff: PT20S
       workflows:
+        ConnectorProcess:
+          adapters:
+            c8:
+              allow-connectors: true
         FailProcess:
           adapters:
             c8:

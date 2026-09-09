@@ -89,10 +89,19 @@ public final class Camunda8TaskWiring {
    * <code>null</code> task definition - reported by the wiring validation with a
    * guiding message. A business rule task calling a decision
    * (<code>zeebe:calledDecision</code>) is none of them: the cluster evaluates it.
+   *
+   * @param model The BPMN model
+   * @param bpmnProcessId The process id as it stands in the model
+   * @param connectorsAreAllowed Whether an element built from an element template is left
+   *          to the runtime which owns it, see {@link Camunda8Connectors}. Such an element
+   *          produces no task spec, so the wiring validation never asks for a
+   *          {@code @WorkflowTask} method and no worker is opened for its job type
+   * @return The tasks to be served by job workers of this application
    */
   public static List<Camunda8TaskToWire> tasksOf(
       final BpmnModelInstance model,
-      final String bpmnProcessId) {
+      final String bpmnProcessId,
+      final boolean connectorsAreAllowed) {
 
     final var tasks = new LinkedList<Camunda8TaskToWire>();
     Stream
@@ -107,6 +116,11 @@ public final class Camunda8TaskWiring {
           // business rule task carrying a task definition is an ordinary VanillaBP task
           if (task.getSingleExtensionElement(
               io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledDecision.class) != null) {
+            return;
+          }
+          // an element built from an element template names a job type somebody else's
+          // runtime subscribes to, so this application neither validates nor serves it
+          if (connectorsAreAllowed && Camunda8Connectors.isServedByAnotherRuntime(task)) {
             return;
           }
           final var taskDefinition = task.getSingleExtensionElement(ZeebeTaskDefinition.class);

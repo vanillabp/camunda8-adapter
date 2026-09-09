@@ -51,6 +51,10 @@ import lombok.Setter;
  *       workflow module, workflow and task) - whether a worker asks the cluster for the
  *       variables VanillaBP reads or for the complete variable scope, see
  *       {@link Camunda8FetchVariables}</li>
+ *   <li>{@code .allow-connectors} (optional, default {@code false}, resolvable per
+ *       workflow module and workflow) - whether an element built from an element template
+ *       is left to the runtime which owns it, see
+ *       {@link io.vanillabp.camunda8.wiring.Camunda8Connectors}</li>
  *   <li>{@code .health-timeout} (optional, default {@value #DEFAULT_HEALTH_TIMEOUT_ISO}) -
  *       how long the health check waits for the cluster's topology, see
  *       {@link #healthTimeout}</li>
@@ -151,6 +155,28 @@ public class Camunda8AdapterConfiguration {
    * <code>false</code>.
    */
   private boolean acceptUnscopedIdentifiers = false;
+
+  /**
+   * Whether this application honours the element-template marker of a model, so an element
+   * built from one is left to the runtime which owns it - a Camunda connector in almost
+   * every case. Adapter-level base of the most-specific-wins resolution over three levels
+   * (workflow &gt; workflow-module &gt; adapter), see
+   * {@link io.vanillabp.camunda8.wiring.Camunda8AllowConnectorsResolver}. Default
+   * <code>false</code>.
+   * <p>
+   * What it costs is written into the boot log of every workflow module it applies to, and
+   * no key silences that: VanillaBP validates such an element against nothing, opens no
+   * worker for its job type and cannot tell whether anything serves it. The model also
+   * stops being portable, because a connector is a Camunda 8 element, and what the
+   * connector does runs outside the transaction VanillaBP owns.
+   * <p>
+   * There is deliberately no TASK level, although the keys next to this one have one: that
+   * level is keyed by the task DEFINITION, and the task definition of a connector is the
+   * connector's own type, which every element using that connector shares and which carries
+   * dots and colons a relaxed binder splits on. Which element another runtime serves is
+   * decided by the model instead, by <code>zeebe:modelerTemplate</code> on the element.
+   */
+  private boolean allowConnectors = false;
 
   /**
    * How long the lock of a job left open by a <code>&#64;TaskId</code> handler is

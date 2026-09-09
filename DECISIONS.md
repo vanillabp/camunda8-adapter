@@ -547,3 +547,35 @@ cluster and the module would hold twenty of them by the end of a run.
 given `-Dcamunda8.cluster.secondary-storage=elasticsearch`, and that is how a change to this
 mechanism is checked as long as 8.8 is alive: the pull request builds the current GA line only, so
 nothing else would compile the Elasticsearch path before the nightly matrix does.
+
+### 23. Connectors are allowed per adapter, and every boot says what they cost
+
+A model may carry elements this application does not serve, and `zeebe:modelerTemplate` is what
+marks them. The rule is not unconditional, because that attribute marks an element built from an
+ELEMENT TEMPLATE and a connector is only the most common of those: a company writes templates for
+its own plain job-worker tasks as well, and an unconditional rule would leave such a task without a
+worker and without a validation, so its workflow would stand at it forever. `allow-connectors` is
+therefore the gate, and the model still says WHICH elements: the property answers whether the
+marker is read at all.
+
+The key belongs to this ADAPTER and to no wider scope. Connectors are a Camunda 8 concept, no other
+BPMS has anything to do with the marker, and a platform-wide key would ask every adapter about
+something only this one can answer. It resolves at adapter, workflow-module and workflow level, the
+most specific configured value winning in both directions, and it has no task level: that level is
+keyed by the task definition, and a connector's task definition is the connector's own type, shared
+by every element using that connector.
+
+Prefixing leaves such an element's job type as the modeller wrote it rather than refusing the
+combination. The job type names a runtime somebody else deployed cluster-wide, so prefixing it would
+rename something this application does not own; refusing `use-prefix` instead would take the only
+isolation mode which works without a multi-tenant cluster away from every application that wants one
+connector. The price is real and stated rather than hidden: such a job type reaches the cluster
+unscoped, which costs nothing here because a connector runtime subscribes to it globally anyway.
+
+No key silences the warning a boot with the switch on writes. `accept-unscoped-identifiers` is the
+precedent for acknowledging a warning away, and it exists because the application can state a fact
+the adapter cannot check, namely that its identifiers are unique. There is no equivalent fact here:
+what the warning says stays true for as long as the connector is in the model, and a key turning it
+off would only make the loss invisible.
+
+See [Elements another runtime serves](./README.md#elements-another-runtime-serves).

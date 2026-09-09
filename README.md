@@ -1144,6 +1144,65 @@ routes the correlation to the wrong BPMS.
 `#duplicateCorrelationDispatchIsDeduplicated` and `#startWorkflowByMessageStartsInstance` hold
 the three commands, `Camunda8WorkflowLifecycleTest` the Quarkus half.
 
+### Elements another runtime serves
+
+An element carrying the attribute `zeebe:modelerTemplate` was configured from an ELEMENT TEMPLATE.
+A Camunda connector is the most common of those, and this is the only thing in the model which says
+that somebody else's runtime owns an element. It is not read unless the application says so, because
+a company writes element templates for its own plain job-worker tasks as well, and passing those
+over would leave a task this very application serves without a worker and without a validation.
+
+`vanillabp.adapters.<id>.allow-connectors` is the switch, default `false`, resolvable at three
+levels with the most specific configured value winning:
+
+```
+vanillabp.adapters.<id>.allow-connectors
+vanillabp.workflow-modules.<m>.adapters.<id>.allow-connectors
+vanillabp.workflow-modules.<m>.workflows.<w>.adapters.<id>.allow-connectors
+```
+
+There is no TASK level. That level is keyed by the task DEFINITION, and the task definition of a
+connector is the connector's own type, which every element using that connector shares and which
+carries dots and colons a relaxed binder splits on. Which single element is left alone is decided
+by the model. A value set at task level earns one guiding warning naming the three levels which
+work, and the boot goes on.
+
+Where the switch is on, an element carrying the marker AND a `zeebe:taskDefinition` is left to the
+runtime which owns it:
+
+- `Camunda8TaskWiring#tasksOf` passes it over, so it produces no `BpmnTaskSpec`, the wiring
+  validation never asks for a `@WorkflowTask` method and `startWorkflowProcessing` opens no worker
+  for its job type. That is the whole mechanism: the connector runtime subscribes to the job type
+  and serves the job;
+- `Camunda8Scoping#apply` leaves its job type alone under `use-prefix`, and the
+  `zeebe:formDefinition externalReference` of the same element with it. The job type names a
+  runtime somebody else deployed cluster-wide, and prefixing it would rename something this
+  application does not own. That reaches wider than the wiring does: an ad-hoc subprocess with an
+  agent connector, a message throw event and an end event all carry a task definition, and none of
+  them is a task `tasksOf` collects;
+- a Camunda-managed user task is deliberately NOT passed over, although VanillaBP 1 passed it over.
+  A `zeebe:userTask` is served by the cluster's task list, and an element template on it presets an
+  assignee or a form. Passing it over would cost its lifecycle listeners, its CREATED and CANCELED
+  notifications and the ability of `ProcessService#completeUserTask` to complete it, for a marker
+  which says nothing about who serves the task;
+- an element carrying the marker without a task definition is none of this. An inbound connector is
+  the case, it correlates by a message name rather than by a job type, and covering it needs a
+  second rule about message names which this version does not have.
+
+Every boot of a workflow module which allows connectors writes a framed WARN naming the key, the
+module, every element it handed over with its element template, what that costs at runtime and what
+the application gives up while it runs connectors. Nothing silences it, see
+[decision 23](./DECISIONS.md#23-connectors-are-allowed-per-adapter-and-every-boot-says-what-they-cost).
+Where the switch is on and no element of the module uses it, the boot writes one line instead of
+the frame. Where it is off and elements carry the marker, the adapter names them and the three
+levels before the core's wiring validation ends the boot over the job type nobody serves.
+
+`Camunda8ConnectorsTest` holds what is passed over and what is not, `Camunda8ConnectorsReportTest`
+the three messages, `Camunda8AllowConnectorsBootTest` and `Camunda8JobTimeoutOverlayTest` the three
+levels per platform, and `Camunda8ConnectorsIT` with
+`Camunda8WorkflowLifecycleTest#aConnectorElementIsLeftToItsOwnRuntime` the same against a cluster on
+both platforms.
+
 ### What a worker fetches
 
 A Camunda 8 worker which names no variables receives the complete variable scope of the

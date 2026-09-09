@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,7 +34,9 @@ import io.vanillabp.camunda8.client.Camunda8SearchableClusterCheck;
 import io.vanillabp.camunda8.client.Camunda8TenantCheck;
 import io.vanillabp.camunda8.health.Camunda8Health;
 import io.vanillabp.camunda8.observability.Camunda8Metrics;
+import io.vanillabp.camunda8.wiring.Camunda8AllowConnectorsResolver;
 import io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler;
+import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver;
 import io.vanillabp.camunda8.wiring.Camunda8JobHandler;
@@ -145,6 +148,43 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final Camunda8FetchVariablesResolver fetchVariablesResolver) {
 
     this.fetchVariablesResolver = fetchVariablesResolver;
+
+  }
+
+  /**
+   * Whether this application honours the element-template marker of a model, resolved per
+   * workflow module and per workflow. Handed in by the platform module after construction
+   * like {@link #fetchVariablesResolver}; <code>null</code> (tests) means the default,
+   * which is that VanillaBP wires every element.
+   */
+  private Camunda8AllowConnectorsResolver allowConnectorsResolver;
+
+  /**
+   * Hands over how <code>allow-connectors</code> resolves for this adapter instance.
+   *
+   * @param allowConnectorsResolver The resolver, or <code>null</code> for the default
+   */
+  public void setAllowConnectorsResolver(
+      final Camunda8AllowConnectorsResolver allowConnectorsResolver) {
+
+    this.allowConnectorsResolver = allowConnectorsResolver;
+
+  }
+
+  /**
+   * What the configuration says about one process of one workflow module, together with
+   * the key it said it in.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @return The setting, never <code>null</code>
+   */
+  private Camunda8AllowConnectorsResolver.Setting connectorsAllowedFor(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    return Camunda8AllowConnectorsResolver
+        .resolve(allowConnectorsResolver, workflowModuleId, bpmnProcessId);
 
   }
 
@@ -542,7 +582,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               ? null
               : new Camunda8ModelsTheClusterHolds.HeldModel(bpmnProcessId, version, model);
         })
-        .filter(java.util.Objects::nonNull)
+        .filter(Objects::nonNull)
         .toList();
 
   }
@@ -851,7 +891,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       // the file is read for what it demands of the cluster while it is still the
       // model somebody wrote, before this adapter rewrote a single element of it
       refuseAFileTheClusterWouldReject(workflowModuleId, filename, model);
-      Camunda8Scoping.apply(model, workflowModuleId, adapterId, scoping);
+      // read while the process ids are still the plain ones, and once per FILE rather
+      // than once per process: after the rewrite below an element cannot be attributed
+      // to the process the configuration is keyed by any more
+      recordTheElementsAnotherRuntimeServes(workflowModuleId, model, context);
+      Camunda8Scoping.apply(model, workflowModuleId, adapterId, scoping, allowConnectorsResolver);
     }
     context.addResource(filename, model);
     context.recordDeployedProcess(bpmnProcessId);
@@ -903,7 +947,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // extract the job-worker tasks (zeebe:taskDefinition type = VanillaBP task
     // definition) and validate them against the registered @WorkflowTask methods;
     // throwing here honors the deployment-failure policy
-    final var tasks = Camunda8TaskWiring.tasksOf(model, scopedBpmnProcessId);
+    final var connectorsAreAllowed = connectorsAllowedFor(workflowModuleId, bpmnProcessId).allowed();
+    final var tasks = Camunda8TaskWiring.tasksOf(model, scopedBpmnProcessId, connectorsAreAllowed);
     // Camunda-managed user tasks: the V1-compatible lifecycle task
     // listeners are ADDED TO THE MODEL here (wireBpmn is the BPMN-modification
     // stage of the pipeline) - the modified model is what deployResources deploys
@@ -920,6 +965,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             userTask.activityId(),
             plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
+    // the core's validation below knows nothing about element templates, and a Camunda 8
+    // sentence in its message would be wrong for every other BPMS. So the adapter says
+    // the missing half first, and the developer reads the guidance above the failure
+    if (!connectorsAreAllowed) {
+      guideTowardsAllowingConnectors(workflowModuleId, bpmnProcessId, scopedBpmnProcessId, model);
+    }
     workflowTaskWiring.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
     // The same extraction serves the models of OLDER versions the cluster
     // still holds, so both directions see a model the same way
@@ -1083,6 +1134,212 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
+   * Collects the elements of one BPMN file which a runtime other than this application
+   * serves, per executable process, and remembers the key which allowed them.
+   * <p>
+   * Asked while the file is prepared rather than while a process of it is wired, because
+   * the rule reaches further than the wiring does: an ad-hoc subprocess carrying an agent
+   * connector, a message throw event and an end event all name a job type, none of them is
+   * a task this adapter collects, and all of them are what {@code use-prefix} would
+   * otherwise rename.
+   *
+   * @param workflowModuleId The workflow module
+   * @param model The model as it was read, with the plain process ids still in it
+   * @param context What the module's report is assembled in
+   */
+  private void recordTheElementsAnotherRuntimeServes(
+      final String workflowModuleId,
+      final BpmnModelInstance model,
+      final Camunda8ProcessingContext context) {
+
+    for (final var process : model.getModelElementsByType(Process.class)) {
+      if (!process.isExecutable()) {
+        continue;
+      }
+      final var setting = connectorsAllowedFor(workflowModuleId, process.getId());
+      if (!setting.allowed()) {
+        continue;
+      }
+      context.recordConnectorsAllowed(process.getId(), setting.propertyKey());
+      Camunda8Connectors
+          .elementsServedByAnotherRuntime(model, process.getId())
+          .forEach(context::recordElementServedByAnotherRuntime);
+    }
+
+  }
+
+  /**
+   * Names the elements of a process which were built from an element template while the
+   * property is off, and says what switching it on means.
+   * <p>
+   * This is the half version 1 never had: its boot ended in the core's wiring validation
+   * asking for a {@code @WorkflowTask} method for a job type nobody recognises, and the
+   * only way from there to {@code allow-connectors} was the documentation. The core's
+   * wiring validation, which runs directly after this guidance, still ends the boot, and
+   * that is correct: an element nothing serves is a defect until somebody says otherwise.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The PLAIN BPMN process id, which is what a property key names
+   * @param scopedBpmnProcessId The process id as it stands in the model
+   * @param model The model
+   */
+  private void guideTowardsAllowingConnectors(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String scopedBpmnProcessId,
+      final BpmnModelInstance model) {
+
+    final var elements = Camunda8Connectors
+        .elementsServedByAnotherRuntime(model, scopedBpmnProcessId);
+    if (elements.isEmpty()) {
+      return;
+    }
+    log.warn(
+        """
+            Camunda8[{}]: BPMN process '{}' of workflow module '{}' carries {} element(s) built from \
+            an element template (attribute 'zeebe:modelerTemplate'): {}. VanillaBP treats them like \
+            any other task, so the wiring validation asks for a @WorkflowTask method per job type and \
+            ends the boot where none exists. A Camunda connector is the usual reason for such an \
+            element: its job type belongs to the connector runtime, which serves the job instead of \
+            this application. Say so and VanillaBP leaves those elements alone, at one of three \
+            levels, the most specific configured one winning:
+            {}
+            What it means: {}""",
+        adapterId,
+        bpmnProcessId,
+        workflowModuleId,
+        elements.size(),
+        elements
+            .stream()
+            .map(Camunda8Connectors.ElementServedByAnotherRuntime::describe)
+            .collect(Collectors.joining("; ")),
+        Camunda8Connectors.levelsOf(adapterId, workflowModuleId, bpmnProcessId),
+        Camunda8Connectors.WHAT_IT_COSTS);
+
+  }
+
+  /**
+   * The report a workflow module which allows connectors writes on EVERY boot, once, after
+   * every BPMN file of it has been read.
+   * <p>
+   * One record rather than one per element: a module with eight connectors would produce
+   * eight warnings and a reader would skim all of them. It is framed, and nothing else this
+   * adapter logs is - a WARN level alone does not survive a boot log where every other line
+   * is one line high, and a second framed message would cost this one its effect.
+   * <p>
+   * There is no key which silences it. {@code accept-unscoped-identifiers} is the precedent
+   * for acknowledging a warning away, and it exists because the application can state a
+   * fact the adapter cannot check, namely that its identifiers are unique. There is no
+   * equivalent fact here: everything below stays true for as long as the connector is in
+   * the model, so a key turning it off would only make the loss invisible. See decision 23
+   * in the repository's DECISIONS.md.
+   *
+   * @param workflowModuleId The workflow module
+   * @param context The module's accumulated pipeline state
+   */
+  void reportWhatConnectorsCost(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext context) {
+
+    final var allowedBy = context.getConnectorsAllowedBy();
+    if (allowedBy.isEmpty()) {
+      return;
+    }
+    final var switchedOnBy = allowedBy
+        .values()
+        .stream()
+        .filter(Objects::nonNull)
+        .distinct()
+        .collect(Collectors.joining(", "));
+    final var elements = context.getElementsServedByAnotherRuntime();
+    if (elements.isEmpty()) {
+      reportASwitchNobodyNeeds(workflowModuleId, switchedOnBy);
+      return;
+    }
+    log.warn(
+        """
+
+            {}
+            CONNECTORS ARE SWITCHED ON: WORKFLOW MODULE '{}', CAMUNDA 8 ADAPTER '{}'
+            {}
+            Switched on by: {}
+            VanillaBP leaves the following element(s) to the runtime which owns them, because each of \
+            them was built from an element template and names a job type of its own:
+            {}
+            {}
+            Two things this application gives up while it runs connectors, and both are what VanillaBP \
+            is for. The model stops being portable: a connector is a Camunda 8 element, so the same \
+            model on another BPMS has an element nothing serves, and a BPMS migration stops at it. And \
+            what a connector does happens outside the workflow aggregate and outside the transaction \
+            VanillaBP owns, so a redelivered job repeats it and no @WorkflowTask method of this \
+            application can make it idempotent.
+            The way back: model the element as an ordinary task with a @WorkflowTask method behind it, \
+            or set '{}: false'.{}
+            {}""",
+        Camunda8Connectors.FRAME_LINE,
+        workflowModuleId,
+        adapterId,
+        Camunda8Connectors.FRAME_LINE,
+        switchedOnBy,
+        elements
+            .stream()
+            .map(element -> "  "
+                + element.describe())
+            .collect(Collectors.joining("\n")),
+        Camunda8Connectors.WHAT_IT_COSTS,
+        Camunda8Connectors.propertyKeyOf(adapterId),
+        whatPrefixingCostsAConnector(workflowModuleId),
+        Camunda8Connectors.FRAME_LINE);
+
+  }
+
+  /**
+   * A switch nobody needs is worth a sentence rather than a frame: it is on, nothing of
+   * this module uses it, and the key to take it off again is what the reader wants.
+   *
+   * @param workflowModuleId The workflow module
+   * @param switchedOnBy The keys which switched it on
+   */
+  private void reportASwitchNobodyNeeds(
+      final String workflowModuleId,
+      final String switchedOnBy) {
+
+    log.warn(
+        "Camunda8[{}]: connectors are allowed for workflow module '{}' ({}), and no element of it "
+            + "is built from an element template. Set '{}: false' where you do not need the switch.",
+        adapterId,
+        workflowModuleId,
+        switchedOnBy,
+        Camunda8Connectors.propertyKeyOf(adapterId));
+
+  }
+
+  /**
+   * The sentence the report carries under {@code use-prefix} and under no other mode, empty
+   * elsewhere. Under that mode a passed-over element keeps a job type which is not scoped by
+   * anything, which is the very clash the mode exists to avoid, and the report says so
+   * rather than leaving the reader to find out.
+   *
+   * @param workflowModuleId The workflow module
+   * @return The sentence, or an empty string
+   */
+  private String whatPrefixingCostsAConnector(
+      final String workflowModuleId) {
+
+    if (!Camunda8Scoping.prefixes(workflowModuleId, adapterId, scoping)) {
+      return "";
+    }
+    return """
+
+        Name-clash avoidance 'use-prefix' leaves the job types above unprefixed. They name a runtime \
+        somebody else deployed cluster-wide, and prefixing one would rename something this application \
+        does not own. So they reach the cluster unscoped, which is the clash that mode exists to avoid, \
+        and it costs nothing here: a connector runtime subscribes to such a type globally anyway, and \
+        two workflow modules carrying the same connector element are meant to reach the same runtime.""";
+
+  }
+
+  /**
    * Says that a BPMN process still carries user tasks in the shape VanillaBP 1 modelled
    * them up to its release 1.6.3, and how many of them are open on the cluster right
    * now.
@@ -1198,7 +1455,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
     final var specs = new ArrayList<BpmnTaskSpec>();
     Camunda8TaskWiring
-        .tasksOf(model, scopedBpmnProcessId)
+        .tasksOf(model, scopedBpmnProcessId, connectorsAllowedFor(workflowModuleId, bpmnProcessId).allowed())
         .stream()
         .map(task -> new BpmnTaskSpec(
             task.activityId(), plainTaskDefinition(workflowModuleId, bpmnProcessId, task.taskDefinition())))
@@ -1350,6 +1607,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           "Failed to deploy BPMN resources of workflow module '%s' to Camunda 8 (adapter '%s')!"
               .formatted(workflowModuleId, adapterId), e);
     }
+
+    // last, and after every file of the module has been read, so the report names every
+    // element at once instead of one warning per file
+    reportWhatConnectorsCost(workflowModuleId, bpmsProcessingContext);
 
   }
 

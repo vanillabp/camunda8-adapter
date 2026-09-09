@@ -7,6 +7,7 @@ import java.util.Map;
 
 import io.camunda.client.api.worker.JobWorker;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
+import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import lombok.Getter;
 
@@ -113,6 +114,48 @@ public class Camunda8ProcessingContext {
    */
   @Getter
   private final List<JobWorker> openWorkers = new LinkedList<>();
+
+  /**
+   * The elements of this module which a runtime other than this application serves,
+   * collected while the BPMN files are prepared - the list the startup report names one by
+   * one, see {@link Camunda8Connectors}.
+   */
+  @Getter
+  private final List<Camunda8Connectors.ElementServedByAnotherRuntime> elementsServedByAnotherRuntime = new LinkedList<>();
+
+  /**
+   * Per BPMN process of this module which allows connectors, the property key which said
+   * so. Kept per process because the key resolves per workflow as well as per module, and
+   * the report has to name the line a reader can find in their own configuration.
+   */
+  @Getter
+  private final Map<String, String> connectorsAllowedBy = new LinkedHashMap<>();
+
+  /**
+   * Remembers that connectors are allowed for one BPMN process of this module.
+   *
+   * @param bpmnProcessId The PLAIN BPMN process id
+   * @param propertyKey The key which decided it, or <code>null</code>
+   */
+  public void recordConnectorsAllowed(
+      final String bpmnProcessId,
+      final String propertyKey) {
+
+    connectorsAllowedBy.put(bpmnProcessId, propertyKey);
+
+  }
+
+  /**
+   * Remembers one element this module leaves to the runtime which owns it.
+   *
+   * @param element The element
+   */
+  public void recordElementServedByAnotherRuntime(
+      final Camunda8Connectors.ElementServedByAnotherRuntime element) {
+
+    elementsServedByAnotherRuntime.add(element);
+
+  }
 
   public Camunda8ProcessingContext(
       final String adapterId,

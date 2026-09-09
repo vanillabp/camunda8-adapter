@@ -32,6 +32,11 @@ import lombok.extern.slf4j.Slf4j;
  * <tr><td>{@code zeebe:formDefinition externalReference}</td><td>workflow module + process</td><td>it IS the user task's task definition and becomes a listener job type</td></tr>
  * </table>
  *
+ * <p>
+ * The one exception is an element another runtime serves, see {@link Camunda8Connectors}:
+ * its job type is left as the modeller wrote it, because it names a runtime somebody else
+ * deployed rather than an identifier of this workflow module.
+ * <p>
  * The rewriting happens in <code>prepareBpmn</code>, BEFORE wiring: everything after
  * it - the wiring validation, the listener injection, the workers - therefore sees
  * the identifiers the cluster will see, while the core keeps working with the plain
@@ -114,12 +119,16 @@ public final class Camunda8Scoping {
    * @param workflowModuleId The workflow module ID
    * @param adapterId The adapter ID
    * @param scoping The core's name-clash-avoidance support
+   * @param allowConnectorsResolver What the configuration says about the elements built
+   *          from an element template, asked per BPMN process of the file (may be
+   *          <code>null</code>: nothing is left alone then)
    */
   public static void apply(
       final BpmnModelInstance model,
       final String workflowModuleId,
       final String adapterId,
-      final NameClashAvoidanceSupport scoping) {
+      final NameClashAvoidanceSupport scoping,
+      final Camunda8AllowConnectorsResolver allowConnectorsResolver) {
 
     if (!prefixes(workflowModuleId, adapterId, scoping)) {
       return;
@@ -129,17 +138,25 @@ public final class Camunda8Scoping {
     // process ids are still the plain ones
     model
         .getModelElementsByType(ZeebeTaskDefinition.class)
-        .forEach(taskDefinition -> taskDefinition.setType(
-            scoping.scopedTaskDefinition(
-                workflowModuleId,
-                owningProcessId(taskDefinition),
-                taskDefinition.getType(),
-                adapterId)));
+        .forEach(taskDefinition -> {
+          if (isServedByAnotherRuntime(taskDefinition, workflowModuleId, allowConnectorsResolver)) {
+            return;
+          }
+          taskDefinition.setType(
+              scoping.scopedTaskDefinition(
+                  workflowModuleId,
+                  owningProcessId(taskDefinition),
+                  taskDefinition.getType(),
+                  adapterId));
+        });
     model
         .getModelElementsByType(ZeebeFormDefinition.class)
         .forEach(formDefinition -> {
           final var externalReference = formDefinition.getExternalReference();
           if ((externalReference == null) || externalReference.isBlank()) {
+            return;
+          }
+          if (isServedByAnotherRuntime(formDefinition, workflowModuleId, allowConnectorsResolver)) {
             return;
           }
           formDefinition.setExternalReference(
@@ -203,6 +220,34 @@ public final class Camunda8Scoping {
               scoped);
           process.setId(scoped);
         });
+
+  }
+
+  /**
+   * Whether the element carrying this extension element is one a runtime other than this
+   * application serves, and connectors are allowed for its process.
+   * <p>
+   * Its job type names a runtime somebody else deployed, cluster-wide, so prefixing it
+   * would rename something this application does not own. The price is stated rather than
+   * hidden: under {@code use-prefix} such a job type reaches the cluster unscoped, which is
+   * the very clash the mode exists to avoid. It costs nothing here, because a connector
+   * runtime subscribes to that type globally anyway and two workflow modules carrying the
+   * same connector element are meant to reach the same runtime. Refusing the combination
+   * instead would take the only isolation mode which works without a multi-tenant cluster
+   * away from every application that wants one connector.
+   */
+  private static boolean isServedByAnotherRuntime(
+      final BpmnModelElementInstance extensionElement,
+      final String workflowModuleId,
+      final Camunda8AllowConnectorsResolver allowConnectorsResolver) {
+
+    final var element = Camunda8Connectors.owningElementOf(extensionElement);
+    if ((element == null) || !Camunda8Connectors.isServedByAnotherRuntime(element)) {
+      return false;
+    }
+    return Camunda8AllowConnectorsResolver
+        .resolve(allowConnectorsResolver, workflowModuleId, owningProcessId(element))
+        .allowed();
 
   }
 

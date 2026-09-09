@@ -49,7 +49,8 @@ import jakarta.inject.Inject;
                                         bpmnProcessId = "FetchProcess"), @BpmnProcess(
                                             bpmnProcessId = "MultiInstanceProcess"), @BpmnProcess(
                                                 bpmnProcessId = "SignalCatchProcess"), @BpmnProcess(
-                                                    bpmnProcessId = "VersionedProcess")
+                                                    bpmnProcessId = "VersionedProcess"), @BpmnProcess(
+                                                        bpmnProcessId = "ConnectorProcess")
     })
 public class C8E2eWorkflowService {
 
@@ -245,6 +246,20 @@ public class C8E2eWorkflowService {
     if ((aggregate.getResults() == null) || !aggregate.getResults().contains("happy")) {
       aggregate.appendResult("happy");
     }
+
+  }
+
+  /**
+   * The task BEHIND the connector element. It is never reached while nothing serves the
+   * connector's job type, and that is what the connector test asserts: this application
+   * opened no worker for a job type belonging to somebody else's runtime.
+   */
+  @WorkflowTask
+  public void afterConnector(
+      final C8E2eAggregate aggregate) {
+
+    countInvocation("afterConnector", aggregate);
+    aggregate.appendResult("past-the-connector");
 
   }
 
