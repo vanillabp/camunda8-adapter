@@ -12,6 +12,7 @@ import org.camunda.bpm.model.xml.instance.ModelElementInstance;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.Activity;
+import io.camunda.zeebe.model.bpmn.instance.AdHocSubProcess;
 import io.camunda.zeebe.model.bpmn.instance.BoundaryEvent;
 import io.camunda.zeebe.model.bpmn.instance.BusinessRuleTask;
 import io.camunda.zeebe.model.bpmn.instance.CatchEvent;
@@ -846,13 +847,63 @@ public final class Camunda8TaskWiring {
   }
 
   /**
+   * The ad-hoc subprocesses of the given process which expect a job worker of this
+   * application and get none.
+   * <p>
+   * Camunda 8 knows two flavours of the element. In the one VanillaBP serves, the model
+   * itself says which activities to run:
+   * <code>zeebe:adHoc activeElementsCollection</code> is a FEEL expression over a process
+   * variable, so an attribute of the workflow aggregate decides and the activities inside
+   * the element are ordinary tasks with ordinary <code>&#64;WorkflowTask</code> methods
+   * behind them. In the other, the element carries a <code>zeebe:taskDefinition</code> of
+   * its own and a worker decides round by round which activities to activate, by
+   * completing the job with a result naming them. Neither the
+   * <code>&#64;WorkflowTask</code> contract nor the adapter SPI can express that outcome,
+   * so this adapter opens no worker for such an element.
+   * <p>
+   * An element carrying a <code>zeebe:modelerTemplate</code> is left out, because then
+   * somebody else's runtime owns it: the Camunda AI agent is an element template on
+   * exactly this element, and a connector runtime subscribing to its job type serves it
+   * without this application being involved. That is the same marker
+   * {@link Camunda8Connectors} reads, and this method reads it through that class rather
+   * than looking for the attribute a second time.
+   *
+   * @param model The BPMN model of one file
+   * @param bpmnProcessId The process id as the CLUSTER will know it
+   * @return The element ids, empty where the model carries no such element
+   */
+  public static List<String> unservedAdHocSubProcessIdsOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    return elementsOf(model, bpmnProcessId, AdHocSubProcess.class)
+        .filter(subProcess -> subProcess.getSingleExtensionElement(ZeebeTaskDefinition.class) != null)
+        .filter(subProcess -> Camunda8Connectors.elementTemplateOf(subProcess) == null)
+        .map(FlowElement::getId)
+        .toList();
+
+  }
+
+  /**
    * The IDs of the elements of the given process which can put a SECOND token into a
    * running workflow: a boundary event which does not cancel its activity,
    * a parallel or inclusive gateway forking into more than one sequence flow, an
-   * activity marked as a PARALLEL multi-instance, and an event subprocess whose start
-   * event does not interrupt the process. Two tokens are two branches writing the
-   * same workflow aggregate - what that means is the core's decision, this method
-   * only reads the model.
+   * activity marked as a PARALLEL multi-instance, an event subprocess whose start
+   * event does not interrupt the process, and an ad-hoc subprocess. Two tokens are two
+   * branches writing the same workflow aggregate - what that means is the core's
+   * decision, this method only reads the model.
+   * <p>
+   * The ad-hoc subprocess is reported whichever flavour the model uses and however few
+   * activities it looks as if it would run. Its
+   * <code>zeebe:adHoc activeElementsCollection</code> is an expression evaluated when the
+   * workflow enters the element, so a list which is one entry long today is two entries
+   * long as soon as the data behind it changes, and the job worker flavour lets a worker
+   * activate several elements in one result. A warning which appears only after such a
+   * change is worse than one which appears always.
+   * <p>
+   * The activities INSIDE the element are not reported. The subprocess is where the
+   * second token comes from, and naming five inner tasks instead of the one element
+   * would make the warning unreadable.
    *
    * @param model The BPMN model
    * @param bpmnProcessId The process' ID as the model knows it (the SCOPED ID)
@@ -873,7 +924,8 @@ public final class Camunda8TaskWiring {
             elementsOf(model, bpmnProcessId, Activity.class)
                 .filter(Camunda8TaskWiring::isParallelMultiInstance),
             elementsOf(model, bpmnProcessId, SubProcess.class)
-                .filter(Camunda8TaskWiring::isNonInterruptingEventSubProcess))
+                .filter(Camunda8TaskWiring::isNonInterruptingEventSubProcess),
+            elementsOf(model, bpmnProcessId, AdHocSubProcess.class))
         .flatMap(elements -> elements)
         .map(FlowElement::getId)
         .distinct()

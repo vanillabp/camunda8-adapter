@@ -5,6 +5,20 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## An ad-hoc subprocess in your model earns two warnings (2026-09-09)
+
+Version 1 said nothing about the element and neither executed nor reported it. This version serves
+the flavour whose activities the model names through `zeebe:adHoc activeElementsCollection`, and it
+says two things about a model carrying an ad-hoc subprocess which version 1 kept quiet about.
+
+The element is named as a source of a second token, so a workflow aggregate without a version
+attribute earns the warning about two writers on one aggregate, whichever flavour the model uses.
+
+The flavour carrying a `zeebe:taskDefinition` of its own earns one WARN per BPMN process saying that
+nothing serves it. That was true in version 1 as well; the difference is that it is said now.
+Nothing is said about an element which also carries a `zeebe:modelerTemplate`, because a connector
+runtime owns that one.
+
 ## `allow-connectors` moved under the adapter (2026-09-09)
 
 Version 1 read `vanillabp.allow-connectors` at the root of the tree, with a workflow-module and a

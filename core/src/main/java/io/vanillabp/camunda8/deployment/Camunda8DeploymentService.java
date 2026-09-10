@@ -998,6 +998,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         scopedBpmnProcessId,
         Camunda8TaskWiring.legacyUserTaskIdsOf(model, scopedBpmnProcessId));
 
+    // an ad-hoc subprocess waiting for a job worker is the other element which would
+    // stop a workflow without anything being said about it
+    reportUnservedAdHocSubProcesses(
+        workflowModuleId,
+        bpmnProcessId,
+        Camunda8TaskWiring.unservedAdHocSubProcessIdsOf(model, scopedBpmnProcessId));
+
     // message correlation: inject the correlation-key expression
     // '=<aggregate-ID variable>' into message subscriptions lacking one - the V2
     // convention enabling ProcessService#correlateMessage without manual model
@@ -1394,6 +1401,55 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         openTasks == null
             ? "The cluster did not answer how many of them are open right now."
             : "Open right now: %d.".formatted(openTasks));
+
+  }
+
+  /**
+   * The one WARN about an ad-hoc subprocess this adapter cannot serve.
+   * <p>
+   * The element deploys and the workflow runs up to it. There it stops, because the job
+   * of the subprocess is activated and nothing fetches it, and once the retries of that
+   * job are used up the cluster raises an incident. Nothing later in the boot detects
+   * that, which is why it is said here.
+   * <p>
+   * It is said and the boot goes on. The model is a defect the developer has to see, not
+   * a reason to keep an application down whose other processes are fine, and the same
+   * choice was made for the BPMN process nobody serves. See decision 24 in the
+   * repository's DECISIONS.md.
+   *
+   * @param workflowModuleId The workflow module id
+   * @param bpmnProcessId The plain BPMN process id
+   * @param elementIds The ad-hoc subprocesses waiting for a worker, empty for every other
+   *          model
+   */
+  private void reportUnservedAdHocSubProcesses(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final List<String> elementIds) {
+
+    if (elementIds.isEmpty()) {
+      return;
+    }
+    log.warn(
+        """
+            Camunda8[{}]: {} ad-hoc subprocess(es) of BPMN process '{}' (workflow module '{}') carry \
+            a 'zeebe:taskDefinition' of their own: {}. That is the flavour where a job worker decides \
+            round by round which of the inner activities to activate, and VanillaBP does not serve \
+            it: a @WorkflowTask method has no way to name the elements it wants activated, so this \
+            adapter opens no worker for such an element. What it costs: a workflow reaches the \
+            subprocess and stops there, and the job the cluster activated ends in an incident once \
+            its retries are used up. Two ways out. Let the MODEL say which activities to run: put \
+            their element ids into 'zeebe:adHoc activeElementsCollection' and let a task of your \
+            application fill the workflow-aggregate attribute that expression reads - the activities \
+            inside the element are then ordinary tasks with ordinary @WorkflowTask methods behind \
+            them. Or leave the element to a runtime which does serve it, a connector or the Camunda \
+            AI agent: such an element carries a 'zeebe:modelerTemplate' as well, and one carrying \
+            that attribute is passed over here without a word.""",
+        adapterId,
+        elementIds.size(),
+        bpmnProcessId,
+        workflowModuleId,
+        String.join(", ", elementIds.stream().map("'%s'"::formatted).toList()));
 
   }
 
