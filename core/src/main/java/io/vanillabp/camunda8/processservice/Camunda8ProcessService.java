@@ -21,6 +21,7 @@ import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.client.Camunda8QueryApi;
+import io.vanillabp.camunda8.client.Camunda8RefusedStart;
 import io.vanillabp.camunda8.deployment.Camunda8ModelsTheClusterHolds;
 import io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver;
 import io.vanillabp.camunda8.wiring.Camunda8Scoping;
@@ -1124,7 +1125,10 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // The outbox repeats what a second attempt may fix - a cluster which
     // is busy, unreachable or lost a conflict. A command the cluster REJECTS looks
     // the same on every attempt, and so does a task key which is not a number. The
-    // list of those cases lives in Camunda8Errors, next to the job-gone rule
+    // list of those cases lives in Camunda8Errors, next to the job-gone rule.
+    // A start adds two answers to it which mean something else for every other
+    // operation, and it adds them by wrapping its refusal rather than by asking here,
+    // because this method is handed the failure and never the operation
     return !Camunda8Errors.permanentFailure(failure);
 
   }
@@ -1944,12 +1948,52 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       command = command.tenantId(tenantId);
     }
 
-    final var event = command
-        .send()
-        .join();
+    final ProcessInstanceEvent event;
+    try {
+      event = command
+          .send()
+          .join();
+    } catch (final RuntimeException e) {
+      throw refusedForGood(e, bpmnProcessId, workflowAggregateId);
+    }
     log.info("Started Camunda 8 workflow '{}' (adapter '{}', process-instance key {}) for aggregate '{}'",
         bpmnProcessId, adapterId, event.getProcessInstanceKey(), workflowAggregateId);
     return event;
+
+  }
+
+  /**
+   * What a failed create is thrown on as: the cluster's own failure where another
+   * attempt may still get through, and a {@link Camunda8RefusedStart} where it may not.
+   * <p>
+   * The wrapping is what carries the OPERATION into the classification, which sees the
+   * failure alone (see {@link Camunda8RefusedStart}), and the message is what an
+   * operator reads next to an outbox entry which will not move again. It names both ways
+   * out without guessing which of them applies: the cluster says "no such process" with
+   * the same code whether a workflow module never reached it or whether it reached
+   * another one.
+   *
+   * @param failure What the create command threw
+   * @param bpmnProcessId The process id as the cluster knows it
+   * @param workflowAggregateId Which aggregate waits for this workflow
+   * @return What to throw
+   */
+  private RuntimeException refusedForGood(
+      final RuntimeException failure,
+      final String bpmnProcessId,
+      final Object workflowAggregateId) {
+
+    if (!Camunda8Errors.startRefusedForGood(failure)) {
+      return failure;
+    }
+    return new Camunda8RefusedStart(
+        ("Camunda 8 refused to start workflow '%s' for aggregate '%s' (adapter '%s'): %s. Every further "
+            + "attempt is answered the same way, so this start is not repeated and its outbox entry is "
+            + "blocked. Either this cluster does not hold the process - then deploy the workflow module "
+            + "to the cluster this adapter is configured for - or its model has no plain start event, and "
+            + "a workflow of it comes into being through the message or the timer the model names, not "
+            + "through startWorkflow.")
+            .formatted(bpmnProcessId, workflowAggregateId, adapterId, Camunda8Errors.rejection(failure)), failure);
 
   }
 

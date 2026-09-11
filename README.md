@@ -576,12 +576,14 @@ cluster rejects: the answer will not change, and the retries only fill the log w
 operations wait for the entry to block. The adapter therefore classifies a failure as
 permanent when the chain of causes holds one of these:
 
-|                 Failure                  |             Why a repetition cannot help              |
-|------------------------------------------|-------------------------------------------------------|
-| HTTP `400`, gRPC `INVALID_ARGUMENT`      | the cluster rejected the request itself               |
-| HTTP `403`, gRPC `PERMISSION_DENIED`     | credentials or tenant are wrong, not late             |
-| HTTP `405` / `501`, gRPC `UNIMPLEMENTED` | this cluster version has no such endpoint             |
-| `NumberFormatException`                  | the task or instance key of the entry is not a number |
+|                  Failure                  |             Why a repetition cannot help              |
+|-------------------------------------------|-------------------------------------------------------|
+| HTTP `400`, gRPC `INVALID_ARGUMENT`       | the cluster rejected the request itself               |
+| HTTP `403`, gRPC `PERMISSION_DENIED`      | credentials or tenant are wrong, not late             |
+| HTTP `405` / `501`, gRPC `UNIMPLEMENTED`  | this cluster version has no such endpoint             |
+| `NumberFormatException`                   | the task or instance key of the entry is not a number |
+| a START answered with `404` / `NOT_FOUND` | the process is not deployed on this cluster           |
+| a START answered with `409`               | the model has no plain start event                    |
 
 `Camunda8ErrorsTest` holds the table, case by case, for both transports.
 
@@ -591,16 +593,25 @@ classification at all - a gone job is the accepted at-least-once residual and co
 entry. `401` is usually an expired token, which the client refreshes. `409`, `429` and every
 `5xx` are what the outbox exists for.
 
-Which refusals of a START carry one of those codes was measured against
-`camunda/camunda:8.9.19` on 2026-09-11, and not all of them do. A request above the cluster's
-maximum message size comes back as `400`: the entry is blocked after one attempt and one ERROR
-names the workflow. A model whose only start event is a timer or a message answers a
-`startWorkflow` with `409`, so that start is repeated until its attempts are used up, although
-the model will not change in between. A model which cannot evaluate an expression is not refused
-at all. Camunda 8 creates the instance and raises an incident on it, which is where it differs
-from Camunda 7: there an expression of the start is evaluated while the instance is created, the
+The last two rows of the table are the same codes, and they are permanent for a START only.
+The code alone cannot say it: a `404` a read meets is the exporter lagging behind, and a `409`
+a publication meets is a message of that id which still lives, while a start meets a process
+this cluster does not hold and a model nothing can start without its message or its timer.
+Neither of those passes while the application waits. A deployment reaches the cluster before
+the outbox dispatches anything, and a model changes through a deployment rather than through a
+repetition. So the start says which operation was refused by wrapping the cluster's answer into
+a `Camunda8RefusedStart`, and the classification reads that wrapper. Nothing about those codes
+changes for the operations which did not send a start.
+
+The codes were measured against `camunda/camunda:8.9.19` on 2026-09-11, and
+`Camunda8RefusedStartIT` pins them. Over gRPC only the `404` half could be measured: that cluster
+answers a gRPC create of a process it holds by refusing the permission instead. So a start which
+meets a model without a plain start event over gRPC still pays the full row of attempts, and that
+half of the case is open. A request above the cluster's maximum message size comes back as `400`
+and was permanent all along. A model which cannot evaluate an expression is not refused at
+all. Camunda 8 creates the instance and raises an incident on it, which is where it differs from
+Camunda 7: there an expression of the start is evaluated while the instance is created, the
 command fails, and the application is left with a committed aggregate and no workflow.
-`Camunda8RefusedStartIT` pins these answers.
 
 The same classification serves the commands a job handler sends back to the
 cluster (`Camunda8Errors.repeatableJobCommandFailure`), adding the one case which is

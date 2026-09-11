@@ -91,6 +91,51 @@ public class Camunda8ErrorsTest {
   }
 
   @Test
+  @DisplayName("The two answers a refused start brings along are read from their codes")
+  public void aRefusedStartIsRecognisedByItsCodes() {
+
+    // the process is not deployed on this cluster, said by both transports
+    assertTrue(Camunda8Errors.startRefusedForGood(problem(404, "NOT_FOUND")));
+    assertTrue(
+        Camunda8Errors.startRefusedForGood(
+            new ClientStatusException(Status.NOT_FOUND, null)));
+    // the model has no plain start event, which the REST transport answers with a
+    // conflict. Camunda8RefusedStartIT is where both of them come from a cluster
+    assertTrue(Camunda8Errors.startRefusedForGood(problem(409, "INVALID_STATE")));
+    // whatever wrapped the refusal on the way out of the command must not hide it
+    assertTrue(
+        Camunda8Errors.startRefusedForGood(
+            new IllegalStateException("starting failed", problem(404, "NOT_FOUND"))));
+
+    // everything else a start can fail with keeps the answer the outbox gives anyway
+    assertFalse(Camunda8Errors.startRefusedForGood(problem(503)));
+    assertFalse(Camunda8Errors.startRefusedForGood(new IOException("connection reset")));
+
+  }
+
+  @Test
+  @DisplayName("A start refused for good is permanent, and the same codes elsewhere are not")
+  public void onlyAStartTurnsThoseCodesIntoAPermanentFailure() {
+
+    // what the start throws when the cluster refused it: the refusal stays the cause and
+    // the wrapping is what says which operation met it
+    assertTrue(
+        Camunda8Errors.permanentFailure(
+            new Camunda8RefusedStart("the cluster does not hold that process", problem(404, "NOT_FOUND"))));
+    assertTrue(
+        Camunda8Errors.permanentFailure(
+            new IllegalStateException(
+                "dispatching failed", new Camunda8RefusedStart(
+                    "the model has no plain start event", problem(409, "INVALID_STATE")))));
+
+    // and the same answers without a start behind them stay what they were: a read of
+    // something the exporter has not caught up with, and a conflict the outbox exists for
+    assertFalse(Camunda8Errors.permanentFailure(problem(404, "NOT_FOUND")));
+    assertFalse(Camunda8Errors.permanentFailure(problem(409, "INVALID_STATE")));
+
+  }
+
+  @Test
   @DisplayName("Eventual consistency, an expired token, conflicts and cluster trouble are repeated")
   public void everythingElseIsRepeatable() {
 
