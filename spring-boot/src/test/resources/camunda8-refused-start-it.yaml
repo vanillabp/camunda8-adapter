@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    generate-unique-name: true
+  jpa:
+    hibernate:
+      ddl-auto: create
+vanillabp:
+  adapters:
+    c8:
+      type: camunda8
+      name-clash-avoidance: use-prefix
+  prioritized-adapters:
+    - c8
+  workflow-modules:
+    test-app:
+      adapters:
+        c8:
+          resources-location: classpath*:refused-start
+  outbox:
+    poll-interval: PT0.5S
+    attempt-frequency: PT0.5S
