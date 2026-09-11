@@ -591,6 +591,17 @@ classification at all - a gone job is the accepted at-least-once residual and co
 entry. `401` is usually an expired token, which the client refreshes. `409`, `429` and every
 `5xx` are what the outbox exists for.
 
+Which refusals of a START carry one of those codes was measured against
+`camunda/camunda:8.9.19` on 2026-09-11, and not all of them do. A request above the cluster's
+maximum message size comes back as `400`: the entry is blocked after one attempt and one ERROR
+names the workflow. A model whose only start event is a timer or a message answers a
+`startWorkflow` with `409`, so that start is repeated until its attempts are used up, although
+the model will not change in between. A model which cannot evaluate an expression is not refused
+at all. Camunda 8 creates the instance and raises an incident on it, which is where it differs
+from Camunda 7: there an expression of the start is evaluated while the instance is created, the
+command fails, and the application is left with a committed aggregate and no workflow.
+`Camunda8RefusedStartIT` pins these answers.
+
 The same classification serves the commands a job handler sends back to the
 cluster (`Camunda8Errors.repeatableJobCommandFailure`), adding the one case which is
 permanent there and not here: a job which is gone. One classification serving both
