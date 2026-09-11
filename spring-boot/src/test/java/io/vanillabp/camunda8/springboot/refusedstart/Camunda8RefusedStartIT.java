@@ -1,11 +1,14 @@
 package io.vanillabp.camunda8.springboot.refusedstart;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
@@ -25,6 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.camunda.client.CamundaClient;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.camunda8.client.Camunda8RefusedStart;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.it.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -40,12 +44,14 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * {@code Camunda8Errors}, which names the codes a repetition cannot change. This class
  * asks the cluster which of its refusals carry such a code.
  * <p>
- * The cases below are the answers this cluster gave. A request it will not take is
- * refused with HTTP 400, the entry is blocked after ONE attempt and an operator has a
- * single ERROR to read. A model without a none start event is refused with HTTP 409,
- * which the adapter repeats, so that start does cost the full row of attempts. And a
- * model which cannot evaluate an expression is not refused at all: the instance exists
- * and carries an incident, which the cluster reports and no outbox entry waits for.
+ * Three refusals and one non-refusal are pinned here. A request the cluster will not take
+ * comes back as HTTP 400. A process the cluster does not hold answers 404 and a model
+ * without a plain start event answers 409, and those two are the ones an application
+ * really meets: a workflow module whose deployment went somewhere else, and a model
+ * somebody changed to start on a timer while the code still calls startWorkflow. All
+ * three block the outbox entry after a single attempt. A model which cannot evaluate an
+ * expression is not refused at all: the instance exists and carries an incident, which
+ * the cluster reports and no outbox entry waits for.
  * <p>
  * One thing stays unpinned here. An expression which merely reads a variable nobody
  * passed evaluates to null on Camunda 8, the instance runs through it and nothing fails
@@ -94,9 +100,11 @@ public class Camunda8RefusedStartIT {
    */
   private static final int TOO_BIG_FOR_THE_CLUSTER = 5 * 1024 * 1024;
 
-  private static final String IS_THE_ENTRY_BLOCKED = "select blocked from TXNO_OUTBOX";
+  private static final String ENTRIES_OF_THE_OUTBOX = "select id from TXNO_OUTBOX";
 
-  private static final String ATTEMPTS_OF_THE_ENTRY = "select attempts from TXNO_OUTBOX";
+  private static final String IS_THE_ENTRY_BLOCKED = "select blocked from TXNO_OUTBOX where id = ?";
+
+  private static final String ATTEMPTS_OF_THE_ENTRY = "select attempts from TXNO_OUTBOX where id = ?";
 
   @Autowired
   private RefusedStartWorkflowService workflowService;
@@ -128,6 +136,8 @@ public class Camunda8RefusedStartIT {
   @DisplayName("A request the cluster will not take blocks the outbox entry after one attempt")
   public void aRequestTheClusterWillNotTakeBlocksTheEntryAfterOneAttempt() throws Exception {
 
+    final var entriesBefore = entriesOfTheOutbox();
+
     // an application keeps a document in its aggregate, and every attribute of an
     // aggregate travels to the cluster as a process variable. This one is heavier than
     // the request a cluster accepts, which no repetition changes
@@ -139,22 +149,13 @@ public class Camunda8RefusedStartIT {
     assertNotNull(aggregate.getId(), "the start returned a persisted aggregate");
     assertTrue(repository.findById(aggregate.getId()).isPresent(), "which is committed");
 
-    awaitUntil(
-        this::theEntryIsBlocked,
-        "the outbox entry of the refused start to be blocked");
-
-    // one attempt, not fifty: the adapter called the refusal permanent, so the store
-    // wrote the block instead of counting 'vanillabp.outbox.block-after-attempts' down
-    assertEquals(
-        Integer.valueOf(1),
-        attemptsOfTheEntry(),
-        "the entry is blocked after the first attempt rather than after the last one");
+    assertTheStartIsBlockedAfterOneAttempt(entriesBefore);
 
   }
 
   @Test
-  @DisplayName("A model without a none start event is refused in a way the outbox repeats")
-  public void aModelWithoutANoneStartEventIsRefusedInAWayTheOutboxRepeats() {
+  @DisplayName("A model without a none start event is refused for good")
+  public void aModelWithoutANoneStartEventIsRefusedForGood() {
 
     // a model which is started by a timer and by nothing else, while the application
     // still calls startWorkflow. The cluster refuses that create for good
@@ -182,24 +183,24 @@ public class Camunda8RefusedStartIT {
     // is the cluster's answer and the adapter's verdict on it, and an outbox would only
     // repeat that answer for as long as the test is willing to wait
     final var refusal = assertThrows(
-        Exception.class,
+        Camunda8RefusedStart.class,
         () -> camunda8ProcessService
             .createProcessInstance("TimerOnlyStartProcess", Map.of("id", "1"), "1"));
 
-    // what the cluster answers is a conflict, and the adapter repeats a conflict: it is
-    // the code an instance which lost a race arrives with. So this start is attempted
-    // until the entry runs out of attempts, although the model will not change in
-    // between. This is measured behaviour, not a wish - a cluster which starts
-    // answering such a request with 400 would break this assertion and would be an
-    // improvement
+    // what the cluster answers is a conflict, which is a repeatable answer everywhere
+    // else: it is how a publication of a message which still lives comes back. For a
+    // start it means the model, and a model is changed by a deployment rather than by a
+    // repetition. This is measured behaviour, not a wish - a cluster which starts
+    // answering such a request with 400 would break this assertion and would change
+    // nothing about what the adapter does with it
     assertTrue(
         Camunda8Errors.rejection(refusal).startsWith("HTTP 409"),
         "the cluster refuses a create of a model without a none start event with a conflict, "
             + "but answered: "
             + Camunda8Errors.rejection(refusal));
-    assertTrue(
+    assertFalse(
         camunda8ProcessService.isPhaseTwoFailureRepeatable(refusal),
-        "so the outbox repeats this start rather than blocking it");
+        "so the outbox blocks this start instead of repeating it for hours");
 
   }
 
@@ -262,22 +263,146 @@ public class Camunda8RefusedStartIT {
 
   }
 
-  /**
-   * Whether the one entry of the phase-two outbox is blocked. The scenario has a
-   * database of its own and starts one workflow, so there is never another entry.
-   */
-  private boolean theEntryIsBlocked() {
+  @Test
+  @DisplayName("A start of a process the cluster does not hold blocks the outbox entry after one attempt")
+  public void aStartOfAProcessTheClusterDoesNotHoldBlocksTheEntryAfterOneAttempt() throws Exception {
 
-    return Boolean.TRUE.equals(jdbcTemplate.queryForObject(IS_THE_ENTRY_BLOCKED, Boolean.class));
+    // an application whose deployment went to another cluster looks exactly like this
+    // one: the workflow service is wired, the outbox entry is written, and the cluster
+    // the start reaches holds no such process. Taking the deployment away again is how
+    // this test produces it, and the model is put back afterwards so that no other case
+    // of this class depends on the order they run in
+    final var deployed = theDeployedProcess();
+    final var model = client()
+        .newProcessDefinitionGetXmlRequest(deployed.key())
+        .send()
+        .join();
+    try {
+      client()
+          .newDeleteResourceCommand(deployed.key())
+          .send()
+          .join();
+
+      // the command the start sends, without the outbox around it: this is the cluster's
+      // answer and the adapter's verdict on it
+      final var refusal = assertThrows(
+          Camunda8RefusedStart.class,
+          () -> camunda8ProcessService
+              .createProcessInstance(deployed.processId(), Map.of("id", "1"), "1"));
+      assertTrue(
+          Camunda8Errors.rejection(refusal).startsWith("HTTP 404"),
+          "the cluster answers a start of a process it does not hold with a not-found, but answered: "
+              + Camunda8Errors.rejection(refusal));
+      assertFalse(
+          camunda8ProcessService.isPhaseTwoFailureRepeatable(refusal),
+          "and a deployment which is not here arrives through a deployment, never through a repetition");
+
+      // and the same start the way an application makes it: the aggregate is committed,
+      // the entry is written, and the dispatch meets the answer above
+      final var entriesBefore = entriesOfTheOutbox();
+      final var aggregate = transactionTemplate
+          .execute(status -> workflowService.startWorkflow("a document any cluster would take"));
+      assertNotNull(aggregate.getId(), "the start returned a persisted aggregate");
+
+      assertTheStartIsBlockedAfterOneAttempt(entriesBefore);
+    } finally {
+      client()
+          .newDeployResourceCommand()
+          .addResourceStringUtf8(model, "refused-start.bpmn")
+          .send()
+          .join();
+    }
 
   }
 
   /**
-   * @return How often the store attempted the entry, see {@link #theEntryIsBlocked()}
+   * The process this application deployed, as the cluster knows it. Its id is scoped by
+   * the name-clash-avoidance mode, so it is read from the cluster rather than written
+   * into the test, and it is read by its plain name at the end.
    */
-  private Integer attemptsOfTheEntry() {
+  private DeployedProcess theDeployedProcess() throws InterruptedException {
 
-    return jdbcTemplate.queryForObject(ATTEMPTS_OF_THE_ENTRY, Integer.class);
+    // the search reads secondary storage, which is fed by the exporter: the deployment of
+    // the boot is there a moment after the application is up
+    awaitUntil(() -> !deployedProcesses().isEmpty(), "the deployment of the application under test");
+    return deployedProcesses().getFirst();
+
+  }
+
+  private List<DeployedProcess> deployedProcesses() {
+
+    return client()
+        .newProcessDefinitionSearchRequest()
+        .send()
+        .join()
+        .items()
+        .stream()
+        .filter(definition -> definition.getProcessDefinitionId().endsWith("RefusedStartProcess"))
+        .map(definition -> new DeployedProcess(
+            definition.getProcessDefinitionKey(), definition.getProcessDefinitionId()))
+        .toList();
+
+  }
+
+  /**
+   * One deployed process definition: the key a resource is addressed by and the process
+   * id a start names.
+   */
+  private record DeployedProcess(long key, String processId) {
+  }
+
+  /**
+   * That the start which was made after the given entries is blocked, and blocked after
+   * its FIRST attempt rather than after the last one the store would have allowed it.
+   * <p>
+   * The entry is found by what the outbox held before, because the class starts more
+   * than one workflow and a blocked entry stays in the table.
+   */
+  private void assertTheStartIsBlockedAfterOneAttempt(
+      final List<String> entriesBefore) throws InterruptedException {
+
+    awaitUntil(
+        () -> theEntryAddedTo(entriesBefore)
+            .map(this::isBlocked)
+            .orElse(Boolean.FALSE),
+        "the outbox entry of the refused start to be blocked");
+
+    // one attempt, not fifty: the adapter called the refusal permanent, so the store
+    // wrote the block instead of counting 'vanillabp.outbox.block-after-attempts' down
+    assertEquals(
+        Integer.valueOf(1),
+        theEntryAddedTo(entriesBefore).map(this::attemptsOf).orElse(null),
+        "the entry is blocked after the first attempt rather than after the last one");
+
+  }
+
+  private List<String> entriesOfTheOutbox() {
+
+    return jdbcTemplate.queryForList(ENTRIES_OF_THE_OUTBOX, String.class);
+
+  }
+
+  private Optional<String> theEntryAddedTo(
+      final List<String> entriesBefore) {
+
+    return entriesOfTheOutbox()
+        .stream()
+        .filter(entry -> !entriesBefore.contains(entry))
+        .findFirst();
+
+  }
+
+  private Boolean isBlocked(
+      final String entry) {
+
+    return jdbcTemplate.queryForObject(IS_THE_ENTRY_BLOCKED, Boolean.class, entry);
+
+  }
+
+  private Integer attemptsOf(
+      final String entry) {
+
+    return jdbcTemplate.queryForObject(ATTEMPTS_OF_THE_ENTRY, Integer.class, entry);
 
   }
 

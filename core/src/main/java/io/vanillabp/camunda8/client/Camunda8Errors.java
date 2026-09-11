@@ -170,6 +170,41 @@ public final class Camunda8Errors {
   }
 
   /**
+   * Whether the cluster refused to START a workflow in a way every further attempt meets
+   * again. Measured against a cluster of the tested line on 2026-09-11, over both
+   * transports where both could be asked:
+   * <ul>
+   * <li>the process is not deployed on this cluster - HTTP <code>404</code> with the
+   * title <code>NOT_FOUND</code>, on gRPC the status <code>NOT_FOUND</code>;</li>
+   * <li>the model has no plain start event, so nothing can be started without the
+   * message or the timer the model asks for - HTTP <code>409</code> with the title
+   * <code>INVALID_STATE</code>.</li>
+   * </ul>
+   * Neither of them passes while the application waits: a deployment reaches the cluster
+   * before the outbox dispatches anything, and a model is changed by a deployment and
+   * never by a repetition. So the start behind such an answer is better parked where an
+   * operator finds it than repeated for hours, which is what a start whose aggregate is
+   * committed would otherwise be.
+   * <p>
+   * The gRPC equivalent of the second one is not in here because it could not be
+   * measured: the cluster the tests run against answers a gRPC create of a deployed
+   * process by refusing the permission, which is permanent for other reasons. What is
+   * classified is what was measured, so an installation on gRPC meeting a model without
+   * a plain start event still pays the full row of attempts.
+   *
+   * @param throwable What the create command threw
+   * @return Whether this start is refused the same way however often it is sent
+   */
+  public static boolean startRefusedForGood(
+      final Throwable throwable) {
+
+    return notFound(throwable) || anyCauseAnswers(
+        throwable,
+        cause -> (cause instanceof ClientHttpException http) && (http.code() == 409));
+
+  }
+
+  /**
    * HTTP statuses of the REST transport a repetition cannot change:
    * <ul>
    * <li><code>400</code> - the cluster rejected the request itself,</li>
@@ -181,7 +216,9 @@ public final class Camunda8Errors {
    * consistency (and for job commands it never gets here, see
    * {@link #jobAlreadyGone(Throwable)}), <code>401</code> is usually an expired token
    * the client refreshes, and <code>409</code>, <code>429</code> and every
-   * <code>5xx</code> are exactly what the outbox repeats for.
+   * <code>5xx</code> are exactly what the outbox repeats for. Two of them mean something
+   * else when a START meets them, which is why a start brings its own answer along, see
+   * {@link Camunda8RefusedStart}.
    */
   private static final Set<Integer> PERMANENT_HTTP_STATUS = Set.of(400, 403, 405, 501);
 
@@ -205,6 +242,11 @@ public final class Camunda8Errors {
    * The list is short on purpose: repeating is the safe answer and stays the default
    * for everything not named here. {@link ProblemException} needs no rule of its own,
    * it extends {@link ClientHttpException}.
+   * <p>
+   * One operation adds an answer of its own, because the same code means different
+   * things depending on what was sent: a start which the cluster refused for good says
+   * so by wrapping the refusal into a {@link Camunda8RefusedStart}, and nothing about
+   * those codes changes for the operations which did not send a start.
    *
    * @param throwable What the phase-two command threw
    * @return Whether the cluster will answer the same way on every attempt
@@ -216,7 +258,7 @@ public final class Camunda8Errors {
         throwable,
         // the task or instance key of the outbox entry is not a number, and it will not
         // become one
-        cause -> (cause instanceof NumberFormatException) || ((cause instanceof ClientHttpException http) && PERMANENT_HTTP_STATUS
+        cause -> (cause instanceof Camunda8RefusedStart) || (cause instanceof NumberFormatException) || ((cause instanceof ClientHttpException http) && PERMANENT_HTTP_STATUS
             .contains(http.code())) || ((cause instanceof ClientStatusException status) && PERMANENT_GRPC_CODES
                 .contains(status.getStatusCode())));
 
