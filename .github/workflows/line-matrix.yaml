@@ -1,8 +1,14 @@
 name: Release lines
 "on":
   schedule:
-    # Early enough to be green or red before anybody starts working.
-    - cron: "0 3 * * *"
+    # Early enough to be green or red before anybody starts working. GitHub queues a
+    # scheduled run rather than starting it at the given time, and the wait is long:
+    # asked for 03:00 UTC, the runs of the 10th and 11th of September 2026 started at
+    # 07:58 and 07:54, which is mid-morning in Berlin and right when somebody is
+    # pushing to this repository. So the time here is two hours earlier than the hour
+    # it should run at, and the minute is a crooked one because GitHub's queue is
+    # longest on the hour.
+    - cron: "23 0 * * *"
   workflow_dispatch:
   # so the release workflow can run the matrix before it publishes
   workflow_call:
