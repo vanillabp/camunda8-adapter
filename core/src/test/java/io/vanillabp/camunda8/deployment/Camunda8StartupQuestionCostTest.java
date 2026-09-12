@@ -21,6 +21,7 @@ import io.camunda.client.CamundaClient;
 import io.camunda.client.api.CamundaFuture;
 import io.camunda.client.api.fetch.ProcessDefinitionGetXmlRequest;
 import io.camunda.client.api.search.filter.ProcessDefinitionFilter;
+import io.camunda.client.api.search.request.DecisionDefinitionSearchRequest;
 import io.camunda.client.api.search.request.ProcessDefinitionSearchRequest;
 import io.camunda.client.api.search.request.ProcessInstanceSearchRequest;
 import io.camunda.client.api.search.response.ProcessDefinition;
@@ -32,12 +33,19 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 /**
  * What this adapter asks the cluster while an application boots, counted.
  * <p>
- * The startup check for old process versions asks the catalog two things about every
- * version older than the one the boot deployed: the model of that version and how many
- * workflows still run on it. Both are addressed by the cluster's process definition key,
- * and finding that key used to be a search of its own - so a process with fifty versions
- * behind it paid a hundred searches nobody could see, on top of the one search which had
- * already brought every key back.
+ * The startup check for old process versions asks the catalog about every version older
+ * than the one the boot deployed: how many workflows still run on it, which tasks its model
+ * has and which identifiers that model declares. All of them are addressed by the cluster's
+ * process definition key, and finding that key used to be a search of its own - so a process
+ * with fifty versions behind it paid a hundred searches nobody could see, on top of the one
+ * search which had already brought every key back. The two questions about one version's
+ * MODEL share the fetch of it, so a version costs one XML request however many of them are
+ * put.
+ * <p>
+ * The deployment asks one more thing, once per workflow module: which of its identifiers the
+ * cluster already held. That is one definition search for every BPMN process of the module
+ * together, plus one search per DMN decision, and neither number grows with the history of
+ * the application.
  * <p>
  * Decision 13 in the repository's DECISIONS.md is what this holds: a request to the
  * cluster while booting is counted, and the count belongs to the versions, never to the
@@ -186,6 +194,16 @@ public class Camunda8StartupQuestionCostTest {
       return instanceSearch;
     });
 
+    final var decisionSearch = mock(DecisionDefinitionSearchRequest.class, RETURNS_SELF);
+    Mockito
+        .lenient()
+        .when(decisionSearch.send())
+        .thenAnswer(invocation -> future(response(List.of(), 0L)));
+    when(client.newDecisionDefinitionSearchRequest()).thenAnswer(invocation -> {
+      requests.merge("newDecisionDefinitionSearchRequest", 1, Integer::sum);
+      return decisionSearch;
+    });
+
     final var xmlRequest = mock(ProcessDefinitionGetXmlRequest.class, RETURNS_SELF);
     Mockito
         .lenient()
@@ -205,13 +223,19 @@ public class Camunda8StartupQuestionCostTest {
         bpmnProcessId,
         version,
         model) -> List.of());
+    versions.setIdentifiersOfModel((
+        workflowModuleId,
+        bpmnProcessId,
+        version,
+        model) -> List.of());
     requests.clear();
 
   }
 
   /**
    * What the startup check does per BPMN process: it asks for the versions once and then
-   * asks two questions about every older one.
+   * asks three questions about every older one - how many workflows run on it, which tasks
+   * its model has and which identifiers that model declares.
    */
   private void whatAStartAsks() {
 
@@ -222,6 +246,7 @@ public class Camunda8StartupQuestionCostTest {
         .filter(version -> !String.valueOf(VERSIONS).equals(version))
         .forEach(version -> {
           versions.activeInstanceCountOf(MODULE, PROCESS, version);
+          versions.identifiersOfVersion(MODULE, PROCESS, version);
           versions.tasksOfVersion(MODULE, PROCESS, version);
         });
 
@@ -264,6 +289,67 @@ public class Camunda8StartupQuestionCostTest {
         1,
         requests.getOrDefault("newProcessDefinitionSearchRequest", 0),
         () -> "the second question is answered from what the first one learned, but was "
+            + requests);
+
+  }
+
+  @Test
+  @DisplayName("Asking what the cluster already holds is one search per module, however many processes it has")
+  public void askingWhatTheClusterHoldsDoesNotGrowWithTheProcesses() {
+
+    Camunda8IdentifiersTheClusterHolds
+        .askTheCluster(
+            "c8",
+            MODULE,
+            null,
+            client,
+            IntStream
+                .rangeClosed(1, 25)
+                .mapToObj(number -> new Camunda8IdentifiersTheClusterHolds.DeployedProcess(
+                    "Process"
+                        + number, "Process"
+                            + number, "process-"
+                                + number
+                                + ".bpmn", 1))
+                .toList(),
+            List.of());
+
+    assertEquals(
+        1,
+        requests.getOrDefault("newProcessDefinitionSearchRequest", 0),
+        () -> "the ids of a whole workflow module go into one filter, but was "
+            + requests);
+
+  }
+
+  @Test
+  @DisplayName("A decision id is a search of its own, because that filter takes one exact id")
+  public void everyDecisionIsASearchOfItsOwn() {
+
+    Camunda8IdentifiersTheClusterHolds
+        .askTheCluster(
+            "c8",
+            MODULE,
+            null,
+            client,
+            List.of(),
+            IntStream
+                .rangeClosed(1, 3)
+                .mapToObj(number -> new Camunda8IdentifiersTheClusterHolds.DeployedDecision(
+                    "decision"
+                        + number, "decision"
+                            + number, "Definitions_1", 1))
+                .toList());
+
+    assertEquals(
+        3,
+        requests.getOrDefault("newDecisionDefinitionSearchRequest", 0),
+        () -> "three decisions, three searches, and nothing which grows with the cluster, but was "
+            + requests);
+    assertEquals(
+        0,
+        requests.getOrDefault("newProcessDefinitionSearchRequest", 0),
+        () -> "a module deploying no process asks nothing about process ids, but was "
             + requests);
 
   }

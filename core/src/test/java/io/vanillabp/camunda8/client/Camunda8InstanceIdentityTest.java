@@ -251,6 +251,40 @@ public class Camunda8InstanceIdentityTest {
 
       }
 
+
+      @Override
+      public void reportIdentifiersTheBpmsAlreadyHolds(
+          final String adapterId,
+          final String workflowModuleId,
+          final Collection<IdentifierHeldElsewhere> found) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+      @Override
+      public void reportIdentifiersTheModelsDeclare(
+          final String adapterId,
+          final String workflowModuleId,
+          final Collection<ModelIdentifier> declared) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
+      @Override
+      public void reportIdentifiersOfHeldVersion(
+          final String adapterId,
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String version,
+          final Long activeWorkflows,
+          final Collection<ModelIdentifier> declared) {
+
+        throw new UnsupportedOperationException();
+
+      }
+
       @Override
       public void validateNoCollidingProcessIds(
           final String adapterId,

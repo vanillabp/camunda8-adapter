@@ -14,12 +14,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import io.vanillabp.camunda8.Camunda8ProcessingContext;
 import io.vanillabp.camunda8.TestCollaborators;
+import io.vanillabp.camunda8.TestScoping;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
-import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -248,7 +248,7 @@ public class Camunda8DeclaredProcessWorkersTest {
       }
 
     };
-    final var scoping = scoping(mode);
+    final var scoping = TestScoping.of(mode);
     final var clientFactory = new Camunda8ClientFactory("c8", configuration);
     final var service = new Camunda8DeploymentService(
         "c8", clientFactory, TestCollaborators
@@ -258,122 +258,6 @@ public class Camunda8DeclaredProcessWorkersTest {
                 task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                     .ofHours(1), adapterId -> configuration, scoping);
     return new Adapter(service, clientFactory);
-
-  }
-
-  /**
-   * The core's name-clash avoidance reduced to what opening those workers reads: the
-   * scoped forms of a task definition and of a process id.
-   */
-  private static NameClashAvoidanceSupport scoping(
-      final NameClashAvoidance mode) {
-
-    return new NameClashAvoidanceSupport() {
-
-      @Override
-      public NameClashAvoidance modeFor(
-          final String workflowModuleId,
-          final String bpmnProcessId,
-          final String adapterId) {
-
-        return mode;
-
-      }
-
-      @Override
-      public String scopedProcessId(
-          final String workflowModuleId,
-          final String bpmnProcessId,
-          final String adapterId) {
-
-        return mode == NameClashAvoidance.USE_PREFIX
-            ? String.join(SEPARATOR, workflowModuleId, bpmnProcessId)
-            : bpmnProcessId;
-
-      }
-
-      @Override
-      public String scopedIdentifier(
-          final String workflowModuleId,
-          final String identifier,
-          final String adapterId) {
-
-        return scopedProcessId(workflowModuleId, identifier, adapterId);
-
-      }
-
-      @Override
-      public String scopedTaskDefinition(
-          final String workflowModuleId,
-          final String bpmnProcessId,
-          final String taskDefinition,
-          final String adapterId) {
-
-        return mode == NameClashAvoidance.USE_PREFIX
-            ? String.join(SEPARATOR, workflowModuleId, bpmnProcessId, taskDefinition)
-            : taskDefinition;
-
-      }
-
-      @Override
-      public String plainProcessId(
-          final String workflowModuleId,
-          final String scopedBpmnProcessId,
-          final String adapterId) {
-
-        return scopedBpmnProcessId.startsWith(workflowModuleId + SEPARATOR)
-            ? scopedBpmnProcessId.substring(workflowModuleId.length() + SEPARATOR.length())
-            : scopedBpmnProcessId;
-
-      }
-
-      @Override
-      public String plainIdentifier(
-          final String workflowModuleId,
-          final String scopedIdentifier,
-          final String adapterId) {
-
-        return plainProcessId(workflowModuleId, scopedIdentifier, adapterId);
-
-      }
-
-      @Override
-      public String plainTaskDefinition(
-          final String workflowModuleId,
-          final String bpmnProcessId,
-          final String scopedTaskDefinition,
-          final String adapterId) {
-
-        final var prefix = String.join(SEPARATOR, workflowModuleId, bpmnProcessId, "");
-        return scopedTaskDefinition.startsWith(prefix)
-            ? scopedTaskDefinition.substring(prefix.length())
-            : scopedTaskDefinition;
-
-      }
-
-      @Override
-      public void validateNoneNameClashStrategy(
-          final String adapterId,
-          final String byAdapterOnlyPropertyKey) {
-
-      }
-
-      @Override
-      public void validateNativeIsolationSupported(
-          final String adapterId,
-          final String workflowModuleId,
-          final String bpmsDescription) {
-
-      }
-
-      @Override
-      public void validateNoCollidingProcessIds(
-          final String adapterId,
-          final Collection<DeployedProcess> deployedProcesses) {
-
-      }
-
-    };
 
   }
 

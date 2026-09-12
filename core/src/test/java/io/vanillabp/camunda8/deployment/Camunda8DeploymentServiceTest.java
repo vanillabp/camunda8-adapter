@@ -568,6 +568,32 @@ public class Camunda8DeploymentServiceTest {
             final String bpmsDescription) {
         }
 
+        // the three reports of a name a BPMS already holds: this double measures the model
+        // and the tenant, and the tests which read those reports use TestScoping instead
+        @Override
+        public void reportIdentifiersTheBpmsAlreadyHolds(
+            final String adapterId,
+            final String workflowModuleId,
+            final Collection<IdentifierHeldElsewhere> found) {
+        }
+
+        @Override
+        public void reportIdentifiersTheModelsDeclare(
+            final String adapterId,
+            final String workflowModuleId,
+            final Collection<ModelIdentifier> declared) {
+        }
+
+        @Override
+        public void reportIdentifiersOfHeldVersion(
+            final String adapterId,
+            final String workflowModuleId,
+            final String bpmnProcessId,
+            final String version,
+            final Long activeWorkflows,
+            final Collection<ModelIdentifier> declared) {
+        }
+
         @Override
         public void validateNoCollidingProcessIds(
             final String adapterId,
