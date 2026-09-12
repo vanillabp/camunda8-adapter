@@ -17,6 +17,7 @@ import io.camunda.client.api.search.filter.ProcessDefinitionFilter;
 import io.camunda.client.api.search.response.ProcessDefinition;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier;
 import io.vanillabp.integration.adapter.spi.version.CachingProcessVersionCatalog;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
 import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartSpec;
@@ -260,7 +261,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
       return null;
     }
     try {
-      final var model = readModel(definitionKey);
+      final var model = modelOfTheVersionInTurn(workflowModuleId, bpmnProcessId, version, definitionKey);
       if (model == null) {
         return List.of();
       }
@@ -278,6 +279,114 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
     }
 
   }
+
+  /**
+   * Reads the identifiers a model the cluster holds declares - the deployment service's own
+   * reading, so the names of a held version and the names of the model just deployed are
+   * read the same way. The pair of {@link TasksOfModel}: both are answered out of ONE model,
+   * which is what lets them share a fetch.
+   */
+  @FunctionalInterface
+  public interface IdentifiersOfModel {
+
+    Collection<ModelIdentifier> of(
+        String workflowModuleId,
+        String bpmnProcessId,
+        String version,
+        BpmnModelInstance model);
+
+  }
+
+  private IdentifiersOfModel identifiersOfModel;
+
+  /**
+   * @param identifiersOfModel How the deployment service reads the identifiers a model
+   *          declares
+   */
+  public void setIdentifiersOfModel(
+      final IdentifiersOfModel identifiersOfModel) {
+
+    this.identifiersOfModel = identifiersOfModel;
+
+  }
+
+  @Override
+  public Collection<ModelIdentifier> identifiersOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    if (identifiersOfModel == null) {
+      return null;
+    }
+    final var definitionKey = definitionKeyOf(workflowModuleId, bpmnProcessId, version);
+    if (definitionKey == null) {
+      return null;
+    }
+    try {
+      final var model = modelOfTheVersionInTurn(workflowModuleId, bpmnProcessId, version, definitionKey);
+      if (model == null) {
+        return List.of();
+      }
+      return identifiersOfModel.of(workflowModuleId, bpmnProcessId, version, model);
+    } catch (final RuntimeException e) {
+      log.warn(
+          "Camunda8[{}]: the model of version {} of BPMN process '{}' (workflow module '{}') could not be read, "
+              + "so VanillaBP says nothing about the names that version still declares",
+          adapterId,
+          version,
+          bpmnProcessId,
+          workflowModuleId,
+          e);
+      return null;
+    }
+
+  }
+
+  /**
+   * The model of the version somebody is asking about right now.
+   *
+   * @param definitionKey The cluster's process definition key of that version
+   * @return The model, or <code>null</code> where the cluster answered nothing for the key
+   */
+  private BpmnModelInstance modelOfTheVersionInTurn(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version,
+      final long definitionKey) {
+
+    final var key = versionKey(workflowModuleId, bpmnProcessId, version);
+    final var inTurn = modelInTurn;
+    if ((inTurn != null) && inTurn.key().equals(key)) {
+      return inTurn.model();
+    }
+    // a race here costs one fetch and nothing else, which is why this is a plain
+    // assignment: the questions it serves are put while the application boots
+    final var model = readModel(definitionKey);
+    modelInTurn = new ModelInTurn(key, model);
+    return model;
+
+  }
+
+  /**
+   * The model of ONE version, held for as long as that version's turn lasts.
+   * <p>
+   * The startup check over the versions the cluster still holds asks several questions
+   * about one version before it moves on to the next, and reading a model here means
+   * fetching its XML over the wire - so asking the model twice for one version would pay
+   * for it twice. What bounds the lifetime is the next version's question, which replaces
+   * the entry: one model per adapter id at most, never one per version, and nothing at
+   * runtime reads any of it.
+   *
+   * @param key The version this model belongs to
+   * @param model The model, <code>null</code> where the cluster answered nothing
+   */
+  private record ModelInTurn(
+                             String key,
+                             BpmnModelInstance model) {
+  }
+
+  private volatile ModelInTurn modelInTurn;
 
   @Override
   public Long activeInstanceCountOf(
@@ -427,6 +536,10 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
    * Which process definitions this adapter counts as existing, applied to every search
    * it runs for them.
    * <p>
+   * Read by every definition search of this package, the one which asks what the cluster
+   * already holds of a workflow module's identifiers included, so the answer to "which
+   * definitions count" cannot differ between them.
+   * <p>
    * A definition an operator deleted stays in the query API and is answered with the
    * state <code>DELETED</code>, so a search leaving this out reports versions the
    * cluster runs nothing on any more - and the startup check would keep demanding
@@ -436,7 +549,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
    *
    * @param filter The filter of a process definition search
    */
-  private static void onlyDefinitionsWhichStillCount(
+  static void onlyDefinitionsWhichStillCount(
       final ProcessDefinitionFilter filter) {
 
     filter.state(ProcessDefinitionState.ACTIVE);

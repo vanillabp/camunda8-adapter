@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -473,6 +474,46 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     processVersions.setHeldModelOfVersion(this::heldModelOfVersion);
     processVersions.setStartEventsOfModel(this::startEventSpecsOf);
     processVersions.setConcurrentTokenElementsOfModel(this::concurrentTokenElementIdsOf);
+    processVersions.setIdentifiersOfModel(this::identifiersOfModel);
+
+  }
+
+  /**
+   * The identifiers ONE version the cluster still holds declares, as the application knows
+   * them - what the core holds against the names another workflow module uses today. A job
+   * type is among them and is the one which is live rather than dormant: a worker
+   * subscribes to it cluster-wide, so a version workflows still run on owns that name as
+   * much as the model deployed now.
+   * <p>
+   * The names are read off the model the cluster hands back, which carries the scoped forms
+   * the deployment wrote into it, and are stripped back to the plain ones: the core
+   * composes the scoped forms itself.
+   */
+  private Collection<NameClashAvoidanceSupport.ModelIdentifier> identifiersOfModel(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version,
+      final BpmnModelInstance model) {
+
+    final var identifiers = new LinkedHashSet<NameClashAvoidanceSupport.ModelIdentifier>();
+    Camunda8Scoping
+        .moduleWideIdentifiersOf(model)
+        .forEach(identifier -> identifiers
+            .add(
+                new NameClashAvoidanceSupport.ModelIdentifier(
+                    identifier.kind(), plainIdentifier(workflowModuleId, identifier.plainIdentifier()), null)));
+    // the job types of THIS process, read by the extraction the wiring uses, so a user
+    // task's form reference counts as the listener job type it becomes and an element
+    // another runtime serves stays out
+    taskSpecsOf(workflowModuleId, bpmnProcessId, version, model)
+        .stream()
+        .map(BpmnTaskSpec::taskDefinition)
+        .filter(Objects::nonNull)
+        .forEach(taskDefinition -> identifiers
+            .add(
+                new NameClashAvoidanceSupport.ModelIdentifier(
+                    NameClashAvoidanceSupport.ScopedIdentifierKind.TASK_DEFINITION, taskDefinition, bpmnProcessId)));
+    return identifiers;
 
   }
 
@@ -895,6 +936,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       // than once per process: after the rewrite below an element cannot be attributed
       // to the process the configuration is keyed by any more
       recordTheElementsAnotherRuntimeServes(workflowModuleId, model, context);
+      // the names this file declares which the workflow module scopes, read while they are
+      // still the ones the application knows: the rewrite below replaces them in the model,
+      // and the core is handed the plain ones
+      context.recordIdentifiersAModelDeclares(Camunda8Scoping.moduleWideIdentifiersOf(model));
+      context
+          .recordIdentifiersAModelDeclares(
+              Camunda8Scoping.taskDefinitionsOf(model, workflowModuleId, allowConnectorsResolver));
       Camunda8Scoping.apply(model, workflowModuleId, adapterId, scoping, allowConnectorsResolver);
     }
     context.addResource(filename, model);
@@ -1594,6 +1642,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .toList());
     }
 
+    // what the cluster made of this deployment, collected while it is read anyway: the
+    // question which identifiers the cluster ALREADY held needs the version it assigned and
+    // the resource it recorded, and both are in the answer of the deploy command
+    final var processesDeployed = new ArrayList<Camunda8IdentifiersTheClusterHolds.DeployedProcess>();
+    final var decisionsDeployed = new ArrayList<Camunda8IdentifiersTheClusterHolds.DeployedDecision>();
     try {
       final var deployment = command
           .send()
@@ -1635,10 +1688,21 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             workflowTaskWiring
                 .registerDeployedVersion(
                     adapterId, workflowModuleId, plainBpmnProcessId, String.valueOf(process.getVersion()));
+            processesDeployed
+                .add(
+                    new Camunda8IdentifiersTheClusterHolds.DeployedProcess(
+                        plainBpmnProcessId, process.getBpmnProcessId(), process.getResourceName(), process
+                            .getVersion()));
           });
 
       final var deployedDecisions = deployment.getDecisions();
       if ((deployedDecisions != null) && !deployedDecisions.isEmpty()) {
+        deployedDecisions
+            .forEach(decision -> decisionsDeployed
+                .add(
+                    new Camunda8IdentifiersTheClusterHolds.DeployedDecision(
+                        plainIdentifier(workflowModuleId, decision.getDmnDecisionId()), decision
+                            .getDmnDecisionId(), decision.getDmnDecisionRequirementsId(), decision.getVersion())));
         // the ids the CLUSTER knows, which is what a business rule task has to name
         log.info(
             "Deployed {} decision(s) of workflow module '{}' to Camunda 8 (adapter '{}'): {}",
@@ -1664,9 +1728,83 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .formatted(workflowModuleId, adapterId), e);
     }
 
+    // which of this module's identifiers the cluster held before this deployment, asked now
+    // that it answered which versions and resources it recorded
+    reportWhatTheClusterAlreadyHeld(workflowModuleId, processesDeployed, decisionsDeployed);
+    // and which of them a second workflow module of this application uses as well, which
+    // costs no request at all: the names were read while the files were prepared
+    reportWhatTheModelsDeclare(workflowModuleId, bpmsProcessingContext);
+
     // last, and after every file of the module has been read, so the report names every
     // element at once instead of one warning per file
     reportWhatConnectorsCost(workflowModuleId, bpmsProcessingContext);
+
+  }
+
+  /**
+   * Hands the core the identifiers of this workflow module which the cluster already held,
+   * so the warning can name our side, their side and the change which frees the name.
+   * <p>
+   * Wrapped from the outside as well as inside: a question about a name must not be the
+   * reason an application does not come up, and the deployment this runs after has already
+   * succeeded.
+   *
+   * @param workflowModuleId The workflow module which was deployed
+   * @param processes What this deployment brought, per BPMN process
+   * @param decisions What this deployment brought, per DMN decision
+   */
+  private void reportWhatTheClusterAlreadyHeld(
+      final String workflowModuleId,
+      final List<Camunda8IdentifiersTheClusterHolds.DeployedProcess> processes,
+      final List<Camunda8IdentifiersTheClusterHolds.DeployedDecision> decisions) {
+
+    if (scoping == null) {
+      return;
+    }
+    try {
+      scoping
+          .reportIdentifiersTheBpmsAlreadyHolds(
+              adapterId,
+              workflowModuleId,
+              Camunda8IdentifiersTheClusterHolds
+                  .askTheCluster(
+                      adapterId,
+                      workflowModuleId,
+                      tenantIdOf(workflowModuleId),
+                      clientFactory.getClient(),
+                      processes,
+                      decisions));
+    } catch (final RuntimeException e) {
+      log
+          .debug(
+              "Camunda8[{}]: could not find out which identifiers of workflow module '{}' the cluster "
+                  + "already held",
+              adapterId,
+              workflowModuleId,
+              e);
+    }
+
+  }
+
+  /**
+   * Hands the core the identifiers the models of this workflow module declare, which is how
+   * two workflow modules of this application ending up under one name get named. The
+   * adapter rewrites every one of those names while it scopes a model, so it holds all of
+   * them and the question costs no request.
+   *
+   * @param workflowModuleId The workflow module which was deployed
+   * @param context What the pipeline collected for it
+   */
+  void reportWhatTheModelsDeclare(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext context) {
+
+    if (scoping == null) {
+      return;
+    }
+    scoping
+        .reportIdentifiersTheModelsDeclare(
+            adapterId, workflowModuleId, context.getIdentifiersTheModelsDeclare());
 
   }
 

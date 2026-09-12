@@ -1,14 +1,18 @@
 package io.vanillabp.camunda8;
 
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import io.camunda.client.api.worker.JobWorker;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import lombok.Getter;
 
 /**
@@ -76,6 +80,30 @@ public class Camunda8ProcessingContext {
       final byte[] dmn) {
 
     decisions.putIfAbsent(filename, dmn);
+
+  }
+
+  /**
+   * The identifiers the models of this workflow module declare, as the APPLICATION knows
+   * them: message names, signal names, BPMN error codes, escalation codes and job types.
+   * <p>
+   * Collected while a file is prepared, because that is the moment those names are still
+   * the plain ones - the scoping rewrites them in the model right after. The core is
+   * handed them once the module deployed and answers whether two workflow modules of this
+   * application end up under one of them.
+   */
+  @Getter
+  private final Set<NameClashAvoidanceSupport.ModelIdentifier> identifiersTheModelsDeclare = new LinkedHashSet<>();
+
+  /**
+   * Remembers what one file of this workflow module declares.
+   *
+   * @param identifiers The plain identifiers read out of that file
+   */
+  public void recordIdentifiersAModelDeclares(
+      final Collection<NameClashAvoidanceSupport.ModelIdentifier> identifiers) {
+
+    identifiersTheModelsDeclare.addAll(identifiers);
 
   }
 
