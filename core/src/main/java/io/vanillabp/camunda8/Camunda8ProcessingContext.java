@@ -85,12 +85,13 @@ public class Camunda8ProcessingContext {
 
   /**
    * The identifiers the models of this workflow module declare, as the APPLICATION knows
-   * them: message names, signal names, BPMN error codes, escalation codes and job types.
+   * them: message names, signal names, BPMN error codes, escalation codes, job types and the
+   * ids of the decisions the module brings.
    * <p>
-   * Collected while a file is prepared, because that is the moment those names are still
-   * the plain ones - the scoping rewrites them in the model right after. The core is
-   * handed them once the module deployed and answers whether two workflow modules of this
-   * application end up under one of them.
+   * Collected while a file is read, because that is the moment those names are still the
+   * plain ones - the scoping rewrites them in the model respectively in the DMN file right
+   * after. The core is handed them once the module deployed and answers whether two workflow
+   * modules of this application end up under one of them.
    */
   @Getter
   private final Set<NameClashAvoidanceSupport.ModelIdentifier> identifiersTheModelsDeclare = new LinkedHashSet<>();
@@ -104,6 +105,25 @@ public class Camunda8ProcessingContext {
       final Collection<NameClashAvoidanceSupport.ModelIdentifier> identifiers) {
 
     identifiersTheModelsDeclare.addAll(identifiers);
+
+  }
+
+  /**
+   * Remembers the decisions one DMN file of this workflow module declares. A decision id is
+   * scoped by the workflow module alone, exactly like a message name, so it carries no BPMN
+   * process: several processes of a module legitimately call the same decision.
+   *
+   * @param plainDecisionIds The decision ids as the application knows them
+   */
+  public void recordDecisionIds(
+      final Collection<String> plainDecisionIds) {
+
+    plainDecisionIds
+        .forEach(
+            decisionId -> identifiersTheModelsDeclare
+                .add(
+                    new NameClashAvoidanceSupport.ModelIdentifier(
+                        NameClashAvoidanceSupport.ScopedIdentifierKind.DMN_DECISION_ID, decisionId, null)));
 
   }
 

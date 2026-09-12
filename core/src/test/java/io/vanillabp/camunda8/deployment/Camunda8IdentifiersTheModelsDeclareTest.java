@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
@@ -12,6 +13,8 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
@@ -36,7 +39,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * core is handed the names the APPLICATION knows rather than the ones the cluster will see.
  * A job type is among them and is the severe one on this BPMS - a worker subscribes to it
  * cluster-wide - while the job type of an element another runtime serves is none of this
- * module's names at all.
+ * module's names at all. A decision id belongs to the same report, read off the DMN file the
+ * module brings, and the core scopes it by the workflow module alone like a message name.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8IdentifiersTheModelsDeclareTest {
@@ -46,6 +50,28 @@ public class Camunda8IdentifiersTheModelsDeclareTest {
   private static final String PROCESS = "LoanApproval";
 
   private static final String FILE = "loan-approval.bpmn";
+
+  private static final String A_SECOND_MODULE = "payment-handling";
+
+  private static final String DECISION_FILE = "credit-rating.dmn";
+
+  private static final String DECISION_ID = "creditRating";
+
+  private static final String A_DECISION_TABLE = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/" id="creditRatingDefinitions" name="Credit rating" namespace="http://vanillabp.io/c8-test">
+        <decision id="creditRating" name="Credit rating">
+          <decisionTable id="creditRatingTable" hitPolicy="UNIQUE">
+            <input id="creditRatingInput" label="Approved">
+              <inputExpression id="creditRatingInputExpression" typeRef="boolean">
+                <text>approved</text>
+              </inputExpression>
+            </input>
+            <output id="creditRatingOutput" label="Rating" name="rating" typeRef="string" />
+          </decisionTable>
+        </decision>
+      </definitions>
+      """;
 
   private static final String A_MODEL_DECLARING_EVERY_KIND = """
       <?xml version="1.0" encoding="UTF-8"?>
@@ -81,16 +107,21 @@ public class Camunda8IdentifiersTheModelsDeclareTest {
 
   }
 
+  private static InputStream aDecisionTable() {
+
+    return new ByteArrayInputStream(A_DECISION_TABLE.getBytes(StandardCharsets.UTF_8));
+
+  }
+
   /**
-   * Runs the pipeline stage which reads the names and the report which hands them over.
+   * A deployment service of one adapter id, reporting to the given double.
    */
-  private static List<ModelIdentifier> whatWasReported(
-      final NameClashAvoidance mode) {
+  private static Camunda8DeploymentService aDeploymentService(
+      final TestScoping.ScopingDouble scoping) {
 
     final var configuration = new Camunda8AdapterConfiguration();
     // an address nothing listens on: not one question of this test reaches a cluster
     configuration.setRestAddress("http://localhost:65535");
-    final var scoping = TestScoping.of(mode);
     final var service = new Camunda8DeploymentService(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
             .of(new Camunda8DeploymentServiceTest.NoOpInvoker(), scoping), (
@@ -102,8 +133,44 @@ public class Camunda8IdentifiersTheModelsDeclareTest {
         .setAllowConnectorsResolver((
             workflowModuleId,
             bpmnProcessId) -> new Camunda8AllowConnectorsResolver.Setting(true, "vanillabp.adapters.c8.allow-connectors"));
-    final var context = service.prepareBpmn(MODULE, null, FILE, PROCESS, model());
-    service.reportWhatTheModelsDeclare(MODULE, context);
+    return service;
+
+  }
+
+  /**
+   * Runs the pipeline stages which read the names of one workflow module and the report which
+   * hands them over - the deploy command itself asks nothing about a name.
+   */
+  private static void readOneProcessAndReport(
+      final Camunda8DeploymentService service,
+      final String workflowModuleId) {
+
+    final var context = service.prepareBpmn(workflowModuleId, null, FILE, PROCESS, model());
+    service.reportWhatTheModelsDeclare(workflowModuleId, context);
+
+  }
+
+  /**
+   * The same for a workflow module which brings a decision table along with its process.
+   */
+  private static void readOneProcessWithADecisionAndReport(
+      final Camunda8DeploymentService service,
+      final String workflowModuleId) {
+
+    var context = service.prepareBpmn(workflowModuleId, null, FILE, PROCESS, model());
+    context = service.readDmn(workflowModuleId, context, DECISION_FILE, aDecisionTable());
+    service.reportWhatTheModelsDeclare(workflowModuleId, context);
+
+  }
+
+  /**
+   * What one workflow module without any decision table reports.
+   */
+  private static List<ModelIdentifier> whatWasReported(
+      final NameClashAvoidance mode) {
+
+    final var scoping = TestScoping.of(mode);
+    readOneProcessAndReport(aDeploymentService(scoping), MODULE);
     return scoping.getIdentifiersTheModelsDeclare();
 
   }
@@ -165,6 +232,93 @@ public class Camunda8IdentifiersTheModelsDeclareTest {
         whatWasReported(NameClashAvoidance.USE_PREFIX),
         whatWasReported(NameClashAvoidance.NONE),
         "the core composes the form the cluster sees, so what it is handed does not depend on the mode");
+
+  }
+
+  @ParameterizedTest
+  @EnumSource(NameClashAvoidance.class)
+  @DisplayName("A decision the module deploys is reported under the id the application wrote")
+  public void aDecisionIdIsReportedByItsPlainName(
+      final NameClashAvoidance mode) {
+
+    final var scoping = TestScoping.of(mode);
+
+    readOneProcessWithADecisionAndReport(aDeploymentService(scoping), MODULE);
+
+    assertTrue(
+        scoping
+            .getIdentifiersTheModelsDeclare()
+            .contains(new ModelIdentifier(ScopedIdentifierKind.DMN_DECISION_ID, DECISION_ID, null)),
+        () -> "a decision id is read off the file before the prefix is written into it, and it "
+            + "carries no BPMN process because several processes of a module may call it: "
+            + scoping.getIdentifiersTheModelsDeclare());
+
+  }
+
+  @Test
+  @DisplayName("A workflow module which brings no decision table reports no decision id")
+  public void aModuleWithoutADecisionTableReportsNone() {
+
+    final var reported = whatWasReported(NameClashAvoidance.NONE);
+
+    assertTrue(
+        reported.stream().noneMatch(identifier -> identifier.kind() == ScopedIdentifierKind.DMN_DECISION_ID),
+        () -> "nothing is invented for a module whose processes call no decision: "
+            + reported);
+
+  }
+
+  @Test
+  @DisplayName("One decision id in two workflow modules is reported for both of them")
+  public void twoModulesSharingADecisionIdAreBothReported() {
+
+    final var scoping = TestScoping.of(NameClashAvoidance.NONE);
+    final var service = aDeploymentService(scoping);
+
+    readOneProcessWithADecisionAndReport(service, MODULE);
+    readOneProcessWithADecisionAndReport(service, A_SECOND_MODULE);
+
+    assertEquals(
+        List
+            .of(
+                new TestScoping.DeclaredByModule(
+                    MODULE, new ModelIdentifier(ScopedIdentifierKind.DMN_DECISION_ID, DECISION_ID, null)),
+                new TestScoping.DeclaredByModule(
+                    A_SECOND_MODULE, new ModelIdentifier(ScopedIdentifierKind.DMN_DECISION_ID, DECISION_ID, null))),
+        scoping
+            .getModulesDeclaringIdentifiers()
+            .stream()
+            .filter(declared -> declared.identifier().kind() == ScopedIdentifierKind.DMN_DECISION_ID)
+            .toList(),
+        "the core sees one decision id declared by two modules, which under 'none' is the one "
+            + "scoped form both of them reach the cluster with");
+
+  }
+
+  @Test
+  @DisplayName("A decision several files of one workflow module name is one name of that module")
+  public void oneModuleDeclaringADecisionTwiceReportsItOnce() {
+
+    final var scoping = TestScoping.of(NameClashAvoidance.NONE);
+    final var service = aDeploymentService(scoping);
+
+    var context = service.prepareBpmn(MODULE, null, FILE, PROCESS, model());
+    context = service.readDmn(MODULE, context, DECISION_FILE, aDecisionTable());
+    context = service.readDmn(MODULE, context, "credit-rating-copy.dmn", aDecisionTable());
+    service.reportWhatTheModelsDeclare(MODULE, context);
+
+    assertEquals(
+        List
+            .of(
+                new TestScoping.DeclaredByModule(
+                    MODULE, new ModelIdentifier(ScopedIdentifierKind.DMN_DECISION_ID, DECISION_ID, null))),
+        scoping
+            .getModulesDeclaringIdentifiers()
+            .stream()
+            .filter(declared -> declared.identifier().kind() == ScopedIdentifierKind.DMN_DECISION_ID)
+            .toList(),
+        "the scope of a decision id is the workflow module, so the processes and the files of one "
+            + "module sharing it is ordinary VanillaBP and reaches the core as a single name");
 
   }
 

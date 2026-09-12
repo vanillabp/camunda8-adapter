@@ -30,9 +30,9 @@ the two a start reaches is the cluster's decision and not yours. The ways out ar
 (`name-clash-avoidance: by-adapter`), a prefix (`use-prefix`) or a name nobody else uses.
 
 Two more lines can appear, and both are about your own application. Two workflow modules which
-declare the same message name, signal name, error code, escalation code or job type are named with
-both sides, because under `none` and under one adapter-wide `tenant-id` the cluster sees one name
-where you mean two. The same is said where a version the cluster still holds carries such a name,
+declare the same message name, signal name, error code, escalation code, job type or decision id are
+named with both sides, because under `none` and under one adapter-wide `tenant-id` the cluster sees
+one name where you mean two. The same is said where a version the cluster still holds carries such a name,
 which is the clash a workflow module deployed years ago leaves behind.
 
 ## An ad-hoc subprocess in your model earns two warnings (2026-09-09)

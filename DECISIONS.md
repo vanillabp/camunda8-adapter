@@ -641,6 +641,15 @@ decision 13 forbids a start to have. Where the models are read anyway the same n
 for free, which is what `identifiersOfVersion` does for the versions of this application's own
 processes.
 
+The second report of the feature, the names the models of this deployment declare, carries a decision
+id as well. It is read off the DMN file while that file is read, before the prefix is written into it,
+which is the same moment a message name or a job type is read out of a BPMN model. So two workflow
+modules of one application which bring a decision of the same id are named, the way two modules
+sharing a message name are, and a workflow module moved between the two Camunda adapters keeps the
+check. The deploy command answers with the decision ids too, and taking them from there was rejected:
+the cluster reports the id IT knows, so the plain one would have to be won back by stripping a prefix,
+while the file the command sends is the file this adapter just read.
+
 The discriminator is a heuristic and the check says so rather than hiding it. A cluster records no
 owner, so what a definition carries is the resource it was deployed from, and for a decision the
 decision requirements of its DMN file. A definition under a marker this deployment brought is this
@@ -670,7 +679,8 @@ One model per adapter id at most, and the second question about a version theref
 fetch.
 
 `Camunda8IdentifiersTheClusterHoldsTest` holds the filters and what a finding says,
-`Camunda8StartupQuestionCostTest` the number of searches, and
+`Camunda8StartupQuestionCostTest` the number of searches,
+`Camunda8IdentifiersTheModelsDeclareTest` which kinds the declared report carries, and
 `Camunda8IdentifiersTheClusterHoldsIT` the foreign definition on a real cluster.
 
 See [A name the cluster already holds](./README.md#a-name-the-cluster-already-holds).
