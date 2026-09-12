@@ -1491,12 +1491,16 @@ there, so a second application on the cluster shares every name by construction,
 staying silent because nothing is provable would leave that case unguarded.
 
 A second question costs no request. While a model is scoped, the adapter holds every message name,
-signal name, error code, escalation code and job type of it, so those are handed to the core as
-well and it names the case where two workflow modules of ONE application end up under the same
-name. A job type is the severe one on Camunda 8: a worker subscribes to it cluster-wide, so two
-modules sharing one job type means the worker of one module fetches the jobs of the other. The same
-names of a version the cluster still HOLDS are read off that model while the old-versions check
-reads it anyway, which is the only place a name a workflow module deployed years ago still lives.
+signal name, error code, escalation code and job type of it, and while a decision table is read it
+holds the ids of the decisions the module brings, so all of those are handed to the core as well and
+it names the case where two workflow modules of ONE application end up under the same name. A job
+type is the severe one on Camunda 8: a worker subscribes to it cluster-wide, so two modules sharing
+one job type means the worker of one module fetches the jobs of the other. A job type is also the
+one kind this report carries which the Camunda 7 adapter does not, because there a task definition
+is resolved inside its process and nothing subscribes to it engine-wide; everything else, the
+decision ids included, is the same on both. The same names of a version the cluster still HOLDS are
+read off that model while the old-versions check reads it anyway, which is the only place a name a
+workflow module deployed years ago still lives.
 
 No property switches any of this on or off, and none of it can end a boot: a failed search is
 logged at debug and the deployment goes on. What a cluster without the query API would answer is

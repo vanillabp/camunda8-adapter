@@ -975,6 +975,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           io.vanillabp.integration.adapter.spi.DmnDecisionIds.of(toDeploy));
     }
     existingContext.addDecision(filename, toDeploy);
+    // the ids as the application knows them, read off the FILE and not off the answer of the
+    // deploy command: these bytes are the ones the command sends, so nothing read here can name
+    // a decision the cluster never got, while the cluster answers with the id IT knows and the
+    // plain one would have to be won back by stripping the prefix off it again
+    existingContext
+        .recordDecisionIds(io.vanillabp.integration.adapter.spi.DmnDecisionIds.of(file));
     return existingContext;
 
   }
@@ -1732,7 +1738,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // that it answered which versions and resources it recorded
     reportWhatTheClusterAlreadyHeld(workflowModuleId, processesDeployed, decisionsDeployed);
     // and which of them a second workflow module of this application uses as well, which
-    // costs no request at all: the names were read while the files were prepared
+    // costs no request at all: the names were read off the files themselves
     reportWhatTheModelsDeclare(workflowModuleId, bpmsProcessingContext);
 
     // last, and after every file of the module has been read, so the report names every
@@ -1789,8 +1795,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   /**
    * Hands the core the identifiers the models of this workflow module declare, which is how
    * two workflow modules of this application ending up under one name get named. The
-   * adapter rewrites every one of those names while it scopes a model, so it holds all of
-   * them and the question costs no request.
+   * adapter rewrites every one of those names while it scopes a BPMN model or a decision
+   * table, so it holds all of them and the question costs no request.
    *
    * @param workflowModuleId The workflow module which was deployed
    * @param context What the pipeline collected for it

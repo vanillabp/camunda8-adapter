@@ -42,6 +42,8 @@ public final class TestScoping {
 
     private final List<ModelIdentifier> identifiersTheModelsDeclare = new ArrayList<>();
 
+    private final List<DeclaredByModule> modulesDeclaringIdentifiers = new ArrayList<>();
+
     private final List<ModelIdentifier> identifiersOfHeldVersions = new ArrayList<>();
 
     private ScopingDouble(
@@ -66,6 +68,19 @@ public final class TestScoping {
     public List<ModelIdentifier> getIdentifiersTheModelsDeclare() {
 
       return identifiersTheModelsDeclare;
+
+    }
+
+    /**
+     * The same answers, each with the workflow module it was reported for. The core keys its
+     * collision check by the module, so a test about two modules sharing a name has to see
+     * which side a name came from.
+     *
+     * @return One entry per identifier and workflow module
+     */
+    public List<DeclaredByModule> getModulesDeclaringIdentifiers() {
+
+      return modulesDeclaringIdentifiers;
 
     }
 
@@ -97,6 +112,8 @@ public final class TestScoping {
         final Collection<ModelIdentifier> declared) {
 
       identifiersTheModelsDeclare.addAll(declared);
+      declared
+          .forEach(identifier -> modulesDeclaringIdentifiers.add(new DeclaredByModule(workflowModuleId, identifier)));
 
     }
 
@@ -232,6 +249,17 @@ public final class TestScoping {
 
     }
 
+  }
+
+  /**
+   * One identifier a workflow module declared, as the adapter reported it.
+   *
+   * @param workflowModuleId The workflow module the report was about
+   * @param identifier What it declares
+   */
+  public record DeclaredByModule(
+                                 String workflowModuleId,
+                                 NameClashAvoidanceSupport.ModelIdentifier identifier) {
   }
 
 }
