@@ -620,3 +620,57 @@ evaluated when the workflow enters the element, so the model cannot promise the 
 long, and a warning appearing only after a data change is worse than one appearing always.
 
 See [Ad-hoc subprocesses](./README.md#ad-hoc-subprocesses).
+
+### 25. The cluster is asked which of a module's names it already holds, and the answer is a hint
+
+`validateNoCollidingProcessIds` compares the identifiers of one deployment against each other, so
+a name another application deployed into the same cluster years ago is invisible to it. Both sides
+deploy, and the cluster alone decides which of the two a start or a message reaches. The platform's
+decision 40 carries the rule for every adapter; this entry carries what it costs and what it is
+worth on Camunda 8.
+
+What the cluster can be asked about is a BPMN process id and a DMN decision id, because it keeps a
+searchable record of both. The process ids of a whole workflow module go into one paged
+`newProcessDefinitionSearchRequest`, which the `in` form of the id filter allows; a decision id
+needs one `newDecisionDefinitionSearchRequest` each, because that filter takes an exact string and
+offers neither a list nor a pattern. Both run once per workflow module while it deploys, after the
+deploy command answered, and both carry the tenant where the mode uses one. Nothing else has an
+index to ask: a message name, a signal name, an error code, an escalation code and a job type live
+inside a model, and reading one model per definition version the cluster holds is the growth
+decision 13 forbids a start to have. Where the models are read anyway the same names are answered
+for free, which is what `identifiersOfVersion` does for the versions of this application's own
+processes.
+
+The discriminator is a heuristic and the check says so rather than hiding it. A cluster records no
+owner, so what a definition carries is the resource it was deployed from, and for a decision the
+decision requirements of its DMN file. A definition under a marker this deployment brought is this
+application's own, earlier versions included, and stays silent; everything else is reported with
+`certainlyForeign` at `false`, which the core turns into a sentence saying the line may be
+harmless. Two things make the marker a guess: another application may deploy a file of the same
+name, and renaming a file of our own makes our own earlier definition look like somebody else's.
+
+Reporting an unproven finding is still better than silence. The mode which needs this check most is
+`none`, which is what a cluster without multi-tenancy leaves an application with, and staying
+silent because nothing is provable would leave exactly that case unguarded. A cluster which cannot
+be searched is no cluster this adapter serves (decision 20), so there is no third answer to write.
+
+A finding warns and never ends a boot, which is the platform's decision 38 applied: whoever holds
+the name may be an application which is running correctly, and ending this boot would not help it.
+A diagnostic may never end a boot either way. Every search is wrapped twice, a failure is logged at
+debug and the questions which can still be put are still put. There is no property switching any of
+it on or off: it is one search per workflow module plus one per decision, and a check nobody turns
+on is a check nobody runs.
+
+Reading the model of a held version for the same question goes the way `tasksOfVersion` goes, by the
+definition key and the XML request, and not through the picture of decision 21. That picture answers
+the checks which JUDGE a model for the ids the application declares and keeps what it read for as
+long as the application runs; what the old-versions check needs is one model at a time, so the model
+of the version being asked about is held for that version's turn and the next version replaces it.
+One model per adapter id at most, and the second question about a version therefore costs no second
+fetch.
+
+`Camunda8IdentifiersTheClusterHoldsTest` holds the filters and what a finding says,
+`Camunda8StartupQuestionCostTest` the number of searches, and
+`Camunda8IdentifiersTheClusterHoldsIT` the foreign definition on a real cluster.
+
+See [A name the cluster already holds](./README.md#a-name-the-cluster-already-holds).

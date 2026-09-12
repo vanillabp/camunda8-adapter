@@ -1,5 +1,8 @@
 package io.vanillabp.camunda8.wiring;
 
+import java.util.Collection;
+import java.util.LinkedHashSet;
+
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.BpmnModelElementInstance;
 import io.camunda.zeebe.model.bpmn.instance.Error;
@@ -36,6 +39,13 @@ import lombok.extern.slf4j.Slf4j;
  * An element another runtime serves, see {@link Camunda8Connectors}, never enters that
  * table: its job type names a runtime somebody else deployed rather than an identifier of
  * this workflow module, so it is left as the modeller wrote it under every mode.
+ * <p>
+ * The same elements are READ rather than rewritten where somebody asks which names a
+ * workflow module declares ({@link #moduleWideIdentifiersOf},
+ * {@link #taskDefinitionsOf}). One reader is the deployment, which hands them to the core
+ * so that two workflow modules ending up under one name are named; the other is a model
+ * the cluster still holds, where the same names are read back out of what was deployed
+ * years ago.
  * <p>
  * The rewriting happens in <code>prepareBpmn</code>, BEFORE wiring: everything after
  * it - the wiring validation, the listener injection, the workers - therefore sees
@@ -108,6 +118,113 @@ public final class Camunda8Scoping {
       final NameClashAvoidanceSupport scoping) {
 
     return (scoping != null) && (scoping.modeFor(workflowModuleId, null, adapterId) == NameClashAvoidance.USE_PREFIX);
+
+  }
+
+  /**
+   * The names of the given model which the workflow module scopes as a whole: a message
+   * name, a signal name, a BPMN error code, an escalation code. Every one of them is a
+   * name the cluster resolves globally, which is why {@link #apply} rewrites them, and
+   * reading them costs nothing while the model is open anyway.
+   * <p>
+   * The names are returned as they STAND in the model, so the caller decides what they
+   * are: a model about to be deployed carries the plain names as long as {@link #apply}
+   * has not run over it, a model the cluster hands back carries the scoped ones.
+   *
+   * @param model The model of one BPMN file
+   * @return One entry per name, without duplicates and with no BPMN process on it -
+   *         these names belong to the workflow module, not to one of its processes
+   */
+  public static Collection<NameClashAvoidanceSupport.ModelIdentifier> moduleWideIdentifiersOf(
+      final BpmnModelInstance model) {
+
+    final var identifiers = new LinkedHashSet<NameClashAvoidanceSupport.ModelIdentifier>();
+    model
+        .getModelElementsByType(Message.class)
+        .forEach(message -> collectIfWritten(
+            identifiers, NameClashAvoidanceSupport.ScopedIdentifierKind.MESSAGE_NAME, message.getName(), null));
+    model
+        .getModelElementsByType(Signal.class)
+        .forEach(signal -> collectIfWritten(
+            identifiers, NameClashAvoidanceSupport.ScopedIdentifierKind.SIGNAL_NAME, signal.getName(), null));
+    model
+        .getModelElementsByType(Error.class)
+        .forEach(error -> collectIfWritten(
+            identifiers, NameClashAvoidanceSupport.ScopedIdentifierKind.ERROR_CODE, error.getErrorCode(), null));
+    model
+        .getModelElementsByType(Escalation.class)
+        .forEach(escalation -> collectIfWritten(
+            identifiers,
+            NameClashAvoidanceSupport.ScopedIdentifierKind.ESCALATION_CODE,
+            escalation.getEscalationCode(),
+            null));
+    return identifiers;
+
+  }
+
+  /**
+   * The job types of the given model, each with the BPMN process it belongs to - a task
+   * definition is scoped per process as well as per workflow module. A user task's
+   * external form reference is among them, because it becomes a listener job type like any
+   * other.
+   * <p>
+   * The element an element template hands to another runtime is left out, the same way
+   * {@link #apply} leaves its job type alone: that name belongs to a runtime somebody else
+   * deployed rather than to this workflow module.
+   *
+   * @param model The model of one BPMN file
+   * @param workflowModuleId The workflow module ID
+   * @param allowConnectorsResolver What the configuration says about the elements built
+   *          from an element template (may be <code>null</code>: nothing is left out then)
+   * @return One entry per job type, without duplicates, as the names stand in the model
+   */
+  public static Collection<NameClashAvoidanceSupport.ModelIdentifier> taskDefinitionsOf(
+      final BpmnModelInstance model,
+      final String workflowModuleId,
+      final Camunda8AllowConnectorsResolver allowConnectorsResolver) {
+
+    final var identifiers = new LinkedHashSet<NameClashAvoidanceSupport.ModelIdentifier>();
+    model
+        .getModelElementsByType(ZeebeTaskDefinition.class)
+        .forEach(taskDefinition -> {
+          if (isServedByAnotherRuntime(taskDefinition, workflowModuleId, allowConnectorsResolver)) {
+            return;
+          }
+          collectIfWritten(
+              identifiers,
+              NameClashAvoidanceSupport.ScopedIdentifierKind.TASK_DEFINITION,
+              taskDefinition.getType(),
+              owningProcessId(taskDefinition));
+        });
+    model
+        .getModelElementsByType(ZeebeFormDefinition.class)
+        .forEach(formDefinition -> {
+          if (isServedByAnotherRuntime(formDefinition, workflowModuleId, allowConnectorsResolver)) {
+            return;
+          }
+          collectIfWritten(
+              identifiers,
+              NameClashAvoidanceSupport.ScopedIdentifierKind.TASK_DEFINITION,
+              formDefinition.getExternalReference(),
+              owningProcessId(formDefinition));
+        });
+    return identifiers;
+
+  }
+
+  /**
+   * Adds one name to what was read, leaving out what the modeller did not write.
+   */
+  private static void collectIfWritten(
+      final Collection<NameClashAvoidanceSupport.ModelIdentifier> identifiers,
+      final NameClashAvoidanceSupport.ScopedIdentifierKind kind,
+      final String identifier,
+      final String bpmnProcessId) {
+
+    if ((identifier == null) || identifier.isBlank()) {
+      return;
+    }
+    identifiers.add(new NameClashAvoidanceSupport.ModelIdentifier(kind, identifier, bpmnProcessId));
 
   }
 
