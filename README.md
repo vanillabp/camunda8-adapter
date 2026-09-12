@@ -1461,6 +1461,48 @@ the two ways `by-adapter` fails, `Camunda8SharedClusterTest` and `Camunda8Instan
 which ids count as one, and `Camunda8SharedClusterElectionIT` the election of two adapter ids
 on one cluster.
 
+### A name the cluster already holds
+
+The checks above compare the identifiers of one deployment against each other. A name another
+application deployed into the same cluster years ago is invisible to them: both deployments
+succeed, and the cluster alone decides which of two definitions a start reaches or which
+subscription a message finds. So the adapter asks the cluster, once per workflow module and right
+after the deploy command answered, and the core words the warning out of what comes back. The rule
+both halves follow is decision 25 in [`DECISIONS.md`](./DECISIONS.md).
+
+Two kinds can be asked about. The BPMN process ids of a workflow module go into one paged
+definition search, which also leaves the definitions an operator deleted out of the answer. A DMN
+decision id needs a search of its own, because that filter takes one exact id. Both searches carry
+the tenant where the mode uses one, so what lives in another tenant is not held against this
+application.
+
+What the answer cannot say is who holds the name. A cluster records no owner, so the adapter
+compares what came back against what this deployment brought: the resource the cluster recorded for
+a process definition, and the decision requirements of the DMN file for a decision. A definition
+under one of those markers belongs to this application, its earlier versions included, and nothing
+is said about it. Everything else is reported as a finding which VanillaBP cannot prove, and the
+message says so in those words. The two ways the marker misleads are a second application which
+deploys a file of the same name and a file of our own which was renamed, and a reader can tell both
+from the line they get.
+
+The reason such a finding is reported at all is the mode `none`, which is what a cluster without
+multi-tenancy leaves an application with. Nothing is prefixed and no tenant separates anybody
+there, so a second application on the cluster shares every name by construction, and a check
+staying silent because nothing is provable would leave that case unguarded.
+
+A second question costs no request. While a model is scoped, the adapter holds every message name,
+signal name, error code, escalation code and job type of it, so those are handed to the core as
+well and it names the case where two workflow modules of ONE application end up under the same
+name. A job type is the severe one on Camunda 8: a worker subscribes to it cluster-wide, so two
+modules sharing one job type means the worker of one module fetches the jobs of the other. The same
+names of a version the cluster still HOLDS are read off that model while the old-versions check
+reads it anyway, which is the only place a name a workflow module deployed years ago still lives.
+
+No property switches any of this on or off, and none of it can end a boot: a failed search is
+logged at debug and the deployment goes on. What a cluster without the query API would answer is
+nothing at all, which is one of the reasons such a cluster is refused while a module deploys, see
+[What needs a cluster which can be searched](#what-needs-a-cluster-which-can-be-searched).
+
 ### Sharing the workflow aggregate
 
 The cluster can only evaluate what it was given, so the default of this adapter is that

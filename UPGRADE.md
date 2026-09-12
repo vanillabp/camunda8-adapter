@@ -5,6 +5,36 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## A start says which of your names the cluster already held (2026-09-12)
+
+Version 1 compared the identifiers of a deployment against each other and said nothing about the
+ones the cluster already held. This version asks the cluster about them, once per workflow module
+while it deploys, and writes one WARN per module listing what it found. Nothing fails for it and no
+property turns it off.
+
+What is asked about is the BPMN process ids of the module, in one search, and its DMN decision ids,
+one search each. Nothing is asked about message names, signal names, error codes, escalation codes
+or job types, because the cluster keeps no index of those.
+
+The line you are most likely to read is about a process you RENAMED. A cluster records no owner of
+a definition, so the only marker the adapter has is the resource a definition was deployed from: a
+definition of yours which came from a file you have since renamed looks like somebody else's. The
+message says that it cannot tell the two apart, and the version and the definition key it names are
+what you look the definition up by. Where the finding is your own old file, deleting that definition
+from the cluster ends the line, which is the same remedy the report about an old process version
+asks for.
+
+A finding under the mode `none` is worth reading twice. Nothing is prefixed and no tenant separates
+anybody there, so a second application on the same cluster really does share the name, and which of
+the two a start reaches is the cluster's decision and not yours. The ways out are a tenant
+(`name-clash-avoidance: by-adapter`), a prefix (`use-prefix`) or a name nobody else uses.
+
+Two more lines can appear, and both are about your own application. Two workflow modules which
+declare the same message name, signal name, error code, escalation code or job type are named with
+both sides, because under `none` and under one adapter-wide `tenant-id` the cluster sees one name
+where you mean two. The same is said where a version the cluster still holds carries such a name,
+which is the clash a workflow module deployed years ago leaves behind.
+
 ## An ad-hoc subprocess in your model earns two warnings (2026-09-09)
 
 Version 1 said nothing about the element and neither executed nor reported it. This version serves
