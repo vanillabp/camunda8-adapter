@@ -72,6 +72,13 @@ public final class Camunda8Scoping {
    * <p>
    * That a tenant is what {@code by-adapter} means here is CAMUNDA 8 knowledge, so it
    * lives in the adapter: the core answers the mode and nothing else.
+   * <p>
+   * Two questions read this one function. One is where a workflow module is deployed, the
+   * other is whether the cluster keeps two workflow modules apart
+   * ({@code Camunda8DeploymentService#ownIsolationSeparatesWorkflowModules}), which the core
+   * asks while it looks for two BPMN processes reaching the cluster under one identifier. An
+   * answer composed some other way could say "separated" about a module the very next deploy
+   * command puts into the tenant of its neighbour.
    *
    * @param scoping The core's name-clash-avoidance support, or <code>null</code>
    *          (tests): the configured tenant is used as it is then
