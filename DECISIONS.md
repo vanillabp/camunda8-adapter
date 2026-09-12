@@ -684,3 +684,45 @@ fetch.
 `Camunda8IdentifiersTheClusterHoldsIT` the foreign definition on a real cluster.
 
 See [A name the cluster already holds](./README.md#a-name-the-cluster-already-holds).
+
+### 26. Two workflow modules are separated by the tenant they would really be deployed to
+
+The core refuses two BPMN processes of one application which reach the cluster under the same
+identifier, and it cannot judge that alone. Under `by-adapter`, the default, nothing is prefixed, so
+the core holds two equal strings while the cluster keeps the two workflow modules perfectly well
+apart. What keeps them apart is the tenant, and a tenant is Camunda 8 knowledge. So the core asks
+this adapter, through `ownIsolationSeparatesWorkflowModules`, and the platform's decision 41 carries
+why the question exists and why an unanswered one refuses.
+
+The answer is the tenant each of the two modules would REALLY be deployed to, read through the same
+function the deploy command goes through. Reading `tenant-id` instead would be wrong both ways
+round: unset, that property means a tenant named after the workflow module, so two modules are in
+two tenants; set, it is used only where the mode of the module asks for a tenant at all, and the
+mode is resolvable per workflow module. An answer composed any other way could call two modules
+separated which the very next deploy command puts into one tenant.
+
+No tenant is a scope of its own. A module under `use-prefix` or `none` reaches the cluster in the
+`<default>` tenant, so two such modules are in the SAME scope and nothing separates them, while one
+of them against a tenanted module is separated. On a cluster without multi-tenancy that is the only
+scope there is: such a cluster rejects a tenant id, which is why `by-adapter` ends the boot there,
+and every module left in `use-prefix` or `none` shares the one unnamed scope. The answer there is
+"nothing separates them", which is the truth about that cluster rather than a degraded guess.
+
+What it costs is nothing. Both tenants come out of configuration which cannot change while an
+application boots, so no request goes to the cluster and the adapter keeps no answer of its own; the
+core asks once per pair of workflow modules. Decision 13 bounds what a start may ask, and this asks
+the cluster nothing at all.
+
+One configuration boots today and will not after this: an adapter-wide `tenant-id` with two workflow
+modules bringing the same BPMN process id. Both modules were deployed into one tenant, the second
+definition replaced the first under that identifier, and one of the two modules ran on a model
+nobody deployed. It is now refused while the second module deploys. The report of decision 25 warns
+about the same configuration where two modules share a message name or a job type. A shared process
+id is the heavier case, because the cluster loses a model instead of mixing two names up, which is
+why this one refuses.
+
+`Camunda8IsolationSeparatesModulesTest` holds the pairs of tenants,
+`Camunda8CollidingProcessIdsBootTest` the refusal and both deployment orders against the real core,
+and `Camunda8CollidingProcessIdsTest` that the core reaches this adapter on Quarkus as well.
+
+See [Keeping workflow modules apart](./README.md#keeping-workflow-modules-apart).
