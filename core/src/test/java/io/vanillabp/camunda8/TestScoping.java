@@ -3,13 +3,14 @@ package io.vanillabp.camunda8;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Function;
 
 import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 
 /**
- * The core's name-clash avoidance reduced to what an adapter test needs of it: one mode for
- * every workflow module, the prefixing the core would do in that mode, and what the adapter
+ * The core's name-clash avoidance reduced to what an adapter test needs of it: a mode per
+ * workflow module, the prefixing the core would do in that mode, and what the adapter
  * reported about the names a BPMS holds. The adapter is tested against the SPI rather than
  * against the core's implementation, which this module deliberately does not depend on.
  */
@@ -25,7 +26,23 @@ public final class TestScoping {
   public static ScopingDouble of(
       final NameClashAvoidance mode) {
 
-    return new ScopingDouble(mode);
+    return new ScopingDouble(workflowModuleId -> mode);
+
+  }
+
+  /**
+   * The same double with a mode PER workflow module, which the core resolves per module as
+   * well: a mixed configuration is what lets one module's prefixed identifier meet another
+   * module's plain one, and it is what decides whether two modules share a tenant.
+   *
+   * @param modePerWorkflowModule The mode of a workflow module, answered for every id a test
+   *          lets the adapter ask about, the <code>null</code> id included
+   * @return A support answering those modes and prefixing accordingly
+   */
+  public static ScopingDouble of(
+      final Function<String, NameClashAvoidance> modePerWorkflowModule) {
+
+    return new ScopingDouble(modePerWorkflowModule);
 
   }
 
@@ -36,7 +53,7 @@ public final class TestScoping {
    */
   public static final class ScopingDouble implements NameClashAvoidanceSupport {
 
-    private final NameClashAvoidance mode;
+    private final Function<String, NameClashAvoidance> modes;
 
     private final List<IdentifierHeldElsewhere> identifiersTheBpmsAlreadyHolds = new ArrayList<>();
 
@@ -47,9 +64,9 @@ public final class TestScoping {
     private final List<ModelIdentifier> identifiersOfHeldVersions = new ArrayList<>();
 
     private ScopingDouble(
-        final NameClashAvoidance mode) {
+        final Function<String, NameClashAvoidance> modes) {
 
-      this.mode = mode;
+      this.modes = modes;
 
     }
 
@@ -132,9 +149,10 @@ public final class TestScoping {
 
     }
 
-    private boolean prefixes() {
+    private boolean prefixes(
+        final String workflowModuleId) {
 
-      return mode == NameClashAvoidance.USE_PREFIX;
+      return modes.apply(workflowModuleId) == NameClashAvoidance.USE_PREFIX;
 
     }
 
@@ -144,7 +162,7 @@ public final class TestScoping {
         final String bpmnProcessId,
         final String adapterId) {
 
-      return mode;
+      return modes.apply(workflowModuleId);
 
     }
 
@@ -154,7 +172,7 @@ public final class TestScoping {
         final String bpmnProcessId,
         final String adapterId) {
 
-      return prefixes()
+      return prefixes(workflowModuleId)
           ? String.join(SEPARATOR, workflowModuleId, bpmnProcessId)
           : bpmnProcessId;
 
@@ -166,7 +184,7 @@ public final class TestScoping {
         final String identifier,
         final String adapterId) {
 
-      return prefixes() && (identifier != null)
+      return prefixes(workflowModuleId) && (identifier != null)
           ? String.join(SEPARATOR, workflowModuleId, identifier)
           : identifier;
 
@@ -179,7 +197,7 @@ public final class TestScoping {
         final String taskDefinition,
         final String adapterId) {
 
-      return prefixes() && (taskDefinition != null)
+      return prefixes(workflowModuleId) && (taskDefinition != null)
           ? String.join(SEPARATOR, workflowModuleId, bpmnProcessId, taskDefinition)
           : taskDefinition;
 

@@ -5,6 +5,7 @@ import static org.mockito.Mockito.RETURNS_SELF;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -27,6 +28,12 @@ import io.camunda.client.api.search.request.ProcessInstanceSearchRequest;
 import io.camunda.client.api.search.response.ProcessDefinition;
 import io.camunda.client.api.search.response.SearchResponse;
 import io.camunda.client.api.search.response.SearchResponsePage;
+import io.vanillabp.camunda8.TestCollaborators;
+import io.vanillabp.camunda8.TestScoping;
+import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
+import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -46,6 +53,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * cluster already held. That is one definition search for every BPMN process of the module
  * together, plus one search per DMN decision, and neither number grows with the history of
  * the application.
+ * <p>
+ * One question the deployment answers reaches no cluster at all: whether two workflow modules
+ * are separated is the tenant each of them would be deployed to, and that comes out of
+ * configuration.
  * <p>
  * Decision 13 in the repository's DECISIONS.md is what this holds: a request to the
  * cluster while booting is counted, and the count belongs to the versions, never to the
@@ -350,6 +361,40 @@ public class Camunda8StartupQuestionCostTest {
         0,
         requests.getOrDefault("newProcessDefinitionSearchRequest", 0),
         () -> "a module deploying no process asks nothing about process ids, but was "
+            + requests);
+
+  }
+
+  @Test
+  @DisplayName("Whether two workflow modules are separated is answered without the cluster")
+  public void theIsolationQuestionCostsNoRequest() {
+
+    // the core puts this question per pair of workflow modules whose BPMN process ids meet,
+    // so an application with many modules puts it many times. The answer is the tenant each
+    // module would be deployed to, which is configuration: this adapter instance has no
+    // connection and therefore no client at all, so a question which went to the cluster
+    // would fail here instead of being counted
+    final var deploymentService = new Camunda8DeploymentService(
+        "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
+                workflowModuleId,
+                bpmnProcessId,
+                taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
+                    .ofDays(14), null, TestScoping.of(NameClashAvoidance.BY_ADAPTER));
+
+    IntStream
+        .rangeClosed(1, 50)
+        .forEach(number -> deploymentService
+            .ownIsolationSeparatesWorkflowModules(
+                "module-"
+                    + number,
+                "module-"
+                    + (number + 1)));
+
+    assertEquals(
+        Map.of(),
+        requests,
+        () -> "fifty pairs and nothing for the cluster to answer, but was "
             + requests);
 
   }

@@ -5,6 +5,45 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## Two workflow modules with the same BPMN process id end the boot (2026-09-12)
+
+Two of your workflow modules may bring a BPMN process of the same id as long as the cluster keeps
+the two modules apart. Where it does not, the second definition takes the identifier from the
+first, and one of the two modules then runs on a model nobody deployed. Which of them it is, is
+the cluster's decision. That went unnoticed until now, because the check ran per workflow module
+and could only ever see one of the two sides.
+
+It is now a boot failure, raised while the SECOND of the two modules deploys, with the first one
+already in the cluster. The message names both workflow modules, both process ids, the identifier
+they share and the property which brought them together. Two configurations boot today and will
+not after this upgrade:
+
+- `vanillabp.adapters.<id>.tenant-id` is set, so every workflow module is deployed into that one
+  tenant instead of into one named after it.
+- `name-clash-avoidance` is `none` for both modules, where nothing is scoped at all. This is what
+  a cluster without multi-tenancy leaves you with.
+
+Nothing is wrong with your models, so renaming one of the two processes is only one of the ways
+out. Where the shared tenant was not deliberate, dropping the name gives each workflow module a
+tenant of its own, which is the default:
+
+```yaml
+vanillabp:
+  adapters:
+    camunda8:
+      tenant-id:                         # drop it: one tenant per workflow module (needs multi-tenancy)
+      name-clash-avoidance: use-prefix   # or prefix the identifiers with the module id, no tenant needed
+```
+
+The failure also offers a tenant per workflow module. On Camunda 8 `tenant-id` is an adapter-wide
+key, so that is not a line you can write here: what gives each module a tenant of its own is
+dropping the name. On a cluster without multi-tenancy `use-prefix` is the mode which keeps the
+modules apart without asking anything of the cluster.
+
+If you neither set a `tenant-id` nor use `none`, nothing changes for you: the default deploys each
+workflow module into a tenant named after it, and under `use-prefix` the module id is part of
+every identifier, so the two processes never meet.
+
 ## A start says which of your names the cluster already held (2026-09-12)
 
 Version 1 compared the identifiers of a deployment against each other and said nothing about the

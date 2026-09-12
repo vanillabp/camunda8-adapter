@@ -753,6 +753,41 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
+   * Whether this adapter's own isolation would put the two workflow modules into different
+   * scopes of its cluster. The scope a Camunda 8 cluster offers is the TENANT, so the
+   * answer is the tenant each of the two modules would REALLY be deployed to, compared.
+   * <p>
+   * Both tenants are resolved through {@code tenantIdOf}, the same function the deploy
+   * command goes through, so this answer cannot drift away from where a module lands.
+   * Reading the configured <code>tenant-id</code> instead would be wrong twice over: under
+   * {@code by-adapter} an unset name means the workflow module id, so two modules do sit in
+   * two tenants, and a name which IS set is used only where the mode of the module asks for
+   * a tenant at all. The mode is resolved per workflow module, so two modules of one adapter
+   * id may differ in it.
+   * <p>
+   * A module under {@code use-prefix} or {@code none} reaches the cluster with no tenant of
+   * its own, which is the <code>&lt;default&gt;</code> one. That is a scope like any other
+   * here: two such modules share it and are NOT separated, while one of them against a
+   * tenanted module is separated. On a cluster without multi-tenancy every module lives in
+   * that one unnamed scope, because such a cluster rejects a tenant id, so nothing separates
+   * anybody there and this says so. Decision 26 in the repository's DECISIONS.md carries why
+   * the answer is the resolved tenant.
+   * <p>
+   * Asked by the core while it checks whether two BPMN processes reach the cluster under one
+   * identifier, and the core keeps the answer per pair of modules. So nothing is asked of
+   * the cluster here and nothing is remembered: both tenants come out of configuration which
+   * does not change while an application boots.
+   */
+  @Override
+  public boolean ownIsolationSeparatesWorkflowModules(
+      final String oneWorkflowModuleId,
+      final String anotherWorkflowModuleId) {
+
+    return !Objects.equals(tenantIdOf(oneWorkflowModuleId), tenantIdOf(anotherWorkflowModuleId));
+
+  }
+
+  /**
    * Two <code>camunda8</code> adapter ids are only distinct if they address
    * different clusters - or one cluster with different credentials/tenants (see
    * {@link Camunda8InstanceIdentity}).
@@ -1636,7 +1671,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       }
       command = command.tenantId(tenantId);
     }
-    // prefixing may not merge two different processes into one identifier
+    // two BPMN processes may not reach the cluster under one identifier. The processes of
+    // THIS module are what can be handed over, because a deployment is per workflow module;
+    // the core holds what the earlier modules of this boot brought and asks this adapter
+    // whether its tenants keep two modules apart. Before the command is sent, so a module
+    // colliding with an earlier one is refused rather than deployed and then named
     if (scoping != null) {
       scoping.validateNoCollidingProcessIds(
           adapterId,
