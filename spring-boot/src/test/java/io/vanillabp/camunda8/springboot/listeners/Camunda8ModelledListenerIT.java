@@ -1,8 +1,11 @@
 package io.vanillabp.camunda8.springboot.listeners;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+
+import java.util.function.Predicate;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -34,6 +37,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * The scenario brings its own application, its own configuration file and its own resources
  * location, see {@link ListenerTestApplication}: a model carrying a listener does not deploy
  * without the key, so no other integration test of this module may see it.
+ * <p>
+ * The model has a gateway behind the service task which reads a flag only the task's
+ * <code>end</code> listener sets. That is the second thing a cluster is needed for: whether what
+ * a listener method wrote into the workflow aggregate really reaches the process instance.
  * <p>
  * The class is skipped when Docker is unavailable
  * ({@code @Testcontainers(disabledWithoutDocker = true)}).
@@ -81,8 +88,54 @@ public class Camunda8ModelledListenerIT {
   private TransactionTemplate transactionTemplate;
 
   @Test
-  @DisplayName("Both modelled listeners reach a method, and the workflow moves past them")
-  public void bothListenersReachAMethod() throws Exception {
+  @DisplayName("Every modelled listener reaches a method, and the workflow moves past them")
+  public void everyListenerReachesAMethod() throws Exception {
+
+    final var aggregate = runAWorkflow(
+        "the listeners did not all reach a method",
+        Camunda8ModelledListenerIT::everyListenerRan);
+
+    assertTrue(aggregate.isTheWorkWasDone(), "the ordinary task ran as it always did");
+
+  }
+
+  @Test
+  @DisplayName("What an 'end' execution listener wrote steers the gateway behind its element")
+  public void whatAnEndListenerWroteReachesTheProcess() throws Exception {
+
+    final var aggregate = runAWorkflow(
+        "the gateway behind the task never decided",
+        candidate -> candidate.isTheProcessSawTheAudit() || candidate.isTheProcessMissedTheAudit());
+
+    assertTrue(
+        aggregate.isTheProcessSawTheAudit(),
+        "the gateway reads a flag which only the 'end' listener of the task ahead of it sets, and "
+            + "the process took the other flow: the completion of that listener did not carry the "
+            + "shared values of the workflow aggregate");
+    assertFalse(
+        aggregate.isTheProcessMissedTheAudit(),
+        "and the flow for the lost value was not taken");
+
+  }
+
+  private static boolean everyListenerRan(
+      final ListenerDockerAggregate aggregate) {
+
+    return aggregate.isTheWorkWasPrepared() && aggregate.isTheWorkWasAudited() && aggregate.isTheOrderWasArchived();
+
+  }
+
+  /**
+   * Starts a workflow and waits until the aggregate in the database says what the test is
+   * about.
+   *
+   * @param whatWasMissing What the failure message says did not happen
+   * @param done Whether the aggregate has reached the state the test waits for
+   * @return The aggregate as the database holds it
+   */
+  private ListenerDockerAggregate runAWorkflow(
+      final String whatWasMissing,
+      final Predicate<ListenerDockerAggregate> done) throws Exception {
 
     final var aggregateId = transactionTemplate
         .execute(status -> workflowService.startWorkflow().getId());
@@ -92,9 +145,8 @@ public class Camunda8ModelledListenerIT {
     while (System.currentTimeMillis() < deadline) {
       final var aggregate = transactionTemplate
           .execute(status -> repository.findById(aggregateId).orElseThrow());
-      if (aggregate.isTheWorkWasAudited() && aggregate.isTheOrderWasArchived()) {
-        assertTrue(aggregate.isTheWorkWasDone(), "the ordinary task ran as it always did");
-        return;
+      if (done.test(aggregate)) {
+        return aggregate;
       }
       Thread.sleep(1000);
     }
@@ -102,14 +154,19 @@ public class Camunda8ModelledListenerIT {
     final var aggregate = transactionTemplate
         .execute(status -> repository.findById(aggregateId).orElseThrow());
     fail(
-        ("the listeners did not both reach a method within 150 seconds: the listener of the task %s, "
-            + "the listener of the end event %s, the task itself %s. A listener job nothing serves "
-            + "stops the workflow there with no incident and no message, which is what this key exists "
-            + "for")
+        ("%s within 150 seconds: prepared %s, the work done %s, audited %s, archived %s, the "
+            + "process saw the audit %s, the process missed it %s. A listener job nothing serves "
+            + "stops the workflow there with no incident and no message, which is what this key "
+            + "exists for")
             .formatted(
+                whatWasMissing,
+                aggregate.isTheWorkWasPrepared(),
+                aggregate.isTheWorkWasDone(),
                 aggregate.isTheWorkWasAudited(),
                 aggregate.isTheOrderWasArchived(),
-                aggregate.isTheWorkWasDone()));
+                aggregate.isTheProcessSawTheAudit(),
+                aggregate.isTheProcessMissedTheAudit()));
+    return aggregate;
 
   }
 

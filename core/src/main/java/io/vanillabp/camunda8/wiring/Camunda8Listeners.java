@@ -192,15 +192,22 @@ public final class Camunda8Listeners {
       because TaskEvent.Event has no value for a listener's event.""";
 
   /**
-   * The sentence only Camunda 8 can say, and the reason the report carries more than
-   * {@link #WHAT_IT_COSTS}: the cluster discards what a listener job sends back.
+   * The sentences only Camunda 8 can say, and the reason the report carries more than
+   * {@link #WHAT_IT_COSTS}: what a listener may write into the process instance depends on the
+   * kind of listener and on its event. Measured against cluster and client 8.9.19 in September
+   * 2026; {@link Camunda8ModelledListenerHandler} is where the three cases are implemented.
    */
   public static final String WHAT_CAMUNDA8_ADDS = """
-      And a listener job carries nothing back: its completion is sent without variables, so a \
-      listener method which changes the workflow aggregate loses the change without a word. \
-      Nothing in a method signature says whether a method does that, so nothing here can detect \
-      it for you - the change reaches the cluster at the next real sync point of that workflow, \
-      or never.""";
+      What a listener method may write into the process instance depends on the listener. An \
+      execution listener on 'end' completes the way a task completes: the shared values of your \
+      workflow aggregate reach the instance, so a gateway behind the element decides on what the \
+      method wrote. An execution listener on 'start' writes nothing there, because the cluster \
+      would keep those values local to the element and the element's own task would then lose \
+      its writes into that copy - model a task of the process where something has to be written. \
+      A task listener writes nothing either: the cluster refuses a completion carrying variables \
+      and names its issue 23702 while doing so. What your method changed is kept by your \
+      application in both cases and reaches the cluster at the next real sync point of that \
+      workflow.""";
 
   /**
    * The sentence about the one ambiguity this design leaves, said wherever listeners are

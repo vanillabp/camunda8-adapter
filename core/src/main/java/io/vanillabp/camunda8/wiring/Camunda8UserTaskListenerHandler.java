@@ -42,8 +42,10 @@ import lombok.extern.slf4j.Slf4j;
  * the cluster's load produced.
  * <p>
  * <b>The listener completion carries NO variables</b> (see decision 1 in the
- * repository's DECISIONS.md).
- * Unlike a service-task job - whose completion is the moment the process advances
+ * repository's DECISIONS.md), and on these jobs it could not carry any: the cluster answers a
+ * TASK-listener completion with a variables payload with INVALID_ARGUMENT, saying the payload
+ * is not supported yet and naming its issue 23702.
+ * Even if it were supported it would not be sent here. Unlike a service-task job - whose completion is the moment the process advances
  * past the task, so a gateway right behind it needs the new values - a listener job
  * only gates a lifecycle transition of a user task that stays in the cluster:
  * <ul>

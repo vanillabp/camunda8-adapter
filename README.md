@@ -1290,12 +1290,17 @@ Where the switch is on, the listener is a task like any other one:
   on `Camunda8UserTaskListenerHandler`: there the job type is known by construction, the
   notification is optional and the user-task key is reported so the task can be completed later, and
   none of that holds for a modelled listener;
-- the completion carries no variables, because the cluster discards what a listener sends back (see
-  [decision 1](./DECISIONS.md#1-a-command-carries-the-shared-aggregate-values-and-the-aggregate-id-variable-nothing-else)).
-  A method which changes the workflow aggregate loses the change, nothing in a signature shows
-  whether a method does that, and the change reaches the cluster at the next real sync point of that
-  workflow or never. On Camunda 7 there is no such loss, which is worth knowing when a module runs
-  on both.
+- what the completion carries depends on the listener, in the three cases of
+  [decision 1](./DECISIONS.md#1-a-command-carries-the-shared-aggregate-values-and-the-aggregate-id-variable-nothing-else).
+  An execution listener on `end` completes like a service task, with the shared values and the
+  aggregate-ID variable, so a method serving it may change the workflow aggregate and the gateway
+  behind the element decides on what it wrote. An execution listener on `start` completes with
+  nothing, because the cluster would keep those values local to the element, where they shadow the
+  process variables of the same name and swallow the element's own writes of that name. A task
+  listener completes with nothing either, because the cluster refuses that payload and names its
+  issue 23702. In the latter two a change of the aggregate is kept by the application and reaches
+  the cluster at the next real sync point of that workflow. On Camunda 7 every listener writes in
+  the engine's own transaction, which is worth knowing when a module runs on both.
 
 The event is part of the listener's identity: the wiring made one task of one listener, so one
 method serves one event of one element. `@TaskEvent` receives `TaskEvent.Event#CREATED` for every
