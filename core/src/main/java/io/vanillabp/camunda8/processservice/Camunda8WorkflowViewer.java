@@ -385,19 +385,13 @@ public class Camunda8WorkflowViewer {
 
     final var tenantId = tenantIdOf.apply(workflowModuleId);
     final var primaryInstance = searchOne(
-        filter -> {
-          filter
-              .processDefinitionId(scopedProcessId.apply(workflowModuleId, bpmnProcessId))
-              // the cluster compares the variable's JSON, so the ID travels quoted
-              .variables(
-                  Map
-                      .of(
-                          aggregateIdName,
-                          Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId)));
-          if (tenantId != null) {
-            filter.tenantId(tenantId);
-          }
-        });
+        filter -> Camunda8Searches
+            .scopedTo(
+                filter,
+                scopedProcessId.apply(workflowModuleId, bpmnProcessId),
+                tenantId,
+                aggregateIdName,
+                workflowAggregateId));
     if (historyContext == null) {
       return primaryInstance;
     }

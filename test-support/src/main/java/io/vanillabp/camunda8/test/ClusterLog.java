@@ -1,4 +1,4 @@
-package io.vanillabp.camunda8.springboot.it;
+package io.vanillabp.camunda8.test;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -14,38 +14,37 @@ import java.util.function.Consumer;
 import org.testcontainers.containers.output.OutputFrame;
 
 /**
- * What the Camunda 8 containers of this module printed, written into a file below
+ * What the Camunda 8 containers of a test module printed, written into a file below
  * {@code target}.
  * <p>
- * Every integration test class here brings a cluster of its own, and a red build
- * otherwise leaves nothing of any of them: the container is removed with the run and the
- * runner's disk with it, so a test which timed out waiting for a notification and a
- * cluster which never handed the job out look the same afterwards. The file is what the
- * build uploads next to the test reports when it fails, and its name carries
- * {@code application} because that is the shape of file the upload collects.
+ * Every integration test class brings a cluster of its own, and a red build otherwise
+ * leaves nothing of any of them: the container is removed with the run and the runner's
+ * disk with it, so a test which timed out waiting for a notification and a cluster which
+ * never handed the job out look the same afterwards. The file is what a build uploads next
+ * to the test reports when it fails, and its name carries {@code application} because that
+ * is the shape of file such an upload collects.
  * <p>
- * All containers of the module append to the SAME file, and every line names the
- * container which wrote it and the time it did. That pair is what relates a line to the
- * test which was running - the containers are created while their classes are loaded, so
- * there is no test name to ask for at that point.
+ * All containers of one module append to the SAME file, and every line names the container
+ * which wrote it and the time it did. That pair is what relates a line to the test which was
+ * running - the containers are created while their classes are loaded, so there is no test
+ * name to ask for at that point.
  * <p>
- * The Quarkus integration tests carry a writer of their own. The two modules share no
- * test classpath and this repository publishes no test jar, so a class used by both would
- * have to be a module of its own for forty lines.
+ * The path is relative, so every module writes its own file: a build starts each module in
+ * its own directory.
  */
-final class ClusterLog {
+public final class ClusterLog {
 
   /**
-   * Where the containers of this module write. Relative to the module, so a run from the
-   * IDE and a run from Maven produce the same file.
+   * Where the containers of the module using this write. Relative to the module, so a run
+   * from the IDE and a run from Maven produce the same file.
    */
-  static final Path FILE = Path
+  public static final Path FILE = Path
       .of("target", "c8-cluster-application.log")
       .toAbsolutePath();
 
   /**
-   * Numbers the containers apart. Several classes run one after the other in the same
-   * fork, and every one of them starts a broker with the same image and the same purpose.
+   * Numbers the containers apart. Several classes run one after the other in the same fork,
+   * and every one of them starts a broker with the same image and the same purpose.
    */
   private static final AtomicInteger CONTAINERS = new AtomicInteger();
 
@@ -60,7 +59,7 @@ final class ClusterLog {
    * @return A log consumer for one container, to be handed to
    *         {@code withLogConsumer(...)}
    */
-  static Consumer<OutputFrame> of(
+  public static Consumer<OutputFrame> of(
       final String kind) {
 
     final var container = "%s-%d".formatted(kind, CONTAINERS.incrementAndGet());

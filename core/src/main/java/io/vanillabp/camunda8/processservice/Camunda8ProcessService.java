@@ -108,22 +108,6 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   private final WorkflowAggregateSync aggregateSync;
 
   /**
-   * How long a workflow of this cluster may stay invisible to the query API the
-   * awareness probe searches (configured per adapter id, default
-   * {@link #DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT}). May be <code>null</code>
-   * (tests): the default applies then.
-   */
-  private final Duration workflowVisibilityTimeout;
-
-  /**
-   * How long VanillaBP waits for a workflow this cluster holds to become findable.
-   * Ten seconds is generous for a healthy exporter and still short enough to stay
-   * inside the caller's transaction, which the waiting keeps open.
-   */
-  public static final Duration DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT = Duration
-      .ofSeconds(10);
-
-  /**
    * How often the probe is repeated while waiting - deliberately not configurable:
    * the window is what an operator may have to raise, the sampling rate is not.
    */
@@ -140,9 +124,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   @Override
   public WorkflowVisibilityDelay workflowVisibilityDelay() {
 
-    final var window = workflowVisibilityTimeout == null
-        ? DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT
-        : workflowVisibilityTimeout;
+    final var window = clientFactory.getConfiguration().workflowVisibilityWindow();
     return window.isZero() || window.isNegative()
         ? WorkflowVisibilityDelay.none()
         : new WorkflowVisibilityDelay(
@@ -826,10 +808,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final var found = clientFactory
           .getClient()
           .newProcessInstanceSearchRequest()
-          .filter(filter -> filter
-              .variables(Map
-                  .of(aggregateIdVariableName(aggregatePersistence),
-                      Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
+          .filter(filter -> Camunda8Searches
+              .byAggregateId(
+                  filter, aggregateIdVariableName(aggregatePersistence), workflowAggregateId))
           .send()
           .join();
       // On a cluster shared with another adapter id the variable alone finds
@@ -890,10 +871,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final var found = clientFactory
           .getClient()
           .newProcessInstanceSearchRequest()
-          .filter(filter -> filter
-              .variables(Map
-                  .of(aggregateIdVariableName(aggregatePersistence),
-                      Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
+          .filter(filter -> Camunda8Searches
+              .byAggregateId(
+                  filter, aggregateIdVariableName(aggregatePersistence), workflowAggregateId))
           .send()
           .join();
       return found
@@ -1594,11 +1574,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     final var found = clientFactory
         .getClient()
         .newProcessInstanceSearchRequest()
-        .filter(filter -> filter
-            .state(ProcessInstanceState.ACTIVE)
-            .variables(Map
-                .of(aggregateIdVariableName(aggregatePersistence),
-                    Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId))))
+        .filter(filter -> {
+          filter.state(ProcessInstanceState.ACTIVE);
+          Camunda8Searches
+              .byAggregateId(filter, aggregateIdVariableName(aggregatePersistence), workflowAggregateId);
+        })
         .send()
         .join();
     // Writing into the instance of ANOTHER adapter id of this cluster would

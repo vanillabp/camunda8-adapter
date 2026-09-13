@@ -18,6 +18,7 @@ import io.vanillabp.camunda8.TestScoping;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8MultiInstance;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
 import io.vanillabp.integration.test.utils.CapturedOutput;
@@ -56,7 +57,7 @@ public class Camunda8DeclaredProcessWorkersTest {
       final CapturedOutput output) {
 
     final var service = adapterServing(Map.of(OLD_ID, List.of(TASK_DEFINITION)), NameClashAvoidance.USE_PREFIX);
-    final var context = new Camunda8ProcessingContext("c8", MODULE);
+    final var context = new Camunda8ProcessingContext("c8", MODULE, new Camunda8MultiInstance.Registry());
 
     try {
       service.startWorkflowProcessing(MODULE, context);
@@ -87,7 +88,7 @@ public class Camunda8DeclaredProcessWorkersTest {
       final CapturedOutput output) {
 
     final var service = adapterServing(Map.of(OLD_ID, List.of(TASK_DEFINITION)), NameClashAvoidance.NONE);
-    final var context = new Camunda8ProcessingContext("c8", MODULE);
+    final var context = new Camunda8ProcessingContext("c8", MODULE, new Camunda8MultiInstance.Registry());
     // the deployed processes of the module already subscribe to that name
     context
         .getTasksToWire()
@@ -117,7 +118,7 @@ public class Camunda8DeclaredProcessWorkersTest {
       final CapturedOutput output) {
 
     final var service = adapterServing(Map.of(OLD_ID, List.of()), NameClashAvoidance.USE_PREFIX);
-    final var context = new Camunda8ProcessingContext("c8", MODULE);
+    final var context = new Camunda8ProcessingContext("c8", MODULE, new Camunda8MultiInstance.Registry());
 
     try {
       service.startWorkflowProcessing(MODULE, context);
@@ -147,7 +148,7 @@ public class Camunda8DeclaredProcessWorkersTest {
 
     final var adapter = adapter(Map.of(OLD_ID, List.of(TASK_DEFINITION)), NameClashAvoidance.USE_PREFIX);
     final var service = adapter.service();
-    final var context = new Camunda8ProcessingContext("c8", MODULE);
+    final var context = new Camunda8ProcessingContext("c8", MODULE, new Camunda8MultiInstance.Registry());
     // the cluster still holds the old id's model, and its task sits inside a
     // multi-instance element - the iteration context of its jobs comes from here
     final var scopedOldId = "test-module__order_approval";

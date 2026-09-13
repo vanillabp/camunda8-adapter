@@ -44,6 +44,11 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>org.camunda.community.vanillabp</groupId>
+      <artifactId>camunda8-adapter-test-support</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers</artifactId>
       <scope>test</scope>
@@ -56,26 +61,6 @@
   </dependencies>
 
   <build>
-    <testResources>
-      <!-- 'camunda8-cluster.properties' carries the cluster image of the active release
-           line into the integration tests, see ElectionCluster. Only that file is
-           filtered; a BPMN or a YAML holding a placeholder must reach the tests as
-           written -->
-      <testResource>
-        <filtering>false</filtering>
-        <directory>src/test/resources</directory>
-        <excludes>
-          <exclude>camunda8-cluster.properties</exclude>
-        </excludes>
-      </testResource>
-      <testResource>
-        <filtering>true</filtering>
-        <directory>src/test/resources</directory>
-        <includes>
-          <include>camunda8-cluster.properties</include>
-        </includes>
-      </testResource>
-    </testResources>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

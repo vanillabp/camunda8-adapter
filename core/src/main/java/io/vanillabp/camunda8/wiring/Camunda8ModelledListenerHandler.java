@@ -8,9 +8,7 @@ import io.camunda.client.api.search.enums.JobKind;
 import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.camunda.client.api.worker.JobHandler;
-import io.vanillabp.camunda8.client.Camunda8CommandRetry;
 import io.vanillabp.camunda8.client.Camunda8Drain;
-import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
@@ -167,92 +165,53 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
         ? job.getType()
         : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, job.getType(), adapterId);
 
-    drain.jobStarted(job.getKey(), KIND, taskDefinition, bpmnProcessId);
-    try {
-      final var aggregateIdName = workflowTaskInvoker.resolveWorkflowAggregateIdName(
-          workflowModuleId,
-          bpmnProcessId);
-      final var aggregateId = job.getVariablesAsMap().get(aggregateIdName);
-      if (aggregateId == null) {
-        throw new IllegalStateException(
-            Camunda8FetchVariables.missingAggregateId(
-                "The listener job",
-                job.getKey(),
-                job.getType(),
-                bpmnProcessId,
-                aggregateIdName,
-                adapterId,
-                fetchVariables));
-      }
-      final var outcome = workflowTaskInvoker.invokeWorkflowTask(
-          workflowModuleId,
-          bpmnProcessId,
-          new Camunda8ModelledListenerInvocationContext(
-              adapterId, taskDefinition, String
-                  .valueOf(aggregateId), job, multiInstanceRegistry, fetchVariables));
-      if (outcome.kind() == WorkflowTaskOutcome.Kind.BPMN_ERROR) {
-        throw new IllegalStateException(
-            ("The @WorkflowTask method serving the listener '%s' (BPMN process '%s' of workflow "
-                + "module '%s') threw a TaskException! A listener cannot raise a BPMN error: the "
-                + "cluster is inside a transition of its own while the listener job runs and has no "
-                + "token to route. Model the logic as a task of the process where an error has to "
-                + "change the path.")
-                .formatted(taskDefinition, bpmnProcessId, workflowModuleId));
-      }
-      final var variables = whatTheCompletionCarries(job, bpmnProcessId, aggregateIdName, aggregateId);
-      Camunda8CommandRetry.send(
-          adapterId,
-          "completion",
-          job.getKey(),
-          taskDefinition,
-          job.getDeadline(),
-          drain::isShuttingDown,
-          () -> {
-            var completion = client.newCompleteCommand(job.getKey());
-            // a listener which carries nothing is completed without a variables payload at
-            // all, rather than with an empty one: what the cluster refuses on a task listener
-            // is the payload itself
-            if (!variables.isEmpty()) {
-              completion = completion.variables(variables);
-            }
-            completion
-                .send()
-                .join();
-          });
-    } catch (final Exception e) {
-      // work cut off by a shutdown is not a defect of the application, and the job is left
-      // to its lock so the next instance of it gets the listener
-      if (drain.leaveJobToItsLock(job.getKey(), KIND, taskDefinition, e)) {
-        return;
-      }
-      final var retryBackoff = Camunda8RetryBackoffResolver
-          .resolve(retryBackoffResolver, workflowModuleId, bpmnProcessId, taskDefinition)
-          .duration();
-      log.warn(
-          "Camunda8[{}]: processing listener job '{}' (type '{}') failed - failing the job with {} "
-              + "retries left",
-          adapterId,
-          job.getKey(),
-          job.getType(),
-          job.getRetries() - 1,
-          e);
-      Camunda8CommandRetry.send(
-          adapterId,
-          "failure",
-          job.getKey(),
-          taskDefinition,
-          job.getDeadline(),
-          drain::isShuttingDown,
-          () -> client
-              .newFailCommand(job.getKey())
-              .retries(job.getRetries() - 1)
-              .retryBackoff(retryBackoff)
-              .errorMessage(Camunda8Errors.incidentMessage(e))
-              .send()
-              .join());
-    } finally {
-      drain.jobFinished(job.getKey());
-    }
+    Camunda8ListenerJobs
+        .completeOrFail(
+            adapterId,
+            client,
+            job,
+            drain,
+            KIND,
+            taskDefinition,
+            bpmnProcessId,
+            () -> new Camunda8ListenerJobs.Failure(
+                job.getRetries() - 1, Camunda8RetryBackoffResolver
+                    .resolve(retryBackoffResolver, workflowModuleId, bpmnProcessId, taskDefinition)
+                    .duration()),
+            () -> {
+              final var aggregateIdName = workflowTaskInvoker
+                  .resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId);
+              final var aggregateId = job.getVariablesAsMap().get(aggregateIdName);
+              if (aggregateId == null) {
+                throw new IllegalStateException(
+                    Camunda8FetchVariables
+                        .missingAggregateId(
+                            "The listener job",
+                            job.getKey(),
+                            job.getType(),
+                            bpmnProcessId,
+                            aggregateIdName,
+                            adapterId,
+                            fetchVariables));
+              }
+              final var outcome = workflowTaskInvoker
+                  .invokeWorkflowTask(
+                      workflowModuleId,
+                      bpmnProcessId,
+                      new Camunda8ModelledListenerInvocationContext(
+                          adapterId, taskDefinition, String
+                              .valueOf(aggregateId), job, multiInstanceRegistry, fetchVariables));
+              if (outcome.kind() == WorkflowTaskOutcome.Kind.BPMN_ERROR) {
+                throw new IllegalStateException(
+                    ("The @WorkflowTask method serving the listener '%s' (BPMN process '%s' of workflow "
+                        + "module '%s') threw a TaskException! A listener cannot raise a BPMN error: the "
+                        + "cluster is inside a transition of its own while the listener job runs and has no "
+                        + "token to route. Model the logic as a task of the process where an error has to "
+                        + "change the path.")
+                        .formatted(taskDefinition, bpmnProcessId, workflowModuleId));
+              }
+              return whatTheCompletionCarries(job, bpmnProcessId, aggregateIdName, aggregateId);
+            });
 
   }
 

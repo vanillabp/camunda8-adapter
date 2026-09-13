@@ -17,6 +17,7 @@ import io.camunda.client.api.search.filter.ProcessDefinitionFilter;
 import io.camunda.client.api.search.response.ProcessDefinition;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
+import io.vanillabp.camunda8.processservice.Camunda8Searches;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport.ModelIdentifier;
 import io.vanillabp.integration.adapter.spi.version.CachingProcessVersionCatalog;
 import io.vanillabp.integration.adapter.spi.version.DeployedProcessVersion;
@@ -568,11 +569,8 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
         .newProcessDefinitionSearchRequest()
         .filter(filter -> {
           onlyDefinitionsWhichStillCount(filter);
-          filter.processDefinitionId(scopedProcessId);
+          Camunda8Searches.scopedTo(filter, scopedProcessId, tenantId);
           filter.version(Integer.valueOf(version));
-          if (tenantId != null) {
-            filter.tenantId(tenantId);
-          }
         })
         .send()
         .join()
@@ -672,10 +670,7 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
         .newProcessDefinitionSearchRequest()
         .filter(filter -> {
           onlyDefinitionsWhichStillCount(filter);
-          filter.processDefinitionId(scopedProcessId);
-          if (tenantId != null) {
-            filter.tenantId(tenantId);
-          }
+          Camunda8Searches.scopedTo(filter, scopedProcessId, tenantId);
         })
         .sort(sort -> sort.version().asc())
         .send()

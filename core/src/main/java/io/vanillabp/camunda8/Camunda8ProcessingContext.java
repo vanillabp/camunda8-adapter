@@ -12,6 +12,7 @@ import io.camunda.client.api.worker.JobWorker;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8Listeners;
+import io.vanillabp.camunda8.wiring.Camunda8MultiInstance;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import lombok.Getter;
@@ -248,12 +249,36 @@ public class Camunda8ProcessingContext {
 
   }
 
+  /**
+   * Which multi-instance elements enclose an element of this adapter's models, collected
+   * while the models are wired.
+   * <p>
+   * Camunda 8 tells a job its own element id and nothing about the iteration it runs in, so
+   * the chain of enclosing multi-instance elements is model knowledge which has to be read
+   * while the model is deployed. The adapter reads it once, for every model of every adapter
+   * id, and an extension which wants to name the iteration a task belongs to asks the same
+   * registry rather than reading the models a second time. It is the registry of the ADAPTER
+   * this run belongs to, so it answers for the identifiers of this run's models.
+   * <p>
+   * What it holds grows with the pipeline: an element wired after the question was asked is
+   * not in it yet. Ask it while serving a job, not while wiring.
+   */
+  @Getter
+  private final Camunda8MultiInstance.Registry multiInstanceRegistry;
+
+  /**
+   * @param adapterId The adapter id this pipeline run belongs to
+   * @param workflowModuleId The workflow module whose files this run deploys
+   * @param multiInstanceRegistry The multi-instance chains of that adapter
+   */
   public Camunda8ProcessingContext(
       final String adapterId,
-      final String workflowModuleId) {
+      final String workflowModuleId,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry) {
 
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
+    this.multiInstanceRegistry = multiInstanceRegistry;
 
   }
 

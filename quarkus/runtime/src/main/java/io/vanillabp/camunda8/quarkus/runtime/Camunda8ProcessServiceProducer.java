@@ -61,15 +61,9 @@ public class Camunda8ProcessServiceProducer {
                   .asyncTaskLockRenewal()
                   .orElse(Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL)
               : Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
-          final var workflowVisibilityTimeout = adapterKeys != null
-              ? adapterKeys
-                  .workflowVisibilityTimeout()
-                  .orElse(Camunda8ProcessService.DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT)
-              : Camunda8ProcessService.DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT;
           final var processService = new Camunda8ProcessService<>(
               adapterId, clientFactoryRegistry
-                  .getFactory(
-                      adapterId), asyncTaskLockRenewal, preCommitRegistrar, aggregateSync, workflowVisibilityTimeout);
+                  .getFactory(adapterId), asyncTaskLockRenewal, preCommitRegistrar, aggregateSync);
           processService.setScoping(scoping);
           processService
               .setMessageTimeToLiveResolver((

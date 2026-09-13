@@ -22,6 +22,7 @@ import org.testcontainers.containers.GenericContainer;
 
 import io.quarkus.test.QuarkusProdModeTest;
 import io.restassured.RestAssured;
+import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.FreePortUtil;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 

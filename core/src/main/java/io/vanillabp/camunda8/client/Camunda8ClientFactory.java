@@ -1,10 +1,13 @@
 package io.vanillabp.camunda8.client;
 
 import java.net.URI;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.camunda.client.CamundaClient;
@@ -423,7 +426,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
   /**
    * How the factory stops the workers of one workflow module on a path which did not
    * reach {@code stopWorkflowProcessing}. Implemented by the deployment
-   * service, which owns the workers and the drain.
+   * service, which owns the workers and the drain, and by every EXTENSION which opened
+   * workers of its own for that module.
    */
   @FunctionalInterface
   public interface WorkflowModuleShutdown {
@@ -437,8 +441,24 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
-   * The workflow modules of this adapter instance whose workers are open right now,
-   * registered when processing starts and removed when it stops.
+   * What a registered hook is removed by. Closing it removes THAT hook and no other, which
+   * is what lets several of them share one workflow module: the adapter stopping its own
+   * workers does not deregister an extension whose workers are still open.
+   */
+  @FunctionalInterface
+  public interface WorkflowModuleShutdownRegistration extends AutoCloseable {
+
+    /**
+     * Removes the hook this registration was handed out for. Idempotent.
+     */
+    @Override
+    void close();
+
+  }
+
+  /**
+   * The workflow modules of this adapter instance whose workers are open right now, and per
+   * module the hooks which close them, in registration order.
    * <p>
    * The workers of a module are closed before its client, and on the ordinary path
    * that is the order the platform's lifecycle produces. This map is
@@ -447,32 +467,49 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * Order matters more than it looks: an activation request which is parked
    * at the cluster when its client is closed stays parked, and a job created within the
    * request timeout afterwards waits for its lock instead of reaching the next worker.
+   * <p>
+   * A module holds MORE THAN ONE hook because an extension opens workers of the same module
+   * on the same client, and a single slot meant the second registration overwrote the first.
+   * The hooks of a module run in REVERSE registration order, which puts the workers opened
+   * last down first: the adapter registers while workflow processing starts and every
+   * extension registers after it, so an extension's workers are closed before the adapter's
+   * and the client is closed under none of them.
    */
-  private final Map<String, WorkflowModuleShutdown> openWorkflowModules = new LinkedHashMap<>();
+  private final Map<String, List<WorkflowModuleShutdown>> openWorkflowModules = new LinkedHashMap<>();
 
   /**
-   * Registers a workflow module whose workers are now open.
+   * Registers workers of a workflow module which are now open.
    *
    * @param workflowModuleId The workflow module
-   * @param shutdown How to stop it if the client is closed before it stopped itself
+   * @param shutdown How to stop them if the client is closed before they stopped themselves
+   * @return What removes this hook again when those workers stopped
    */
-  public synchronized void workflowModuleStarted(
+  public synchronized WorkflowModuleShutdownRegistration workflowModuleStarted(
       final String workflowModuleId,
       final WorkflowModuleShutdown shutdown) {
 
-    openWorkflowModules.put(workflowModuleId, shutdown);
+    openWorkflowModules
+        .computeIfAbsent(workflowModuleId, module -> new LinkedList<>())
+        .add(shutdown);
+    return () -> removeShutdownHook(workflowModuleId, shutdown);
 
   }
 
   /**
-   * Deregisters a workflow module which stopped its own workers.
-   *
-   * @param workflowModuleId The workflow module
+   * Removes one hook, and the module with its last one.
    */
-  public synchronized void workflowModuleStopped(
-      final String workflowModuleId) {
+  private synchronized void removeShutdownHook(
+      final String workflowModuleId,
+      final WorkflowModuleShutdown shutdown) {
 
-    openWorkflowModules.remove(workflowModuleId);
+    final var hooks = openWorkflowModules.get(workflowModuleId);
+    if (hooks == null) {
+      return;
+    }
+    hooks.remove(shutdown);
+    if (hooks.isEmpty()) {
+      openWorkflowModules.remove(workflowModuleId);
+    }
 
   }
 
@@ -482,6 +519,96 @@ public class Camunda8ClientFactory implements AutoCloseable {
   public synchronized Set<String> getOpenWorkflowModules() {
 
     return Set.copyOf(openWorkflowModules.keySet());
+
+  }
+
+  /**
+   * What each workflow module of this adapter id has in flight, and whether it is going
+   * down - one drain per module, created on first use.
+   * <p>
+   * It lives here for the reason the deployed processes and the query-api answer do: the
+   * factory is the one object per adapter id which the deployment service, the process
+   * service and an EXTENSION all already hold. A listener job of an extension has to take
+   * part in the same drain as the adapter's own, otherwise a shutdown closes the client
+   * while its handler runs and the job it was serving buys an incident.
+   */
+  private final Map<String, Camunda8Drain> drains = new ConcurrentHashMap<>();
+
+  /**
+   * How long a job of this adapter id stays locked for its worker, resolved over the four
+   * levels of the adapter's configuration (task &gt; workflow &gt; workflow module &gt;
+   * adapter). Provided by the platform module which binds that configuration, which is the
+   * only place able to read it.
+   * <p>
+   * It lives here for the reason the deployed processes and the query-api answer do: the
+   * factory is the one object per adapter id which the deployment service, the process
+   * service and an EXTENSION all already hold. An extension opening a worker of its own on
+   * this cluster asks it what lock to use, so a workflow module which raised the adapter's
+   * job timeout raised it for that worker too. Building a second reader of the same keys is
+   * how the two start disagreeing.
+   * <p>
+   * Before the platform provided one - a unit test, an adapter which booted unconfigured -
+   * it answers {@link Camunda8JobTimeoutResolver#DEFAULT_JOB_TIMEOUT} for everything.
+   */
+  private volatile Camunda8JobTimeoutResolver jobTimeoutResolver = (
+      workflowModuleId,
+      bpmnProcessId,
+      taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT;
+
+  /**
+   * Hands over the resolver of this adapter id, called by the platform module while the
+   * adapter's beans are created.
+   *
+   * @param jobTimeoutResolver The resolver reading this adapter's configuration
+   */
+  public void provideJobTimeoutResolver(
+      final Camunda8JobTimeoutResolver jobTimeoutResolver) {
+
+    this.jobTimeoutResolver = jobTimeoutResolver;
+
+  }
+
+  /**
+   * @return How long a job of this adapter id stays locked, never <code>null</code>
+   */
+  public Camunda8JobTimeoutResolver getJobTimeoutResolver() {
+
+    return jobTimeoutResolver;
+
+  }
+
+  /**
+   * The drain of one workflow module of this adapter id.
+   *
+   * @param workflowModuleId The workflow module
+   * @return Its drain, created on first use
+   */
+  public Camunda8Drain drainOf(
+      final String workflowModuleId) {
+
+    return drains
+        .computeIfAbsent(workflowModuleId, moduleId -> new Camunda8Drain(adapterId, moduleId));
+
+  }
+
+  /**
+   * Gives a workflow module which starts processing a drain which is NOT shutting down.
+   * <p>
+   * A module may be started again after it was stopped - a test, and a platform which
+   * restarts its lifecycle beans - and the drain of the previous run stays shut down
+   * forever. Its handlers would then leave every job to its lock, so the new run gets one of
+   * its own. Called by the adapter while workflow processing starts, before any worker of
+   * that run is opened.
+   *
+   * @param workflowModuleId The workflow module starting its workers
+   * @return The fresh drain the new workers register their deliveries in
+   */
+  public Camunda8Drain freshDrainOf(
+      final String workflowModuleId) {
+
+    final var drain = new Camunda8Drain(adapterId, workflowModuleId);
+    drains.put(workflowModuleId, drain);
+    return drain;
 
   }
 
@@ -523,16 +650,22 @@ public class Camunda8ClientFactory implements AutoCloseable {
         Camunda8AdapterConfiguration.propertyKey(adapterId, "request-timeout"),
         Camunda8AdapterConfiguration.propertyKey(adapterId, "job-timeout"));
     pending.forEach(entry -> {
-      try {
-        entry.getValue().stopWorkflowProcessing();
-      } catch (final Exception e) {
-        log.warn(
-            "Camunda8[{}]: stopping the workers of workflow module '{}' failed while the client was being "
-                + "closed. The client goes down now anyway",
-            adapterId,
-            entry.getKey(),
-            e);
-      }
+      // reverse registration order: what was opened last goes down first, so an
+      // extension's workers are closed before the adapter's
+      final var hooks = new LinkedList<>(entry.getValue());
+      Collections.reverse(hooks);
+      hooks.forEach(hook -> {
+        try {
+          hook.stopWorkflowProcessing();
+        } catch (final Exception e) {
+          log.warn(
+              "Camunda8[{}]: stopping the workers of workflow module '{}' failed while the client was being "
+                  + "closed. The client goes down now anyway",
+              adapterId,
+              entry.getKey(),
+              e);
+        }
+      });
     });
     openWorkflowModules.clear();
 

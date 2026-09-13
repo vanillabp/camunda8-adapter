@@ -1853,13 +1853,28 @@ an assumption about Camunda 8, disproved by a model which deploys with one.
 ### Testing
 
 Every integration test here starts the cluster of the active release line through
-`ClusterUnderTest` (`ElectionCluster` in the election module), which decides from
-`camunda8-cluster.properties` what that costs. On the lines whose cluster keeps its
-secondary storage in a database of its own process a test class starts ONE container, an
-embedded H2 inside the cluster serving every search; line 8.8 exports to an Elasticsearch
-and the cluster takes that container along and stops it again with itself. The test asks
-for a cluster either way and declares one field, see decision 22 in
+`ClusterUnderTest`, which decides from `camunda8-cluster.properties` what that costs. On the
+lines whose cluster keeps its secondary storage in a database of its own process a test class
+starts ONE container, an embedded H2 inside the cluster serving every search; line 8.8 exports
+to an Elasticsearch and the cluster takes that container along and stops it again with itself.
+The test asks for a cluster either way and declares one field, see decision 22 in
 [`DECISIONS.md`](./DECISIONS.md).
+
+`ClusterUnderTest` and the log writer beside it live in the module `test-support` and are
+published as `org.camunda.community.vanillabp:camunda8-adapter-test-support`, on the same
+release line as everything else here, because the cluster a test needs follows the client the
+line pins. Four modules used to carry a copy of those two classes, and the copies had drifted:
+different startup timeouts, different messages, one of them without a log writer at all. The
+classes sit in `src/main/java` although nothing but a test calls them, because a test classpath
+cannot read another module's test classes - which is the whole reason the module exists.
+
+What it offers: `cluster()` and `cluster(logName)` for the everyday cluster,
+`clusterWhichRefusesSearches()` for the one the boot has to refuse (decision 20),
+`withAuthentication()` for an installation with its authentication switched on,
+`clusterWithTenants()` plus `createTenant(...)` and `awaitTenant(...)` for the tenant
+separation `by-adapter` deploys into, and `ClusterLog.FILE` for the file a red build uploads.
+An extension of this adapter takes the artifact as a test dependency and meets the cluster the
+adapter is tested against.
 
 - **Core unit tests** (no Docker): BPMN parsing / executable-process extraction, client
   configuration validation (missing-property messages, self-managed/SaaS), and the

@@ -560,16 +560,27 @@ public final class Camunda8TaskWiring {
   }
 
   /**
-   * The Camunda-managed user tasks (<code>zeebe:userTask</code>) of the given
-   * executable process AND - for NEW models - adds the V1-compatible lifecycle
-   * task listeners to the model: per user task a <code>creating</code> listener as
-   * the FIRST and a <code>canceling</code> listener as the LAST listener (custom
-   * modeller-defined listeners stay in between), both with <code>retries="0"</code>
-   * and the type {@link #TASKDEFINITION_USERTASK_ZEEBE} + external form reference.
-   * A user task without an external form reference fails with a guiding message
-   * (the V1 convention: the external form reference IS the task definition).
+   * The Camunda-managed user tasks (<code>zeebe:userTask</code>) of the given executable
+   * process, READ and nothing else: the model is not touched here.
+   * <p>
+   * A user task without an external form reference fails with a guiding message, because
+   * the reference IS the task definition under VanillaBP's Camunda 8 convention and a user
+   * task without one is a model this adapter cannot deploy. That is a question about the
+   * model rather than a change to it, so it is asked here and the answer is the same
+   * however often it is asked.
+   * <p>
+   * Public and separate from {@link #userTasksOf} because an extension wiring its own
+   * listeners into the same file needs the same list. Calling the preparing method for it
+   * would mean a second party writing lifecycle listeners into a model the adapter owns,
+   * and nothing about the deployment pipeline promises that the adapter went first.
+   *
+   * @param model The BPMN model of one file
+   * @param bpmnProcessId The process id as the CLUSTER knows it
+   * @param workflowModuleId The workflow module, for the message
+   * @param filename The file, for the message
+   * @return The Camunda-managed user tasks the process declares
    */
-  public static List<Camunda8UserTaskToWire> userTasksOf(
+  public static List<Camunda8UserTaskToWire> readUserTasksOf(
       final BpmnModelInstance model,
       final String bpmnProcessId,
       final String workflowModuleId,
@@ -598,9 +609,43 @@ public final class Camunda8TaskWiring {
                     + "externalReference).")
                     .formatted(task.getId(), bpmnProcessId, filename, workflowModuleId));
           }
-          addUserTaskListeners(task, externalFormReference);
           userTasks.add(new Camunda8UserTaskToWire(bpmnProcessId, task.getId(), externalFormReference));
         });
+    return userTasks;
+
+  }
+
+  /**
+   * The Camunda-managed user tasks of the given executable process, as
+   * {@link #readUserTasksOf} reports them, AND the V1-compatible lifecycle task listeners
+   * written into the model: per user task a <code>creating</code> listener as the FIRST and
+   * a <code>canceling</code> listener as the LAST listener (custom modeller-defined
+   * listeners stay in between), both with <code>retries="0"</code> and the type
+   * {@link #TASKDEFINITION_USERTASK_ZEEBE} + external form reference.
+   * <p>
+   * This is the deployment path and it CHANGES the model. A second call adds no second set
+   * of listeners - a user task which already carries this listener job type is left as it
+   * is, see {@code Camunda8UserTasksReadAndPrepareTest} - but a caller which only wants to
+   * know what the model declares asks {@link #readUserTasksOf} instead, because being
+   * harmless is not the same as being the caller's business.
+   *
+   * @param model The BPMN model of one file, modified in place
+   * @param bpmnProcessId The process id as the CLUSTER knows it
+   * @param workflowModuleId The workflow module, for the message
+   * @param filename The file, for the message
+   * @return The Camunda-managed user tasks the process declares
+   */
+  public static List<Camunda8UserTaskToWire> userTasksOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId,
+      final String workflowModuleId,
+      final String filename) {
+
+    final var userTasks = readUserTasksOf(model, bpmnProcessId, workflowModuleId, filename);
+    userTasks
+        .forEach(userTask -> addUserTaskListeners(
+            (UserTask) model.getModelElementById(userTask.activityId()),
+            userTask.externalFormReference()));
     return userTasks;
 
   }

@@ -10,6 +10,7 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.observability.Camunda8Metrics;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
 import io.vanillabp.integration.adapter.migration.workflowtask.WorkflowTaskRegistry;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
@@ -80,23 +81,27 @@ public class Camunda8DeploymentServiceProducer {
                   .asyncTaskLockRenewal()
                   .orElse(Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL)
               : Camunda8AdapterConfiguration.DEFAULT_ASYNC_TASK_LOCK_RENEWAL;
+          final var clientFactory = clientFactoryRegistry.getFactory(adapterId);
+          // published per adapter id, so an extension asks the adapter how long a job of
+          // this adapter stays locked instead of reading the configuration again
+          final Camunda8JobTimeoutResolver jobTimeoutResolver = (
+              workflowModuleId,
+              bpmnProcessId,
+              taskDefinition) -> overlay
+                  .jobTimeoutFor(workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
+          clientFactory.provideJobTimeoutResolver(jobTimeoutResolver);
           final var deploymentService = new Camunda8DeploymentService(
-              adapterId, clientFactoryRegistry
-                  .getFactory(adapterId), AdapterCollaboratorsSupport
-                      .collaborators(
-                          adapterId, workflowTaskRegistry, workflowTaskRegistry, scoping, workflowAggregateSync,
-                          preCommitRegistrar, workflowEndedInvoker, bpmsInitiatedStartInvoker), (
+              adapterId, clientFactory, AdapterCollaboratorsSupport
+                  .collaborators(
+                      adapterId, workflowTaskRegistry, workflowTaskRegistry, scoping, workflowAggregateSync,
+                      preCommitRegistrar, workflowEndedInvoker,
+                      bpmsInitiatedStartInvoker), jobTimeoutResolver, asyncTaskLockRenewal, id -> clientFactoryRegistry
+                          .getFactory(id)
+                          .getConfiguration(), scoping, (
                               workflowModuleId,
                               bpmnProcessId,
-                              taskDefinition) -> overlay.jobTimeoutFor(
-                                  workflowModuleId, bpmnProcessId, taskDefinition,
-                                  adapterId), asyncTaskLockRenewal, id -> clientFactoryRegistry
-                                      .getFactory(id)
-                                      .getConfiguration(), scoping, (
-                                          workflowModuleId,
-                                          bpmnProcessId,
-                                          taskDefinition) -> overlay.configuredRetryBackoffFor(
-                                              workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
+                              taskDefinition) -> overlay.configuredRetryBackoffFor(
+                                  workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
           // What each worker asks the cluster for, resolvable down to task
           // level
           deploymentService.setFetchVariablesResolver((

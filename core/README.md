@@ -228,9 +228,60 @@ REST `404` and the gRPC `NOT_FOUND`. An extension reading something the cluster 
 about a moment ago meets that answer as exporter lag rather than as a failure, and
 recognising only one of the two codes turns the other transport's answer into a hard one.
 
+`Camunda8ProcessingContext.getMultiInstanceRegistry` answers which multi-instance elements
+enclose an element of the models this adapter wired. Camunda 8 tells a job its own element id
+and nothing about the iteration it runs in, so the chain is model knowledge read while the
+model is deployed. An extension which wants to name the iteration a task belongs to asks the
+registry instead of reading the models a second time.
+
+`Camunda8TaskWiring.readUserTasksOf` reports the Camunda-managed user tasks of a model and
+changes nothing. Its sibling `userTasksOf` is the deployment path and writes the
+version-1-compatible lifecycle listeners into the model. Both report the same list, and the
+reading one is what an extension calls: a second party writing listeners into a model the
+adapter owns is not made safe by the writing being idempotent, and nothing about the pipeline
+promises that the adapter went first.
+
+`Camunda8Workers.applyWorkerOptions` sets what a worker cannot inherit from the client: the job
+counters, which carry the adapter id and the job type, and the stream timeout. A worker an
+extension opens with it looks to an operator like a worker of the adapter.
+
+`Camunda8ListenerJobs.completeOrFail` runs a listener job the way this adapter runs its own -
+registered with the drain, both answers through `Camunda8CommandRetry`, and a failure during a
+shutdown left to its lock rather than reported. That last part is what a listener modelled with
+`retries="0"` depends on: with no attempt left, failing the job IS the incident, and a restart
+is not something anybody did wrong.
+
+`Camunda8ClientFactory.drainOf` is the drain of one workflow module of one adapter id, and it is
+the one an extension's listener has to take part in. A handler which is not in it is a handler
+the shutdown does not wait for, and the client is then closed while it runs.
+
+`Camunda8ClientFactory.workflowModuleStarted` hands back a registration rather than taking the
+module's single slot. A workflow module holds a hook per party which opened workers of it, they
+run in reverse registration order, and a party removing its own leaves the others registered.
+
+`Camunda8ClientFactory.getJobTimeoutResolver` answers how long a job of this adapter id stays
+locked, resolved over the four configuration levels. A workflow module which raised the
+adapter's `job-timeout` raised it for an extension's worker too.
+
+`Camunda8AdapterConfiguration.workflowVisibilityWindow` is how long a reader of this cluster may
+treat "not there" as "not there yet". The number belongs to the cluster: an operator who raises
+it for a slow exporter raises it once, and a reader with a window of its own keeps dropping what
+the adapter now waits for.
+
+`Camunda8Searches` builds the filter a search for a workflow of this adapter needs - the process
+id as the CLUSTER knows it, the tenant, and the aggregate id as the JSON the cluster stores. It
+only adds conditions, so a caller may narrow further.
+
 `Camunda8ErrorsTest` holds both transports and the wrapped answer, `Camunda8VariableFilterTest`
-the quoting, and `Camunda8DeploymentServiceTest` that a context knows which adapter and which
-workflow module its run is for.
+the quoting, `Camunda8DeploymentServiceTest` that a context knows which adapter, which workflow
+module and which registry its run is for, `Camunda8UserTasksReadAndPrepareTest` what separates
+reading from preparing, `Camunda8WorkersTest` what a worker carries,
+`Camunda8ListenerJobsTest` the protocol including the shutdown, `Camunda8ShutdownHooksTest` the
+hooks, the drain and the resolver, `Camunda8VisibilityWindowTest` the window and
+`Camunda8SearchesTest` the filter.
+
+Why this list exists and what is deliberately not on it is decision 28 in the repository's
+`DECISIONS.md`.
 
 ## BPMN model type
 

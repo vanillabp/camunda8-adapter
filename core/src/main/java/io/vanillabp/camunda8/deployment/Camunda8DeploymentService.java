@@ -33,6 +33,7 @@ import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.camunda8.client.Camunda8InstanceIdentity;
 import io.vanillabp.camunda8.client.Camunda8SearchableClusterCheck;
 import io.vanillabp.camunda8.client.Camunda8TenantCheck;
+import io.vanillabp.camunda8.client.Camunda8Workers;
 import io.vanillabp.camunda8.health.Camunda8Health;
 import io.vanillabp.camunda8.observability.Camunda8Metrics;
 import io.vanillabp.camunda8.wiring.Camunda8AllowConnectorsResolver;
@@ -328,42 +329,25 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * What each workflow module of this adapter instance has in flight, and whether it is
-   * going down. One per workflow module: stopping one module must not make the
-   * handlers of another one believe they were cut off.
-   */
-  private final Map<String, Camunda8Drain> drains = new ConcurrentHashMap<>();
-
-  /**
+   * going down - one per workflow module, held by the client factory because an EXTENSION
+   * serving jobs of the same module has to take part in the same drain.
+   *
    * @param workflowModuleId The workflow module
    * @return The drain of that module, created on first use
    */
   Camunda8Drain drainOf(
       final String workflowModuleId) {
 
-    return drains.computeIfAbsent(
-        workflowModuleId,
-        moduleId -> new Camunda8Drain(adapterId, moduleId));
+    return clientFactory.drainOf(workflowModuleId);
 
   }
 
   /**
-   * Gives a workflow module which starts processing a drain which is NOT shutting down.
-   * A module can be started again after it was stopped - a checkpoint and restore, or a
-   * platform which restarts its lifecycle beans - and the drain of the previous run stays
-   * marked as shutting down forever, which would keep every handler of the new run from
-   * ever reporting a failed job.
-   *
-   * @param workflowModuleId The workflow module
-   * @return The fresh drain the new workers register their deliveries in
+   * What removes this adapter's own shutdown hook of a workflow module again, kept per
+   * module from the moment its workers were opened. A module holds a hook per party which
+   * opened workers of it, so the adapter removes ITS hook rather than the module's.
    */
-  private Camunda8Drain freshDrainOf(
-      final String workflowModuleId) {
-
-    final var drain = new Camunda8Drain(adapterId, workflowModuleId);
-    drains.put(workflowModuleId, drain);
-    return drain;
-
-  }
+  private final Map<String, Camunda8ClientFactory.WorkflowModuleShutdownRegistration> shutdownRegistrations = new ConcurrentHashMap<>();
 
   /**
    * Resolves the per-task job timeout from the adapter's configuration overlay
@@ -991,7 +975,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // the core passes null for the first BPMN process of a workflow module
     final var context = existingContext != null
         ? existingContext
-        : new Camunda8ProcessingContext(adapterId, workflowModuleId);
+        : new Camunda8ProcessingContext(adapterId, workflowModuleId, multiInstanceRegistry);
     // Rewrite the identifiers the cluster resolves globally BEFORE wiring,
     // so everything downstream (wiring validation, listener injection, workers) sees
     // what the cluster will see. A no-op unless the mode is 'use-prefix'. The core
@@ -2333,27 +2317,19 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
-   * The options every worker of this adapter shares. Everything a worker inherits from the
-   * client (<code>max-jobs-active</code>, <code>poll-interval</code>,
-   * <code>request-timeout</code>, <code>stream-enabled</code>) is set on the CLIENT while it
-   * is built, so an environment variable can still overrule it and be reported for it; only
-   * <code>stream-timeout</code> has no client-wide equivalent and is set here.
+   * The options every worker of this adapter shares, applied by {@link Camunda8Workers} so
+   * that a worker an EXTENSION opens on the same cluster carries them too.
    *
    * @param builder The worker builder
+   * @param jobType The job type the worker subscribes to
    * @return The same builder
    */
   JobWorkerBuilderStep1.JobWorkerBuilderStep3 applyWorkerOptions(
       final JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder,
       final String jobType) {
 
-    // the client's own counters: it activates and hands over jobs long before
-    // the core sees a delivery, so this is where the queue in front of the execution
-    // slots becomes visible
-    final var withMetrics = builder.metrics(metrics.workerMetrics(adapterId, jobType));
-    final var streamTimeout = clientFactory.getConfiguration().getStreamTimeout();
-    return streamTimeout == null
-        ? withMetrics
-        : withMetrics.streamTimeout(streamTimeout);
+    return Camunda8Workers
+        .applyWorkerOptions(builder, adapterId, jobType, clientFactory.getConfiguration(), metrics);
 
   }
 
@@ -2569,12 +2545,16 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     final var client = clientFactory.getClient();
     // what this module has in flight, and later whether it is going down: every handler
     // registers its delivery here, and stopWorkflowProcessing waits for them
-    final var drain = freshDrainOf(workflowModuleId);
+    final var drain = clientFactory.freshDrainOf(workflowModuleId);
     // and the client learns that this module has workers open, so a shutdown path which
     // never reaches stopWorkflowProcessing does not close the client under them
-    clientFactory.workflowModuleStarted(
-        workflowModuleId,
-        () -> stopWorkflowProcessing(workflowModuleId, bpmsProcessingContext));
+    shutdownRegistrations
+        .put(
+            workflowModuleId,
+            clientFactory
+                .workflowModuleStarted(
+                    workflowModuleId,
+                    () -> stopWorkflowProcessing(workflowModuleId, bpmsProcessingContext)));
     bpmsProcessingContext
         .getTasksToWire()
         .forEach(task -> {
@@ -2989,7 +2969,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
-   * The multi-instance chains this adapter registered. Visible for tests.
+   * The multi-instance chains this adapter registered, which is what the processing context
+   * hands to an extension, see
+   * {@link Camunda8ProcessingContext#getMultiInstanceRegistry()}.
    */
   Camunda8MultiInstance.Registry multiInstanceRegistry() {
 
@@ -3225,7 +3207,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     drain.report(grace, outcome);
 
     workers.clear();
-    clientFactory.workflowModuleStopped(workflowModuleId);
+    final var registration = shutdownRegistrations.remove(workflowModuleId);
+    if (registration != null) {
+      registration.close();
+    }
     log.info("Workflow processing stopped for workflow module '{}' (adapter '{}')",
         workflowModuleId, adapterId);
 

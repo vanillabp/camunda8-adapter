@@ -30,7 +30,7 @@ import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.client.Camunda8RefusedStart;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
-import io.vanillabp.camunda8.springboot.it.ClusterUnderTest;
+import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**

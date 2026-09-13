@@ -14,6 +14,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -39,7 +40,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 public class Camunda8UnsearchableClusterIT {
 
   @Container
-  static final GenericContainer<?> BROKER_ALONE = ElectionCluster.clusterWhichRefusesSearches();
+  static final GenericContainer<?> BROKER_ALONE = ClusterUnderTest.clusterWhichRefusesSearches();
 
   /**
    * The cluster of the adapter which IS first priority in the warn test below - the
@@ -47,7 +48,7 @@ public class Camunda8UnsearchableClusterIT {
    * primary adapter has a cluster it can search.
    */
   @Container
-  static final GenericContainer<?> SEARCHABLE_CLUSTER = ElectionCluster.cluster();
+  static final GenericContainer<?> SEARCHABLE_CLUSTER = ClusterUnderTest.cluster();
 
   private ConfigurableApplicationContext application;
 
