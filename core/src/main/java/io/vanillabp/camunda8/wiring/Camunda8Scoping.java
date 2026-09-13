@@ -246,17 +246,48 @@ public final class Camunda8Scoping {
    * @param allowConnectorsResolver What the configuration says about the elements built
    *          from an element template, asked per BPMN process of the file (may be
    *          <code>null</code>: nothing is left alone then)
+   * @param servedListenerJobTypes Whether this application serves the listener of the given
+   *          PLAIN process id and job type, asked per listener of the file (may be
+   *          <code>null</code>: no listener job type is rewritten then)
    */
   public static void apply(
       final BpmnModelInstance model,
       final String workflowModuleId,
       final String adapterId,
       final NameClashAvoidanceSupport scoping,
-      final Camunda8AllowConnectorsResolver allowConnectorsResolver) {
+      final Camunda8AllowConnectorsResolver allowConnectorsResolver,
+      final java.util.function.BiPredicate<String, String> servedListenerJobTypes) {
 
     if (!prefixes(workflowModuleId, adapterId, scoping)) {
       return;
     }
+
+    // the job type of a listener this application serves is a task definition of this
+    // workflow module like any other, so it is scoped like any other: without that, two
+    // modules carrying the same listener job type would share one worker, which is the
+    // clash this mode exists to avoid. A listener this application does NOT serve keeps the
+    // name the modeller typed, for the reason a connector's job type keeps its: renaming it
+    // would rename something this application does not own
+    model
+        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListener.class)
+        .forEach(listener -> scopeListenerJobType(
+            listener.getType(),
+            listener::setType,
+            listener,
+            workflowModuleId,
+            adapterId,
+            scoping,
+            servedListenerJobTypes));
+    model
+        .getModelElementsByType(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListener.class)
+        .forEach(listener -> scopeListenerJobType(
+            listener.getType(),
+            listener::setType,
+            listener,
+            workflowModuleId,
+            adapterId,
+            scoping,
+            servedListenerJobTypes));
 
     // task definitions are scoped per PROCESS, so they are rewritten while the
     // process ids are still the plain ones
@@ -361,6 +392,43 @@ public final class Camunda8Scoping {
    * instead would take the only isolation mode which works without a multi-tenant cluster
    * away from every application that wants one connector.
    */
+  /**
+   * Rewrites the job type of one listener where the workflow module serves it and prefixes
+   * its identifiers.
+   *
+   * @param jobType What the listener names today
+   * @param setJobType Where the scoped name goes
+   * @param listener The listener element, for the process it belongs to
+   * @param workflowModuleId The workflow module ID
+   * @param adapterId The adapter ID
+   * @param scoping The core's name-clash-avoidance support
+   * @param servedListenerJobTypes Whether this application serves that listener, or
+   *          <code>null</code>
+   */
+  private static void scopeListenerJobType(
+      final String jobType,
+      final java.util.function.Consumer<String> setJobType,
+      final BpmnModelElementInstance listener,
+      final String workflowModuleId,
+      final String adapterId,
+      final NameClashAvoidanceSupport scoping,
+      final java.util.function.BiPredicate<String, String> servedListenerJobTypes) {
+
+    if ((jobType == null) || jobType.isBlank() || (servedListenerJobTypes == null)) {
+      return;
+    }
+    final var element = Camunda8Connectors.owningElementOf(listener);
+    if (element == null) {
+      return;
+    }
+    final var bpmnProcessId = owningProcessId(element);
+    if (!servedListenerJobTypes.test(bpmnProcessId, jobType)) {
+      return;
+    }
+    setJobType.accept(scoping.scopedTaskDefinition(workflowModuleId, bpmnProcessId, jobType, adapterId));
+
+  }
+
   private static boolean isServedByAnotherRuntime(
       final BpmnModelElementInstance extensionElement,
       final String workflowModuleId,

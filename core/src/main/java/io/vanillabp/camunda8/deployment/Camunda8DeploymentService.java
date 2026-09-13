@@ -36,12 +36,15 @@ import io.vanillabp.camunda8.client.Camunda8TenantCheck;
 import io.vanillabp.camunda8.health.Camunda8Health;
 import io.vanillabp.camunda8.observability.Camunda8Metrics;
 import io.vanillabp.camunda8.wiring.Camunda8AllowConnectorsResolver;
+import io.vanillabp.camunda8.wiring.Camunda8AllowListenersResolver;
 import io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver;
 import io.vanillabp.camunda8.wiring.Camunda8JobHandler;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8Listeners;
+import io.vanillabp.camunda8.wiring.Camunda8ModelledListenerHandler;
 import io.vanillabp.camunda8.wiring.Camunda8MultiInstance;
 import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
 import io.vanillabp.camunda8.wiring.Camunda8Scoping;
@@ -186,6 +189,41 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     return Camunda8AllowConnectorsResolver
         .resolve(allowConnectorsResolver, workflowModuleId, bpmnProcessId);
+
+  }
+
+  /**
+   * What the configuration says about the listeners somebody modelled. <code>null</code>
+   * until a platform module hands one over, which is the default: no listener is served.
+   */
+  private Camunda8AllowListenersResolver allowListenersResolver;
+
+  /**
+   * Hands over how <code>allow-listeners</code> resolves for this adapter instance.
+   *
+   * @param allowListenersResolver The resolver, or <code>null</code> for the default
+   */
+  public void setAllowListenersResolver(
+      final Camunda8AllowListenersResolver allowListenersResolver) {
+
+    this.allowListenersResolver = allowListenersResolver;
+
+  }
+
+  /**
+   * Whether the listeners somebody modelled are served for one BPMN process, and which key
+   * said so.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The PLAIN BPMN process id
+   * @return The setting, never <code>null</code>
+   */
+  private Camunda8AllowListenersResolver.Setting listenersAllowedFor(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    return Camunda8AllowListenersResolver
+        .resolve(allowListenersResolver, workflowModuleId, bpmnProcessId);
 
   }
 
@@ -971,6 +1009,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       // than once per process: after the rewrite below an element cannot be attributed
       // to the process the configuration is keyed by any more
       recordTheElementsAnotherRuntimeServes(workflowModuleId, model, context);
+      // read while the job types of the listeners are still the ones the modeller typed,
+      // and before the listeners VanillaBP writes itself are in the model: wireBpmn adds
+      // those, so a collection after it could not tell the two apart by anything but their
+      // prefix
+      refuseAStartListenerTheClusterRefuses(workflowModuleId, filename, model);
+      readTheListenersTheModelCarries(workflowModuleId, filename, model, context);
       // the names this file declares which the workflow module scopes, read while they are
       // still the ones the application knows: the rewrite below replaces them in the model,
       // and the core is handed the plain ones
@@ -978,7 +1022,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       context
           .recordIdentifiersAModelDeclares(
               Camunda8Scoping.taskDefinitionsOf(model, workflowModuleId, allowConnectorsResolver));
-      Camunda8Scoping.apply(model, workflowModuleId, adapterId, scoping, allowConnectorsResolver);
+      Camunda8Scoping
+          .apply(
+              model, workflowModuleId, adapterId, scoping, allowConnectorsResolver, (
+                  processOfTheListener,
+                  jobType) -> listenersAllowedFor(workflowModuleId, processOfTheListener)
+                      .allowed() && workflowTaskInvoker
+                          .workflowTaskHandlerExists(workflowModuleId, processOfTheListener, jobType));
     }
     context.addResource(filename, model);
     context.recordDeployedProcess(bpmnProcessId);
@@ -1054,6 +1104,19 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             userTask.activityId(),
             plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
+    // a listener somebody modelled is a task like any other one from here on: prepareBpmn
+    // read it while the model was still the modeller's, and routing it through the core's
+    // validation is what gets both directions for free - a listener nothing serves ends the
+    // boot, and a method serving no listener of any wired process is reported
+    final var listenersOfThisProcess = context
+        .getModelledListeners()
+        .stream()
+        .filter(listener -> bpmnProcessId.equals(listener.bpmnProcessId()))
+        .toList();
+    listenersOfThisProcess
+        .stream()
+        .map(listener -> new BpmnTaskSpec(listener.elementId(), listener.taskDefinition()))
+        .forEach(specs::add);
     // the core's validation below knows nothing about element templates, and a Camunda 8
     // sentence in its message would be wrong for every other BPMS. So the adapter says
     // the missing half first, and the developer reads the guidance above the failure
@@ -1061,6 +1124,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       guideTowardsAllowingConnectors(workflowModuleId, bpmnProcessId, scopedBpmnProcessId, model);
     }
     workflowTaskWiring.validateTaskWiring(workflowModuleId, bpmnProcessId, specs);
+    // a listener job is completed the moment the method returns, so a method declaring
+    // @TaskId would wait for a completion nobody can send. Asked of the core here, where a
+    // modeller can still change the model, rather than at the first job
+    refuseAsynchronousListenerMethods(workflowModuleId, bpmnProcessId, listenersOfThisProcess);
     // The same extraction serves the models of OLDER versions the cluster
     // still holds, so both directions see a model the same way
     processVersions.setTasksOfModel(this::taskSpecsOf);
@@ -1436,6 +1503,398 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
+   * Ends the boot over an execution listener the CLUSTER would refuse: a {@code start} listener on
+   * a start event.
+   * <p>
+   * Asked whatever {@code allow-listeners} says, because this is not about who serves the
+   * listener. The cluster refuses the whole FILE over it, so every process the file declares is
+   * lost, and the message a developer would otherwise read comes from the cluster and names a
+   * rule rather than an element. VanillaBP attaches its own listener to a start event on
+   * {@code end} for the same reason.
+   *
+   * @param workflowModuleId The workflow module
+   * @param filename The file, named in the message
+   * @param model The model as it was read
+   */
+  private void refuseAStartListenerTheClusterRefuses(
+      final String workflowModuleId,
+      final String filename,
+      final BpmnModelInstance model) {
+
+    for (final var process : model.getModelElementsByType(Process.class)) {
+      if (!process.isExecutable()) {
+        continue;
+      }
+      final var refused = Camunda8Listeners.listenersTheClusterRefuses(model, process.getId());
+      if (refused.isEmpty()) {
+        continue;
+      }
+      throw new IllegalStateException(
+          """
+              Camunda 8 adapter '%s' does not deploy BPMN file '%s' of workflow module '%s': the \
+              cluster would refuse the file as a whole, and with it every process the file declares. \
+              Its executable process '%s' carries a 'start' execution listener on a START EVENT: %s. \
+              Camunda 8 allows no start listener there. Use the event type 'end' instead, which still \
+              runs before the flow leaves the start event - it is what VanillaBP attaches to a start \
+              event itself."""
+              .formatted(
+                  adapterId,
+                  filename,
+                  workflowModuleId,
+                  process.getId(),
+                  refused
+                      .stream()
+                      .map(Camunda8Listeners.ModelledListener::describe)
+                      .collect(Collectors.joining("; "))));
+    }
+
+  }
+
+  /**
+   * Reads the listeners somebody modelled out of one BPMN file, per executable process, and
+   * either refuses the file or remembers what is to be served.
+   * <p>
+   * Asked while the file is prepared rather than while a process of it is wired, for two
+   * reasons. The job types are still the ones the modeller typed, so a message can quote
+   * them, and the listeners VanillaBP writes itself are not in the model yet - {@code
+   * wireBpmn} adds the user-task lifecycle listeners and the start listeners, and a
+   * collection running after that would have nothing but a prefix to tell the two apart.
+   *
+   * @param workflowModuleId The workflow module
+   * @param filename The file, named in a message
+   * @param model The model as it was read, with the plain process ids still in it
+   * @param context What the module's report is assembled in
+   */
+  private void readTheListenersTheModelCarries(
+      final String workflowModuleId,
+      final String filename,
+      final BpmnModelInstance model,
+      final Camunda8ProcessingContext context) {
+
+    for (final var process : model.getModelElementsByType(Process.class)) {
+      if (!process.isExecutable()) {
+        continue;
+      }
+      final var listeners = Camunda8Listeners.listenersOf(model, process.getId());
+      final var setting = listenersAllowedFor(workflowModuleId, process.getId());
+      if (setting.allowed()) {
+        // remembered even where the process carries no listener at all, so the report can say
+        // that the key is on and nothing of this module uses it
+        context.recordListenersAllowed(process.getId(), setting.propertyKey());
+      }
+      if (listeners.isEmpty()) {
+        continue;
+      }
+      final var served = listeners
+          .stream()
+          .filter(listener -> servesThisListener(workflowModuleId, process.getId(), listener))
+          .toList();
+      // a job type no method of this application names is served by nothing here, and on this
+      // cluster that is not a model the adapter may simply pass over: the cluster creates the job
+      // and the workflow stands at it. So it is named, and the boot goes on - a worker somebody
+      // else runs may well be the answer, and only the application knows
+      sayWhichListenerJobsNothingServes(
+          workflowModuleId,
+          process.getId(),
+          filename,
+          listeners
+              .stream()
+              .filter(listener -> !served.contains(listener))
+              .toList());
+      if (served.isEmpty()) {
+        continue;
+      }
+      if (!setting.allowed()) {
+        throw new IllegalStateException(
+            refuseTheListenersNobodyAllowed(workflowModuleId, process.getId(), filename, served));
+      }
+      final var sharing = Camunda8Listeners.listenersSharingAJobType(served);
+      if (!sharing.isEmpty()) {
+        throw new IllegalStateException(
+            refuseListenersSharingAJobType(workflowModuleId, process.getId(), filename, sharing));
+      }
+      served.forEach(context::recordModelledListener);
+    }
+
+  }
+
+  /**
+   * Whether a {@code @WorkflowTask} method of this application names the listener's job type.
+   * <p>
+   * This is the line which decides whether a listener is this application's business. A job type
+   * is a name in the cluster and anybody may subscribe to it - another application, a connector
+   * runtime, a worker somebody runs beside this one - so a model carrying one says nothing about
+   * who serves it. A method naming it does.
+   * <p>
+   * Only the task-definition route counts: {@code @WorkflowTask(id = ...)} names the ELEMENT, and
+   * one element may carry a task and a listener at once.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The PLAIN BPMN process id
+   * @param listener The listener
+   * @return Whether a method names its job type
+   */
+  private boolean servesThisListener(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final Camunda8Listeners.ModelledListener listener) {
+
+    return (listener.taskDefinition() != null) && workflowTaskInvoker
+        .workflowTaskHandlerExists(workflowModuleId, bpmnProcessId, listener.taskDefinition());
+
+  }
+
+  /**
+   * Names the listeners of a process whose job type nothing of this application serves, and lets
+   * the boot go on.
+   * <p>
+   * A warning rather than a refusal, like the one about an ad-hoc subprocess waiting for a job
+   * worker: the application may well run a worker of its own for that job type, or somebody else
+   * may, and nothing a boot can ask tells the two apart from a model nobody serves. What must not
+   * happen is silence, because the cluster creates the job either way and the workflow stops at it
+   * with no incident and nothing in any log.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The PLAIN BPMN process id
+   * @param filename The file the model was read from
+   * @param listeners The listeners nothing here serves, empty for a model where there are none
+   */
+  private void sayWhichListenerJobsNothingServes(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String filename,
+      final java.util.List<Camunda8Listeners.ModelledListener> listeners) {
+
+    if (listeners.isEmpty()) {
+      return;
+    }
+    log.warn(
+        """
+            Camunda8[{}]: BPMN process '{}' of workflow module '{}' (file '{}') carries {} \
+            listener(s) whose job type no @WorkflowTask method of this application names: {}. The \
+            cluster creates a job for every one of them, so a workflow reaching the element stands \
+            there until something with that job type takes the job - with no incident and nothing in \
+            any log. Either write a @WorkflowTask method named after the job type and set '{}', or \
+            make sure a worker of your own subscribes to it.""",
+        adapterId,
+        bpmnProcessId,
+        workflowModuleId,
+        filename,
+        listeners.size(),
+        listeners
+            .stream()
+            .map(Camunda8Listeners.ModelledListener::describe)
+            .collect(Collectors.joining("; ")),
+        Camunda8Listeners.propertyKeyOf(adapterId));
+
+  }
+
+  /**
+   * The message which ends a boot over a model whose listeners nobody allowed.
+   * <p>
+   * Here the adapter refuses rather than leaving it to the core's wiring validation, which is
+   * what {@link #guideTowardsAllowingConnectors} does: a connector is an element VanillaBP is
+   * asked to LEAVE ALONE, so the validation finds a task nothing serves and ends the boot by
+   * itself. A listener is the other way round - the key asks VanillaBP to serve something, and
+   * without it there is no task spec, nothing for the validation to miss, and the workflow
+   * would stop at the listener's job on the cluster with nothing in the log. So the refusal is
+   * written here, in the words the report uses.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The PLAIN BPMN process id, which is what a property key names
+   * @param filename The file the model was read from
+   * @param listeners What the model carries
+   * @return The message
+   */
+  private String refuseTheListenersNobodyAllowed(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String filename,
+      final java.util.List<Camunda8Listeners.ModelledListener> listeners) {
+
+    return """
+        BPMN process '%s' of workflow module '%s' (file '%s') carries %d listener(s) somebody \
+        modelled whose job type a @WorkflowTask method of this application names: %s. VanillaBP 1 \
+        served such a listener and said nothing about it. This version does not serve it until you \
+        ask for it, because the cluster creates a job for every one of them and a job type nothing \
+        subscribes to stops the workflow right there - no incident, no message. Ask for it at one of \
+        three levels, the most specific configured one winning:
+        %s
+        What it costs: %s
+        %s
+        %s
+        Only a listener a @WorkflowTask method names is this message about. A listener VanillaBP or \
+        one of its extensions writes is never among them either: those carry a job type starting with \
+        '%s' and are served whatever this key says."""
+        .formatted(
+            bpmnProcessId,
+            workflowModuleId,
+            filename,
+            listeners.size(),
+            listeners
+                .stream()
+                .map(Camunda8Listeners.ModelledListener::describe)
+                .collect(Collectors.joining("; ")),
+            Camunda8Listeners.levelsOf(adapterId, workflowModuleId, bpmnProcessId),
+            Camunda8Listeners.WHAT_IT_COSTS,
+            Camunda8Listeners.WHAT_CAMUNDA8_ADDS,
+            Camunda8Listeners.WHICH_METHOD_SERVES_WHICH,
+            Camunda8Listeners.VANILLABP_JOB_TYPE_PREFIX);
+
+  }
+
+  /**
+   * The message which ends a boot where one element carries two served listeners under one job
+   * type.
+   * <p>
+   * This is the defect version 1 left open, from the other side: there two listeners of one
+   * element became two entries with the same identity and which of them ran was undefined.
+   * Here they would become one task served by one method, called for two events, and nothing
+   * it could ask would say which event it is in - {@code TaskEvent.Event} has no value for a
+   * listener's event. A job type per event is the fix, and naming the case is better than
+   * picking one of them.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The PLAIN BPMN process id
+   * @param filename The file the model was read from
+   * @param sharing Per element and job type the listeners sharing it
+   * @return The message
+   */
+  private String refuseListenersSharingAJobType(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String filename,
+      final java.util.List<java.util.List<Camunda8Listeners.ModelledListener>> sharing) {
+
+    return """
+        BPMN process '%s' of workflow module '%s' (file '%s') has one element carrying several \
+        listeners under ONE job type: %s. One @WorkflowTask method would serve all of them and \
+        nothing would tell it which event it is being called for, because the event is part of a \
+        listener's identity and TaskEvent.Event has no value for it. Give every listener of an \
+        element a job type of its own and write a method per job type."""
+        .formatted(
+            bpmnProcessId,
+            workflowModuleId,
+            filename,
+            sharing
+                .stream()
+                .map(listeners -> listeners
+                    .stream()
+                    .map(Camunda8Listeners.ModelledListener::describe)
+                    .collect(Collectors.joining(" and ")))
+                .collect(Collectors.joining("; ")));
+
+  }
+
+  /**
+   * Ends the boot where a method serving a listener declares {@code @TaskId}.
+   * <p>
+   * The cluster completes a listener job when the handler returns - the transition the
+   * listener sits in waits for nothing else - so a method which wants to keep the task open
+   * would wait for a completion no application can send. Version 1 accepted such a method and
+   * the workflow went on without it.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The PLAIN BPMN process id
+   * @param listeners The listeners of this process
+   */
+  private void refuseAsynchronousListenerMethods(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final java.util.List<Camunda8Listeners.ModelledListener> listeners) {
+
+    listeners
+        .stream()
+        .filter(listener -> workflowTaskWiring.workflowTaskCompletesAsynchronously(
+            workflowModuleId,
+            bpmnProcessId,
+            listener.taskDefinition()))
+        .findFirst()
+        .ifPresent(listener -> {
+          throw new IllegalStateException(
+              """
+                  The @WorkflowTask method serving the listener '%s' (BPMN process '%s' of workflow \
+                  module '%s') declares a @TaskId parameter! A listener job is completed the moment \
+                  the method returns, so such a task can never stay open and the id would complete \
+                  nothing. Drop the parameter, or model the work as a task of the process where it \
+                  has to stay open."""
+                  .formatted(listener.taskDefinition(), bpmnProcessId, workflowModuleId));
+        });
+
+  }
+
+  /**
+   * The report a workflow module whose modelled listeners are served writes on EVERY boot,
+   * once, after every BPMN file of it has been read.
+   * <p>
+   * Framed and shaped like {@link #reportWhatConnectorsCost}, and for the same reason: one
+   * record rather than one per listener, and no key which silences it. What it says stays true
+   * for as long as the listener is in the model, so a key turning it off would only make the
+   * loss invisible. See decision 27 in the repository's DECISIONS.md.
+   *
+   * @param workflowModuleId The workflow module
+   * @param context The module's accumulated pipeline state
+   */
+  void reportWhatListenersCost(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext context) {
+
+    final var allowedBy = context.getListenersAllowedBy();
+    if (allowedBy.isEmpty()) {
+      return;
+    }
+    final var switchedOnBy = allowedBy
+        .values()
+        .stream()
+        .filter(Objects::nonNull)
+        .distinct()
+        .collect(Collectors.joining(", "));
+    if (context.getModelledListeners().isEmpty()) {
+      log.warn(
+          "Camunda8[{}]: the listeners of workflow module '{}' are served ({}), and no model of it "
+              + "carries one. Set '{}: false' where you do not need the switch.",
+          adapterId,
+          workflowModuleId,
+          switchedOnBy,
+          Camunda8Listeners.propertyKeyOf(adapterId));
+      return;
+    }
+    log.warn(
+        """
+
+            {}
+            MODELLED LISTENERS ARE SERVED: WORKFLOW MODULE '{}', CAMUNDA 8 ADAPTER '{}'
+            {}
+            Switched on by: {}
+            VanillaBP serves the following listener(s) with a @WorkflowTask method, one method per \
+            listener:
+            {}
+            {}
+            {}
+            {}
+            The way back: move what the listener does into a task of the model with a @WorkflowTask \
+            method behind it, or set '{}: false'.
+            {}""",
+        Camunda8Listeners.FRAME_LINE,
+        workflowModuleId,
+        adapterId,
+        Camunda8Listeners.FRAME_LINE,
+        switchedOnBy,
+        context
+            .getModelledListeners()
+            .stream()
+            .map(listener -> "  "
+                + listener.describe())
+            .collect(Collectors.joining("\n")),
+        Camunda8Listeners.WHAT_IT_COSTS,
+        Camunda8Listeners.WHAT_CAMUNDA8_ADDS,
+        Camunda8Listeners.WHICH_METHOD_SERVES_WHICH,
+        Camunda8Listeners.propertyKeyOf(adapterId),
+        Camunda8Listeners.FRAME_LINE);
+
+  }
+
+  /**
    * Says that a BPMN process still carries user tasks in the shape VanillaBP 1 modelled
    * them up to its release 1.6.3, and how many of them are open on the cluster right
    * now.
@@ -1612,6 +2071,23 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             userTask.activityId(),
             plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.externalFormReference())))
         .forEach(specs::add);
+    // the listeners of a version the cluster still holds are tasks here as well, so a method
+    // serving one of them is not reported as unwired while workflows still run on that version.
+    // Only where the key allows them: a held model's listener which nobody asked to serve is
+    // nothing this application ever had a method for
+    if (listenersAllowedFor(workflowModuleId, bpmnProcessId).allowed()) {
+      Camunda8Listeners
+          .listenersOf(model, scopedBpmnProcessId)
+          .stream()
+          .map(listener -> new BpmnTaskSpec(
+              listener.elementId(), plainTaskDefinition(workflowModuleId, bpmnProcessId, listener.taskDefinition())))
+          // the same gate the deployed model passes: only a listener a method names is a task of
+          // this application, and a held model may carry one nobody here ever served
+          .filter(
+              spec -> (spec.taskDefinition() != null) && workflowTaskInvoker
+                  .workflowTaskHandlerExists(workflowModuleId, bpmnProcessId, spec.taskDefinition()))
+          .forEach(specs::add);
+    }
     return specs;
 
   }
@@ -1783,6 +2259,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // last, and after every file of the module has been read, so the report names every
     // element at once instead of one warning per file
     reportWhatConnectorsCost(workflowModuleId, bpmsProcessingContext);
+
+    // and what the listeners somebody modelled cost, the same way
+    reportWhatListenersCost(workflowModuleId, bpmsProcessingContext);
 
   }
 
@@ -2187,6 +2666,64 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           "Camunda8[{}]: opened user-task listener worker for '{}' of workflow module '{}'",
           adapterId,
           listenerJobType,
+          workflowModuleId);
+    });
+
+    // the listeners somebody modelled: one worker per distinct job type, the same way the
+    // user-task listeners above get theirs. The records carry the PLAIN names, because the
+    // configuration is keyed by those, so the job type is scoped back here
+    final var modelledListenersByJobType = new LinkedHashMap<String, List<String>>();
+    bpmsProcessingContext
+        .getModelledListeners()
+        .forEach(listener -> {
+          final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, listener.bpmnProcessId());
+          final var scopedJobType = scoping == null
+              ? listener.taskDefinition()
+              : scoping.scopedTaskDefinition(
+                  workflowModuleId,
+                  listener.bpmnProcessId(),
+                  listener.taskDefinition(),
+                  adapterId);
+          modelledListenersByJobType
+              .computeIfAbsent(scopedJobType, key -> new LinkedList<>())
+              .add(scopedBpmnProcessId);
+          servedByJobType
+              .computeIfAbsent(scopedJobType, key -> new LinkedList<>())
+              .add(new ServedElement(scopedBpmnProcessId, listener.elementId(), listener.taskDefinition()));
+        });
+    modelledListenersByJobType.forEach((
+        jobType,
+        scopedBpmnProcessIds) -> {
+      final var listenerFetch = fetchVariablesOf(workflowModuleId, servedByJobType.get(jobType));
+      var builder = applyFetchVariables(applyWorkerOptions(client
+          .newWorker()
+          .jobType(jobType)
+          .handler(Camunda8ModelledListenerHandler
+              .builder()
+              .adapterId(adapterId)
+              .workflowModuleId(workflowModuleId)
+              .workflowTaskInvoker(workflowTaskInvoker)
+              .scoping(scoping)
+              .multiInstanceRegistry(multiInstanceRegistry)
+              .drain(drain)
+              .fetchVariables(listenerFetch)
+              .retryBackoffResolver(retryBackoffResolver)
+              .build())
+          .timeout(listenerLockOf(workflowModuleId, scopedBpmnProcessIds, "modelled listener", jobType))
+          .name("vanillabp-%s-%s".formatted(adapterId, jobType)), jobType),
+          workflowModuleId,
+          "modelled listener",
+          jobType,
+          listenerFetch);
+      final var listenerTenantId = tenantIdOf(workflowModuleId);
+      if (listenerTenantId != null) {
+        builder = builder.tenantId(listenerTenantId);
+      }
+      bpmsProcessingContext.getOpenWorkers().add(builder.open());
+      log.info(
+          "Camunda8[{}]: opened listener worker for '{}' of workflow module '{}'",
+          adapterId,
+          jobType,
           workflowModuleId);
     });
 

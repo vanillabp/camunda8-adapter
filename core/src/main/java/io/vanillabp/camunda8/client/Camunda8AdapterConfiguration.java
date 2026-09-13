@@ -55,6 +55,10 @@ import lombok.Setter;
  *       workflow module and workflow) - whether an element built from an element template
  *       is left to the runtime which owns it, see
  *       {@link io.vanillabp.camunda8.wiring.Camunda8Connectors}</li>
+ *   <li>{@code .allow-listeners} (optional, default {@code false}, resolvable per
+ *       workflow module and workflow) - whether the listeners somebody modelled are served
+ *       by {@code @WorkflowTask} methods, see
+ *       {@link io.vanillabp.camunda8.wiring.Camunda8Listeners}</li>
  *   <li>{@code .health-timeout} (optional, default {@value #DEFAULT_HEALTH_TIMEOUT_ISO}) -
  *       how long the health check waits for the cluster's topology, see
  *       {@link #healthTimeout}</li>
@@ -177,6 +181,25 @@ public class Camunda8AdapterConfiguration {
    * decided by the model instead, by <code>zeebe:modelerTemplate</code> on the element.
    */
   private boolean allowConnectors = false;
+
+  /**
+   * Whether the listeners somebody MODELLED are served by <code>@WorkflowTask</code> methods.
+   * Adapter-level base of the most-specific-wins resolution over three levels (workflow &gt;
+   * workflow-module &gt; adapter), see
+   * {@link io.vanillabp.camunda8.wiring.Camunda8AllowListenersResolver}. Default
+   * <code>false</code>.
+   * <p>
+   * Without it a model carrying such a listener does not boot: the cluster creates a job for
+   * every listener and a job type nothing subscribes to stops the workflow there with no
+   * incident and no message, which is worse than a boot which says so. With it the listener is
+   * a task like any other - a method is asked for and a method serving no listener is reported
+   * - and what that costs is written into the boot log of every workflow module it applies to.
+   * <p>
+   * There is deliberately no TASK level, although the keys next to this one have one: that
+   * level is keyed by a task DEFINITION, and whether a listener becomes a task at all is what
+   * this key decides.
+   */
+  private boolean allowListeners = false;
 
   /**
    * How long the lock of a job left open by a <code>&#64;TaskId</code> handler is

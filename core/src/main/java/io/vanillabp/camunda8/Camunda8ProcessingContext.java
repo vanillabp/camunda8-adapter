@@ -11,6 +11,7 @@ import java.util.Set;
 import io.camunda.client.api.worker.JobWorker;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
+import io.vanillabp.camunda8.wiring.Camunda8Listeners;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import lombok.Getter;
@@ -202,6 +203,48 @@ public class Camunda8ProcessingContext {
       final Camunda8Connectors.ElementServedByAnotherRuntime element) {
 
     elementsServedByAnotherRuntime.add(element);
+
+  }
+
+  /**
+   * The listeners of this module's models which somebody modelled and this application
+   * serves, collected while the BPMN files are prepared - the list the startup report names
+   * one by one, see {@link Camunda8Listeners}.
+   */
+  @Getter
+  private final List<Camunda8Listeners.ModelledListener> modelledListeners = new LinkedList<>();
+
+  /**
+   * Per BPMN process of this module which allows listeners, the property key which said so.
+   * Kept per process for the reason {@link #connectorsAllowedBy} is.
+   */
+  @Getter
+  private final Map<String, String> listenersAllowedBy = new LinkedHashMap<>();
+
+  /**
+   * Remembers that the listeners somebody modelled are served for one BPMN process of this
+   * module.
+   *
+   * @param bpmnProcessId The PLAIN BPMN process id
+   * @param propertyKey The key which decided it, or <code>null</code>
+   */
+  public void recordListenersAllowed(
+      final String bpmnProcessId,
+      final String propertyKey) {
+
+    listenersAllowedBy.put(bpmnProcessId, propertyKey);
+
+  }
+
+  /**
+   * Remembers one listener of this module which an application method serves.
+   *
+   * @param listener The listener
+   */
+  public void recordModelledListener(
+      final Camunda8Listeners.ModelledListener listener) {
+
+    modelledListeners.add(listener);
 
   }
 
