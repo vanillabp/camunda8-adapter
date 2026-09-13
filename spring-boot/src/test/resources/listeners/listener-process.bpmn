@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="Definitions_ModelledListeners" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="ListenerProcess" isExecutable="true">
+    <bpmn:startEvent id="ListenerStart">
+      <bpmn:outgoing>ListenerFlow_1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="ListenerFlow_1" sourceRef="ListenerStart" targetRef="Activity_Work" />
+    <bpmn:serviceTask id="Activity_Work" name="Do the work">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="doTheWork" />
+        <zeebe:executionListeners>
+          <zeebe:executionListener eventType="end" type="auditTheWork" />
+        </zeebe:executionListeners>
+      </bpmn:extensionElements>
+      <bpmn:incoming>ListenerFlow_1</bpmn:incoming>
+      <bpmn:outgoing>ListenerFlow_2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="ListenerFlow_2" sourceRef="Activity_Work" targetRef="ListenerEnd" />
+    <bpmn:endEvent id="ListenerEnd">
+      <bpmn:extensionElements>
+        <zeebe:executionListeners>
+          <zeebe:executionListener eventType="end" type="archiveTheOrder" />
+        </zeebe:executionListeners>
+      </bpmn:extensionElements>
+      <bpmn:incoming>ListenerFlow_2</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>

@@ -194,7 +194,8 @@ public class Camunda8ConnectorsTest {
 
     final var model = model(A_CONNECTOR_AND_AN_ORDINARY_TASK);
 
-    Camunda8Scoping.apply(model, MODULE, "c8", TestScoping.of(NameClashAvoidance.USE_PREFIX), CONNECTORS_ARE_ALLOWED);
+    Camunda8Scoping
+        .apply(model, MODULE, "c8", TestScoping.of(NameClashAvoidance.USE_PREFIX), CONNECTORS_ARE_ALLOWED, null);
 
     assertEquals(
         List.of("io.camunda:http-json:1", "test-module__TestProcess__approve"),
@@ -209,7 +210,8 @@ public class Camunda8ConnectorsTest {
 
     final var model = model(A_CONNECTOR_AND_AN_ORDINARY_TASK);
 
-    Camunda8Scoping.apply(model, MODULE, "c8", TestScoping.of(NameClashAvoidance.USE_PREFIX), null);
+    Camunda8Scoping
+        .apply(model, MODULE, "c8", TestScoping.of(NameClashAvoidance.USE_PREFIX), null, null);
 
     assertEquals(
         List.of("test-module__TestProcess__io.camunda:http-json:1", "test-module__TestProcess__approve"),
@@ -236,7 +238,8 @@ public class Camunda8ConnectorsTest {
                 </bpmn:serviceTask>
             """);
 
-    Camunda8Scoping.apply(model, MODULE, "c8", TestScoping.of(NameClashAvoidance.USE_PREFIX), CONNECTORS_ARE_ALLOWED);
+    Camunda8Scoping
+        .apply(model, MODULE, "c8", TestScoping.of(NameClashAvoidance.USE_PREFIX), CONNECTORS_ARE_ALLOWED, null);
 
     assertEquals(
         List.of("io.camunda.agenticai:aiagent-job-worker:1", "test-module__TestProcess__approve"),
@@ -264,7 +267,8 @@ public class Camunda8ConnectorsTest {
             </bpmn:userTask>
         """);
 
-    Camunda8Scoping.apply(model, MODULE, "c8", TestScoping.of(NameClashAvoidance.USE_PREFIX), CONNECTORS_ARE_ALLOWED);
+    Camunda8Scoping
+        .apply(model, MODULE, "c8", TestScoping.of(NameClashAvoidance.USE_PREFIX), CONNECTORS_ARE_ALLOWED, null);
 
     final var references = model
         .getModelElementsByType(ZeebeFormDefinition.class)
