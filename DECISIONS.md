@@ -27,6 +27,12 @@ writing there would overwrite what a form or a task list put into the instance. 
 listener the cluster discards such variables anyway, which is why entry 27 has the report say so
 out loud.
 
+That is the way OUT, and it is the same for both. The way IN is not, and the difference is worth
+knowing: the listeners VanillaBP writes itself need nothing of the instance, so their workers fetch
+no variable at all, while a listener somebody modelled is served by a `@WorkflowTask` method which
+may declare `@TaskParam`, so its worker fetches exactly what that method asks for. A user's listener
+therefore sees more than zero variables and still writes none back.
+
 ### 2. Workflow modules are kept apart by scoping the identifiers
 
 The cluster is always addressed with the SCOPED identifiers - process ids, message and signal
