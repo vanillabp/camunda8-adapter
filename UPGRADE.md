@@ -70,13 +70,17 @@ needs to know.
 the moment the method returns, so such a task can never stay open and the id would complete nothing.
 Version 1 accepted the method and the workflow went on without it.
 
-**Variable updates were already lost, and now it is said out loud.** The cluster discards what a
-listener job sends back, so a listener method which changes the workflow aggregate loses the change.
-Version 1 suppressed that silently; this version still cannot detect it, because no method signature
-shows whether a method writes the aggregate, so the startup report says it for every served listener.
-The change reaches the cluster at the next real sync point of that workflow, or never. The Camunda 7
-adapter does not have this loss: there the shared values are written onto the execution inside the
-engine's own transaction.
+**What a listener method may write into the process instance depends on the listener.** An execution
+listener on `end` completes the way a task completes, so a method serving it may change the workflow
+aggregate and a gateway behind the element decides on what it wrote. An execution listener on `start`
+writes nothing into the instance: the cluster would keep those values local to the element, where
+they shadow the process variables of the same name and swallow the element's own writes of that name,
+so model a task of the process where something has to be written. A task listener writes nothing
+either, because the cluster refuses a completion carrying variables and names its issue 23702. In the
+latter two the change is kept by your application and reaches the cluster at the next real sync point
+of that workflow. No method signature shows whether a method writes the aggregate, so the startup
+report says this for every served listener. On Camunda 7 every listener writes the shared values onto
+the execution inside the engine's own transaction.
 
 **Two listeners of one element under ONE job type end the boot naming both.** Version 1 ran one of them
 and which one was undefined, so the model said something it could not deliver. Give every listener of an

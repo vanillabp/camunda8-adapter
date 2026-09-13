@@ -156,8 +156,9 @@ public class Camunda8ListenersReportTest {
     assertTrue(logged.contains("stops being portable"), () -> "what it costs the model: "
         + logged);
     assertTrue(
-        logged.contains("carries nothing back"),
-        () -> "and what only Camunda 8 costs: a listener cannot write variables: "
+        logged.contains("What a listener method may write into the process instance depends"),
+        () -> "and what only Camunda 8 has to say: which of its listeners writes into the process "
+            + "instance and which of them does not: "
             + logged);
     assertTrue(
         logged.contains("TaskEvent.Event has no value"),

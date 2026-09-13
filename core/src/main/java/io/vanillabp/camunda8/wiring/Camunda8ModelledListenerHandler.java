@@ -1,13 +1,17 @@
 package io.vanillabp.camunda8.wiring;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.search.enums.JobKind;
+import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.camunda.client.api.worker.JobHandler;
 import io.vanillabp.camunda8.client.Camunda8CommandRetry;
 import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
@@ -42,10 +46,26 @@ import lombok.extern.slf4j.Slf4j;
  *
  * <h2>What the completion carries</h2>
  *
- * Nothing, the way decision 1 in the repository's DECISIONS.md puts it for the user-task
- * listeners: the cluster ignores variables a listener sends back. A listener method which
- * changes the workflow aggregate loses the change, and the startup report says so, because
- * no signature shows whether a method does that.
+ * Three cases, and the job says which one it is.
+ * <p>
+ * An EXECUTION listener on {@code end} completes like a service task: the values the
+ * workflow aggregate shares plus the aggregate-ID variable, and the cluster puts them into
+ * the process instance. So a method serving such a listener may change the aggregate and the
+ * gateway behind the element decides on what it wrote (see decision 1 in the repository's
+ * DECISIONS.md).
+ * <p>
+ * An EXECUTION listener on {@code start} completes with nothing. Variables of that
+ * completion would not reach the process instance: the cluster keeps them local to the
+ * element, the local copy then swallows every later write of the same name from inside the
+ * element - the element's own job included - and it dies with the element. Sending the
+ * aggregate there would cost the element's own task its values without a word. Whoever has
+ * to write into the process models a task of the process.
+ * <p>
+ * A TASK listener completes with nothing either, and that one is not a choice: the cluster
+ * answers a task-listener completion carrying variables with INVALID_ARGUMENT, saying the
+ * payload is not supported yet and naming its issue 23702. The day it is supported,
+ * {@code Camunda8TaskListenerVariablesCanaryIT} of the spring-boot module turns red to
+ * report it, and this is the place which then decides what such a listener may write.
  */
 @Slf4j
 public class Camunda8ModelledListenerHandler implements JobHandler {
@@ -179,8 +199,7 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
                 + "change the path.")
                 .formatted(taskDefinition, bpmnProcessId, workflowModuleId));
       }
-      // the cluster discards variables a listener sends back, so the completion carries
-      // none - see decision 1 in the repository's DECISIONS.md
+      final var variables = whatTheCompletionCarries(job, bpmnProcessId, aggregateIdName, aggregateId);
       Camunda8CommandRetry.send(
           adapterId,
           "completion",
@@ -188,10 +207,18 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
           taskDefinition,
           job.getDeadline(),
           drain::isShuttingDown,
-          () -> client
-              .newCompleteCommand(job.getKey())
-              .send()
-              .join());
+          () -> {
+            var completion = client.newCompleteCommand(job.getKey());
+            // a listener which carries nothing is completed without a variables payload at
+            // all, rather than with an empty one: what the cluster refuses on a task listener
+            // is the payload itself
+            if (!variables.isEmpty()) {
+              completion = completion.variables(variables);
+            }
+            completion
+                .send()
+                .join();
+          });
     } catch (final Exception e) {
       // work cut off by a shutdown is not a defect of the application, and the job is left
       // to its lock so the next instance of it gets the listener
@@ -226,6 +253,48 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
     } finally {
       drain.jobFinished(job.getKey());
     }
+
+  }
+
+  /**
+   * The variables the completion of this listener job carries, which depends on the kind of
+   * listener and on its event.
+   * <p>
+   * Only an execution listener on {@code end} carries anything, and what it carries is what a
+   * service task carries: the shared values of the workflow aggregate, read after the method's
+   * transaction committed, plus the aggregate-ID variable (see decision 1 in the repository's
+   * DECISIONS.md). The other two carry nothing, for two different reasons - a local scope
+   * which would swallow the element's own writes, and a cluster which refuses the payload.
+   * <p>
+   * A job whose kind or event the client does not know falls to the empty map. Sending
+   * nothing leaves the process instance as it was, while sending into a scope nobody checked
+   * can take values with it.
+   *
+   * @param job The listener job
+   * @param bpmnProcessId The plain BPMN process id
+   * @param aggregateIdName The name of the aggregate's ID property
+   * @param aggregateId The aggregate's ID as it arrived in the job's variables
+   * @return The variables, empty where the completion carries none (never <code>null</code>)
+   */
+  private Map<String, Object> whatTheCompletionCarries(
+      final ActivatedJob job,
+      final String bpmnProcessId,
+      final String aggregateIdName,
+      final Object aggregateId) {
+
+    if ((job.getKind() != JobKind.EXECUTION_LISTENER) || (job.getListenerEventType() != ListenerEventType.END)) {
+      return Map.of();
+    }
+    final var variables = new LinkedHashMap<String, Object>(
+        // read in a transaction of its own, after the method's one committed, and never
+        // throwing: a failed read yields an empty map, exactly as for a service task
+        workflowTaskInvoker.syncedWorkflowAggregateValues(
+            workflowModuleId,
+            bpmnProcessId,
+            String.valueOf(aggregateId),
+            Camunda8ProcessService.SYNC_MODE));
+    variables.put(aggregateIdName, String.valueOf(aggregateId));
+    return variables;
 
   }
 

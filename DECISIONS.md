@@ -20,18 +20,29 @@ the sync model says. Beside it travel the values the aggregate shares, because a
 behind a service task decides on what the handler just computed. Nothing else does: a
 correlated message carries no content of its own.
 
-The commands which carry NO variables at all are the completions of a LISTENER job: the
-user-task lifecycle listeners VanillaBP writes itself, and the listeners somebody modelled which
-entry 27 is about. None of them advances the process - the element stays where it is - and
-writing there would overwrite what a form or a task list put into the instance. On a modelled
-listener the cluster discards such variables anyway, which is why entry 27 has the report say so
-out loud.
+A LISTENER job splits this into three cases, and the job itself says which one applies. An
+execution listener on `end` completes exactly like a service task, with the shared values and the
+aggregate-ID variable. They reach the process instance, so a gateway behind the element decides on
+what the method wrote. The listener of a BPMS-initiated start has always completed that way, and a
+listener somebody modelled does so too, which is what entry 27 is about.
 
-That is the way OUT, and it is the same for both. The way IN is not, and the difference is worth
-knowing: the listeners VanillaBP writes itself need nothing of the instance, so their workers fetch
-no variable at all, while a listener somebody modelled is served by a `@WorkflowTask` method which
-may declare `@TaskParam`, so its worker fetches exactly what that method asks for. A user's listener
-therefore sees more than zero variables and still writes none back.
+An execution listener on `start` completes with nothing. The cluster keeps the variables of such a
+completion local to the element. There they shadow the process variables of the same name, they
+swallow every later write of that name from inside the element - the element's own job included -
+and they die with the element. So sending the aggregate would take the element's own task's values
+with it. Measured against cluster and client 8.9.19 in September 2026.
+
+A task listener completes with nothing as well, and there is nothing to weigh up: the cluster
+refuses a task-listener completion carrying variables, names its issue 23702 and says the payload
+is not supported yet. The user-task lifecycle listeners VanillaBP writes itself are those jobs, and
+their job would be the wrong place in any case - it gates a transition of a task which stays in the
+cluster, and writing there would overwrite what a form or a task list put into the instance.
+
+That is the way OUT. The way IN is a separate question, and the difference is worth knowing: the
+listeners VanillaBP writes itself need nothing of the instance, so their workers fetch no variable
+at all, while a listener somebody modelled is served by a `@WorkflowTask` method which may declare
+`@TaskParam`, so its worker fetches exactly what that method asks for. A user's listener therefore
+sees more than zero variables, and what it may write back is the question above.
 
 ### 2. Workflow modules are kept apart by scoping the identifiers
 
@@ -801,20 +812,25 @@ ends the boot as well, since the cluster completes a listener job the moment the
 the task can never stay open, and a method throwing `TaskException` is answered with the reason rather
 than with an incident: the cluster is inside a transition of its own and has no token to route.
 
+What a method may write into the process instance depends on the listener, in the three cases
+decision 1 lists. An execution listener on `end` completes like a task, so such a method may change
+the workflow aggregate and the process sees it. An execution listener on `start` and a task listener
+complete with nothing, so a change of theirs is kept by the application and reaches the cluster at
+the next real sync point of that workflow. No signature shows whether a method changes the aggregate,
+so nothing here can detect which of the three a given method is in, which is why the report says it
+for every served listener.
+
 The default is off because of what serving a listener costs. A listener is where a BPMS lets an
 application in at a moment the BPMS owns, and every BPMS draws that moment differently, so the model
 stops being portable: another BPMS has no listener at this element and a migration of the model stops
 at the method serving it. The Process-Engine-API has no listener concept at all, which is gap 16 and
-gap 17 of that adapter's `GAPS.md`. Camunda 8 adds a loss of its own, the one decision 1 describes for
-the listeners VanillaBP writes: the cluster discards what a listener sends back, so the completion
-carries no variables and a method which changes the workflow aggregate loses the change. No signature
-shows whether a method does that, so nothing here can detect it, and the change reaches the cluster at
-the next real sync point of that workflow or never. So every boot of a workflow module whose listeners
-are served writes one framed WARN naming each served listener, the key which switched it on, what it
-costs and the way back, and no key silences it: what it says stays true for as long as the listener is
-in the model, and a key turning it off would only make the loss invisible.
+gap 17 of that adapter's `GAPS.md`. So every boot of a workflow module whose listeners are served
+writes one framed WARN naming each served listener, the key which switched it on, what it costs and
+the way back, and no key silences it: what it says stays true for as long as the listener is in the
+model, and a key turning it off would only hide what serving one means.
 
-`Camunda8ListenersTest` holds what is read out of a model and what a pair of listeners amounts to, and
-`Camunda8ListenersReportTest` the report of a boot together with the refusals.
+`Camunda8ListenersTest` holds what is read out of a model and what a pair of listeners amounts to,
+`Camunda8ListenersReportTest` the report of a boot together with the refusals, and
+`Camunda8ModelledListenerHandlerTest` the three cases of what a completion carries.
 
 See [Listeners somebody modelled](./README.md#listeners-somebody-modelled).

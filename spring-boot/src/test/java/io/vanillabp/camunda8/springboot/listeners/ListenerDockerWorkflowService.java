@@ -38,13 +38,52 @@ public class ListenerDockerWorkflowService {
   }
 
   /**
-   * The <code>end</code> execution listener of the service task.
+   * The <code>start</code> execution listener of the service task. Its completion carries no
+   * variables, so this flag reaches the database and the cluster learns of it at the next sync
+   * point, which is the completion of the task itself.
+   */
+  @WorkflowTask(taskDefinition = "prepareTheWork")
+  public void prepareTheWork(
+      final ListenerDockerAggregate aggregate) {
+
+    aggregate.setTheWorkWasPrepared(true);
+
+  }
+
+  /**
+   * The <code>end</code> execution listener of the service task, and the method the gateway
+   * behind the task depends on: this flag is false in the cluster until this method sets it, so
+   * the process only takes the flow to {@link #confirmTheAudit} when the completion of this
+   * listener really carried the shared values.
    */
   @WorkflowTask(taskDefinition = "auditTheWork")
   public void auditTheWork(
       final ListenerDockerAggregate aggregate) {
 
     aggregate.setTheWorkWasAudited(true);
+
+  }
+
+  /**
+   * The task the gateway takes where the process instance saw what the end listener wrote.
+   */
+  @WorkflowTask(taskDefinition = "confirmTheAudit")
+  public void confirmTheAudit(
+      final ListenerDockerAggregate aggregate) {
+
+    aggregate.setTheProcessSawTheAudit(true);
+
+  }
+
+  /**
+   * The task the gateway takes otherwise, so a lost value fails the test with a flag saying
+   * which way the process went rather than with a timeout.
+   */
+  @WorkflowTask(taskDefinition = "reportTheLoss")
+  public void reportTheLoss(
+      final ListenerDockerAggregate aggregate) {
+
+    aggregate.setTheProcessMissedTheAudit(true);
 
   }
 

@@ -10,12 +10,14 @@ import lombok.Setter;
 
 /**
  * JPA workflow aggregate of the modelled-listener integration test. Each flag is set by one
- * method, so the test can tell from the database which of the three elements reached the
- * application: the task, the listener of the task and the listener of the end event.
+ * method, so the test can tell from the database which element reached the application: the
+ * task, its two listeners, the listener of the end event and the task the gateway chose.
  * <p>
- * The flags survive although the cluster discards what a listener job sends back: VanillaBP
- * saves the aggregate in the application's own transaction, and only the cluster's copy of the
- * values is lost.
+ * Every flag reaches the database whatever the cluster does with it, because VanillaBP saves the
+ * aggregate in the application's own transaction. Which of them the cluster also sees is the
+ * other half of the test: {@code theWorkWasAudited} is written by an execution listener on
+ * {@code end}, whose completion carries the shared values, so the gateway behind the task
+ * decides on it.
  */
 @Entity
 @Table(name = "C8_LISTENER_AGGREGATE")
@@ -32,5 +34,11 @@ public class ListenerDockerAggregate {
   private boolean theWorkWasAudited;
 
   private boolean theOrderWasArchived;
+
+  private boolean theWorkWasPrepared;
+
+  private boolean theProcessSawTheAudit;
+
+  private boolean theProcessMissedTheAudit;
 
 }

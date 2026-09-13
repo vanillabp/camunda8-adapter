@@ -19,6 +19,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.search.enums.JobKind;
+import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.vanillabp.camunda8.TestScoping;
 import io.vanillabp.camunda8.client.Camunda8Drain;
@@ -33,10 +35,13 @@ import io.vanillabp.spi.service.TaskEvent;
  * What the job of a listener somebody modelled tells the application's method, and what it
  * sends back to the cluster.
  * <p>
- * The two things worth pinning are the ones version 1 got wrong. The completion carries no
- * variables, because the cluster discards them for a listener, and the event the method sees
- * is the only value which reaches a method at all: a method without a
- * <code>@TaskEvent</code> parameter subscribes to CREATED alone.
+ * What it sends back has three cases and they are pinned one test each, because each of them
+ * rests on a different reason: an execution listener on <code>end</code> writes into the
+ * process instance like a task, an execution listener on <code>start</code> writes nothing
+ * because its values would be local to the element, and a task listener writes nothing because
+ * the cluster refuses the payload. The event a method is told is pinned too: a method without a
+ * <code>@TaskEvent</code> parameter subscribes to CREATED alone, so CREATED is the only value
+ * which reaches such a method at all.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8ModelledListenerHandlerTest {
@@ -48,7 +53,18 @@ public class Camunda8ModelledListenerHandlerTest {
   private static ActivatedJob listenerJob(
       final String jobType) {
 
+    return listenerJob(jobType, JobKind.EXECUTION_LISTENER, ListenerEventType.END);
+
+  }
+
+  private static ActivatedJob listenerJob(
+      final String jobType,
+      final JobKind kind,
+      final ListenerEventType event) {
+
     final var job = mock(ActivatedJob.class);
+    when(job.getKind()).thenReturn(kind);
+    when(job.getListenerEventType()).thenReturn(event);
     when(job.getKey()).thenReturn(4711L);
     when(job.getElementInstanceKey()).thenReturn(100L);
     when(job.getRetries()).thenReturn(3);
@@ -69,6 +85,8 @@ public class Camunda8ModelledListenerHandlerTest {
     final var invoker = mock(WorkflowTaskInvoker.class);
     when(invoker.resolveWorkflowAggregateIdName(anyString(), anyString())).thenReturn("id");
     when(invoker.invokeWorkflowTask(anyString(), anyString(), any())).thenReturn(outcome);
+    when(invoker.syncedWorkflowAggregateValues(anyString(), anyString(), anyString(), any()))
+        .thenReturn(Map.of("theOrderWasArchived", true));
     Camunda8ModelledListenerHandler
         .builder()
         .adapterId("c8")
@@ -126,10 +144,54 @@ public class Camunda8ModelledListenerHandlerTest {
   }
 
   @Test
-  @DisplayName("The completion carries no variables, because the cluster would discard them")
-  public void theCompletionCarriesNoVariables() {
+  @DisplayName("An execution listener on 'end' completes with the aggregate, like a task does")
+  public void anEndExecutionListenerCompletesWithTheAggregate() {
 
-    deliver(listenerJob("archiveTheOrder"), NameClashAvoidance.NONE, WorkflowTaskOutcome.completed());
+    deliver(
+        listenerJob("archiveTheOrder", JobKind.EXECUTION_LISTENER, ListenerEventType.END),
+        NameClashAvoidance.NONE,
+        WorkflowTaskOutcome.completed());
+
+    final var variables = ArgumentCaptor.forClass(Map.class);
+    verify(jobClient.newCompleteCommand(4711L)).variables(variables.capture());
+    assertEquals(
+        true,
+        variables.getValue().get("theOrderWasArchived"),
+        "what the method changed reaches the instance, so a gateway behind the element sees it");
+    assertEquals(
+        "42",
+        variables.getValue().get("id"),
+        "and the aggregate-ID variable travels with every command, as it does for a task");
+
+  }
+
+  @Test
+  @DisplayName("An execution listener on 'start' completes with nothing at all")
+  public void aStartExecutionListenerCompletesWithNothing() {
+
+    // measured against cluster and client 8.9.19 on 2026-09-13: the cluster makes the
+    // variables of such a completion local to the element, and the copy then swallows every
+    // later write of the same name from inside the element, the element's own job included.
+    // A reproducer is kept outside this repository, in the VanillaBP workspace under
+    // prompts/report-c8-start-listener-variable-scope
+    deliver(
+        listenerJob("prepareTheWork", JobKind.EXECUTION_LISTENER, ListenerEventType.START),
+        NameClashAvoidance.NONE,
+        WorkflowTaskOutcome.completed());
+
+    verify(jobClient).newCompleteCommand(4711L);
+    verify(jobClient.newCompleteCommand(4711L), never()).variables(any(Map.class));
+
+  }
+
+  @Test
+  @DisplayName("A task listener completes with nothing, because the cluster refuses the payload")
+  public void aTaskListenerCompletesWithNothing() {
+
+    deliver(
+        listenerJob("checkTheForm", JobKind.TASK_LISTENER, ListenerEventType.CREATING),
+        NameClashAvoidance.NONE,
+        WorkflowTaskOutcome.completed());
 
     verify(jobClient).newCompleteCommand(4711L);
     verify(jobClient.newCompleteCommand(4711L), never()).variables(any(Map.class));
