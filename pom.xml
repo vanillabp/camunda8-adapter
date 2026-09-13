@@ -98,13 +98,13 @@
     <camunda8.version>${camunda8.version.line-8.9}</camunda8.version>
     <camunda8.version.line-8.8>8.8.37</camunda8.version.line-8.8>
     <camunda8.version.line-8.9>8.9.19</camunda8.version.line-8.9>
-    <camunda8.version.line-8.10>8.10.0-alpha4</camunda8.version.line-8.10>
+    <camunda8.version.line-8.10>8.10.0-alpha5</camunda8.version.line-8.10>
     <!-- optional: the adapter's own meters are published where the application brings
          Micrometer (see MicrometerCamunda8Metrics). Pinned to the OLDER of both
          platforms, like the platform integration does it (Quarkus 3.37.1 manages 1.16.6,
          Spring Boot 4.1.0 manages 1.17.0) -->
     <micrometer.version>1.17.1</micrometer.version>
-    <protobuf.version>4.35.1</protobuf.version>
+    <protobuf.version>4.36.0</protobuf.version>
     <!-- the cluster the integration tests run against follows the pinned client: the
          client a build was compiled against IS the minimum cluster version of that
          build, so testing anything newer would prove nothing about it -->
@@ -122,7 +122,7 @@
   <dependencyManagement>
     <dependencies>
       <!-- Protobuf refuses a runtime older than the generated code linked against it, and
-           the Camunda client brings generated code: the 8.10 client needs 4.35.1, while
+           the Camunda client brings generated code: the 8.10 client needs 4.36.0, while
            the Spring Boot BOM manages 4.34.2 and would win, because an imported BOM beats
            a transitive version. This entry stands BEFORE that import, so it is what every
            line gets, and it carries the gencode version of the pinned clients: the
