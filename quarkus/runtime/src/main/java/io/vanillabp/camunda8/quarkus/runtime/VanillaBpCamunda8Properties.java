@@ -15,10 +15,12 @@ import io.smallrye.config.ConfigMapping;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
 import io.vanillabp.camunda8.wiring.Camunda8AllowConnectorsResolver;
+import io.vanillabp.camunda8.wiring.Camunda8AllowListenersResolver;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8Listeners;
 import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
 
 /**
@@ -211,6 +213,88 @@ public interface VanillaBpCamunda8Properties {
             .fetchVariables()
             .orElse(Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES)
         : Camunda8FetchVariablesResolver.DEFAULT_FETCH_VARIABLES;
+
+  }
+
+  /**
+   * Resolves whether the listeners somebody modelled are served, over the three levels
+   * <code>allow-connectors</code> is read at and with the same most-specific-wins rule in
+   * both directions.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param adapterId The adapter ID
+   * @return The most specific configured setting together with the key it stands in
+   */
+  default Camunda8AllowListenersResolver.Setting allowListenersFor(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String adapterId) {
+
+    final var module = workflowModuleId != null
+        ? workflowModules().get(workflowModuleId)
+        : null;
+    final var workflow = (module != null) && (bpmnProcessId != null)
+        ? module.workflows().get(bpmnProcessId)
+        : null;
+    final var perWorkflow = workflow != null
+        ? workflow.adapters().get(adapterId)
+        : null;
+    if ((perWorkflow != null) && perWorkflow.allowListeners().isPresent()) {
+      return new Camunda8AllowListenersResolver.Setting(
+          perWorkflow.allowListeners().get(), "vanillabp.workflow-modules.%s.workflows.%s.adapters.%s.%s"
+              .formatted(
+                  workflowModuleId, bpmnProcessId, adapterId, Camunda8Listeners.ALLOW_LISTENERS_KEY));
+    }
+    final var perModule = module != null
+        ? module.adapters().get(adapterId)
+        : null;
+    if ((perModule != null) && perModule.allowListeners().isPresent()) {
+      return new Camunda8AllowListenersResolver.Setting(
+          perModule.allowListeners().get(), "vanillabp.workflow-modules.%s.adapters.%s.%s"
+              .formatted(workflowModuleId, adapterId, Camunda8Listeners.ALLOW_LISTENERS_KEY));
+    }
+    final var adapter = adapters().get(adapterId);
+    if ((adapter != null) && adapter.allowListeners().orElse(Boolean.FALSE)) {
+      return new Camunda8AllowListenersResolver.Setting(
+          true, Camunda8Listeners.propertyKeyOf(adapterId));
+    }
+    return Camunda8AllowListenersResolver.Setting.NOTHING_CONFIGURED;
+
+  }
+
+  /**
+   * Every <code>allow-listeners</code> this configuration puts at TASK level, fully spelled
+   * out - the level which does not resolve this key.
+   *
+   * @param adapterId The adapter ID
+   * @return The keys found
+   */
+  default List<String> allowListenersKeysAtTaskLevel(
+      final String adapterId) {
+
+    return workflowModules()
+        .entrySet()
+        .stream()
+        .flatMap(module -> module
+            .getValue()
+            .workflows()
+            .entrySet()
+            .stream()
+            .flatMap(workflow -> workflow
+                .getValue()
+                .tasks()
+                .entrySet()
+                .stream()
+                .filter(task -> {
+                  final var keys = task.getValue().adapters().get(adapterId);
+                  return (keys != null) && keys.allowListeners().isPresent();
+                })
+                .map(task -> "vanillabp.workflow-modules.%s.workflows.%s.tasks.%s.adapters.%s.%s"
+                    .formatted(
+                        module.getKey(), workflow.getKey(), task.getKey(), adapterId,
+                        Camunda8Listeners.ALLOW_LISTENERS_KEY))))
+        .toList();
 
   }
 
@@ -496,6 +580,16 @@ public interface VanillaBpCamunda8Properties {
      * @return Whether connectors are allowed for this adapter instance
      */
     Optional<Boolean> allowConnectors();
+
+    /**
+     * OPTIONAL: whether the listeners somebody MODELLED are served by
+     * <code>@WorkflowTask</code> methods. Adapter-level base of a resolution over three levels
+     * (workflow &gt; workflow-module &gt; adapter), default <code>false</code>, see
+     * {@link io.vanillabp.camunda8.wiring.Camunda8AllowListenersResolver}.
+     *
+     * @return Whether the modelled listeners are served for this adapter instance
+     */
+    Optional<Boolean> allowListeners();
 
     /**
      * The worker's job timeout (lock duration) - adapter-level base of the
@@ -855,6 +949,15 @@ public interface VanillaBpCamunda8Properties {
      * @return Whether connectors are allowed here
      */
     Optional<Boolean> allowConnectors();
+
+    /**
+     * Whether the listeners somebody modelled are served at this level. Empty rather than
+     * <code>false</code> where nothing is configured, for the reason
+     * {@link #allowConnectors()} is.
+     *
+     * @return Whether the modelled listeners are served here
+     */
+    Optional<Boolean> allowListeners();
 
   }
 

@@ -13,6 +13,7 @@ import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8StartupValidation;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
+import io.vanillabp.camunda8.wiring.Camunda8Listeners;
 import io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy;
 import io.vanillabp.integration.adapter.migration.config.MigrationAdapterProperties;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -75,6 +76,10 @@ public class Camunda8ClientProducer {
               adapterId,
               overlay.allowConnectorsKeysAtTaskLevel(adapterId),
               log::warn);
+          Camunda8Listeners.reportKeysSetAtTaskLevel(
+              adapterId,
+              overlay.allowListenersKeysAtTaskLevel(adapterId),
+              log::warn);
           configurations.put(adapterId, configuration);
         });
 
@@ -96,6 +101,7 @@ public class Camunda8ClientProducer {
     keys.tenantId().ifPresent(configuration::setTenantId);
     keys.acceptUnscopedIdentifiers().ifPresent(configuration::setAcceptUnscopedIdentifiers);
     keys.allowConnectors().ifPresent(configuration::setAllowConnectors);
+    keys.allowListeners().ifPresent(configuration::setAllowListeners);
     keys.clusterId().ifPresent(configuration::setClusterId);
     keys.region().ifPresent(configuration::setRegion);
     keys.clientId().ifPresent(configuration::setClientId);

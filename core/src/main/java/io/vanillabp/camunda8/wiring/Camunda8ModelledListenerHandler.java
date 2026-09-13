@@ -1,0 +1,350 @@
+package io.vanillabp.camunda8.wiring;
+
+import java.util.Map;
+
+import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.worker.JobClient;
+import io.camunda.client.api.worker.JobHandler;
+import io.vanillabp.camunda8.client.Camunda8CommandRetry;
+import io.vanillabp.camunda8.client.Camunda8Drain;
+import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
+import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
+import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
+import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskOutcome;
+import io.vanillabp.spi.service.TaskEvent;
+import lombok.Builder;
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * Consumes the jobs of a listener SOMEBODY MODELLED, which the application asked for with
+ * {@code allow-listeners} (see decision 27 in the repository's DECISIONS.md).
+ *
+ * <h2>Why this is not the user-task listener handler with a flag</h2>
+ *
+ * {@link Camunda8UserTaskListenerHandler} serves the listeners VanillaBP writes itself: it
+ * knows their job type by construction, its notification is OPTIONAL, and it reports the
+ * user-task key so the task can be completed later. None of that holds here. A modelled
+ * listener's job type is what the modeller typed, a method for it is MANDATORY because the
+ * wiring validation asked for one, and there is no user task to complete - so the two
+ * handlers share the commands they send rather than a class.
+ *
+ * <h2>What the method is told, and what it is not</h2>
+ *
+ * The event is part of the listener's identity: the wiring made one task of one listener, so
+ * the method serves one event of one element and cannot be in doubt about which. What
+ * {@code @TaskEvent} receives is therefore {@link TaskEvent.Event#CREATED} for every
+ * listener, and that is the only value which works: a method without a
+ * {@code @TaskEvent} parameter subscribes to CREATED alone, so any other value would leave
+ * such a method silently uncalled. {@code TaskEvent.Event} has no value for a listener's own
+ * event, which the startup report says out loud.
+ *
+ * <h2>What the completion carries</h2>
+ *
+ * Nothing, the way decision 1 in the repository's DECISIONS.md puts it for the user-task
+ * listeners: the cluster ignores variables a listener sends back. A listener method which
+ * changes the workflow aggregate loses the change, and the startup report says so, because
+ * no signature shows whether a method does that.
+ */
+@Slf4j
+public class Camunda8ModelledListenerHandler implements JobHandler {
+
+  private final String adapterId;
+
+  private final String workflowModuleId;
+
+  private final WorkflowTaskInvoker workflowTaskInvoker;
+
+  /**
+   * Translates the identifiers the cluster reports back into the plain ones - a no-op unless
+   * the workflow module uses prefixes. May be <code>null</code> (tests).
+   */
+  private final NameClashAvoidanceSupport scoping;
+
+  /**
+   * Which multi-instance elements enclose the element the listener sits on.
+   * May be <code>null</code> (tests).
+   */
+  private final Camunda8MultiInstance.Registry multiInstanceRegistry;
+
+  /**
+   * What the workflow module has in flight, and whether it is going down. Never
+   * <code>null</code> - a handler built without one (tests) gets a drain of its own, which
+   * never shuts down.
+   */
+  private final Camunda8Drain drain;
+
+  /**
+   * What this worker asked the cluster for. Never <code>null</code>; a handler built without
+   * one (tests) sees every variable.
+   */
+  private final Camunda8FetchVariables.Selection fetchVariables;
+
+  /**
+   * How long the cluster waits before it hands a failed listener job out again. May be
+   * <code>null</code>, which is the resolver's own default.
+   */
+  private final Camunda8RetryBackoffResolver retryBackoffResolver;
+
+  /**
+   * What kind of worker this is, in the messages about a shutdown.
+   */
+  static final String KIND = "modelled listener";
+
+  /**
+   * The worker this handler serves.
+   *
+   * @param adapterId The adapter whose worker delivers here
+   * @param workflowModuleId The workflow module the listener's process belongs to
+   * @param workflowTaskInvoker The core's runtime entry point
+   * @param scoping Translates the cluster's identifiers back, or <code>null</code>
+   * @param multiInstanceRegistry Which multi-instance elements enclose the element, or
+   *          <code>null</code> for no iteration
+   * @param drain What the workflow module has in flight, or <code>null</code> for a drain of
+   *          this handler's own which never shuts down
+   * @param fetchVariables What the worker asked for, or <code>null</code> for every variable
+   * @param retryBackoffResolver How long a failed job waits, or <code>null</code> for the
+   *          default
+   */
+  @Builder
+  public Camunda8ModelledListenerHandler(
+      final String adapterId,
+      final String workflowModuleId,
+      final WorkflowTaskInvoker workflowTaskInvoker,
+      final NameClashAvoidanceSupport scoping,
+      final Camunda8MultiInstance.Registry multiInstanceRegistry,
+      final Camunda8Drain drain,
+      final Camunda8FetchVariables.Selection fetchVariables,
+      final Camunda8RetryBackoffResolver retryBackoffResolver) {
+
+    this.fetchVariables = fetchVariables == null
+        ? Camunda8FetchVariables.Selection.everything()
+        : fetchVariables;
+    this.drain = drain == null
+        ? new Camunda8Drain(adapterId, workflowModuleId)
+        : drain;
+    this.adapterId = adapterId;
+    this.workflowModuleId = workflowModuleId;
+    this.workflowTaskInvoker = workflowTaskInvoker;
+    this.scoping = scoping;
+    this.multiInstanceRegistry = multiInstanceRegistry;
+    this.retryBackoffResolver = retryBackoffResolver;
+
+  }
+
+  @Override
+  public void handle(
+      final JobClient client,
+      final ActivatedJob job) {
+
+    final var bpmnProcessId = scoping == null
+        ? job.getBpmnProcessId()
+        : scoping.plainProcessId(workflowModuleId, job.getBpmnProcessId(), adapterId);
+    // the listener's job type IS the task definition, prefixed like any other one where the
+    // workflow module avoids name clashes that way
+    final var taskDefinition = scoping == null
+        ? job.getType()
+        : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, job.getType(), adapterId);
+
+    drain.jobStarted(job.getKey(), KIND, taskDefinition, bpmnProcessId);
+    try {
+      final var aggregateIdName = workflowTaskInvoker.resolveWorkflowAggregateIdName(
+          workflowModuleId,
+          bpmnProcessId);
+      final var aggregateId = job.getVariablesAsMap().get(aggregateIdName);
+      if (aggregateId == null) {
+        throw new IllegalStateException(
+            Camunda8FetchVariables.missingAggregateId(
+                "The listener job",
+                job.getKey(),
+                job.getType(),
+                bpmnProcessId,
+                aggregateIdName,
+                adapterId,
+                fetchVariables));
+      }
+      final var outcome = workflowTaskInvoker.invokeWorkflowTask(
+          workflowModuleId,
+          bpmnProcessId,
+          new Camunda8ModelledListenerInvocationContext(
+              adapterId, taskDefinition, String
+                  .valueOf(aggregateId), job, multiInstanceRegistry, fetchVariables));
+      if (outcome.kind() == WorkflowTaskOutcome.Kind.BPMN_ERROR) {
+        throw new IllegalStateException(
+            ("The @WorkflowTask method serving the listener '%s' (BPMN process '%s' of workflow "
+                + "module '%s') threw a TaskException! A listener cannot raise a BPMN error: the "
+                + "cluster is inside a transition of its own while the listener job runs and has no "
+                + "token to route. Model the logic as a task of the process where an error has to "
+                + "change the path.")
+                .formatted(taskDefinition, bpmnProcessId, workflowModuleId));
+      }
+      // the cluster discards variables a listener sends back, so the completion carries
+      // none - see decision 1 in the repository's DECISIONS.md
+      Camunda8CommandRetry.send(
+          adapterId,
+          "completion",
+          job.getKey(),
+          taskDefinition,
+          job.getDeadline(),
+          drain::isShuttingDown,
+          () -> client
+              .newCompleteCommand(job.getKey())
+              .send()
+              .join());
+    } catch (final Exception e) {
+      // work cut off by a shutdown is not a defect of the application, and the job is left
+      // to its lock so the next instance of it gets the listener
+      if (drain.leaveJobToItsLock(job.getKey(), KIND, taskDefinition, e)) {
+        return;
+      }
+      final var retryBackoff = Camunda8RetryBackoffResolver
+          .resolve(retryBackoffResolver, workflowModuleId, bpmnProcessId, taskDefinition)
+          .duration();
+      log.warn(
+          "Camunda8[{}]: processing listener job '{}' (type '{}') failed - failing the job with {} "
+              + "retries left",
+          adapterId,
+          job.getKey(),
+          job.getType(),
+          job.getRetries() - 1,
+          e);
+      Camunda8CommandRetry.send(
+          adapterId,
+          "failure",
+          job.getKey(),
+          taskDefinition,
+          job.getDeadline(),
+          drain::isShuttingDown,
+          () -> client
+              .newFailCommand(job.getKey())
+              .retries(job.getRetries() - 1)
+              .retryBackoff(retryBackoff)
+              .errorMessage(Camunda8Errors.incidentMessage(e))
+              .send()
+              .join());
+    } finally {
+      drain.jobFinished(job.getKey());
+    }
+
+  }
+
+  /**
+   * The neutral invocation context built from the job of a modelled listener.
+   */
+  static class Camunda8ModelledListenerInvocationContext implements TaskInvocationContext {
+
+    private final String adapterId;
+
+    private final String taskDefinition;
+
+    private final String workflowAggregateId;
+
+    private final ActivatedJob job;
+
+    private final Camunda8MultiInstance.Registry multiInstanceRegistry;
+
+    private final Camunda8FetchVariables.Selection fetchVariables;
+
+    Camunda8ModelledListenerInvocationContext(
+        final String adapterId,
+        final String taskDefinition,
+        final String workflowAggregateId,
+        final ActivatedJob job,
+        final Camunda8MultiInstance.Registry multiInstanceRegistry,
+        final Camunda8FetchVariables.Selection fetchVariables) {
+
+      this.fetchVariables = fetchVariables == null
+          ? Camunda8FetchVariables.Selection.everything()
+          : fetchVariables;
+      this.adapterId = adapterId;
+      this.taskDefinition = taskDefinition;
+      this.workflowAggregateId = workflowAggregateId;
+      this.job = job;
+      this.multiInstanceRegistry = multiInstanceRegistry;
+
+    }
+
+    @Override
+    public Map<String, MultiInstanceValue> getMultiInstances() {
+
+      if (multiInstanceRegistry == null) {
+        return Map.of();
+      }
+      return Camunda8MultiInstance.valuesOf(
+          multiInstanceRegistry.chainOf(job.getBpmnProcessId(), job.getElementId()),
+          job.getVariablesAsMap());
+
+    }
+
+    @Override
+    public String getAdapterId() {
+
+      return adapterId;
+
+    }
+
+    @Override
+    public String getTaskDefinition() {
+
+      return taskDefinition;
+
+    }
+
+    @Override
+    public String getProcessVersion() {
+
+      return String.valueOf(job.getProcessDefinitionVersion());
+
+    }
+
+    @Override
+    public String getWorkflowAggregateId() {
+
+      return workflowAggregateId;
+
+    }
+
+    @Override
+    public String getTaskId() {
+
+      // a listener job is completed by this handler when the method returns, so there is
+      // nothing an application could complete later. The key is reported all the same,
+      // because a message about a delivery has to name something a log can be searched for
+      return String.valueOf(job.getKey());
+
+    }
+
+    @Override
+    public String getDeliveryId() {
+
+      // the listener job's key: one listener event is one job, redelivered under the same
+      // key until the cluster learns the result
+      return String.valueOf(job.getKey());
+
+    }
+
+    @Override
+    public String getActivationId() {
+
+      // the element instance the listener fires for - two listeners of one element share it,
+      // and they are two deliveries within one activation
+      return String.valueOf(job.getElementInstanceKey());
+
+    }
+
+    @Override
+    public Object getTaskParameter(
+        final String name) {
+
+      if (!fetchVariables.covers(name)) {
+        throw new IllegalStateException(
+            Camunda8FetchVariables.unfetchedTaskParameter(name, taskDefinition, adapterId, fetchVariables));
+      }
+      return job.getVariablesAsMap().get(name);
+
+    }
+
+  }
+
+}

@@ -254,6 +254,54 @@ public class Camunda8JobTimeoutOverlayTest {
   }
 
   @Test
+  public void allowListenersResolvesThroughItsThreeLevels() {
+
+    final var overlay = overlay();
+
+    // the workflow serves its listeners where its module does not, which is the same
+    // most-specific-wins rule allow-connectors follows - deliberately, because two keys about
+    // what a model may contain must not reach different levels
+    final var perWorkflow = overlay.allowListenersFor("test-app", "TaskProcess", "c8");
+    Assertions.assertTrue(perWorkflow.allowed());
+    Assertions.assertEquals(
+        "vanillabp.workflow-modules.test-app.workflows.TaskProcess.adapters.c8.allow-listeners",
+        perWorkflow.propertyKey(),
+        "the report has to name the line the reader can find in their configuration");
+
+    final var perModule = overlay.allowListenersFor("test-app", "OtherProcess", "c8");
+    Assertions.assertFalse(perModule.allowed());
+    Assertions.assertEquals(
+        "vanillabp.workflow-modules.test-app.adapters.c8.allow-listeners",
+        perModule.propertyKey());
+
+    final var perAdapter = overlay.allowListenersFor("unknown-module", "SomeProcess", "c8");
+    Assertions.assertTrue(perAdapter.allowed());
+    Assertions.assertEquals("vanillabp.adapters.c8.allow-listeners", perAdapter.propertyKey());
+
+    final var nothingConfigured = overlay.allowListenersFor("test-app", "TaskProcess", "unknown-adapter");
+    Assertions.assertFalse(nothingConfigured.allowed(), "the default serves no modelled listener");
+    Assertions.assertNull(nothingConfigured.propertyKey());
+
+  }
+
+  @Test
+  public void aListenerValueAtTaskLevelIsFoundAndChangesNoAnswer() {
+
+    final var overlay = overlay();
+
+    Assertions.assertEquals(
+        List
+            .of(
+                "vanillabp.workflow-modules.test-app.workflows.TaskProcess.tasks.happyTask.adapters.c8.allow-listeners"),
+        overlay.allowListenersKeysAtTaskLevel("c8"),
+        "the boot names the key it cannot honour instead of ignoring it silently");
+    Assertions.assertTrue(
+        overlay.allowListenersFor("test-app", "TaskProcess", "c8").allowed(),
+        "and the answer still comes from the workflow level");
+
+  }
+
+  @Test
   public void defaultsApplyWithoutAnyConfiguredTimeout() {
 
     final var overlay = overlay();

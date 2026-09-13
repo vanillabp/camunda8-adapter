@@ -20,9 +20,18 @@ the sync model says. Beside it travel the values the aggregate shares, because a
 behind a service task decides on what the handler just computed. Nothing else does: a
 correlated message carries no content of its own.
 
-The one command which carries NO variables at all is the completion of a user-task listener
-job. It does not advance the process - the user task stays where it is - and writing there
-would overwrite what a form or a task list put into the instance.
+The commands which carry NO variables at all are the completions of a LISTENER job: the
+user-task lifecycle listeners VanillaBP writes itself, and the listeners somebody modelled which
+entry 27 is about. None of them advances the process - the element stays where it is - and
+writing there would overwrite what a form or a task list put into the instance. On a modelled
+listener the cluster discards such variables anyway, which is why entry 27 has the report say so
+out loud.
+
+That is the way OUT, and it is the same for both. The way IN is not, and the difference is worth
+knowing: the listeners VanillaBP writes itself need nothing of the instance, so their workers fetch
+no variable at all, while a listener somebody modelled is served by a `@WorkflowTask` method which
+may declare `@TaskParam`, so its worker fetches exactly what that method asks for. A user's listener
+therefore sees more than zero variables and still writes none back.
 
 ### 2. Workflow modules are kept apart by scoping the identifiers
 
@@ -726,3 +735,86 @@ why this one refuses.
 and `Camunda8CollidingProcessIdsTest` that the core reaches this adapter on Quarkus as well.
 
 See [Keeping workflow modules apart](./README.md#keeping-workflow-modules-apart).
+
+### 27. A listener somebody modelled is a task, and only where the application asked for it
+
+Version 1 let a listener be served by a `@WorkflowTask` method and announced it nowhere, because a
+model with application logic in a listener cannot be moved to another BPMS. Version 2 deleted the
+reading side, which made such a listener silently unserved: the cluster creates a job for it, no
+worker subscribes to its job type, and the workflow stops right there with no incident and no message.
+That silence is the reason the listener is served again, behind a key which is off by default, and the
+reason a boot which uses it says what it costs.
+
+A served listener is a `zeebe:taskListener` of a `zeebe:userTask` or a `zeebe:executionListener` of
+any element **whose job type a `@WorkflowTask` method of this application names**. The job type IS the
+task definition such a method names, so nothing about the model has to be rewritten for a method to
+find its listener; and a job type is a name in the cluster which anybody may subscribe to, so a model
+carrying one says nothing about who serves it while a method naming it does. Only the task-definition
+route counts: `@WorkflowTask(id = ...)` names the ELEMENT, and one element may carry a task and a
+listener at once.
+
+A listener no method names is therefore not refused, and it is not passed over in silence either. The
+boot names it and goes on, the way it does for an ad-hoc subprocess waiting for a job worker: a worker
+the application runs itself may be the answer and only the application knows, but the cluster creates
+the job either way and a workflow reaching the element stands there with no incident and nothing in any
+log.
+
+A job type starting with `io.vanillabp.` is nobody's business here: that prefix carries the listeners
+VanillaBP writes itself and the ones its extensions write, and those are served whatever the key says.
+The prefix is not the whole separation either, because the listeners the framework writes are not in
+the model yet while the file is read, which is why a modelled listener is collected while the file is
+prepared rather than while a process of it is wired.
+
+`vanillabp.adapters.<id>.allow-listeners` is the key, a boolean, `false` unless somebody writes it. It
+resolves at adapter, workflow-module and workflow level, the most specific configured value winning in
+both directions, so a module which serves its listeners can have one workflow which does not. There is
+no task level: that level is keyed by a task definition, and whether a listener becomes a task at all
+is what this key decides, so at the moment the key is read there is no task definition to key a level
+by. A value written there anyway earns one guiding warning naming the three levels which work, and the
+boot goes on. The Camunda 7 adapter reads the very same key at the very same three levels, because two
+keys about what a model may contain, reaching different levels on different adapters, would be the
+worse answer.
+
+Where the key is off and a model carries a listener, the boot ends here in the adapter, and that is
+not how decision 23 handles a connector. A connector asks VanillaBP to LEAVE an element alone, so the
+core's wiring validation finds a task nothing serves and ends the boot by itself. A listener asks
+VanillaBP to SERVE something, so without the key there is no task spec, nothing for the validation to
+miss, and the workflow would stop at the listener's job on the cluster. The message therefore comes
+from the adapter, and it names the elements, the three levels and the cost.
+
+Where the key is on, a listener is a task like any other one from there on. `validateTaskWiring` asks
+for a `@WorkflowTask` method and ends the boot where none exists,
+`validateNoUnwiredWorkflowTaskMethods` reports a method which matches no listener of any wired
+process, and under `use-prefix` the listener's job type is prefixed like every other task definition
+of the workflow module, because that is what it is. Version 1 wired its listeners privately and had
+neither direction.
+
+The event is part of a listener's identity, because one method serves one event of one element.
+`@TaskEvent` tells such a method nothing: `TaskEvent.Event` has `CREATED`, `CANCELED` and `ALL`, and a
+listener's own event is none of those. What the parameter receives is therefore `CREATED` for every
+listener, which is the only value that works at all, since a method without the parameter subscribes
+to `CREATED` alone. Two listeners of one element under ONE job type end the boot naming both: one
+method would serve two events and nothing it could ask would say which one it is in. Two listeners of
+one element under different job types are fine, and a method then has to name the job type, because
+`@WorkflowTask(id = ...)` names the element and cannot tell them apart. A method declaring `@TaskId`
+ends the boot as well, since the cluster completes a listener job the moment the method returns and
+the task can never stay open, and a method throwing `TaskException` is answered with the reason rather
+than with an incident: the cluster is inside a transition of its own and has no token to route.
+
+The default is off because of what serving a listener costs. A listener is where a BPMS lets an
+application in at a moment the BPMS owns, and every BPMS draws that moment differently, so the model
+stops being portable: another BPMS has no listener at this element and a migration of the model stops
+at the method serving it. The Process-Engine-API has no listener concept at all, which is gap 16 and
+gap 17 of that adapter's `GAPS.md`. Camunda 8 adds a loss of its own, the one decision 1 describes for
+the listeners VanillaBP writes: the cluster discards what a listener sends back, so the completion
+carries no variables and a method which changes the workflow aggregate loses the change. No signature
+shows whether a method does that, so nothing here can detect it, and the change reaches the cluster at
+the next real sync point of that workflow or never. So every boot of a workflow module whose listeners
+are served writes one framed WARN naming each served listener, the key which switched it on, what it
+costs and the way back, and no key silences it: what it says stays true for as long as the listener is
+in the model, and a key turning it off would only make the loss invisible.
+
+`Camunda8ListenersTest` holds what is read out of a model and what a pair of listeners amounts to, and
+`Camunda8ListenersReportTest` the report of a boot together with the refusals.
+
+See [Listeners somebody modelled](./README.md#listeners-somebody-modelled).

@@ -1225,6 +1225,109 @@ levels per platform, and `Camunda8ConnectorsIT` with
 `Camunda8WorkflowLifecycleTest#aConnectorElementIsLeftToItsOwnRuntime` the same against a cluster on
 both platforms.
 
+### Listeners somebody modelled
+
+A `zeebe:taskListener` of a `zeebe:userTask` and a `zeebe:executionListener` of any element are
+places where the cluster lets the application in. Both name a job type, both produce a job when the
+cluster reaches them, and a job type nothing subscribes to stops the workflow right there without an
+incident and without a line in any log. VanillaBP 1 served such a listener with a `@WorkflowTask`
+method and said nothing about it; this version serves it where the application asks for it, and says
+what that costs.
+
+`vanillabp.adapters.<id>.allow-listeners` is the switch, default `false`, resolvable at three levels
+with the most specific configured value winning:
+
+```
+vanillabp.adapters.<id>.allow-listeners
+vanillabp.workflow-modules.<m>.adapters.<id>.allow-listeners
+vanillabp.workflow-modules.<m>.workflows.<w>.adapters.<id>.allow-listeners
+```
+
+There is no TASK level, and the reason is a different one than for `allow-connectors`: a task level
+is keyed by the task DEFINITION, and whether a listener becomes a task at all is what this key
+decides, so at the moment the key is read there is no task definition to key a level by. A value set
+at task level earns one guiding warning naming the three levels which work, and the boot goes on.
+
+A listener is served only where a `@WorkflowTask` method names its job type, and the job type IS the
+task definition such a method names. A job type is a name in the cluster which anybody may subscribe
+to, so a model carrying one says nothing about who serves it while a method naming it does. Only the
+task-definition route counts: `@WorkflowTask(id = ...)` names the ELEMENT, and one element may carry a
+task and a listener at once. A listener no method names is not refused and not passed over in silence
+either: `sayWhichListenerJobsNothingServes` names it and the boot goes on, the way
+`reportUnservedAdHocSubProcesses` does, because a worker the application runs itself may be the answer
+while the cluster creates the job either way.
+
+`Camunda8Listeners#listenersOf` is what reads a model, and it is asked while the BPMN file is
+PREPARED rather than while a process of it is wired. Two things follow from the moment. The job
+types are still the ones the modeller typed, so a message can quote them, and the listeners
+VanillaBP writes itself are not in the model yet: `wireBpmn` adds the user-task lifecycle listeners
+and the start listeners afterwards. Beyond the moment there is the job-type prefix
+`io.vanillabp.`, which every listener of VanillaBP and of its extensions carries, the Business
+Cockpit extension included. A third-party extension choosing a prefix of its own is not known here
+and nothing can ask for one, which is why the startup report names every listener this adapter
+treats as the modeller's: a job type a reader does not recognise is the one line worth a second
+look.
+
+Where the switch is off and a model carries a served listener, `readTheListenersTheModelCarries` ends
+the boot. That is deliberately not left to the core's wiring validation, which is what
+`guideTowardsAllowingConnectors` does for a connector: a connector asks VanillaBP to leave an
+element alone, so the validation finds a task nothing serves and ends the boot by itself. A listener
+asks VanillaBP to serve something, so without the key there is no task spec and nothing for the
+validation to miss. The message names every listener of the process with its element, its event and
+its job type, the three levels and the cost.
+
+Where the switch is on, the listener is a task like any other one:
+
+- it becomes a `BpmnTaskSpec`, so `validateTaskWiring` asks for a `@WorkflowTask` method and ends
+  the boot where none exists, and `validateNoUnwiredWorkflowTaskMethods` reports a method which
+  matches no listener of any wired process. Version 1 wired its listeners privately and had neither
+  direction;
+- `Camunda8Scoping#apply` prefixes its job type under `use-prefix` like every other task definition
+  of the workflow module, because that is what it is. The handler translates the prefix away again
+  before the core is asked, and a listener no method names keeps the name the modeller typed, for the
+  reason a connector's job type keeps its;
+- `Camunda8ModelledListenerHandler` consumes its jobs. It is a class of its own rather than a flag
+  on `Camunda8UserTaskListenerHandler`: there the job type is known by construction, the
+  notification is optional and the user-task key is reported so the task can be completed later, and
+  none of that holds for a modelled listener;
+- the completion carries no variables, because the cluster discards what a listener sends back (see
+  [decision 1](./DECISIONS.md#1-a-command-carries-the-shared-aggregate-values-and-the-aggregate-id-variable-nothing-else)).
+  A method which changes the workflow aggregate loses the change, nothing in a signature shows
+  whether a method does that, and the change reaches the cluster at the next real sync point of that
+  workflow or never. On Camunda 7 there is no such loss, which is worth knowing when a module runs
+  on both.
+
+The event is part of the listener's identity: the wiring made one task of one listener, so one
+method serves one event of one element. `@TaskEvent` receives `TaskEvent.Event#CREATED` for every
+listener, which is the only value that works at all, because a method without that parameter
+subscribes to `CREATED` alone and any other value would leave such a method silently uncalled.
+`TaskEvent.Event` has no value for a listener's own event, and the startup report says so.
+
+Four shapes end the boot, each with a message naming the listener and the way out.
+`refuseListenersSharingAJobType` answers two served listeners of one element under ONE job type: one
+method would serve both events and nothing it could ask would say which one it is in. Two listeners of
+one element under DIFFERENT job types are served, one method each.
+`refuseAStartListenerTheClusterRefuses` answers a `start` execution listener on a start event, whatever
+the key says: the cluster refuses the whole file over it, so every process the file declares would be
+lost, and `end` is what VanillaBP attaches to a start event itself.
+`refuseAsynchronousListenerMethods` answers a method declaring `@TaskId`: the cluster completes a
+listener job the moment the handler returns, so such a task can never stay open and the id would
+complete nothing. A method throwing `TaskException` is
+answered at runtime rather than at boot, because no signature shows it: the handler names the cause
+instead of letting an incident say nothing about it, since the cluster is inside a transition of its
+own and has no token to route.
+
+Every boot of a workflow module whose listeners are served writes one framed WARN naming the key,
+the module, every served listener with its element, its event and its job type, what it costs and
+the way back. Nothing silences it, see
+[decision 27](./DECISIONS.md#27-a-listener-somebody-modelled-is-a-task-and-only-where-the-application-asked-for-it).
+Where the switch is on and no model of the module carries a listener, the boot writes one line
+instead of the frame.
+
+`Camunda8ListenersTest` holds what is read out of a model, the pairs of listeners and the prefixing, and
+`Camunda8ListenersReportTest` the report of a boot, the refusal without the key and the one over a
+`@TaskId` method.
+
 ### Ad-hoc subprocesses
 
 An ad-hoc subprocess holds activities without sequence flows between them and runs the ones somebody

@@ -5,6 +5,87 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## A listener in your model has to be allowed now (2026-09-13)
+
+Version 1 served a listener with a `@WorkflowTask` method and documented it nowhere. From its release
+1.7.0 to its last one, 1.10.0, it did so in one place only: a `zeebe:taskListener` of a
+`zeebe:userTask`, which needs a cluster of 8.8 or newer. The listener's `type` attribute was the task
+definition verbatim, so a method named after it served the listener. A `zeebe:executionListener` was
+never served on Camunda 8 at all.
+
+If your models carry such a listener and a `@WorkflowTask` method of yours names its job type, this is
+the entry to act on. This version does not serve it unless you say so, and a model carrying one ends
+the boot with a message naming the elements, the key and what it costs. A listener whose job type no
+method of yours names is left alone: a worker you run yourself may well be the answer. The boot names
+it all the same, because the cluster creates that job either way and a workflow reaching the element
+stands there. Say so per adapter, per workflow module or per workflow, and the most specific
+configured value wins in both directions:
+
+```yaml
+vanillabp:
+  adapters:
+    camunda8:
+      allow-listeners: true
+  workflow-modules:
+    loan-approval:
+      adapters:
+        camunda8:
+          allow-listeners: false   # this module does not, whatever the adapter says
+```
+
+There is no task level for the key, because a task level is keyed by the task DEFINITION and whether a
+listener becomes a task at all is what this key decides. A value written there earns one guiding
+warning and the boot goes on.
+
+**The boot failure is the good case.** Without the key there is no worker for the listener's job type,
+the cluster creates the job all the same, and the workflow stops right there: no incident, no message,
+nothing in any log. That is what an upgrade without the key would have bought you, found by whoever
+noticed that workflows stopped arriving. The Camunda 7 adapter has the same key, where instead the
+engine evaluates the listener's expression itself and the workflow fails at the element or runs a
+method nobody meant for it.
+
+**Read what the key costs before you set it.** A listener is where a BPMS lets an application in at a
+moment the BPMS owns, and every BPMS draws that moment differently, so the model stops being portable:
+another BPMS has no listener at this element and a migration of the model stops at the method serving
+it. Every boot of a workflow module whose listeners are served writes a framed WARN saying it, naming
+each listener and the way back, and no key silences it. Where you can, move what the listener does
+into a task of the model with a `@WorkflowTask` method behind it, which is the way back the report
+names.
+
+**A `zeebe:executionListener` is served as well now.** Any element may carry one, so the door is wider
+than version 1's, and the key is what keeps it shut by default. One placement is refused whatever the
+key says: a `start` execution listener on a start event, because the cluster refuses the whole file
+over it. Use `end` there, which is what VanillaBP attaches to a start event itself. Under the mode `use-prefix` a served
+listener's job type is prefixed like every other task definition of the workflow module, because that
+is what it has become.
+
+**`@TaskEvent` tells the method nothing any more.** On version 1 a task-listener method could tell the
+`canceling` event from the rest through that parameter. Now the event is part of the wiring: one method
+serves one event of one element, the parameter receives `CREATED` for every listener because a method
+without it subscribes to `CREATED` alone, and `TaskEvent.Event` has no value for a listener's event at
+all. Drop the parameter where it only carried noise, and model one listener per event where a method
+needs to know.
+
+**A `@TaskId` parameter is refused while the process is wired.** The cluster completes a listener job
+the moment the method returns, so such a task can never stay open and the id would complete nothing.
+Version 1 accepted the method and the workflow went on without it.
+
+**Variable updates were already lost, and now it is said out loud.** The cluster discards what a
+listener job sends back, so a listener method which changes the workflow aggregate loses the change.
+Version 1 suppressed that silently; this version still cannot detect it, because no method signature
+shows whether a method writes the aggregate, so the startup report says it for every served listener.
+The change reaches the cluster at the next real sync point of that workflow, or never. The Camunda 7
+adapter does not have this loss: there the shared values are written onto the execution inside the
+engine's own transaction.
+
+**Two listeners of one element under ONE job type end the boot naming both.** Version 1 ran one of them
+and which one was undefined, so the model said something it could not deliver. Give every listener of an
+element a job type of its own and write a method per job type.
+
+The [README section](https://github.com/vanillabp/camunda8-adapter/blob/main/README.md#listeners-somebody-modelled)
+and the [BPMN model](https://github.com/vanillabp/camunda8-adapter/wiki/Configuration#the-bpmn-model-for-camunda-8)
+section of the wiki carry the details.
+
 ## Two workflow modules with the same BPMN process id end the boot (2026-09-12)
 
 Two of your workflow modules may bring a BPMN process of the same id as long as the cluster keeps

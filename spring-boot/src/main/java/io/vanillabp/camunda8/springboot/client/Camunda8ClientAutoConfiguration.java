@@ -16,6 +16,7 @@ import io.vanillabp.camunda8.client.Camunda8StartupValidation;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
+import io.vanillabp.camunda8.wiring.Camunda8Listeners;
 import io.vanillabp.integration.adapter.migration.config.DeploymentFailurePolicy;
 import io.vanillabp.integration.config.VanillaBpConfigurationProperties;
 import lombok.extern.slf4j.Slf4j;
@@ -71,6 +72,10 @@ public class Camunda8ClientAutoConfiguration {
           Camunda8Connectors.reportKeysSetAtTaskLevel(
               adapterId,
               overlay.allowConnectorsKeysAtTaskLevel(adapterId),
+              log::warn);
+          Camunda8Listeners.reportKeysSetAtTaskLevel(
+              adapterId,
+              overlay.allowListenersKeysAtTaskLevel(adapterId),
               log::warn);
           configurations.put(adapterId, configuration);
         });

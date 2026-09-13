@@ -22,6 +22,7 @@ vanillabp:
       max-http-connections: 64
       override-authority: gateway.internal
       allow-connectors: true
+      allow-listeners: true
       auth:
         method: basic
         username: demo
@@ -38,6 +39,7 @@ vanillabp:
           fetch-variables: all
           message-time-to-live: PT5H
           allow-connectors: false
+          allow-listeners: false
       workflows:
         TaskProcess:
           adapters:
@@ -47,6 +49,7 @@ vanillabp:
               fetch-variables: derived
               message-time-to-live: PT4H
               allow-connectors: true
+              allow-listeners: true
           tasks:
             happyTask:
               adapters:
@@ -55,6 +58,7 @@ vanillabp:
                   retry-backoff: PT2S
                   fetch-variables: all
                   allow-connectors: true
+                  allow-listeners: true
           messages:
             OfferRequested:
               adapters:

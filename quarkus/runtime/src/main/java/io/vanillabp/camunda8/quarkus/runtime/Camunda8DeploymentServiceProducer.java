@@ -109,6 +109,11 @@ public class Camunda8DeploymentServiceProducer {
           deploymentService.setAllowConnectorsResolver((
               workflowModuleId,
               bpmnProcessId) -> overlay.allowConnectorsFor(workflowModuleId, bpmnProcessId, adapterId));
+          // Whether the listeners somebody modelled are served by this application,
+          // resolvable down to the workflow
+          deploymentService.setAllowListenersResolver((
+              workflowModuleId,
+              bpmnProcessId) -> overlay.allowListenersFor(workflowModuleId, bpmnProcessId, adapterId));
           // The client's job counters and this adapter's execution slots,
           // where the application uses the Micrometer extension
           deploymentService.setMetrics(
