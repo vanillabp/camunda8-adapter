@@ -28,6 +28,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.observability.Camunda8Metrics;
 import io.vanillabp.camunda8.observability.MicrometerCamunda8Metrics;
+import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.health.VanillaBpHealthIndicator;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 

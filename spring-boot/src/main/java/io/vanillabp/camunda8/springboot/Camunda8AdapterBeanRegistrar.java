@@ -11,6 +11,7 @@ import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.observability.Camunda8Metrics;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
+import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import io.vanillabp.integration.adapter.AdapterBeanRegistrarSupport;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.adapter.spi.PreCommitRegistrar;
@@ -55,9 +56,7 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                             supplierContext.bean(VanillaBpCamunda8Properties.class),
                             adapterId), supplierContext
                                 .bean(PreCommitRegistrar.class), supplierContext
-                                    .bean(
-                                        WorkflowAggregateSync.class), workflowVisibilityTimeoutOf(
-                                            supplierContext.bean(VanillaBpCamunda8Properties.class), adapterId));
+                                    .bean(WorkflowAggregateSync.class));
                 processService.setScoping(
                     supplierContext.bean(NameClashAvoidanceSupport.class));
                 final var overlay = supplierContext.bean(VanillaBpCamunda8Properties.class);
@@ -76,25 +75,31 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
               spec -> spec.supplier(supplierContext -> {
                 final var overlay = supplierContext.bean(VanillaBpCamunda8Properties.class);
                 final var asyncTaskLockRenewal = asyncTaskLockRenewalOf(overlay, adapterId);
+                final var clientFactory = supplierContext
+                    .bean(Camunda8ClientFactoryRegistry.class)
+                    .getFactory(adapterId);
+                // published per adapter id, so an extension asks the adapter how long a job
+                // of this adapter stays locked instead of reading the configuration again
+                final Camunda8JobTimeoutResolver jobTimeoutResolver = (
+                    workflowModuleId,
+                    bpmnProcessId,
+                    taskDefinition) -> overlay
+                        .jobTimeoutFor(workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
+                clientFactory.provideJobTimeoutResolver(jobTimeoutResolver);
                 final var deploymentService = new Camunda8DeploymentService(
-                    adapterId, supplierContext
-                        .bean(Camunda8ClientFactoryRegistry.class)
-                        .getFactory(adapterId), AdapterBeanRegistrarSupport.collaborators(supplierContext, adapterId), (
-                            workflowModuleId,
-                            bpmnProcessId,
-                            taskDefinition) -> overlay.jobTimeoutFor(
-                                workflowModuleId, bpmnProcessId, taskDefinition,
-                                adapterId), asyncTaskLockRenewal, id -> supplierContext
-                                    .bean(Camunda8ClientFactoryRegistry.class)
-                                    .getFactory(id)
-                                    .getConfiguration(), supplierContext
-                                        .bean(
-                                            NameClashAvoidanceSupport.class), (
-                                                workflowModuleId,
-                                                bpmnProcessId,
-                                                taskDefinition) -> overlay.configuredRetryBackoffFor(
-                                                    workflowModuleId, bpmnProcessId, taskDefinition,
-                                                    adapterId));
+                    adapterId, clientFactory, AdapterBeanRegistrarSupport
+                        .collaborators(supplierContext,
+                            adapterId), jobTimeoutResolver, asyncTaskLockRenewal, id -> supplierContext
+                                .bean(Camunda8ClientFactoryRegistry.class)
+                                .getFactory(id)
+                                .getConfiguration(), supplierContext
+                                    .bean(
+                                        NameClashAvoidanceSupport.class), (
+                                            workflowModuleId,
+                                            bpmnProcessId,
+                                            taskDefinition) -> overlay.configuredRetryBackoffFor(
+                                                workflowModuleId, bpmnProcessId, taskDefinition,
+                                                adapterId));
                 // What each worker asks the cluster for, resolvable down to
                 // task level
                 deploymentService.setFetchVariablesResolver((
@@ -127,20 +132,6 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
 
   }
 
-  /**
-   * The adapter-level window the core waits for a workflow of this cluster to
-   * become findable by the awareness probe (default 10 seconds).
-   */
-  private static Duration workflowVisibilityTimeoutOf(
-      final VanillaBpCamunda8Properties overlay,
-      final String adapterId) {
-
-    final var adapterKeys = overlay.getAdapters().get(adapterId);
-    return (adapterKeys != null) && (adapterKeys.getWorkflowVisibilityTimeout() != null)
-        ? adapterKeys.getWorkflowVisibilityTimeout()
-        : Camunda8ProcessService.DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT;
-
-  }
 
   /**
    * The adapter-level window an open asynchronous task's job lock is renewed in

@@ -553,15 +553,15 @@ clean up afterwards.
 
 Which of the two a line uses is a property of the LINE and not of a test:
 `camunda8.cluster.secondary-storage` sits next to `camunda8.cluster.image` in the parent POM and
-travels the same way, filtered into `camunda8-cluster.properties` of every module which starts a
-cluster. The `line-8.8` profile sets it to `elasticsearch`, because moving the previous-GA line
-onto a storage its own cluster serves differently would change what that line is tested against,
-which is the one thing a bugfix-only line may not do. The current GA and the preview line take
-the default, `rdbms`.
+travels the same way, filtered into the `camunda8-cluster.properties` of the `test-support`
+module, which every module starting a cluster reads from the classpath. The `line-8.8` profile
+sets it to `elasticsearch`, because moving the previous-GA line onto a storage its own cluster
+serves differently would change what that line is tested against, which is the one thing a
+bugfix-only line may not do. The current GA and the preview line take the default, `rdbms`.
 
-A test class sees none of this. It declares one field, `ClusterUnderTest.cluster()`
-(`ElectionCluster.cluster()` in the election module, `ClusterUnderTest.cluster(logName)` on
-Quarkus), and gets a container it can ask for its mapped ports. Where the line needs an
+A test class sees none of this. It declares one field, `ClusterUnderTest.cluster()` (or
+`cluster(logName)` where a module starts more than one), and gets a container it can ask for its
+mapped ports. Where the line needs an
 Elasticsearch, the cluster container creates the network and that Elasticsearch itself, depends
 on it so Testcontainers starts it first, and stops both again in its own `stop()`. That last
 part is the reason the storage is not simply a second `@Container` field the way it used to be:
@@ -834,3 +834,37 @@ model, and a key turning it off would only hide what serving one means.
 `Camunda8ModelledListenerHandlerTest` the three cases of what a completion carries.
 
 See [Listeners somebody modelled](./README.md#listeners-somebody-modelled).
+
+### 28. What an extension of this adapter may use is this adapter's own API
+
+An extension implementing `ExtensionWiringService` runs inside this adapter's deployment
+pipeline, on the same BPMN files, against the same cluster, under the same shutdown. It is not an
+application: it opens job workers, it serves listener jobs, it searches for workflows by their
+aggregate id. Everything it does there, this adapter already does, and until now most of it was
+package-private, so the extension wrote a second copy of a rule which was decided once.
+
+A copy of a rule is not half a rule. It is a rule which will be wrong in one of the two places
+and say nothing about it. The quoting of a search value answers nothing once it drifts, and
+nothing reads exactly like a workflow which was never started. A worker assembled by hand is
+simply missing from what an operator reads. Worst of them, a listener job answered without the
+drain buys an incident on every rolling restart which catches one in flight. None of it fails a
+build.
+
+So the entry points an extension needs are public, they say in their javadoc what they promise and
+what they do not, and a test holds each promise. They are public WHERE THEY ARE rather than moved
+into a package of their own: the javadoc is the contract, and moving them would rename what the
+adapter itself uses. The two exceptions are `Camunda8Workers` and `Camunda8ListenerJobs`, which
+took code out of the deployment service, and the `test-support` module, which exists because a
+test classpath cannot read another module's test classes.
+
+This is not the deployment service becoming public API. What an extension may use is the named
+list in [What an extension of the pipeline is told](./core/README.md#what-an-extension-of-the-pipeline-is-told);
+everything else stays the adapter's own and may move with the next change. Where an extension
+needs something which is not on that list, the answer is to add it to the list, with its javadoc
+and its test, rather than to reach around it.
+
+The platform's own rule sits above this one: a mechanism which is the same for every BPMS belongs
+to `adapter-platform-integration` and not here. This decision is about what is Camunda 8's and
+therefore cannot live there.
+
+See [What an extension of the pipeline is told](./core/README.md#what-an-extension-of-the-pipeline-is-told).

@@ -974,6 +974,38 @@ public class Camunda8AdapterConfiguration {
   }
 
   /**
+   * How long VanillaBP waits for a workflow this cluster holds to become findable by the
+   * query API. Ten seconds is generous for a healthy exporter and still short enough to stay
+   * inside the caller's transaction, which the waiting keeps open.
+   */
+  public static final Duration DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT = Duration.ofSeconds(10);
+
+  /**
+   * How long a read of this cluster may meet an answer the exporter has not caught up with
+   * yet: the configured {@code workflow-visibility-timeout} or
+   * {@link #DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT}.
+   * <p>
+   * Camunda 8 answers every search from a read model an exporter feeds asynchronously, so
+   * something written a moment ago is not findable yet. This window is how long anybody
+   * reading THIS cluster may treat "not there" as "not there yet" before treating it as an
+   * answer. Zero or less switches the waiting off.
+   * <p>
+   * Public because an extension reads the same cluster and meets the same lag. The number
+   * belongs to the cluster and not to the reader: an operator who raises it for a slow
+   * exporter raises it once, and a reader which hard-codes a window of its own keeps
+   * dropping what the adapter now waits for.
+   *
+   * @return The window, never <code>null</code>
+   */
+  public Duration workflowVisibilityWindow() {
+
+    return workflowVisibilityTimeout != null
+        ? workflowVisibilityTimeout
+        : DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT;
+
+  }
+
+  /**
    * Validates the shutdown grace of this adapter instance - AT STARTUP, because what it
    * decides happens when nobody is watching. A negative value is a typo and fails the boot;
    * a value which does not fit into the shutdown budget of the runtime is legitimate but

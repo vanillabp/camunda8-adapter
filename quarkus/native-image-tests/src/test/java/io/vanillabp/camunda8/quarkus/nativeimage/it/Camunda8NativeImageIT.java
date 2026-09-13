@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.GenericContainer;
 
+import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**

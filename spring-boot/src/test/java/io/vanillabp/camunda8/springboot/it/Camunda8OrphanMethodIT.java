@@ -11,6 +11,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**

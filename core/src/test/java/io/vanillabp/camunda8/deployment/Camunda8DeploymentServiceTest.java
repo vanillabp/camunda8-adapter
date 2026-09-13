@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -31,6 +32,7 @@ import io.vanillabp.camunda8.TestCollaborators;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
+import io.vanillabp.camunda8.wiring.Camunda8MultiInstance;
 import io.vanillabp.camunda8.wiring.Camunda8Scoping;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
@@ -197,6 +199,12 @@ public class Camunda8DeploymentServiceTest {
     // configured Camunda 8 adapter makes the same call with the same file
     assertEquals("c8", context.getAdapterId());
     assertEquals("module", context.getWorkflowModuleId());
+    // and it carries the registry the adapter wires its models into, so an extension which
+    // wants to name the iteration a task belongs to asks rather than reading the models again
+    assertSame(
+        service.multiInstanceRegistry(),
+        context.getMultiInstanceRegistry(),
+        "the adapter's own registry, not one of the context's");
 
   }
 
@@ -208,7 +216,8 @@ public class Camunda8DeploymentServiceTest {
 
     // null context (no BPMN files at all) and empty context must not build a client
     assertDoesNotThrow(() -> service.deployResources("module", null));
-    assertDoesNotThrow(() -> service.deployResources("module", new Camunda8ProcessingContext("c8", "module")));
+    assertDoesNotThrow(() -> service.deployResources("module",
+        new Camunda8ProcessingContext("c8", "module", new Camunda8MultiInstance.Registry())));
 
   }
 
@@ -301,7 +310,7 @@ public class Camunda8DeploymentServiceTest {
                   workflowModuleId,
                   bpmnProcessId,
                   taskDefinition) -> locks.next(), Duration.ofDays(14));
-      final var context = new Camunda8ProcessingContext("c8", "m");
+      final var context = new Camunda8ProcessingContext("c8", "m", new Camunda8MultiInstance.Registry());
       context
           .getTasksToWire()
           .add(new Camunda8TaskWiring.Camunda8TaskToWire("Fast", "assessRisk", "assessRisk"));

@@ -20,6 +20,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.process.WorkflowNotFoundException;
@@ -58,7 +59,7 @@ public class Camunda8SharedClusterElectionIT {
    * adapter id as well as for two, which {@code Camunda8UnsearchableClusterIT} proves.
    */
   @Container
-  static final GenericContainer<?> CAMUNDA = ElectionCluster.cluster();
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
 
   private ConfigurableApplicationContext application;
 

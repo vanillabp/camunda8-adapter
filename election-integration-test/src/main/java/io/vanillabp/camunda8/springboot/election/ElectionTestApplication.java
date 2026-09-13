@@ -14,9 +14,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * {@code election-app}, the Spring Boot module's tests name {@code test-app}, and neither
  * context registers what it does not configure.
  * <p>
- * The price of the separation is one local helper: {@code ElectionCluster} does what
- * {@code ClusterUnderTest} does for the Spring Boot module's own tests, which is the same
- * duplication the Quarkus integration tests keep with their {@code ClusterImage}.
+ * The cluster these tests run against comes from the module {@code test-support}, like
+ * every other cluster of this repository.
  */
 @SpringBootApplication
 public class ElectionTestApplication {

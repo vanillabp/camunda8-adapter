@@ -7,9 +7,7 @@ import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.camunda.client.api.worker.JobHandler;
-import io.vanillabp.camunda8.client.Camunda8CommandRetry;
 import io.vanillabp.camunda8.client.Camunda8Drain;
-import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
@@ -166,93 +164,64 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
         ? scopedTaskDefinition
         : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
 
-    drain.jobStarted(job.getKey(), KIND, taskDefinition, bpmnProcessId);
-    try {
-      if (workflowTaskInvoker.workflowTaskHandlerExists(workflowModuleId, bpmnProcessId, taskDefinition)) {
-        final var aggregateIdName = workflowTaskInvoker.resolveWorkflowAggregateIdName(
-            workflowModuleId, bpmnProcessId);
-        final var aggregateId = job.getVariablesAsMap().get(aggregateIdName);
-        if (aggregateId == null) {
-          throw new IllegalStateException(
-              Camunda8FetchVariables.missingAggregateId(
-                  "The user-task listener job",
-                  job.getKey(),
-                  job.getType(),
-                  bpmnProcessId,
-                  aggregateIdName,
-                  adapterId,
-                  fetchVariables));
-        }
-        final var outcome = workflowTaskInvoker.invokeWorkflowTask(
-            workflowModuleId,
-            bpmnProcessId,
-            new Camunda8UserTaskInvocationContext(
-                adapterId, taskDefinition, String
-                    .valueOf(aggregateId), userTaskKey, event, job, multiInstanceRegistry, fetchVariables));
-        if (outcome.kind() == WorkflowTaskOutcome.Kind.BPMN_ERROR) {
-          throw new IllegalStateException(
-              ("The @WorkflowTask method notified about the %s event of user task '%s' (BPMN "
-                  + "process '%s' of workflow module '%s') threw a TaskException! User-task "
-                  + "notification handlers must not raise BPMN errors - route errors via "
-                  + "ProcessService#cancelUserTask instead.")
-                  .formatted(event, taskDefinition, bpmnProcessId, workflowModuleId));
-        }
-      } else {
-        log.trace(
-            "Camunda8[{}]: no @WorkflowTask handler for user task '{}' of BPMN process '{}' - "
-                + "completing the {} listener job without a notification",
+    Camunda8ListenerJobs
+        .completeOrFail(
             adapterId,
+            client,
+            job,
+            drain,
+            KIND,
             taskDefinition,
             bpmnProcessId,
-            event);
-      }
-
-      // listener jobs gate the task lifecycle - ALWAYS complete them; the
-      // user-task result keeps the lifecycle moving (denying is not VanillaBP's
-      // business)
-      Camunda8CommandRetry.send(
-          adapterId,
-          "completion",
-          job.getKey(),
-          taskDefinition,
-          job.getDeadline(),
-          drain::isShuttingDown,
-          () -> client
-              .newCompleteCommand(job.getKey())
-              .send()
-              .join());
-    } catch (final Exception e) {
-      // A notification cut off by a shutdown is not a notification defect. This
-      // worker fails with retries(0), so reporting it would raise an incident for work
-      // nobody ever asked the application to abandon - the job is left to its lock instead
-      if (drain.leaveJobToItsLock(job.getKey(), KIND, taskDefinition, e)) {
-        return;
-      }
-      log.warn(
-          "Camunda8[{}]: processing user-task listener job '{}' (type '{}', event {}) failed - "
-              + "failing the job (retries are 0: an incident is raised for the operator)",
-          adapterId,
-          job.getKey(),
-          job.getType(),
-          event,
-          e);
-      // no retry backoff: with no retries left there is no next attempt to delay
-      Camunda8CommandRetry.send(
-          adapterId,
-          "failure",
-          job.getKey(),
-          taskDefinition,
-          job.getDeadline(),
-          drain::isShuttingDown,
-          () -> client
-              .newFailCommand(job.getKey())
-              .retries(0)
-              .errorMessage(Camunda8Errors.incidentMessage(e))
-              .send()
-              .join());
-    } finally {
-      drain.jobFinished(job.getKey());
-    }
+            // the V1-compatible listeners are modelled with retries="0", so a failure IS
+            // the incident and there is no next attempt a backoff could delay
+            () -> Camunda8ListenerJobs.Failure.NO_RETRIES_LEFT,
+            () -> {
+              if (workflowTaskInvoker.workflowTaskHandlerExists(workflowModuleId, bpmnProcessId, taskDefinition)) {
+                final var aggregateIdName = workflowTaskInvoker
+                    .resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId);
+                final var aggregateId = job.getVariablesAsMap().get(aggregateIdName);
+                if (aggregateId == null) {
+                  throw new IllegalStateException(
+                      Camunda8FetchVariables
+                          .missingAggregateId(
+                              "The user-task listener job",
+                              job.getKey(),
+                              job.getType(),
+                              bpmnProcessId,
+                              aggregateIdName,
+                              adapterId,
+                              fetchVariables));
+                }
+                final var outcome = workflowTaskInvoker
+                    .invokeWorkflowTask(
+                        workflowModuleId,
+                        bpmnProcessId,
+                        new Camunda8UserTaskInvocationContext(
+                            adapterId, taskDefinition, String
+                                .valueOf(
+                                    aggregateId), userTaskKey, event, job, multiInstanceRegistry, fetchVariables));
+                if (outcome.kind() == WorkflowTaskOutcome.Kind.BPMN_ERROR) {
+                  throw new IllegalStateException(
+                      ("The @WorkflowTask method notified about the %s event of user task '%s' (BPMN "
+                          + "process '%s' of workflow module '%s') threw a TaskException! User-task "
+                          + "notification handlers must not raise BPMN errors - route errors via "
+                          + "ProcessService#cancelUserTask instead.")
+                          .formatted(event, taskDefinition, bpmnProcessId, workflowModuleId));
+                }
+              } else {
+                log
+                    .trace(
+                        "Camunda8[{}]: no @WorkflowTask handler for user task '{}' of BPMN process '{}' - "
+                            + "completing the {} listener job without a notification",
+                        adapterId,
+                        taskDefinition,
+                        bpmnProcessId,
+                        event);
+              }
+              // the listener completion carries NO variables, see the class javadoc
+              return Map.of();
+            });
 
   }
 

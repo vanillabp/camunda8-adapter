@@ -82,6 +82,8 @@ public class Camunda8UnknownTaskProbeTest {
     final var configuration = new Camunda8AdapterConfiguration();
     // an address nothing ever contacts - every request of this test meets the mock above
     configuration.setRestAddress("http://localhost:1");
+    // no waiting for the exporter in a unit test - the cluster is never contacted
+    configuration.setWorkflowVisibilityTimeout(Duration.ZERO);
     final var clientFactory = new Camunda8ClientFactory("c8", configuration) {
 
       @Override
@@ -98,7 +100,7 @@ public class Camunda8UnknownTaskProbeTest {
     return new Camunda8ProcessService<Object>(
         "c8", clientFactory, Duration.ofDays(14), (
             aggregateClass,
-            check) -> check.run(), null, Duration.ZERO);
+            check) -> check.run(), null);
 
   }
 

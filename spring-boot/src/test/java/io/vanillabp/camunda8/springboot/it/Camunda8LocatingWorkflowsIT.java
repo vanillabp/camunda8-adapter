@@ -23,6 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 

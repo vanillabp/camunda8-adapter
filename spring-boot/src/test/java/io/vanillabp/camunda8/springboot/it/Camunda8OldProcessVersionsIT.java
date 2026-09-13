@@ -23,6 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.search.enums.ProcessDefinitionState;
 import io.camunda.client.api.search.response.ProcessDefinition;
+import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 

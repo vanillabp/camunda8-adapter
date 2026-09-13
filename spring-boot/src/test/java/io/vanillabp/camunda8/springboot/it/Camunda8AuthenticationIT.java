@@ -24,6 +24,7 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 

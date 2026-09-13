@@ -76,6 +76,8 @@ public class Camunda8MessageDeclarationTest {
     final var configuration = new Camunda8AdapterConfiguration();
     // never contacted: phase one asks the models, not the cluster
     configuration.setRestAddress("http://localhost:1");
+    // no waiting for the exporter in a unit test - the cluster is never contacted
+    configuration.setWorkflowVisibilityTimeout(Duration.ZERO);
     return new Camunda8ClientFactory("c8", configuration);
 
   }
@@ -86,7 +88,7 @@ public class Camunda8MessageDeclarationTest {
     return new Camunda8ProcessService<>(
         "c8", clientFactory, Duration.ofDays(14), (
             aggregateClass,
-            check) -> check.run(), null, Duration.ZERO);
+            check) -> check.run(), null);
 
   }
 

@@ -60,8 +60,10 @@ public class Camunda8PreCommitCheckTest {
     final var configuration = new Camunda8AdapterConfiguration();
     // closed port: every cluster contact raises immediately
     configuration.setRestAddress("http://localhost:1");
+    // no waiting for the exporter in a unit test - the cluster is never contacted
+    configuration.setWorkflowVisibilityTimeout(Duration.ZERO);
     return new Camunda8ProcessService<>(
-        "c8", new Camunda8ClientFactory("c8", configuration), Duration.ofDays(14), registrar, null, Duration.ZERO);
+        "c8", new Camunda8ClientFactory("c8", configuration), Duration.ofDays(14), registrar, null);
 
   }
 

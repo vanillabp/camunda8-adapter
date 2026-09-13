@@ -115,11 +115,13 @@ public class Camunda8SharedValuesTest {
 
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setRestAddress("http://localhost:1");
+    // no waiting for the exporter in a unit test - the cluster is never contacted
+    configuration.setWorkflowVisibilityTimeout(Duration.ZERO);
     return new Camunda8ProcessService<>(
         "c8", new Camunda8ClientFactory("c8", configuration), Duration
             .ofDays(14), (
                 aggregateClass,
-                check) -> check.run(), aggregateSync, Duration.ZERO);
+                check) -> check.run(), aggregateSync);
 
   }
 
