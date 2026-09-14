@@ -156,14 +156,12 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
       final JobClient client,
       final ActivatedJob job) {
 
-    final var bpmnProcessId = scoping == null
-        ? job.getBpmnProcessId()
-        : scoping.plainProcessId(workflowModuleId, job.getBpmnProcessId(), adapterId);
+    final var bpmnProcessId = NameClashAvoidanceSupport
+        .plainProcessId(scoping, workflowModuleId, job.getBpmnProcessId(), adapterId);
     // the listener's job type IS the task definition, prefixed like any other one where the
     // workflow module avoids name clashes that way
-    final var taskDefinition = scoping == null
-        ? job.getType()
-        : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, job.getType(), adapterId);
+    final var taskDefinition = NameClashAvoidanceSupport
+        .plainTaskDefinition(scoping, workflowModuleId, bpmnProcessId, job.getType(), adapterId);
 
     Camunda8ListenerJobs
         .completeOrFail(

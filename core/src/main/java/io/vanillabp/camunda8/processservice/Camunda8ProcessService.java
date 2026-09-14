@@ -239,9 +239,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final String workflowModuleId,
       final String bpmnProcessId) {
 
-    return scoping == null
-        ? bpmnProcessId
-        : scoping.scopedProcessId(workflowModuleId, bpmnProcessId, adapterId);
+    return NameClashAvoidanceSupport.scopedProcessId(scoping, workflowModuleId, bpmnProcessId, adapterId);
 
   }
 
@@ -252,9 +250,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final String workflowModuleId,
       final String identifier) {
 
-    return scoping == null
-        ? identifier
-        : scoping.scopedIdentifier(workflowModuleId, identifier, adapterId);
+    return NameClashAvoidanceSupport.scopedIdentifier(scoping, workflowModuleId, identifier, adapterId);
 
   }
 

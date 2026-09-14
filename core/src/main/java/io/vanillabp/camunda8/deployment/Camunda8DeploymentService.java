@@ -693,9 +693,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final String bpmnProcessId) {
 
-    return scoping == null
-        ? bpmnProcessId
-        : scoping.scopedProcessId(workflowModuleId, bpmnProcessId, adapterId);
+    return NameClashAvoidanceSupport.scopedProcessId(scoping, workflowModuleId, bpmnProcessId, adapterId);
 
   }
 
@@ -706,9 +704,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final String scopedBpmnProcessId) {
 
-    return scoping == null
-        ? scopedBpmnProcessId
-        : scoping.plainProcessId(workflowModuleId, scopedBpmnProcessId, adapterId);
+    return NameClashAvoidanceSupport
+        .plainProcessId(scoping, workflowModuleId, scopedBpmnProcessId, adapterId);
 
   }
 
@@ -720,9 +717,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final String scopedIdentifier) {
 
-    return (scoping == null) || (scopedIdentifier == null)
-        ? scopedIdentifier
-        : scoping.plainIdentifier(workflowModuleId, scopedIdentifier, adapterId);
+    // the null check is about the IDENTIFIER, not about the support: a name the model does
+    // not carry stays absent, and a double of the support need not answer for one
+    return scopedIdentifier == null
+        ? null
+        : NameClashAvoidanceSupport
+            .plainIdentifier(scoping, workflowModuleId, scopedIdentifier, adapterId);
 
   }
 
@@ -735,9 +735,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String bpmnProcessId,
       final String scopedTaskDefinition) {
 
-    return scoping == null
-        ? scopedTaskDefinition
-        : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
+    return NameClashAvoidanceSupport
+        .plainTaskDefinition(scoping, workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
 
   }
 
@@ -2218,9 +2217,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             }
             // the cluster reports the id IT knows; the viewer API is keyed by the
             // PLAIN one, like every other core-facing identifier
-            final var plainBpmnProcessId = scoping == null
-                ? process.getBpmnProcessId()
-                : scoping.plainProcessId(workflowModuleId, process.getBpmnProcessId(), adapterId);
+            final var plainBpmnProcessId = NameClashAvoidanceSupport
+                .plainProcessId(scoping, workflowModuleId, process.getBpmnProcessId(), adapterId);
             clientFactory
                 .getDeployedProcesses()
                 .record(
@@ -2705,9 +2703,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .getModelledListeners()
         .forEach(listener -> {
           final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, listener.bpmnProcessId());
-          final var scopedJobType = scoping == null
-              ? listener.taskDefinition()
-              : scoping.scopedTaskDefinition(
+          final var scopedJobType = NameClashAvoidanceSupport
+              .scopedTaskDefinition(
+                  scoping,
                   workflowModuleId,
                   listener.bpmnProcessId(),
                   listener.taskDefinition(),
@@ -2951,9 +2949,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           final var openedJobTypes = new TreeSet<String>();
           taskDefinitions
               .forEach(taskDefinition -> {
-                final var jobType = scoping == null
-                    ? taskDefinition
-                    : scoping.scopedTaskDefinition(workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
+                final var jobType = NameClashAvoidanceSupport
+                    .scopedTaskDefinition(scoping, workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
                 if (jobTypesAlreadyServed.contains(jobType)) {
                   return;
                 }
