@@ -32,9 +32,11 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
  * listeners of the start events the cluster fires on its own, and the end listener of a
  * process whose end is reported. The Business Cockpit extension writes its own under
  * {@code io.vanillabp.businesscockpit:}, which that prefix covers as well. Beyond the
- * prefix the moment helps: an extension reaches a model through the platform's wiring
- * stage, which runs AFTER this adapter read the file, so a listener of an extension is not
- * in the model yet while the collection below walks it.
+ * prefix the moment helps: a listener of an extension is not in the model yet while the
+ * collection below walks it. The moment an extension reaches a model is VanillaBP's
+ * promise, not this adapter's, and the wiki page
+ * <a href="https://github.com/vanillabp/adapter-platform-integration/wiki/Extensions">Extensions</a>
+ * says what is promised and what is not.
  * <p>
  * A third-party extension choosing a prefix of its own is not known here, and nothing can
  * ask for one. That is why the startup report names every listener this adapter treats as
