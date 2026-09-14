@@ -164,13 +164,23 @@ is one thread unless something says otherwise - and that is the very defect the 
 exists to fix. The class is package-private and has no public members, so the API identity
 check sees the same declaration on every line.
 
-What a line did need so far is a dependency pin rather than code. The 8.10 client brings
-generated protobuf code linked against 4.35.1, and protobuf refuses a runtime older than
-its gencode, while the Spring Boot BOM manages 4.34.2 and an imported BOM beats a
-transitive version. The parent POM therefore manages `protobuf-java` itself, before that
-import, high enough for every pinned client. It has to be raised whenever a client's
-gencode goes above it; the failure otherwise is an `ExceptionInInitializerError` on the
-first command that touches the protocol, which the integration tests of the line catch.
+What a line did need so far is a dependency pin rather than code. Each client brings
+generated protobuf code, and protobuf refuses a runtime older than its gencode, while the
+Spring Boot BOM manages a version of its own and an imported BOM beats a transitive one. The
+parent POM therefore manages `protobuf-java` itself, before that import, high enough for
+every pinned client. A newer runtime serves an older gencode, so one number covers all three
+lines and it is the gencode of the newest client among them.
+
+The number cannot be derived. A `dependencyManagement` version has to be written down before
+the client is resolved, so Maven has no way of taking it out of the client's own POM. What it
+can do is read that POM and compare, which is `Camunda8ProtobufPinTest`: the build copies the
+POM of the client this line was compiled against, reads the `protobuf-java` version it
+declares, and reads what really ends up on the classpath by reflection on
+`com.google.protobuf.RuntimeVersion`. When the two disagree the build fails with both numbers
+and the line to change. Without it the failure is an `ExceptionInInitializerError` on the
+first command that touches the protocol, thirty lines below a message about a closed port,
+which is how a client bump used to go red. It now breaks with a sentence instead, and the
+Renovate pull request which proposes such a bump says the same thing in its body.
 
 ### The tripwire
 

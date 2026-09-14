@@ -58,5 +58,36 @@
         <directory>src/main/resources</directory>
       </resource>
     </resources>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <!-- The client's own POM, so Camunda8ProtobufPinTest can read which protobuf
+               gencode this line's client was generated against. The POM rather than the
+               dependency tree: our own dependencyManagement overrides the client's protobuf
+               version, so the tree shows the pin and not what the client asks for. -->
+          <execution>
+            <id>the-clients-own-pom</id>
+            <goals>
+              <goal>copy</goal>
+            </goals>
+            <phase>generate-test-resources</phase>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>io.camunda</groupId>
+                  <artifactId>camunda-client-java</artifactId>
+                  <version>${camunda8.version}</version>
+                  <type>pom</type>
+                  <destFileName>camunda-client-java.pom</destFileName>
+                </artifactItem>
+              </artifactItems>
+              <outputDirectory>${project.build.directory}/camunda-client</outputDirectory>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
   </build>
 </project>
