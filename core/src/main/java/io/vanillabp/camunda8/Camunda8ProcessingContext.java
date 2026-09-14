@@ -32,7 +32,7 @@ import lombok.Getter;
  * {@code wireBpmn}, and the two ids below are what tell it whose call it is looking at.
  * The pipeline runs once per configured Camunda 8 adapter, each run over that adapter's
  * own copy of the workflow module's files, so an extension which does not read
- * {@link #getAdapterId()} cannot tell the runs apart - and the model it is handed carries
+ * {@code getAdapterId()} cannot tell the runs apart - and the model it is handed carries
  * the identifiers of THAT adapter, which name-clash avoidance may have rewritten. Both ids
  * are stated here rather than left to be read back off those identifiers, which stops
  * answering as soon as two adapter ids avoid name clashes differently.
