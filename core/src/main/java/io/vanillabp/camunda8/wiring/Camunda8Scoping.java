@@ -64,7 +64,7 @@ public final class Camunda8Scoping {
 
   /**
    * The TENANT a workflow module is deployed to, respectively an operation of it runs
-   * in: the workflow module id unless the adapter configured a name, and
+   * in: the workflow module id unless the application configured a name, and
    * <code>null</code> wherever the mode is not {@link NameClashAvoidance#BY_ADAPTER}
    * ({@code none} uses no tenant, and under {@code use-prefix} the prefix IS the
    * isolation - a tenant on top would defeat the purpose, since clusters are licensed
@@ -84,8 +84,9 @@ public final class Camunda8Scoping {
    *          (tests): the configured tenant is used as it is then
    * @param workflowModuleId The workflow module ID
    * @param adapterId The adapter ID
-   * @param configuredTenantId The tenant name configured for the adapter, or
-   *          <code>null</code>
+   * @param configuredTenantId The tenant name the application configured for this workflow
+   *          module, resolved over the levels it may be set at (see
+   *          {@link Camunda8ConfiguredTenant}), or <code>null</code>
    * @return The tenant ID, or <code>null</code> if the mode uses none
    */
   public static String tenantIdFor(

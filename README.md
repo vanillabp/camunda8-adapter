@@ -315,7 +315,7 @@ overlay maps are per-known-id lookups only.
 | `vanillabp.adapters.<id>.region`                | saas         | yes                                        | SaaS region                                                                   |
 | `vanillabp.adapters.<id>.client-id`             | saas         | yes                                        | OAuth client ID                                                               |
 | `vanillabp.adapters.<id>.client-secret`         | saas         | yes                                        | OAuth client secret                                                           |
-| `vanillabp.adapters.<id>.tenant-id`             | both         | no                                         | Camunda 8 multi-tenancy tenant                                                |
+| `vanillabp.adapters.<id>.tenant-id`             | both         | no                                         | Camunda 8 multi-tenancy tenant, also settable per workflow module             |
 | `vanillabp.adapters.<id>.auth.*`                | both         | no (default: no credentials)               | how the adapter authenticates, see [below](#authenticating-against-a-cluster) |
 
 Example (self-managed):
@@ -1497,8 +1497,8 @@ cluster.
 
 The [name-clash-avoidance mode](https://github.com/vanillabp/adapter-platform-integration/wiki/Workflow-modules#how-name-clashes-are-avoided)
 decides where a workflow module's models land. `by-adapter` deploys into a multi-tenancy
-tenant named after the module (`tenant-id` overrides the name) and the job workers
-subscribe for that tenant; `use-prefix` deploys into the default tenant with prefixed
+tenant named after the module (`tenant-id` overrides the name, for the whole adapter or for
+one workflow module) and the job workers subscribe for that tenant; `use-prefix` deploys into the default tenant with prefixed
 identifiers instead, process ids, message names, error codes, signal and escalation names,
 JOB TYPES and the user-task form reference, the latter two additionally scoped by their
 BPMN process; `none` scopes nothing.
@@ -1571,7 +1571,8 @@ strings while the tenant keeps the two modules apart. So it asks this adapter, a
 the tenant each of the two modules would really be deployed to, compared. Two modules without a
 configured `tenant-id` land in two tenants named after them and are separated; one adapter-wide
 `tenant-id` puts both into one tenant and separates nothing, which is the configuration where
-the boot of the SECOND module now ends. A module under `use-prefix` or `none` reaches the
+the boot of the SECOND module now ends, and the way out it offers is a tenant for one of the
+two modules alone. A module under `use-prefix` or `none` reaches the
 cluster in the `<default>` tenant, and that is a scope like any other: two such modules share
 it, one of them against a tenanted module does not. On a cluster without multi-tenancy the
 `<default>` tenant is the only scope there is, so the answer there is that nothing separates
@@ -1582,10 +1583,22 @@ property.
 The question costs nothing. Both tenants come out of configuration, so no request reaches the
 cluster, and the core asks once per pair of workflow modules rather than once per process.
 
+**The tenant name is resolved per workflow module**, the module's own section first
+(`vanillabp.workflow-modules.<module>.adapters.<id>.tenant-id`) and the adapter's after it.
+That is what makes the way out of the refusal above writable: the message tells the developer
+to give one of the two modules a scope of its own, and before this the only name an
+application could write was one for every module at once. There is no name per workflow,
+because a tenant id is an attribute of the deployment and this adapter deploys once per
+workflow module, so two workflows of one module cannot reach the cluster in two tenants. A
+name the mode would ignore still ends the boot, once per property key rather than once per
+adapter, so the message quotes the line which was written. Decision 29 in
+[`DECISIONS.md`](./DECISIONS.md) carries the reasoning.
+
 `Camunda8DeploymentServiceTest` holds the three modes and the default, `Camunda8TenantCheckTest`
 the two ways `by-adapter` fails, `Camunda8IsolationSeparatesModulesTest` which pairs of modules
 the tenants separate, `Camunda8CollidingProcessIdsBootTest` the refusal of two modules sharing a
-process id, `Camunda8SharedClusterTest` and `Camunda8InstanceIdentityTest`
+process id and the module tenant which resolves it, `Camunda8TenantResolutionBootTest` and
+`Camunda8JobTimeoutOverlayTest` the resolution over the levels on both platforms, `Camunda8SharedClusterTest` and `Camunda8InstanceIdentityTest`
 which ids count as one, and `Camunda8SharedClusterElectionIT` the election of two adapter ids
 on one cluster.
 

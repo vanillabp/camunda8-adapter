@@ -31,7 +31,10 @@ import lombok.Setter;
  *       when {@code .prefer-rest-over-grpc=false})</li>
  *   <li>saas: {@code .cluster-id}, {@code .region}, {@code .client-id},
  *       {@code .client-secret} (all required)</li>
- *   <li>{@code .tenant-id} (optional, both modes) - Camunda 8 multi-tenancy tenant</li>
+ *   <li>{@code .tenant-id} (optional, both modes) - Camunda 8 multi-tenancy tenant. One
+ *       workflow module may carry a name of its own under
+ *       {@code vanillabp.workflow-modules.<module>.adapters.<id>.tenant-id}, which wins over
+ *       this one</li>
  *   <li>{@code .prefer-rest-over-grpc} (optional, default {@code true}) - whether the
  *       client uses the REST API (recommended) or gRPC for its commands</li>
  *   <li>{@code .auth.*} - how the adapter authenticates, see

@@ -19,8 +19,10 @@ import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
  * <code>client-id</code> - addressing one cluster with two OAuth clients is a
  * legitimate setup (separated permissions or quotas per workflow module), so the
  * client id counts;</li>
- * <li>additionally the <code>tenant-id</code>: the same cluster with different
- * multi-tenancy tenants are different systems from the application's view;</li>
+ * <li>additionally the <code>tenant-id</code> of the ADAPTER section: the same cluster with
+ * different multi-tenancy tenants are different systems from the application's view. A name
+ * a single workflow module carries is not read here, because this question is about the
+ * adapter id as a whole and a module's name says nothing about the other modules;</li>
  * <li>and a different <code>name-clash-avoidance</code> mode: the
  * identifiers of the SAME workflow module look different in each of them (a tenant
  * versus prefixed identifiers), which is exactly the setup used to MIGRATE from

@@ -109,20 +109,25 @@ not after this upgrade:
   a cluster without multi-tenancy leaves you with.
 
 Nothing is wrong with your models, so renaming one of the two processes is only one of the ways
-out. Where the shared tenant was not deliberate, dropping the name gives each workflow module a
-tenant of its own, which is the default:
+out. The way which keeps every other workflow module where it is: give one of the two a tenant of
+its own. The name is settable per workflow module now, which it was not before.
 
 ```yaml
 vanillabp:
   adapters:
     camunda8:
-      tenant-id:                         # drop it: one tenant per workflow module (needs multi-tenancy)
-      name-clash-avoidance: use-prefix   # or prefix the identifiers with the module id, no tenant needed
+      tenant-id: shared-tenant
+  workflow-modules:
+    loan-approval:
+      adapters:
+        camunda8:
+          tenant-id: loan-approval   # a scope of its own, for this workflow module
 ```
 
-The failure also offers a tenant per workflow module. On Camunda 8 `tenant-id` is an adapter-wide
-key, so that is not a line you can write here: what gives each module a tenant of its own is
-dropping the name. On a cluster without multi-tenancy `use-prefix` is the mode which keeps the
+Where the shared tenant was not deliberate at all, dropping the adapter's name gives every module
+a tenant named after it, which is the default. The remaining way out is
+`name-clash-avoidance: use-prefix`, which drops the tenant and prefixes the identifiers with the
+workflow module id instead. On a cluster without multi-tenancy that is the mode which keeps the
 modules apart without asking anything of the cluster.
 
 If you neither set a `tenant-id` nor use `none`, nothing changes for you: the default deploys each

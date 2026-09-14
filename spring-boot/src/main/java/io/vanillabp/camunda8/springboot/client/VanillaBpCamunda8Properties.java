@@ -13,6 +13,7 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
 import io.vanillabp.camunda8.wiring.Camunda8AllowConnectorsResolver;
 import io.vanillabp.camunda8.wiring.Camunda8AllowListenersResolver;
+import io.vanillabp.camunda8.wiring.Camunda8ConfiguredTenant;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver;
@@ -59,7 +60,9 @@ public class VanillaBpCamunda8Properties {
    * <code>fetch-variables</code>. <code>message-time-to-live</code> resolves the same way
    * with a MESSAGE as its most specific level instead of a task, and
    * <code>allow-connectors</code> the same way with the workflow as its most specific
-   * level.
+   * level. <code>tenant-id</code> is here as well, with the workflow module as its ONLY
+   * level below the adapter: a tenant id is an attribute of the deployment, and this
+   * adapter deploys once per workflow module.
    */
   private Map<String, ModuleOverlay> workflowModules = Map.of();
 
@@ -138,6 +141,40 @@ public class VanillaBpCamunda8Properties {
         adapter != null
             ? adapter.resolvedRetryBackoff()
             : Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF, false);
+
+  }
+
+  /**
+   * The Camunda 8 tenant configured for one workflow module of one adapter id: the module's
+   * own name where it has one, the adapter's otherwise. What the mode then makes of it is the
+   * adapter's business.
+   *
+   * @param adapterId The adapter ID
+   * @param workflowModuleId The workflow module ID
+   * @return The name and the key it was read from, or <code>null</code> where nothing
+   *         configured one
+   */
+  public Camunda8ConfiguredTenant configuredTenantFor(
+      final String adapterId,
+      final String workflowModuleId) {
+
+    final var module = workflowModuleId != null
+        ? workflowModules.get(workflowModuleId)
+        : null;
+    final var perWorkflowModule = module != null
+        ? module.getAdapters().get(adapterId)
+        : null;
+    final var adapter = adapters.get(adapterId);
+    return Camunda8ConfiguredTenant
+        .firstConfigured(
+            adapterId,
+            workflowModuleId,
+            perWorkflowModule != null
+                ? perWorkflowModule.getTenantId()
+                : null,
+            adapter != null
+                ? adapter.getTenantId()
+                : null);
 
   }
 
@@ -222,7 +259,7 @@ public class VanillaBpCamunda8Properties {
         ? workflow.getMessages().get(messageName)
         : null;
 
-    final var levelsMostSpecificFirst = new LinkedList<Map<String, Camunda8ScopedKeys>>();
+    final var levelsMostSpecificFirst = new LinkedList<Map<String, ? extends Camunda8ScopedKeys>>();
     if (message != null) {
       levelsMostSpecificFirst.add(message.getAdapters());
     }
@@ -234,7 +271,7 @@ public class VanillaBpCamunda8Properties {
     }
     return levelsMostSpecificFirst
         .stream()
-        .map(level -> level.get(adapterId))
+        .<Camunda8ScopedKeys>map(level -> level.get(adapterId))
         .filter(Objects::nonNull);
 
   }
@@ -457,7 +494,7 @@ public class VanillaBpCamunda8Properties {
         ? workflow.getTasks().get(taskDefinition)
         : null;
 
-    final var levelsMostSpecificFirst = new LinkedList<Map<String, Camunda8ScopedKeys>>();
+    final var levelsMostSpecificFirst = new LinkedList<Map<String, ? extends Camunda8ScopedKeys>>();
     if (task != null) {
       levelsMostSpecificFirst.add(task.getAdapters());
     }
@@ -469,7 +506,7 @@ public class VanillaBpCamunda8Properties {
     }
     return levelsMostSpecificFirst
         .stream()
-        .map(level -> level.get(adapterId))
+        .<Camunda8ScopedKeys>map(level -> level.get(adapterId))
         .filter(Objects::nonNull);
 
   }
@@ -507,13 +544,30 @@ public class VanillaBpCamunda8Properties {
   }
 
   /**
+   * The Camunda 8 keys of one workflow module's adapter section: the scoped keys every level
+   * has, plus the tenant, which only a workflow module may override because a tenant id is an
+   * attribute of the deployment this adapter makes per workflow module.
+   */
+  @Getter
+  @Setter
+  public static class Camunda8ModuleScopedKeys extends Camunda8ScopedKeys {
+
+    /**
+     * The Camunda 8 tenant this workflow module is deployed into, overriding the name the
+     * adapter section gives every module of this application.
+     */
+    private String tenantId;
+
+  }
+
+  /**
    * The Camunda 8 adapter's view of one workflow-module section.
    */
   @Getter
   @Setter
   public static class ModuleOverlay {
 
-    private Map<String, Camunda8ScopedKeys> adapters = Map.of();
+    private Map<String, Camunda8ModuleScopedKeys> adapters = Map.of();
 
     private Map<String, WorkflowOverlay> workflows = Map.of();
 

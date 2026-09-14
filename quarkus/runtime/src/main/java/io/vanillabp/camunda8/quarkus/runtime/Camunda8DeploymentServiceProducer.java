@@ -102,6 +102,11 @@ public class Camunda8DeploymentServiceProducer {
                               bpmnProcessId,
                               taskDefinition) -> overlay.configuredRetryBackoffFor(
                                   workflowModuleId, bpmnProcessId, taskDefinition, adapterId));
+          // the tenant a workflow module is deployed into, resolved per module with
+          // the adapter's own name as the fallback
+          deploymentService
+              .setConfiguredTenants(
+                  workflowModuleId -> overlay.configuredTenantFor(adapterId, workflowModuleId));
           // What each worker asks the cluster for, resolvable down to task
           // level
           deploymentService.setFetchVariablesResolver((

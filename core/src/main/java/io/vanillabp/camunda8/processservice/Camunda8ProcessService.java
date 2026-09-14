@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import io.camunda.client.api.response.ProcessInstanceEvent;
@@ -23,6 +24,7 @@ import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.client.Camunda8QueryApi;
 import io.vanillabp.camunda8.client.Camunda8RefusedStart;
 import io.vanillabp.camunda8.deployment.Camunda8ModelsTheClusterHolds;
+import io.vanillabp.camunda8.wiring.Camunda8ConfiguredTenant;
 import io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver;
 import io.vanillabp.camunda8.wiring.Camunda8Scoping;
 import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
@@ -168,6 +170,27 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
+   * What a workflow module's tenant is CONFIGURED as, resolved by the platform modules over
+   * the levels the name may be set at, or <code>null</code> for a module nothing names a
+   * tenant for - then the workflow module id names it. May be <code>null</code> itself
+   * (tests), and then the adapter's own section is the only level.
+   */
+  private Function<String, Camunda8ConfiguredTenant> configuredTenants;
+
+  /**
+   * Sets the tenant names the application configured - this adapter's own configuration,
+   * unlike the name-clash-avoidance support, which arrives with the collaborators.
+   *
+   * @param configuredTenants What a workflow module's tenant is configured as
+   */
+  public void setConfiguredTenants(
+      final Function<String, Camunda8ConfiguredTenant> configuredTenants) {
+
+    this.configuredTenants = configuredTenants;
+
+  }
+
+  /**
    * Resolves how long the cluster keeps a message this adapter publishes, per adapter,
    * workflow module, workflow and message. May be <code>null</code> (tests, and a platform
    * written before this): the client's own default applies then and VanillaBP sets nothing
@@ -242,10 +265,20 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   private String tenantIdOf(
       final String workflowModuleId) {
 
+    final var configured = configuredTenants != null
+        ? configuredTenants.apply(workflowModuleId)
+        : Camunda8ConfiguredTenant
+            .firstConfigured(
+                adapterId,
+                workflowModuleId,
+                null,
+                clientFactory
+                    .getConfiguration()
+                    .getTenantId());
     return Camunda8Scoping.tenantIdFor(
-        scoping, workflowModuleId, adapterId, clientFactory
-            .getConfiguration()
-            .getTenantId());
+        scoping, workflowModuleId, adapterId, configured != null
+            ? configured.tenantId()
+            : null);
 
   }
 

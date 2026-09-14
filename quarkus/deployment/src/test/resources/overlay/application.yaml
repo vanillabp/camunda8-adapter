@@ -21,6 +21,7 @@ vanillabp:
       keep-alive: PT30S
       max-http-connections: 64
       override-authority: gateway.internal
+      tenant-id: one-tenant-for-all
       allow-connectors: true
       allow-listeners: true
       auth:
@@ -34,6 +35,7 @@ vanillabp:
       adapters:
         c8:
           resources-location: classpath:test-app/processes
+          tenant-id: test-app-tenant
           job-timeout: PT20S
           retry-backoff: PT20S
           fetch-variables: all

@@ -60,6 +60,11 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                 processService.setScoping(
                     supplierContext.bean(NameClashAvoidanceSupport.class));
                 final var overlay = supplierContext.bean(VanillaBpCamunda8Properties.class);
+                // the tenant a module's operations run in, resolved per workflow module
+                // with the adapter's own name as the fallback
+                processService
+                    .setConfiguredTenants(
+                        workflowModuleId -> overlay.configuredTenantFor(adapterId, workflowModuleId));
                 processService
                     .setMessageTimeToLiveResolver((
                         workflowModuleId,
@@ -100,6 +105,11 @@ public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
                                             taskDefinition) -> overlay.configuredRetryBackoffFor(
                                                 workflowModuleId, bpmnProcessId, taskDefinition,
                                                 adapterId));
+                // the tenant a workflow module is deployed into, resolved per module
+                // with the adapter's own name as the fallback
+                deploymentService
+                    .setConfiguredTenants(
+                        workflowModuleId -> overlay.configuredTenantFor(adapterId, workflowModuleId));
                 // What each worker asks the cluster for, resolvable down to
                 // task level
                 deploymentService.setFetchVariablesResolver((
