@@ -571,8 +571,10 @@ public final class Camunda8TaskWiring {
    * <p>
    * Public and separate from {@link #userTasksOf} because an extension wiring its own
    * listeners into the same file needs the same list. Calling the preparing method for it
-   * would mean a second party writing lifecycle listeners into a model the adapter owns,
-   * and nothing about the deployment pipeline promises that the adapter went first.
+   * would mean a second party writing lifecycle listeners into a model the adapter owns. The
+   * adapter does run before every extension, so those listeners are already in the model when
+   * an extension reads it; writing them a second time would change nothing and still belongs
+   * to somebody else.
    *
    * @param model The BPMN model of one file
    * @param bpmnProcessId The process id as the CLUSTER knows it
