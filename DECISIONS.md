@@ -868,3 +868,45 @@ to `adapter-platform-integration` and not here. This decision is about what is C
 therefore cannot live there.
 
 See [What an extension of the pipeline is told](./core/README.md#what-an-extension-of-the-pipeline-is-told).
+
+### 29. The tenant is named per workflow module, and only there
+
+Decision 26 says the adapter answers whether its tenants keep two workflow modules apart. What
+that decision did not settle is where the name comes from, and until now it came from one place:
+`vanillabp.adapters.<id>.tenant-id`, one name for every workflow module of the application.
+
+That is now the fallback, and a workflow module may carry a name of its own
+(`vanillabp.workflow-modules.<module>.adapters.<id>.tenant-id`). The reason which decides it is
+the message the core writes when it refuses two modules sharing a BPMN process id: it tells the
+developer to give one of the two a scope of its own and names that key. A fix a message
+recommends has to work. Camunda 7 already read the name at that level, so the same sentence
+advised well on one BPMS and pointed at nothing on the other, and a workflow module moved from
+Camunda 7 to Camunda 8 lost the way out without anybody noticing.
+
+Two more reasons come with it. Without the level the adapter answers a question it has no way of
+being right about: one name for every module means every pair is "separated by nothing", whatever
+the application intended. And the level is where the deployment is - VanillaBP resolves an
+adapter's properties over the levels anyway, and one tenant shared by every module is the special
+case rather than the rule.
+
+There is no name per workflow. The mode has one, a tenant cannot: a tenant id is an attribute of
+the deployment and this adapter deploys once per workflow module, so two workflows of one module
+cannot reach the cluster in two tenants. A key which looks honored and is ignored is worse than a
+key nobody may write. For the same reason the check which refuses a name the mode would ignore
+now runs once per property key instead of once per adapter: the developer has to be sent to the
+line they wrote.
+
+The name is not read anywhere else. `Camunda8InstanceIdentity` asks whether two adapter ids are
+the same system, and that question is about an adapter id as a whole, so it keeps comparing the
+adapter's own section; what one workflow module is called says nothing about the others. A cluster
+without multi-tenancy is unchanged as well: the mode decides whether a tenant reaches the cluster
+at all, a module name is dropped exactly like an adapter name where it does not, and the tenant
+check still runs against the name which would really be used.
+
+`Camunda8IsolationSeparatesModulesTest` holds the answer per configuration, the name set for one
+module included, `Camunda8CollidingProcessIdsBootTest` the boot which ends on two modules under
+one process id and the module tenant which lets both through, and
+`Camunda8TenantResolutionBootTest` with its Quarkus twin in `Camunda8JobTimeoutOverlayTest` that
+both platforms read the levels and report the key the name stands in.
+
+See [Keeping workflow modules apart](./README.md#keeping-workflow-modules-apart).

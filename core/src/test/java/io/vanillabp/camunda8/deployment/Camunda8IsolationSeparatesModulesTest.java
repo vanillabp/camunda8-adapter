@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.Map;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.DisplayName;
@@ -15,6 +16,7 @@ import io.vanillabp.camunda8.TestCollaborators;
 import io.vanillabp.camunda8.TestScoping;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.camunda8.wiring.Camunda8ConfiguredTenant;
 import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -27,8 +29,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * two sides anyway.
  * <p>
  * The scope a Camunda 8 cluster offers is the tenant, so every case below is a pair of
- * tenants. Which tenant a module lands in depends on its mode and on the adapter's
- * <code>tenant-id</code>, and neither of the two is readable from one property: the mode is
+ * tenants. Which tenant a module lands in depends on its mode and on the configured
+ * <code>tenant-id</code>, and neither of the two is readable from one property: both are
  * resolved per workflow module, and an unset tenant name under {@code by-adapter} means the
  * workflow module id.
  * <p>
@@ -51,15 +53,41 @@ public class Camunda8IsolationSeparatesModulesTest {
       final Function<String, NameClashAvoidance> modes,
       final String configuredTenantId) {
 
+    return adapter(modes, Map.of(), configuredTenantId);
+
+  }
+
+  /**
+   * An adapter instance built the way the platform builds it: the tenant of a workflow module
+   * is resolved over the levels the name may stand at, the module's own section first.
+   *
+   * @param modes The mode per workflow module
+   * @param tenantPerWorkflowModule What a module's own section names
+   * @param tenantOfTheAdapter What the adapter's section names, or <code>null</code>
+   */
+  private Camunda8DeploymentService adapter(
+      final Function<String, NameClashAvoidance> modes,
+      final Map<String, String> tenantPerWorkflowModule,
+      final String tenantOfTheAdapter) {
+
     final var configuration = new Camunda8AdapterConfiguration();
-    configuration.setTenantId(configuredTenantId);
-    return new Camunda8DeploymentService(
+    configuration.setTenantId(tenantOfTheAdapter);
+    final var service = new Camunda8DeploymentService(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
             .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
                 workflowModuleId,
                 bpmnProcessId,
                 taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
                     .ofDays(14), null, TestScoping.of(modes));
+    service
+        .setConfiguredTenants(
+            workflowModuleId -> Camunda8ConfiguredTenant
+                .firstConfigured(
+                    "c8",
+                    workflowModuleId,
+                    tenantPerWorkflowModule.get(workflowModuleId),
+                    tenantOfTheAdapter));
+    return service;
 
   }
 
@@ -124,6 +152,38 @@ public class Camunda8IsolationSeparatesModulesTest {
     // a tenant name is configured and no module uses one, which the boot rejects
     // elsewhere: the answer stays the one the cluster would give
     assertFalse(separates(adapter(NameClashAvoidance.NONE, "a-tenant-nobody-uses")));
+
+  }
+
+  @Test
+  @DisplayName("A tenant named for one workflow module only separates it from the rest")
+  public void aTenantOfOneModuleSeparatesIt() {
+
+    // the way out the core's refusal recommends: one of the two modules gets a scope of its
+    // own, and every other module of the application stays where it was
+    assertTrue(
+        separates(
+            adapter(
+                workflowModuleId -> NameClashAvoidance.BY_ADAPTER,
+                Map.of(ONE_MODULE, "loans-tenant"),
+                "one-tenant-for-all")),
+        "the module's own name wins over the adapter's, so the two tenants differ");
+
+    // and a module which repeats the adapter's name lands in the very same tenant
+    assertFalse(
+        separates(
+            adapter(
+                workflowModuleId -> NameClashAvoidance.BY_ADAPTER,
+                Map.of(ONE_MODULE, "one-tenant-for-all"),
+                "one-tenant-for-all")));
+
+    // a name the mode drops is not a scope: neither module reaches the cluster in a tenant
+    assertFalse(
+        separates(
+            adapter(
+                workflowModuleId -> NameClashAvoidance.NONE,
+                Map.of(ONE_MODULE, "loans-tenant"),
+                null)));
 
   }
 

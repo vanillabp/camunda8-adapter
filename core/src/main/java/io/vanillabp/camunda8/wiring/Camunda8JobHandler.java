@@ -237,12 +237,10 @@ public class Camunda8JobHandler implements JobHandler {
 
     // the cluster reports the identifiers IT knows - translate them back into the
     // plain ones the core's registries are keyed by
-    final var bpmnProcessId = scoping == null
-        ? job.getBpmnProcessId()
-        : scoping.plainProcessId(workflowModuleId, job.getBpmnProcessId(), adapterId);
-    final var taskDefinition = scoping == null
-        ? job.getType()
-        : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, job.getType(), adapterId);
+    final var bpmnProcessId = NameClashAvoidanceSupport
+        .plainProcessId(scoping, workflowModuleId, job.getBpmnProcessId(), adapterId);
+    final var taskDefinition = NameClashAvoidanceSupport
+        .plainTaskDefinition(scoping, workflowModuleId, bpmnProcessId, job.getType(), adapterId);
 
     // From here until the finally, the shutdown of this workflow module waits
     // for this handler instead of pulling the client away from under it
@@ -356,9 +354,9 @@ public class Camunda8JobHandler implements JobHandler {
                 .newThrowErrorCommand(job.getKey())
                 // the model's error codes are prefixed too, so the code the
                 // business method raised has to be translated on its way to the cluster
-                .errorCode(scoping == null
-                    ? outcome.errorCode()
-                    : scoping.scopedIdentifier(workflowModuleId, outcome.errorCode(), adapterId))
+                .errorCode(
+                    NameClashAvoidanceSupport
+                        .scopedIdentifier(scoping, workflowModuleId, outcome.errorCode(), adapterId))
                 .errorMessage(String.valueOf(outcome.errorName()))
                 // the error boundary's outgoing path may branch on the aggregate, too
                 .variables(errorVariables)

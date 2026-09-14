@@ -86,7 +86,7 @@ public class Camunda8PreCommitCheckTest {
   }
 
   @Test
-  @DisplayName("the registered check contacts the cluster when the synchronization fires (pre-commit)")
+  @DisplayName("the registered check contacts the cluster and lets an EXCEPTION out (pre-commit)")
   public void checkContactsClusterWhenHookFires() {
 
     final var service = service();
@@ -96,7 +96,15 @@ public class Camunda8PreCommitCheckTest {
     assertNotNull(check);
 
     // the closed port proves the contact happens HERE - and an infrastructure
-    // failure aborts the commit (it propagates)
+    // failure aborts the commit (it propagates).
+    //
+    // Exception and not Throwable, deliberately. What this assures is that an EXCEPTION
+    // comes out, which is what a 'catch (Exception)' around a pre-commit hook sees, so
+    // widening it here would assure something the production code does not do. An Error
+    // arriving instead is a finding rather than a test to loosen: it happened once, when a
+    // protobuf runtime older than the client's gencode turned the first command into an
+    // ExceptionInInitializerError, and this line is where it became visible. What guards
+    // that number now is Camunda8ProtobufPinTest.
     assertThrows(Exception.class, check::run);
 
   }

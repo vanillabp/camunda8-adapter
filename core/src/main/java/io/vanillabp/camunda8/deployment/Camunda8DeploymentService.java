@@ -39,6 +39,7 @@ import io.vanillabp.camunda8.observability.Camunda8Metrics;
 import io.vanillabp.camunda8.wiring.Camunda8AllowConnectorsResolver;
 import io.vanillabp.camunda8.wiring.Camunda8AllowListenersResolver;
 import io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler;
+import io.vanillabp.camunda8.wiring.Camunda8ConfiguredTenant;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariablesResolver;
@@ -393,10 +394,20 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final Set<String> verifiedTenants = ConcurrentHashMap.newKeySet();
 
   /**
-   * Whether the configured tenant was already checked against the mode (once per adapter
-   * instance, the check is adapter-wide).
+   * The property keys whose tenant was already checked against the mode. A key rather than a
+   * flag: the name may come from the adapter's section or from a workflow module's, and the
+   * message has to quote the one which is set.
    */
-  private boolean tenantConfigurationValidated;
+  private final Set<String> tenantKeysCheckedAgainstTheMode = ConcurrentHashMap.newKeySet();
+
+  /**
+   * What a workflow module's tenant is CONFIGURED as, resolved by the platform modules over
+   * the levels the name may be set at (the workflow module, then the adapter), or
+   * <code>null</code> for a module nothing names a tenant for - then the workflow module ID
+   * names it (VanillaBP 1's behavior). May be <code>null</code> itself (tests), and then the
+   * adapter's own section is the only level.
+   */
+  private Function<String, Camunda8ConfiguredTenant> configuredTenants;
 
   /**
    * Convenience constructor without the configuration resolver (tests) - two
@@ -682,9 +693,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final String bpmnProcessId) {
 
-    return scoping == null
-        ? bpmnProcessId
-        : scoping.scopedProcessId(workflowModuleId, bpmnProcessId, adapterId);
+    return NameClashAvoidanceSupport.scopedProcessId(scoping, workflowModuleId, bpmnProcessId, adapterId);
 
   }
 
@@ -695,9 +704,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final String scopedBpmnProcessId) {
 
-    return scoping == null
-        ? scopedBpmnProcessId
-        : scoping.plainProcessId(workflowModuleId, scopedBpmnProcessId, adapterId);
+    return NameClashAvoidanceSupport
+        .plainProcessId(scoping, workflowModuleId, scopedBpmnProcessId, adapterId);
 
   }
 
@@ -709,9 +717,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final String scopedIdentifier) {
 
-    return (scoping == null) || (scopedIdentifier == null)
-        ? scopedIdentifier
-        : scoping.plainIdentifier(workflowModuleId, scopedIdentifier, adapterId);
+    // the null check is about the IDENTIFIER, not about the support: a name the model does
+    // not carry stays absent, and a double of the support need not answer for one
+    return scopedIdentifier == null
+        ? null
+        : NameClashAvoidanceSupport
+            .plainIdentifier(scoping, workflowModuleId, scopedIdentifier, adapterId);
 
   }
 
@@ -724,42 +735,76 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String bpmnProcessId,
       final String scopedTaskDefinition) {
 
-    return scoping == null
-        ? scopedTaskDefinition
-        : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
+    return NameClashAvoidanceSupport
+        .plainTaskDefinition(scoping, workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
 
   }
 
   /**
-   * Fails the boot if a tenant is configured for this adapter id although no workflow
-   * module is deployed into one, i.e. the mode says {@code none} or {@code use-prefix}
-   * everywhere. Whether a tenant is what only {@code by-adapter} can use is this
-   * adapter's knowledge; the core answers which modes apply. Checked once per adapter
-   * instance while deploying, before anything reaches the cluster.
+   * Sets the tenant names the application configured (the platform modules read them from
+   * the configuration, per workflow module).
+   *
+   * @param configuredTenants What a workflow module's tenant is configured as
    */
-  private void validateTenantConfiguration() {
+  public void setConfiguredTenants(
+      final Function<String, Camunda8ConfiguredTenant> configuredTenants) {
 
-    if (tenantConfigurationValidated || (scoping == null)) {
+    this.configuredTenants = configuredTenants;
+
+  }
+
+  /**
+   * What the application configured as the tenant of one workflow module, with the key it
+   * wrote it under, or <code>null</code>. Without the platform's resolver only the adapter's
+   * own section is read, which is what a test built without a platform around it holds.
+   */
+  private Camunda8ConfiguredTenant configuredTenantOf(
+      final String workflowModuleId) {
+
+    if (configuredTenants != null) {
+      return configuredTenants.apply(workflowModuleId);
+    }
+    return Camunda8ConfiguredTenant
+        .firstConfigured(
+            adapterId,
+            workflowModuleId,
+            null,
+            clientFactory == null
+                ? null
+                : clientFactory
+                    .getConfiguration()
+                    .getTenantId());
+
+  }
+
+  /**
+   * Fails the boot if a tenant is configured although no workflow module is deployed into
+   * one, i.e. the mode says {@code none} or {@code use-prefix} everywhere. Whether a tenant
+   * is what only {@code by-adapter} can use is this adapter's knowledge; the core answers
+   * which modes apply. Checked while deploying, before anything reaches the cluster, once per
+   * property key which set a name - the adapter's section and a workflow module's are two
+   * different lines for the developer to go to.
+   *
+   * @param workflowModuleId The workflow module being deployed
+   */
+  private void validateTenantConfiguration(
+      final String workflowModuleId) {
+
+    if (scoping == null) {
       return;
     }
-    tenantConfigurationValidated = true;
-    final var configuredTenantId = clientFactory
-        .getConfiguration()
-        .getTenantId();
-    if ((configuredTenantId == null) || configuredTenantId.isBlank()) {
+    final var configured = configuredTenantOf(workflowModuleId);
+    if ((configured == null) || !tenantKeysCheckedAgainstTheMode.add(configured.propertyKey())) {
       return;
     }
-    scoping.validateNoneNameClashStrategy(
-        adapterId,
-        Camunda8AdapterConfiguration.propertyKey(adapterId, "tenant-id"));
+    scoping.validateNoneNameClashStrategy(adapterId, configured.propertyKey());
 
   }
 
   /**
    * The tenant a workflow module is deployed to, respectively its operations are
-   * executed in - decided by the name-clash-avoidance mode, with the
-   * adapter's configured <code>tenant-id</code> naming it under
-   * {@code by-adapter}.
+   * executed in - decided by the name-clash-avoidance mode, with the configured
+   * <code>tenant-id</code> naming it under {@code by-adapter}.
    *
    * @param workflowModuleId The workflow module ID
    * @return The tenant ID or <code>null</code> if no tenant is used
@@ -767,10 +812,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private String tenantIdOf(
       final String workflowModuleId) {
 
+    final var configured = configuredTenantOf(workflowModuleId);
     return Camunda8Scoping.tenantIdFor(
-        scoping, workflowModuleId, adapterId, clientFactory
-            .getConfiguration()
-            .getTenantId());
+        scoping, workflowModuleId, adapterId, configured != null
+            ? configured.tenantId()
+            : null);
 
   }
 
@@ -785,7 +831,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * {@code by-adapter} an unset name means the workflow module id, so two modules do sit in
    * two tenants, and a name which IS set is used only where the mode of the module asks for
    * a tenant at all. The mode is resolved per workflow module, so two modules of one adapter
-   * id may differ in it.
+   * id may differ in it, and so is the name itself: a workflow module may carry one of its
+   * own, which is the way out the core's refusal recommends.
    * <p>
    * A module under {@code use-prefix} or {@code none} reaches the cluster with no tenant of
    * its own, which is the <code>&lt;default&gt;</code> one. That is a scope like any other
@@ -2120,7 +2167,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // uses the workflow module id, overridable by the adapter's 'tenant-id';
     // 'use-prefix' and 'none' use no tenant at all (the identifiers were prefixed
     // respectively are unique by contract).
-    validateTenantConfiguration();
+    validateTenantConfiguration(workflowModuleId);
     final var tenantId = tenantIdOf(workflowModuleId);
     if (tenantId != null) {
       // asking beforehand turns the cluster's "multi-tenancy is disabled" respectively an
@@ -2170,9 +2217,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             }
             // the cluster reports the id IT knows; the viewer API is keyed by the
             // PLAIN one, like every other core-facing identifier
-            final var plainBpmnProcessId = scoping == null
-                ? process.getBpmnProcessId()
-                : scoping.plainProcessId(workflowModuleId, process.getBpmnProcessId(), adapterId);
+            final var plainBpmnProcessId = NameClashAvoidanceSupport
+                .plainProcessId(scoping, workflowModuleId, process.getBpmnProcessId(), adapterId);
             clientFactory
                 .getDeployedProcesses()
                 .record(
@@ -2657,9 +2703,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .getModelledListeners()
         .forEach(listener -> {
           final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, listener.bpmnProcessId());
-          final var scopedJobType = scoping == null
-              ? listener.taskDefinition()
-              : scoping.scopedTaskDefinition(
+          final var scopedJobType = NameClashAvoidanceSupport
+              .scopedTaskDefinition(
+                  scoping,
                   workflowModuleId,
                   listener.bpmnProcessId(),
                   listener.taskDefinition(),
@@ -2903,9 +2949,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           final var openedJobTypes = new TreeSet<String>();
           taskDefinitions
               .forEach(taskDefinition -> {
-                final var jobType = scoping == null
-                    ? taskDefinition
-                    : scoping.scopedTaskDefinition(workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
+                final var jobType = NameClashAvoidanceSupport
+                    .scopedTaskDefinition(scoping, workflowModuleId, bpmnProcessId, taskDefinition, adapterId);
                 if (jobTypesAlreadyServed.contains(jobType)) {
                   return;
                 }

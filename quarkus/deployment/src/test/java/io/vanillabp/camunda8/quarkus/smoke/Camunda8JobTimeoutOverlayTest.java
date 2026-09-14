@@ -302,6 +302,32 @@ public class Camunda8JobTimeoutOverlayTest {
   }
 
   @Test
+  public void theTenantResolvesPerWorkflowModule() {
+
+    final var overlay = overlay();
+
+    // the workflow module's own name wins over the adapter's, which is how an application
+    // gives one module a scope of its own without moving every other module with it
+    final var perModule = overlay.configuredTenantFor("c8", "test-app");
+    Assertions.assertEquals("test-app-tenant", perModule.tenantId());
+    Assertions
+        .assertEquals(
+            "vanillabp.workflow-modules.test-app.adapters.c8.tenant-id",
+            perModule.propertyKey(),
+            "a message about this name has to send the developer to the line which holds it");
+
+    final var perAdapter = overlay.configuredTenantFor("c8", "unknown-module");
+    Assertions.assertEquals("one-tenant-for-all", perAdapter.tenantId());
+    Assertions.assertEquals("vanillabp.adapters.c8.tenant-id", perAdapter.propertyKey());
+
+    Assertions
+        .assertNull(
+            overlay.configuredTenantFor("unknown-adapter", "test-app"),
+            "an adapter id nothing configures has no name, and the workflow module id is used");
+
+  }
+
+  @Test
   public void defaultsApplyWithoutAnyConfiguredTimeout() {
 
     final var overlay = overlay();

@@ -150,6 +150,29 @@ public class Camunda8CollidingProcessIdsBootTest {
   }
 
   @Test
+  public void aTenantForOneWorkflowModuleIsTheWayOutTheMessageOffers() {
+
+    // the refusal above tells the developer to give one of the two modules a scope of its
+    // own and names that key. This is the boot which follows that advice: everything else
+    // stays in the shared tenant, and both modules deploy
+    try (var context = run(
+        "vanillabp.adapters.c8.rest-address=http://localhost:65535",
+        "vanillabp.adapters.c8.tenant-id=one-tenant-for-all",
+        "vanillabp.workflow-modules.%s.adapters.c8.tenant-id=loans-tenant".formatted(ONE_MODULE))) {
+
+      final var scoping = context.getBean(NameClashAvoidanceSupport.class);
+
+      Assertions.assertDoesNotThrow(() -> deploying(scoping, ONE_MODULE));
+      Assertions
+          .assertDoesNotThrow(
+              () -> deploying(scoping, ANOTHER_MODULE),
+              "the two modules are in two tenants now, so the shared process id is no clash");
+
+    }
+
+  }
+
+  @Test
   public void oneModuleDeployedTwiceIsNoClash() {
 
     // a BPMN file holding several processes and a workflow module deployed to two adapter

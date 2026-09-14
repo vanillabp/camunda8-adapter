@@ -144,9 +144,8 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
       final JobClient client,
       final ActivatedJob job) {
 
-    final var bpmnProcessId = scoping == null
-        ? job.getBpmnProcessId()
-        : scoping.plainProcessId(workflowModuleId, job.getBpmnProcessId(), adapterId);
+    final var bpmnProcessId = NameClashAvoidanceSupport
+        .plainProcessId(scoping, workflowModuleId, job.getBpmnProcessId(), adapterId);
     final var event = job.getListenerEventType() == ListenerEventType.CANCELING
         ? TaskEvent.Event.CANCELED
         : TaskEvent.Event.CREATED;
@@ -160,9 +159,8 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     final var scopedTaskDefinition = job
         .getType()
         .substring(Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE.length());
-    final var taskDefinition = scoping == null
-        ? scopedTaskDefinition
-        : scoping.plainTaskDefinition(workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
+    final var taskDefinition = NameClashAvoidanceSupport
+        .plainTaskDefinition(scoping, workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
 
     Camunda8ListenerJobs
         .completeOrFail(

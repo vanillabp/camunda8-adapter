@@ -94,7 +94,9 @@ public final class Camunda8TenantCheck {
                   %s: use-prefix   # VanillaBP prefixes the identifiers instead of using a tenant
                   %s: none         # your identifiers are unique across all workflow modules already
                 Without '%s' the tenant is named after the workflow module, which is where '%s' \
-                comes from - a tenant per module is what the DEFAULT mode 'by-adapter' means."""
+                comes from - a tenant per module is what the DEFAULT mode 'by-adapter' means. The \
+                name may also be set for this workflow module alone \
+                ('vanillabp.workflow-modules.%s.adapters.%s.tenant-id')."""
                 .formatted(
                     adapterId,
                     workflowModuleId,
@@ -103,7 +105,9 @@ public final class Camunda8TenantCheck {
                     modeKey(adapterId),
                     modeKey(adapterId),
                     Camunda8AdapterConfiguration.propertyKey(adapterId, "tenant-id"),
-                    tenantId), e);
+                    tenantId,
+                    workflowModuleId,
+                    adapterId), e);
       }
       // an answer, but about something else (e.g. missing permissions for the tenant
       // API) - the deployment itself is the better place to fail

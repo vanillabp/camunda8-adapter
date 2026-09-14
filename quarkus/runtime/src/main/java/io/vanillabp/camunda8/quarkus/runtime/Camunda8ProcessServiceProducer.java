@@ -65,6 +65,11 @@ public class Camunda8ProcessServiceProducer {
               adapterId, clientFactoryRegistry
                   .getFactory(adapterId), asyncTaskLockRenewal, preCommitRegistrar, aggregateSync);
           processService.setScoping(scoping);
+          // the tenant a module's operations run in, resolved per workflow module with
+          // the adapter's own name as the fallback
+          processService
+              .setConfiguredTenants(
+                  workflowModuleId -> overlay.configuredTenantFor(adapterId, workflowModuleId));
           processService
               .setMessageTimeToLiveResolver((
                   workflowModuleId,

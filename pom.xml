@@ -126,11 +126,16 @@
            the Camunda client brings generated code: the 8.10 client needs 4.36.0, while
            the Spring Boot BOM manages 4.34.2 and would win, because an imported BOM beats
            a transitive version. This entry stands BEFORE that import, so it is what every
-           line gets, and it carries the gencode version of the pinned clients: the
-           protocol classes come with the Camunda client, and a mismatch is an
-           ExceptionInInitializerError on the first command that uses the protocol. It
-           moves when a client pin moves and at no other time, which is why Renovate is
-           turned off for com.google.protobuf. -->
+           line gets, and it carries the gencode version of the NEWEST pinned client: a
+           runtime may be newer than the gencode, never older, so one number serves every
+           line. A mismatch is an ExceptionInInitializerError on the first command that uses
+           the protocol.
+           Maven cannot take this number from the client's POM: a dependencyManagement
+           version has to be written down before the client is resolved. So it is written
+           down here and CHECKED against the client of the line being built, by
+           Camunda8ProtobufPinTest, which reads the client's own POM and names both numbers
+           and this line when they disagree. It moves when a client pin moves and at no
+           other time, which is why Renovate is turned off for com.google.protobuf. -->
       <dependency>
         <groupId>com.google.protobuf</groupId>
         <artifactId>protobuf-java</artifactId>
@@ -264,6 +269,11 @@
               </path>
             </annotationProcessorPaths>
           </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <version>3.11.0</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
