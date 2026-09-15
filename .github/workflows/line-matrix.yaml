@@ -85,8 +85,11 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
       - name: The cluster and the client this line was tested against
+        # The properties file moved into 'test-support' when that module was split out, so
+        # this step read a path which no longer exists and failed a line whose build and
+        # tests had passed.
         run: |
-          cat spring-boot/target/test-classes/camunda8-cluster.properties
+          cat test-support/target/classes/camunda8-cluster.properties
           cat core/target/classes/META-INF/vanillabp/adapter-camunda8.properties
 
   # One name that never changes, so branch protection and the release workflow have something to
