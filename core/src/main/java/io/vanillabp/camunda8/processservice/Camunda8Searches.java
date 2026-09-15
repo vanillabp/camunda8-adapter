@@ -4,6 +4,7 @@ import java.util.Map;
 
 import io.camunda.client.api.search.filter.ProcessDefinitionFilter;
 import io.camunda.client.api.search.filter.ProcessInstanceFilter;
+import io.camunda.client.api.search.filter.UserTaskFilter;
 
 /**
  * The filters this adapter searches its cluster with, in one place.
@@ -14,6 +15,12 @@ import io.camunda.client.api.search.filter.ProcessInstanceFilter;
  * adapter rather than of the Camunda client: the process id may have been rewritten by
  * name-clash avoidance, the tenant may be absent, and the variable value carries quotes
  * (see {@link Camunda8VariableFilters}).
+ * <p>
+ * The client spells those conditions differently depending on what is searched for. A
+ * process-instance search calls the process id {@code processDefinitionId}, a user-task
+ * search calls it {@code bpmnProcessId}. The aggregate id is a variable of the search in the
+ * one case and a variable of the process instance in the other. The conditions are the same
+ * ones, so they are written here rather than at every caller.
  * <p>
  * Public because an extension searching the same cluster for the same workflow has to ask
  * the same question. A search built one condition differently does not fail: it answers
@@ -45,12 +52,7 @@ public final class Camunda8Searches {
       final String aggregateIdVariableName,
       final Object workflowAggregateId) {
 
-    filter
-        .variables(
-            Map
-                .of(
-                    aggregateIdVariableName,
-                    Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId)));
+    filter.variables(aggregateIdCondition(aggregateIdVariableName, workflowAggregateId));
 
   }
 
@@ -99,6 +101,63 @@ public final class Camunda8Searches {
     if (tenantId != null) {
       filter.tenantId(tenantId);
     }
+
+  }
+
+  /**
+   * Narrows a user-task search to the tasks of one aggregate in ONE process of ONE tenant -
+   * the scope a search for the workflow itself uses, spelled the way a user-task search
+   * spells it.
+   * <p>
+   * The aggregate id is compared as a variable of the PROCESS INSTANCE. VanillaBP writes it
+   * to the workflow, and a task holds no copy of it, so a local-variable condition would
+   * answer nothing. That condition is also what keeps a task key answerable only for the
+   * aggregate it belongs to: a caller which guessed a key reads no other case's task.
+   * <p>
+   * What stays with the caller is which tasks of that aggregate it means. One task by its
+   * key, or only the tasks somebody can still work on, is its question, and it asks the
+   * client for that after this.
+   *
+   * @param filter The filter of the search request
+   * @param scopedBpmnProcessId The BPMN process id as the CLUSTER knows it, which is what
+   *          {@code NameClashAvoidanceSupport#scopedProcessId} answers
+   * @param tenantId The tenant of the workflow module, or <code>null</code> where the
+   *          module uses none
+   * @param aggregateIdVariableName The name of the variable the aggregate's id travels in
+   * @param workflowAggregateId The aggregate's id
+   */
+  public static void scopedTo(
+      final UserTaskFilter filter,
+      final String scopedBpmnProcessId,
+      final String tenantId,
+      final String aggregateIdVariableName,
+      final Object workflowAggregateId) {
+
+    filter.bpmnProcessId(scopedBpmnProcessId);
+    if (tenantId != null) {
+      filter.tenantId(tenantId);
+    }
+    filter
+        .processInstanceVariables(
+            aggregateIdCondition(aggregateIdVariableName, workflowAggregateId));
+
+  }
+
+  /**
+   * The condition every search of this class compares the aggregate's id with.
+   * <p>
+   * One expression for all of them, because a search for the tasks of a workflow has to
+   * compare what a search for the workflow itself compares. Written twice it drifts once,
+   * and then one of the two answers nothing.
+   */
+  private static Map<String, Object> aggregateIdCondition(
+      final String aggregateIdVariableName,
+      final Object workflowAggregateId) {
+
+    return Map
+        .of(
+            aggregateIdVariableName,
+            Camunda8VariableFilters.aggregateIdSearchValue(workflowAggregateId));
 
   }
 
