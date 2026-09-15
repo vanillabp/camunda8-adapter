@@ -268,9 +268,15 @@ treat "not there" as "not there yet". The number belongs to the cluster: an oper
 it for a slow exporter raises it once, and a reader with a window of its own keeps dropping what
 the adapter now waits for.
 
-`Camunda8Searches` builds the filter a search for a workflow of this adapter needs - the process
-id as the CLUSTER knows it, the tenant, and the aggregate id as the JSON the cluster stores. It
-only adds conditions, so a caller may narrow further.
+`Camunda8Searches` builds the filter a search of this adapter needs - the process id as the
+CLUSTER knows it, the tenant, and the aggregate id as the JSON the cluster stores.
+`scopedTo` takes a process-instance filter, a process-definition filter or a user-task filter,
+and `byAggregateId` is the unscoped search an awareness probe runs. The client spells the same
+conditions differently per search, which is why the user-task overload exists rather than a
+second hand-built filter: it names the process id `bpmnProcessId` and compares the aggregate id
+as a variable of the process instance, where VanillaBP writes it. Every one of them only adds
+conditions, so a caller narrows further afterwards. For user tasks the caller is the one which
+says whether it means a single task key and whether only open tasks count.
 
 `Camunda8ErrorsTest` holds both transports and the wrapped answer, `Camunda8VariableFilterTest`
 the quoting, `Camunda8DeploymentServiceTest` that a context knows which adapter, which workflow
