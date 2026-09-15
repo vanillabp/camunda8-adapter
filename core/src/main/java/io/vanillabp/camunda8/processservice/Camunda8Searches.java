@@ -111,8 +111,10 @@ public final class Camunda8Searches {
    * <p>
    * The aggregate id is compared as a variable of the PROCESS INSTANCE. VanillaBP writes it
    * to the workflow, and a task holds no copy of it, so a local-variable condition would
-   * answer nothing. That condition is also what keeps a task key answerable only for the
-   * aggregate it belongs to: a caller which guessed a key reads no other case's task.
+   * answer nothing. In a search built through here, that condition also means a guessed task
+   * key reads no other case's task. It is not a check on anybody's rights, and this method
+   * cannot make it one: it sets conditions on the filter it is handed, and whoever holds the
+   * client can ask it anything without ever coming past here.
    * <p>
    * What stays with the caller is which tasks of that aggregate it means. One task by its
    * key, or only the tasks somebody can still work on, is its question, and it asks the
