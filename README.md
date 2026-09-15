@@ -65,16 +65,22 @@ cannot be parsed`, so a workflow started and its task was never delivered.
 
 The adapter is therefore published once per Camunda 8 minor, with the minor in the version:
 
-|   Channel   |        Version        |   Client pin    |         Tested cluster          |            What lands there            |
-|-------------|-----------------------|-----------------|---------------------------------|----------------------------------------|
-| previous GA | `2.x.y-8.8`           | `8.8.35`        | `camunda/camunda:8.8.35`        | bugfixes only                          |
-| current GA  | `2.x.y-8.9`           | `8.9.16`        | `camunda/camunda:8.9.16`        | everything                             |
-| preview     | `2.x.y-8.10-alpha<n>` | `8.10.0-alpha4` | `camunda/camunda:8.10.0-alpha4` | everything, plus what only 8.10 can do |
+|   Channel   |        Version        |  Line  |            What lands there            |
+|-------------|-----------------------|--------|----------------------------------------|
+| previous GA | `2.x.y-8.8`           | `8.8`  | bugfixes only                          |
+| current GA  | `2.x.y-8.9`           | `8.9`  | everything                             |
+| preview     | `2.x.y-8.10-alpha<n>` | `8.10` | everything, plus what only 8.10 can do |
 
-The tested cluster is the pinned client, and nothing else may appear here as a supported
-version: a newer cluster is not tested rather than not supported. Camunda documents its
-clients as forward compatible, so a line normally serves clusters above its pin as well,
-but that is Camunda's promise and not this project's test result.
+The table names the minor of each line and no patch level, because a patch level moves
+without anybody editing this file. The patch a line is pinned to is one property per line
+in the root POM, `camunda8.version.line-8.8` and its two siblings, and Renovate moves them
+one at a time. Read the pins there.
+
+The tested cluster is the pinned client: the cluster image is built from the same property,
+so the two cannot drift apart. No other cluster version is a supported one here, and a newer
+cluster is not tested rather than not supported. Camunda documents its clients as forward
+compatible, so a line normally serves clusters above its pin as well, but that is Camunda's
+promise and not this project's test result.
 
 The preview line is not publishable at the moment. On `8.10.0-alpha4` the user-task listener
 job of the event type `creating` never reaches its worker, so three tests of
