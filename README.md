@@ -1453,6 +1453,69 @@ their handler no longer sees, that line answers the first question.
 and `Camunda8TaskProcessingIT#aDeclaredTaskParameterIsFetched` with
 `Camunda8WorkflowLifecycleTest#declaredTaskParametersAreFetched` the same against a cluster.
 
+### What a `@TaskParam` receives
+
+Binding a value to the type a handler declared belongs to the platform, not to this
+adapter. `Camunda8JobHandler#getTaskParameter` returns what `job.getVariablesAsMap()`
+holds and converts nothing. Which types a `@TaskParam` may be declared as, and when a
+value is refused instead of converted, is written down once, in the section "What a
+`@TaskParam` may be declared as" of `migration-adapter/README.md` in
+`adapter-platform-integration`.
+
+What belongs here is which value a handler is given in the first place, because Camunda 8
+answers that differently from the other engines VanillaBP serves.
+
+The cluster holds JSON. A decimal comes back as a `Double` and a whole number as a `Long`,
+whatever an aggregate shared, and no value a job carries is ever a `BigDecimal`, a
+`BigInteger` or a `Float`. A parameter which names one of those types is still served, the
+platform converting the `Double` the cluster returned into it. What shows the difference is
+`@TaskParam Object`, which hands the handler the class the cluster returned: on Camunda 7
+the same model gives a `BigDecimal` where this one gives a `Double`.
+
+The scale of a decimal is dropped by the broker. An aggregate sharing `120.50` is read back
+as `120.5`, on every route and whatever `ObjectMapper` the application configures, because
+the broker keeps its variables as MessagePack and MessagePack has no decimal type. A
+`BigDecimal` parameter therefore arrives with the scale of the number the cluster holds and
+not with the one the application wrote.
+
+A task carrying no `zeebe:ioMapping` still receives the value. Zeebe resolves a job's
+variables up the scope hierarchy, so a `@TaskParam` finds a process variable wherever its
+task sits, a branch of a parallel gateway included. The same model on Camunda 7 hands the
+handler `null` as soon as the task does not stand straight in the process, that engine
+reading the task's own scope. An application porting a model between the two meets that
+difference, and no message of either adapter names it.
+
+A value the declared type cannot hold costs the job its retries before anybody reads about
+it. The conversion ends the invocation, the adapter fails the job, and the cluster hands
+the job out again, because a job's retries do not know that this failure will read the same
+on every attempt. The message shows up three times: in the job's own `errorMessage`, in the
+incident of type `JOB_NO_RETRIES` which follows the last attempt, and in the adapter's WARN
+log, the only one of the three carrying the stack trace. Up to that incident an operator
+waits `retry-backoff` per attempt (default `PT10S`, resolvable per workflow module,
+workflow and task), which is the property to lower where such an incident should arrive
+quickly.
+
+`Camunda8ParamTypesIT` holds nine pairs against a cluster, five which are served and four
+which are refused:
+
+|                what the model maps in                | what the handler declares |                               what happens                               |
+|------------------------------------------------------|---------------------------|--------------------------------------------------------------------------|
+| `=total`, a shared `BigDecimal` of `120.50`          | `Double`                  | `120.5`                                                                  |
+| `=total`                                             | `BigDecimal`              | `120.5`, converted from the `Double` the cluster returned                |
+| `=total`                                             | `int`                     | refused, naming the `120` the parameter would have held                  |
+| `=rate`, a shared `Float` of `0.1f`                  | `Double`                  | `0.1`                                                                    |
+| `=count`, a shared `Long` of `3000000000`            | `long`                    | `3000000000`                                                             |
+| `=count`                                             | `int`                     | refused, naming the `-1294967296` the parameter would have held          |
+| `=huge`, a shared `BigInteger` of `9007199254740993` | `long`                    | `9007199254740993`                                                       |
+| `=huge`                                              | `Double`                  | refused, naming the `9.007199254740992E15` the parameter would have held |
+| `=string(total)`, the text of the decimal            | `int`                     | refused the same way, the text of a number being a number                |
+
+The two statements no test of this repository holds are the one about `@TaskParam Object`
+and the one about the missing input mapping. Both were measured on 2026-09-16 against a
+`camunda/camunda:8.9.19` cluster with one partition and secondary storage in the RDBMS mode
+of the 8.9 line, the same setup the table above ran on, and neither of them is a promise
+this repository keeps: a cluster which changes its answer would change them.
+
 ### Viewing workflows
 
 `ProcessService#getProcessDefinitions`, `#getBpmnXml` and `#getWorkflowHistory` are served
