@@ -1207,6 +1207,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // here, and which iterations enclose which element is remembered for dispatch
     Camunda8MultiInstance
         .wire(model, scopedBpmnProcessId, multiInstanceRegistry);
+    // A handler reads the item of an iteration out of the variable the model names in
+    // 'inputElement'. An element naming none hands no item over, so the parameter would
+    // receive null once a job arrives and nothing would say why. Only this adapter reads
+    // the model and only the core scans the handlers, so this is the one place the two
+    // halves meet
+    refuseHandlersWantingAnItemTheModelHasNot(workflowModuleId, bpmnProcessId, scopedBpmnProcessId, specs);
     context.getTasksToWire().addAll(tasks);
     context.getUserTasksToWire().addAll(userTasks);
 
@@ -1251,6 +1257,59 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         bpmnProcessId,
         filename,
         workflowModuleId);
+
+  }
+
+  /**
+   * Ends the deployment where a <code>&#64;WorkflowTask</code> method wants the item of a
+   * multi-instance element this model never names one for.
+   * <p>
+   * Judged per task, over the chain of iterations enclosing it which this deployment just
+   * recorded. So only elements of THIS process are looked at: a level a caller contributes
+   * is linked once the whole workflow module is wired, and it belongs to the model of that
+   * caller, where the same question is asked about it.
+   * <p>
+   * The core is asked by the task definition AND by the element id, which is the pair
+   * {@code validateTaskWiring} matches a method against: a method may name either of the
+   * two, and a method naming the element id would otherwise be missed.
+   * <p>
+   * Every finding of the process goes into ONE message, the way the wiring validation
+   * reports every unwired task at once - a developer fixing one model should not have to
+   * restart to meet the next line of the same defect.
+   */
+  private void refuseHandlersWantingAnItemTheModelHasNot(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String scopedBpmnProcessId,
+      final List<BpmnTaskSpec> specs) {
+
+    final var findings = new ArrayList<Camunda8MultiInstanceItems.Finding>();
+    for (final var spec : specs) {
+      final var withoutAnItem = Camunda8MultiInstanceItems
+          .elementsWithoutAnItem(multiInstanceRegistry, scopedBpmnProcessId, spec.activityId());
+      if (withoutAnItem.isEmpty()) {
+        continue;
+      }
+      final var wanted = new java.util.LinkedHashSet<String>();
+      wanted
+          .addAll(workflowTaskWiring
+              .multiInstanceElementNames(workflowModuleId, bpmnProcessId, spec.activityId()));
+      if (spec.taskDefinition() != null) {
+        wanted
+            .addAll(workflowTaskWiring
+                .multiInstanceElementNames(workflowModuleId, bpmnProcessId, spec.taskDefinition()));
+      }
+      wanted.retainAll(withoutAnItem);
+      if (!wanted.isEmpty()) {
+        findings
+            .add(new Camunda8MultiInstanceItems.Finding(spec.activityId(), spec.taskDefinition(), wanted));
+      }
+    }
+    if (findings.isEmpty()) {
+      return;
+    }
+    throw new IllegalStateException(
+        Camunda8MultiInstanceItems.refusal(findings, bpmnProcessId, workflowModuleId));
 
   }
 

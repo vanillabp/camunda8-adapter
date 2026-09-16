@@ -5,6 +5,29 @@ application on this adapter has to act on, so the reasoning can be looked up lat
 file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
 
+## A handler asking for an item the model hands none over for ends the boot (2026-09-16)
+
+`@MultiInstanceElement` reads the entry of the collection the current round is on. Camunda 8 gives
+that entry a name only where the model writes it into the `inputElement` of the element's
+`zeebe:loopCharacteristics`, which is the "Input element" field of the modeller. A model naming none
+left the parameter at `null` once a job arrived, and nothing said why.
+
+The deployment says it now. It reads the iterations around each wired task, asks the core which of
+them a `@WorkflowTask` method wants the item of, and ends the boot where the two meet. The message
+names the task, the element, the attribute the model would have to carry and the two ways out.
+
+Either write the attribute:
+
+```xml
+<zeebe:loopCharacteristics inputCollection="=items" inputElement="item" />
+```
+
+Or drop the parameter. `@MultiInstanceIndex` and `@MultiInstanceTotal` are answered by every
+multi-instance element, so a handler which only counts needs no change to its model.
+
+Nothing else is refused. An element without an `inputElement` still deploys where no handler asks
+for its item.
+
 ## A listener in your model has to be allowed now (2026-09-13)
 
 Version 1 served a listener with a `@WorkflowTask` method and documented it nowhere. From its release

@@ -1903,6 +1903,20 @@ vanillabpMiTotal_<element id>    = count(<the element's input collection>)
 vanillabpMiElement_<element id>  = <the element's input element>
 ```
 
+A model which names no `inputElement` gets no element mapping, because there is nothing to map:
+the cluster hands each instance its entry of the collection under no name at all. Such a model is
+fine on its own, and so is a handler which only wants to know how far the iteration got. The two
+together are not, and `Camunda8MultiInstanceItems` ends the boot over it. The adapter reads the
+chain of iterations around each wired task and the core answers
+`WorkflowTaskWiring#multiInstanceElementNames`, which is the element ids the methods serving that
+task declare `@MultiInstanceElement` for. Where the two meet, the message names the task, the
+element, the attribute and the two ways out. Before that check the parameter received `null` once a
+job arrived and nothing said why.
+
+Only the elements of the process being wired are judged. A level a CALLER contributes is linked
+once the whole workflow module is wired, and it belongs to the model of that caller, where the same
+question is asked about it.
+
 Those names cannot be shadowed, so a job of a nested task carries one set per iteration it
 runs in. Which iterations enclose which element is model knowledge and is remembered while
 wiring, since a job reports the id of its own element only. The mappings are added once and
