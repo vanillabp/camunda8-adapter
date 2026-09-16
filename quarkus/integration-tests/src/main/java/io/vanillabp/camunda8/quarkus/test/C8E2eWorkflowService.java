@@ -50,7 +50,10 @@ import jakarta.inject.Inject;
                                             bpmnProcessId = "MultiInstanceProcess"), @BpmnProcess(
                                                 bpmnProcessId = "SignalCatchProcess"), @BpmnProcess(
                                                     bpmnProcessId = "VersionedProcess"), @BpmnProcess(
-                                                        bpmnProcessId = "ConnectorProcess")
+                                                        bpmnProcessId = "ConnectorProcess"), @BpmnProcess(
+                                                            bpmnProcessId = "MiCallProcess"), @BpmnProcess(
+                                                                bpmnProcessId = "MiCalledProcess"), @BpmnProcess(
+                                                                    bpmnProcessId = "MiGrandChildProcess")
     })
 public class C8E2eWorkflowService {
 
@@ -539,6 +542,64 @@ public class C8E2eWorkflowService {
 
     countInvocation("versionedTask", aggregate);
     aggregate.appendResult("taggedVersion");
+
+  }
+
+  /**
+   * A plain task of a called process, which runs in the iteration of the subprocess the
+   * call activity sits in. That subprocess belongs to another BPMN file, and this engine
+   * says nothing about it, so the adapter has to.
+   */
+  @WorkflowTask
+  public void collectInCalledProcess(
+      final C8E2eAggregate aggregate,
+      @MultiInstanceElement("MIC_PerGroup") final String group,
+      @MultiInstanceIndex("MIC_PerGroup") final int groupIndex,
+      @MultiInstanceTotal("MIC_PerGroup") final int groupTotal) {
+
+    aggregate
+        .setInCalledProcess(
+            append(aggregate.getInCalledProcess(), "%s#%d/%d".formatted(group, groupIndex, groupTotal)));
+
+  }
+
+  /**
+   * A task which is multi-instance in the called process: it reports its own iteration
+   * and the caller's, and the resolver reports the order the two arrived in.
+   */
+  @WorkflowTask
+  public void collectBothChains(
+      final C8E2eAggregate aggregate,
+      @MultiInstanceElement("MIC_PerGroup") final String group,
+      @MultiInstanceIndex("MIC_PerGroup") final int groupIndex,
+      @MultiInstanceTotal("MIC_PerGroup") final int groupTotal,
+      @MultiInstanceElement("MIC_ChildMiTask") final String item,
+      @MultiInstanceIndex("MIC_ChildMiTask") final int index,
+      @MultiInstanceTotal("MIC_ChildMiTask") final int total,
+      @MultiInstanceElement(resolverBean = MiCallChainResolver.class) final String chainOrder) {
+
+    aggregate
+        .setBothChains(
+            append(
+                aggregate.getBothChains(),
+                "%s#%d/%d-%s#%d/%d".formatted(group, groupIndex, groupTotal, item, index, total)));
+    aggregate.setChainOrder(chainOrder);
+
+  }
+
+  /**
+   * A task two call activities away from the iteration it reports.
+   */
+  @WorkflowTask
+  public void collectTwoLevelsDown(
+      final C8E2eAggregate aggregate,
+      @MultiInstanceElement("MIC_PerGroup") final String group,
+      @MultiInstanceIndex("MIC_PerGroup") final int groupIndex,
+      @MultiInstanceTotal("MIC_PerGroup") final int groupTotal) {
+
+    aggregate
+        .setTwoLevelsDown(
+            append(aggregate.getTwoLevelsDown(), "%s#%d/%d".formatted(group, groupIndex, groupTotal)));
 
   }
 

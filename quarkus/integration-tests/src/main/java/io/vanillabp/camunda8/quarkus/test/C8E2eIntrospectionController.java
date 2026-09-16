@@ -109,6 +109,10 @@ public class C8E2eIntrospectionController {
       state.put("approved", aggregate.isApproved());
       state.put("flat", aggregate.getFlat());
       state.put("nested", aggregate.getNested());
+      state.put("inCalledProcess", aggregate.getInCalledProcess());
+      state.put("bothChains", aggregate.getBothChains());
+      state.put("chainOrder", aggregate.getChainOrder());
+      state.put("twoLevelsDown", aggregate.getTwoLevelsDown());
     }
     return state;
 
