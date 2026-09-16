@@ -24,7 +24,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 /**
  * Multi-instance against a REAL Camunda 8 broker: the element, the index
  * and the total of every iteration reach the {@code @WorkflowTask} method, including
- * the iteration of the multi-instance SUBPROCESS a nested task runs in.
+ * the iteration of the multi-instance SUBPROCESS a nested task runs in, and the one a
+ * CALLED process was reached in.
  *
  * <p>
  * That last part is what this engine cannot answer by itself. It puts the index of
@@ -80,6 +81,12 @@ public class Camunda8MultiInstanceIT {
   private MiDockerAggregateRepository repository;
 
   @Autowired
+  private MiCallDockerWorkflowService callWorkflowService;
+
+  @Autowired
+  private MiCallDockerAggregateRepository callRepository;
+
+  @Autowired
   private TransactionTemplate transactionTemplate;
 
   private void awaitUntil(
@@ -127,6 +134,49 @@ public class Camunda8MultiInstanceIT {
         "g1#0/2-x#0/3,g1#0/2-y#1/3,g1#0/2-z#2/3,g2#1/2-x#0/3,g2#1/2-y#1/3,g2#1/2-z#2/3",
         aggregate.getNested(),
         "the enclosing iteration of a nested task, which this engine shadows");
+
+  }
+
+
+  @Test
+  @DisplayName("a task in a called process runs in the iteration of its caller, two levels down as well")
+  public void theIterationCrossesTheCallActivity() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> callWorkflowService.startWorkflow().getId());
+    assertNotNull(aggregateId);
+
+    awaitUntil(
+        () -> callRepository
+            .findById(aggregateId)
+            .map(MiCallDockerAggregate::getTwoLevelsDown)
+            .filter(reported -> reported.split(",").length == 2)
+            .isPresent(),
+        "both groups to have run through the called process and the one it calls");
+
+    final var aggregate = callRepository
+        .findById(aggregateId)
+        .orElseThrow();
+
+    assertEquals(
+        "g1#0/2,g2#1/2",
+        aggregate.getInCalledProcess(),
+        "the subprocess around the call activity is in the caller, and the task is not");
+
+    assertEquals(
+        "g1#0/2-x#0/2,g1#0/2-y#1/2,g2#1/2-x#0/2,g2#1/2-y#1/2",
+        aggregate.getBothChains(),
+        "a task which is multi-instance in the called process reports its own iteration and "
+            + "the caller's");
+
+    assertEquals(
+        "MIC_PerGroup>MIC_ChildMiTask",
+        aggregate.getChainOrder(),
+        "outermost first, and the outermost one belongs to another BPMN process");
+
+    assertEquals(
+        "g1#0/2,g2#1/2",
+        aggregate.getTwoLevelsDown(),
+        "two call activities away from the subprocess, the iteration is still reported");
 
   }
 

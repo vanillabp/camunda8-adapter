@@ -9,6 +9,7 @@ import java.io.ByteArrayInputStream;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.DisplayName;
@@ -146,6 +147,30 @@ public class Camunda8FetchVariablesTest {
       final Camunda8FetchVariablesResolver fetchVariables,
       final Function<String, List<String>> taskParameters) {
 
+    // decomposition is what a call activity of these models is for, so both processes are
+    // served by one workflow service as long as the core knows them at all
+    return deploymentService(
+        aggregateIdNames,
+        fetchVariables,
+        taskParameters,
+        (
+            bpmnProcessId,
+            otherBpmnProcessId) -> (aggregateIdNames.apply(bpmnProcessId) != null) && (aggregateIdNames
+                .apply(otherBpmnProcessId) != null));
+
+  }
+
+  /**
+   * The same, with the core's answer about the workflow aggregate of a called process
+   * spelled out - the one which decides whether a call activity is decomposition or the
+   * start of a business case of its own.
+   */
+  private Camunda8DeploymentService deploymentService(
+      final Function<String, String> aggregateIdNames,
+      final Camunda8FetchVariablesResolver fetchVariables,
+      final Function<String, List<String>> taskParameters,
+      final BiPredicate<String, String> shareTheWorkflowAggregate) {
+
     final var invoker = new Camunda8DeploymentServiceTest.NoOpInvoker() {
 
       @Override
@@ -158,6 +183,16 @@ public class Camunda8FetchVariablesTest {
           throw new IllegalStateException("no workflow service serves '%s'".formatted(bpmnProcessId));
         }
         return name;
+
+      }
+
+      @Override
+      public boolean workflowsShareTheWorkflowAggregate(
+          final String workflowModuleId,
+          final String bpmnProcessId,
+          final String otherBpmnProcessId) {
+
+        return shareTheWorkflowAggregate.test(bpmnProcessId, otherBpmnProcessId);
 
       }
 
@@ -187,7 +222,7 @@ public class Camunda8FetchVariablesTest {
    * Runs the deployment pipeline up to <code>wireBpmn</code>, which is what fills the
    * multi-instance registry the derivation reads.
    */
-  private void wire(
+  private Camunda8ProcessingContext wire(
       final Camunda8DeploymentService deploymentService,
       final String xml) {
 
@@ -200,6 +235,7 @@ public class Camunda8FetchVariablesTest {
     for (final var model : models) {
       deploymentService.wireBpmn(MODULE, "test.bpmn", model.getKey(), model.getValue(), context);
     }
+    return context;
 
   }
 
@@ -554,6 +590,108 @@ public class Camunda8FetchVariablesTest {
             p,
             t) -> null, MODULE, "Loans", "approve"),
         "a resolver answering nothing is a level configuring nothing");
+
+  }
+
+
+  /**
+   * Decomposition: the multi-instance subprocess is in the CALLER, the task asking for its
+   * iteration is in the called process.
+   */
+  private static final String CALLER_AND_CALLED = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:process id="Orders" isExecutable="true">
+          <bpmn:subProcess id="PerItem">
+            <bpmn:multiInstanceLoopCharacteristics>
+              <bpmn:extensionElements>
+                <zeebe:loopCharacteristics inputCollection="=items" inputElement="item" />
+              </bpmn:extensionElements>
+            </bpmn:multiInstanceLoopCharacteristics>
+            <bpmn:callActivity id="Deliver">
+              <bpmn:extensionElements>
+                <zeebe:calledElement processId="Delivery" />
+              </bpmn:extensionElements>
+            </bpmn:callActivity>
+          </bpmn:subProcess>
+        </bpmn:process>
+        <bpmn:process id="Delivery" isExecutable="true">
+          <bpmn:serviceTask id="Pack">
+            <bpmn:extensionElements>
+              <zeebe:taskDefinition type="pack" />
+            </bpmn:extensionElements>
+          </bpmn:serviceTask>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  @Test
+  @DisplayName("a worker of a called process asks for the multi-instance variables of the call site")
+  public void theListFollowsTheChainAcrossTheProcessBoundary() {
+
+    final var deploymentService = deploymentService(bpmnProcessId -> "id", null);
+    final var context = wire(deploymentService, CALLER_AND_CALLED);
+    deploymentService.wireTheProcessesThisModuleCalls(MODULE, context);
+
+    assertEquals(
+        List.of("id", "vanillabpMiElement_PerItem", "vanillabpMiIndex_PerItem", "vanillabpMiTotal_PerItem"),
+        deploymentService
+            .fetchVariablesOf(
+                MODULE,
+                List.of(new Camunda8DeploymentService.ServedElement("Delivery", "Pack", "pack")))
+            .names(),
+        "the fetch list is built from the same chain, so it needs nothing of its own - without "
+            + "these names the cluster would not even send what it already holds");
+
+  }
+
+  @Test
+  @DisplayName("without the call graph the same worker asks for the aggregate id alone")
+  public void theListIsEmptyUntilTheCallGraphIsBuilt() {
+
+    final var deploymentService = deploymentService(bpmnProcessId -> "id", null);
+    wire(deploymentService, CALLER_AND_CALLED);
+
+    assertEquals(
+        List.of("id"),
+        deploymentService
+            .fetchVariablesOf(
+                MODULE,
+                List.of(new Camunda8DeploymentService.ServedElement("Delivery", "Pack", "pack")))
+            .names(),
+        "which is what this adapter did before the chain crossed the boundary");
+
+  }
+
+
+  @Test
+  @DisplayName("a called process with a workflow aggregate of its own is told no iteration of its caller")
+  public void aProcessOfItsOwnStaysOutsideTheChain() {
+
+    final var deploymentService = deploymentService(
+        bpmnProcessId -> "id",
+        null,
+        taskDefinition -> List.of(),
+        (
+            caller,
+            called) -> false);
+    final var context = wire(deploymentService, CALLER_AND_CALLED);
+    deploymentService.wireTheProcessesThisModuleCalls(MODULE, context);
+
+    assertTrue(
+        deploymentService
+            .multiInstanceRegistry()
+            .chainOf("Delivery", "Pack")
+            .isEmpty(),
+        "the cluster still copies the caller's variables into the instance, and this adapter "
+            + "reports none of them - which is the only place the line can honestly be drawn");
+    assertEquals(
+        List.of("id"),
+        deploymentService
+            .fetchVariablesOf(
+                MODULE,
+                List.of(new Camunda8DeploymentService.ServedElement("Delivery", "Pack", "pack")))
+            .names());
 
   }
 

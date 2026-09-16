@@ -910,3 +910,75 @@ one process id and the module tenant which lets both through, and
 both platforms read the levels and report the key the name stands in.
 
 See [Keeping workflow modules apart](./README.md#keeping-workflow-modules-apart).
+
+### 30. A called process is told which iterations it runs in, and the caller's model is where that is read
+
+A call activity used for decomposition is an embedded subprocess which happens to live in another
+file. A task in it therefore expects the same answer about its iteration as a task in the calling
+process, and until now it got nothing.
+
+The cluster does its half already. The variables of every scope a call activity sits in are copied
+into the called instance, the input mappings of decision 5 included, and they survive a second call
+activity below that. That is measured against `camunda/camunda:8.9.19`, so the adapter writes no
+mapping at a call activity and invents no variable. The only thing it writes there is
+`propagateAllParentVariables="true"`, and only where the model says nothing, which is where it
+means the same thing today. A model saying `false` switched the caller's context off on purpose. It
+is left alone, and that call activity stays out of the graph as well: the values never reach the
+called instance, so a chain naming them would promise something the cluster does not deliver, and
+the worker would ask for names which cannot be there.
+
+What was missing is the link between the two models. A BPMN process does not know who calls it, so
+`chainOf` walked one model upwards and stopped at the process element. The call activities of the
+CALLERS carry the link, and the adapter reads them once every file of a workflow module is wired.
+For an element of a called process the chain is then the chain of the call site followed by the
+element's own, outermost first. The fetch list follows without a change of its own, because it is
+built from the same chain: before this, a worker of a called process did not even ask the cluster
+for values the cluster was holding.
+
+Two call activities stay out of the graph. One naming its process by an expression decides per
+instance which process it reaches, which no deployment can resolve. One calling a process with a
+workflow aggregate of its own is not decomposition, and the core answers that with
+`workflowsShareTheWorkflowAggregate`. Such a process reports no iteration of its caller although
+the cluster still copies the values into its instance, and that is the only place the line can
+honestly be drawn.
+
+Four rules keep the chain answerable where a graph is not a straight line.
+
+A process called from several places gets the union over those call sites. Each path keeps its own
+order, and at runtime the levels of the path which did not run are simply not in the job, which
+`valuesOf` already leaves out. So a chain may name more levels than the instance at hand ran in.
+A level two paths share appears once, in the place the first of those paths gave it; where two
+paths nest the same two ids the other way round, one of the two orders is the one reported, and the
+call sites are walked in a fixed order so the answer survives a restart. The price is the fetch
+list, which asks for the variables of every call site on every activation.
+
+Where the same element id turns up twice along ONE path, the inner occurrence wins. Both write the
+same variable names and the inner scope overwrites the outer one, so the job carries the inner
+values and the chain says so. A process calling itself is where this happens by design.
+
+Where two call sites carry multi-instance elements of one id which do not mean the same thing, the
+boot ends with a message naming both processes. Nobody can say what `@MultiInstanceElement` of that
+id means there, and answering it wrongly would hand a handler the values of another iteration.
+
+A call graph with a cycle stops at the first process already on the path and reports the levels
+collected so far. Without that rule a process calling itself has a chain which grows with every
+round.
+
+The refusals happen while the application starts, not while it is built. The adapter has no
+build-time pass over models on either platform, and on Quarkus the BPMN parser is initialized at
+run time on purpose, so a build-time check would mean a second parse of every file for one
+question. Startup is also where every other model refusal of this adapter happens, and it is still
+before anything reaches the cluster.
+
+An input mapping of a name VanillaBP writes, reading a different expression, ends the boot as well
+rather than being ignored. It used to be left alone, which looked like the rule that nothing the
+application modelled is overwritten. It is not the same case: the handler would read the values of
+whatever the modelled expression points at while the chain promises the iteration.
+
+`Camunda8MultiInstanceTest` holds the chain across the boundary, the union, the shared level, the
+recursion stop, the call activity which keeps the caller's variables out and both refusals.
+`Camunda8FetchVariablesTest` holds that the fetch list follows the chain and that a process with an
+aggregate of its own gets nothing. What a handler really sees on a cluster, two call activities
+deep, is `Camunda8MultiInstanceIT#theIterationCrossesTheCallActivity`.
+
+See [Multi-instance](./README.md#multi-instance).
