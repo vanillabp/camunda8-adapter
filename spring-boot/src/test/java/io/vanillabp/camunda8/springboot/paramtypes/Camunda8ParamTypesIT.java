@@ -125,10 +125,7 @@ public class Camunda8ParamTypesIT {
 
     transactionTemplate.execute(status -> workflowService.startWorkflow());
 
-    awaitUntil(
-        this::everyBranchSettled,
-        "the five branches which run to enter their handler and the four which do not to "
-            + "leave an incident behind");
+    awaitUntil(this::everyBranchSettled);
 
     theValuesWhichArrive();
     theValuesWhichAreRefused();
@@ -308,8 +305,7 @@ public class Camunda8ParamTypesIT {
   }
 
   private void awaitUntil(
-      final Supplier<Boolean> condition,
-      final String description) throws InterruptedException {
+      final Supplier<Boolean> condition) throws InterruptedException {
 
     // generous on purpose: a refused job is handed out until its retries are gone, and
     // the incident which follows is read from secondary storage, which the exporter
@@ -317,11 +313,41 @@ public class Camunda8ParamTypesIT {
     final var deadline = System.currentTimeMillis() + 180_000;
     while (!Boolean.TRUE.equals(condition.get())) {
       if (System.currentTimeMillis() > deadline) {
-        throw new AssertionError("timed out waiting for: "
-            + description);
+        throw new AssertionError(whatIsStillMissing());
       }
       Thread.sleep(500);
     }
+
+  }
+
+  /**
+   * What the branches of the model have not said yet, named one by one. A timeout saying
+   * only that something is missing costs a second run to find out which half it was, and
+   * the two halves fail for opposite reasons: a handler nobody entered points at the
+   * cluster or at the wiring, while a refusal which never became an incident points at a
+   * conversion which let the value through.
+   *
+   * @return The message of the timeout
+   */
+  private String whatIsStillMissing() {
+
+    final var entered = workflowService
+        .received()
+        .keySet();
+    final var withAnIncident = incidentsByElement().keySet();
+    return "timed out waiting for every branch to settle. Branches which never entered "
+        + "their handler: "
+        + BRANCHES_WHICH_RUN
+            .stream()
+            .filter(branch -> !entered.contains(branch))
+            .toList()
+        + ". Branches which never left an incident behind: "
+        + BRANCHES_WHICH_FAIL
+            .stream()
+            .filter(branch -> !withAnIncident.contains(branch))
+            .toList()
+        + ". What the handlers which did run received: "
+        + workflowService.received();
 
   }
 
