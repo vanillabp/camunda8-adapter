@@ -129,6 +129,9 @@ public class Camunda8WorkflowLifecycleTest {
 
   @RegisterExtension
   static final QuarkusProdModeTest prodModeTest = new QuarkusProdModeTest()
+      // the lines below are the deployment, not the directory: classes travel by package,
+      // every resource travels by a line of its own, so a BPMN file added to
+      // src/main/resources reaches this application only once it is listed here
       .withApplicationRoot(jar -> jar
           .addPackage("io.vanillabp.camunda8.quarkus.test")
           .addAsResource("application.yaml")
@@ -139,6 +142,8 @@ public class Camunda8WorkflowLifecycleTest {
           .addAsResource("c8-e2e/processes/versioned-process.bpmn")
           .addAsResource("c8-e2e/processes/aggregate-changed.bpmn")
           .addAsResource("c8-e2e/processes/connector-process.bpmn")
+          .addAsResource("c8-e2e/processes/multi-instance-call.bpmn")
+          .addAsResource("c8-e2e/processes/multi-instance-called.bpmn")
           // deployed by the test WHILE the application runs, so it must travel with it
           // but must not sit in the workflow module's resources location
           .addAsResource("c8-e2e/versioned/versioned-process-v2.bpmn")
@@ -862,6 +867,46 @@ public class Camunda8WorkflowLifecycleTest {
         "g1#0/2-x#0/3,g1#0/2-y#1/3,g1#0/2-z#2/3,g2#1/2-x#0/3,g2#1/2-y#1/3,g2#1/2-z#2/3",
         object("introspect/aggregates/"
             + aggregateId).get("nested"));
+
+  }
+
+  @Test
+  @DisplayName("A task in a called process runs in the iteration of its caller, two levels down as well")
+  public void multiInstanceCrossesTheCallActivity() throws Exception {
+
+    final var aggregateId = aggregateIdOf(startProcess("MiCallProcess"));
+
+    await(
+        () -> {
+          final var reported = object("introspect/aggregates/"
+              + aggregateId).get("twoLevelsDown");
+          return (reported != null) && (reported.toString().split(",").length == 2);
+        },
+        "both groups to have run through the called process and the one it calls");
+
+    final var aggregate = object("introspect/aggregates/"
+        + aggregateId);
+
+    assertEquals(
+        "g1#0/2,g2#1/2",
+        aggregate.get("inCalledProcess"),
+        "the subprocess around the call activity is in the caller, and the task is not");
+
+    assertEquals(
+        "g1#0/2-x#0/2,g1#0/2-y#1/2,g2#1/2-x#0/2,g2#1/2-y#1/2",
+        aggregate.get("bothChains"),
+        "a task which is multi-instance in the called process reports its own iteration and "
+            + "the caller's");
+
+    assertEquals(
+        "MIC_PerGroup>MIC_ChildMiTask",
+        aggregate.get("chainOrder"),
+        "outermost first, and the outermost one belongs to another BPMN process");
+
+    assertEquals(
+        "g1#0/2,g2#1/2",
+        aggregate.get("twoLevelsDown"),
+        "two call activities away from the subprocess, the iteration is still reported");
 
   }
 

@@ -74,6 +74,30 @@ public class C8E2eAggregate {
   private String nested;
 
   /**
+   * What a plain task of a called process was told about the caller's iteration.
+   */
+  @Column(length = 2000)
+  private String inCalledProcess;
+
+  /**
+   * What a task which is multi-instance in the called process was told about both.
+   */
+  @Column(length = 2000)
+  private String bothChains;
+
+  /**
+   * The order the chain arrived in, as the resolver saw it.
+   */
+  @Column(length = 2000)
+  private String chainOrder;
+
+  /**
+   * What a task two call activities away from the iteration was told.
+   */
+  @Column(length = 2000)
+  private String twoLevelsDown;
+
+  /**
    * Appends one result entry.
    *
    * @param result What the handler wants to record
