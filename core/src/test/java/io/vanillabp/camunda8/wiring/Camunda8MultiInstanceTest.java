@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.wiring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,6 +18,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.Activity;
+import io.camunda.zeebe.model.bpmn.instance.CallActivity;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledElement;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeIoMapping;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -67,6 +70,216 @@ public class Camunda8MultiInstanceTest {
         </bpmn:process>
       </bpmn:definitions>
       """;
+
+  /**
+   * One process called from two places, each of them inside a multi-instance element of
+   * its own - the shape which makes the chain a union rather than a path.
+   */
+  private static final String TWO_CALLERS = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:process id="CallerA" isExecutable="true">
+          <bpmn:subProcess id="LoopA">
+            <bpmn:multiInstanceLoopCharacteristics>
+              <bpmn:extensionElements>
+                <zeebe:loopCharacteristics inputCollection="=as" inputElement="a" />
+              </bpmn:extensionElements>
+            </bpmn:multiInstanceLoopCharacteristics>
+            <bpmn:callActivity id="CallSharedFromA">
+              <bpmn:extensionElements>
+                <zeebe:calledElement processId="Shared" />
+              </bpmn:extensionElements>
+            </bpmn:callActivity>
+          </bpmn:subProcess>
+        </bpmn:process>
+        <bpmn:process id="CallerB" isExecutable="true">
+          <bpmn:subProcess id="LoopB">
+            <bpmn:multiInstanceLoopCharacteristics>
+              <bpmn:extensionElements>
+                <zeebe:loopCharacteristics inputCollection="=bs" inputElement="b" />
+              </bpmn:extensionElements>
+            </bpmn:multiInstanceLoopCharacteristics>
+            <bpmn:callActivity id="CallSharedFromB">
+              <bpmn:extensionElements>
+                <zeebe:calledElement processId="Shared" />
+              </bpmn:extensionElements>
+            </bpmn:callActivity>
+          </bpmn:subProcess>
+        </bpmn:process>
+        <bpmn:process id="Shared" isExecutable="true">
+          <bpmn:serviceTask id="SharedTask">
+            <bpmn:extensionElements>
+              <zeebe:taskDefinition type="shared" />
+            </bpmn:extensionElements>
+          </bpmn:serviceTask>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  /**
+   * The same two callers, in a file each because one BPMN file may not hold two elements of
+   * one ID. Their multi-instance elements carry ONE ID and hand over different things: one
+   * of them has no input element at all.
+   */
+  private static final String ONE_ID_CALLER_A = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:process id="CallerA" isExecutable="true">
+          <bpmn:subProcess id="Loop">
+            <bpmn:multiInstanceLoopCharacteristics>
+              <bpmn:extensionElements>
+                <zeebe:loopCharacteristics inputCollection="=as" inputElement="a" />
+              </bpmn:extensionElements>
+            </bpmn:multiInstanceLoopCharacteristics>
+            <bpmn:callActivity id="CallSharedFromA">
+              <bpmn:extensionElements>
+                <zeebe:calledElement processId="Shared" />
+              </bpmn:extensionElements>
+            </bpmn:callActivity>
+          </bpmn:subProcess>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  private static final String ONE_ID_CALLER_B = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:process id="CallerB" isExecutable="true">
+          <bpmn:subProcess id="Loop">
+            <bpmn:multiInstanceLoopCharacteristics>
+              <bpmn:extensionElements>
+                <zeebe:loopCharacteristics inputCollection="=bs" />
+              </bpmn:extensionElements>
+            </bpmn:multiInstanceLoopCharacteristics>
+            <bpmn:callActivity id="CallSharedFromB">
+              <bpmn:extensionElements>
+                <zeebe:calledElement processId="Shared" />
+              </bpmn:extensionElements>
+            </bpmn:callActivity>
+          </bpmn:subProcess>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  /**
+   * A third caller whose multi-instance element carries the ID of the one in
+   * {@link #ONE_ID_CALLER_A} and hands over the same thing.
+   */
+  private static final String SAME_ID_CALLER_C = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:process id="CallerC" isExecutable="true">
+          <bpmn:subProcess id="Loop">
+            <bpmn:multiInstanceLoopCharacteristics>
+              <bpmn:extensionElements>
+                <zeebe:loopCharacteristics inputCollection="=cs" inputElement="a" />
+              </bpmn:extensionElements>
+            </bpmn:multiInstanceLoopCharacteristics>
+            <bpmn:callActivity id="CallSharedFromC">
+              <bpmn:extensionElements>
+                <zeebe:calledElement processId="Shared" />
+              </bpmn:extensionElements>
+            </bpmn:callActivity>
+          </bpmn:subProcess>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  /**
+   * A process calling itself from inside its own iteration.
+   */
+  private static final String RECURSION = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:process id="Recursive" isExecutable="true">
+          <bpmn:subProcess id="RecursiveLoop">
+            <bpmn:multiInstanceLoopCharacteristics>
+              <bpmn:extensionElements>
+                <zeebe:loopCharacteristics inputCollection="=children" inputElement="child" />
+              </bpmn:extensionElements>
+            </bpmn:multiInstanceLoopCharacteristics>
+            <bpmn:serviceTask id="RecursiveTask">
+              <bpmn:extensionElements>
+                <zeebe:taskDefinition type="recursive" />
+              </bpmn:extensionElements>
+            </bpmn:serviceTask>
+            <bpmn:callActivity id="CallMyself">
+              <bpmn:extensionElements>
+                <zeebe:calledElement processId="Recursive" />
+              </bpmn:extensionElements>
+            </bpmn:callActivity>
+          </bpmn:subProcess>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  /**
+   * Three call activities: one saying nothing about the variables of the enclosing scopes,
+   * one switching them off and one asking for them.
+   */
+  private static final String PROPAGATION = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:process id="Caller" isExecutable="true">
+          <bpmn:callActivity id="SaysNothing">
+            <bpmn:extensionElements>
+              <zeebe:calledElement processId="Child" propagateAllChildVariables="false" />
+            </bpmn:extensionElements>
+          </bpmn:callActivity>
+          <bpmn:callActivity id="SaysNo">
+            <bpmn:extensionElements>
+              <zeebe:calledElement processId="Child" propagateAllParentVariables="false" />
+            </bpmn:extensionElements>
+          </bpmn:callActivity>
+          <bpmn:callActivity id="SaysYes">
+            <bpmn:extensionElements>
+              <zeebe:calledElement processId="Child" propagateAllParentVariables="true" />
+            </bpmn:extensionElements>
+          </bpmn:callActivity>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  /**
+   * A model carrying an input mapping of the name VanillaBP writes, reading something
+   * else.
+   */
+  private static final String CLASHING_MAPPING = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:process id="Clashing" isExecutable="true">
+          <bpmn:serviceTask id="Ship">
+            <bpmn:extensionElements>
+              <zeebe:taskDefinition type="ship" />
+              <zeebe:ioMapping>
+                <zeebe:input source="=myOwnCounter" target="vanillabpMiIndex_Ship" />
+              </zeebe:ioMapping>
+            </bpmn:extensionElements>
+            <bpmn:multiInstanceLoopCharacteristics>
+              <bpmn:extensionElements>
+                <zeebe:loopCharacteristics inputCollection="=items" inputElement="item" />
+              </bpmn:extensionElements>
+            </bpmn:multiInstanceLoopCharacteristics>
+          </bpmn:serviceTask>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  /**
+   * What the model says at a call activity about the variables of the enclosing scopes -
+   * read off the DOM, so an absent attribute reads as <code>null</code> rather than as the
+   * default.
+   */
+  private static String propagationOf(
+      final BpmnModelInstance model,
+      final String callActivityId) {
+
+    return ((CallActivity) model.getModelElementById(callActivityId))
+        .getSingleExtensionElement(ZeebeCalledElement.class)
+        .getDomElement()
+        .getAttribute("propagateAllParentVariables");
+
+  }
 
   private static BpmnModelInstance model(
       final String xml) {
@@ -331,6 +544,297 @@ public class Camunda8MultiInstanceTest {
     assertTrue(exception.getMessage().contains("my-task"), exception.getMessage());
     assertTrue(exception.getMessage().contains("my.task"), exception.getMessage());
     assertTrue(exception.getMessage().contains("Rename one of them"), exception.getMessage());
+
+  }
+
+
+  /**
+   * Decomposition over two levels: a call activity inside a multi-instance subprocess
+   * calls a process which is itself multi-instance in one place and calls a third process
+   * in another - the shapes the chain of a called process has to answer.
+   */
+  private static final String CALL_GRAPH = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="D" targetNamespace="http://bpmn.io/schema/bpmn">
+        <bpmn:process id="Caller" isExecutable="true">
+          <bpmn:subProcess id="Outer">
+            <bpmn:multiInstanceLoopCharacteristics>
+              <bpmn:extensionElements>
+                <zeebe:loopCharacteristics inputCollection="=groups" inputElement="group" />
+              </bpmn:extensionElements>
+            </bpmn:multiInstanceLoopCharacteristics>
+            <bpmn:callActivity id="CallChild">
+              <bpmn:extensionElements>
+                <zeebe:calledElement processId="Child" />
+              </bpmn:extensionElements>
+            </bpmn:callActivity>
+          </bpmn:subProcess>
+        </bpmn:process>
+        <bpmn:process id="Child" isExecutable="true">
+          <bpmn:serviceTask id="ChildTask">
+            <bpmn:extensionElements>
+              <zeebe:taskDefinition type="child" />
+            </bpmn:extensionElements>
+          </bpmn:serviceTask>
+          <bpmn:serviceTask id="ChildMi">
+            <bpmn:extensionElements>
+              <zeebe:taskDefinition type="childMi" />
+            </bpmn:extensionElements>
+            <bpmn:multiInstanceLoopCharacteristics>
+              <bpmn:extensionElements>
+                <zeebe:loopCharacteristics inputCollection="=items" inputElement="item" />
+              </bpmn:extensionElements>
+            </bpmn:multiInstanceLoopCharacteristics>
+          </bpmn:serviceTask>
+          <bpmn:callActivity id="CallGrandChild">
+            <bpmn:extensionElements>
+              <zeebe:calledElement processId="GrandChild" />
+            </bpmn:extensionElements>
+          </bpmn:callActivity>
+          <bpmn:callActivity id="CallWhateverTheDataSays">
+            <bpmn:extensionElements>
+              <zeebe:calledElement processId="=nextProcess" />
+            </bpmn:extensionElements>
+          </bpmn:callActivity>
+        </bpmn:process>
+        <bpmn:process id="GrandChild" isExecutable="true">
+          <bpmn:serviceTask id="GrandChildTask">
+            <bpmn:extensionElements>
+              <zeebe:taskDefinition type="grandChild" />
+            </bpmn:extensionElements>
+          </bpmn:serviceTask>
+        </bpmn:process>
+      </bpmn:definitions>
+      """;
+
+  private static List<String> elementIdsOf(
+      final List<Camunda8MultiInstance.MultiInstanceElement> chain) {
+
+    return chain
+        .stream()
+        .map(Camunda8MultiInstance.MultiInstanceElement::elementId)
+        .toList();
+
+  }
+
+  /**
+   * The registry of {@link #CALL_GRAPH}, wired and linked the way the deployment does it.
+   */
+  private static Camunda8MultiInstance.Registry linkedCallGraph() {
+
+    final var model = model(CALL_GRAPH);
+    final var registry = new Camunda8MultiInstance.Registry();
+    Camunda8MultiInstance.wire(model, "Caller", registry);
+    Camunda8MultiInstance.wire(model, "Child", registry);
+    Camunda8MultiInstance.wire(model, "GrandChild", registry);
+    registry.registerCall("Caller", "CallChild", "Child");
+    registry.registerCall("Child", "CallGrandChild", "GrandChild");
+    registry.linkCalledProcesses();
+    return registry;
+
+  }
+
+  @Test
+  @DisplayName("a task in a called process runs in the iteration its call activity sits in")
+  public void theChainCrossesTheProcessBoundary() {
+
+    final var registry = linkedCallGraph();
+
+    assertEquals(
+        List.of("Outer"),
+        elementIdsOf(registry.chainOf("Child", "ChildTask")),
+        "the subprocess around the call activity encloses everything the called process does");
+
+  }
+
+  @Test
+  @DisplayName("the chain reaches through two call activities")
+  public void theChainCrossesTwoBoundaries() {
+
+    final var registry = linkedCallGraph();
+
+    assertEquals(
+        List.of("Outer"),
+        elementIdsOf(registry.chainOf("GrandChild", "GrandChildTask")),
+        "the call activity calling the grandchild is not multi-instance itself, so the "
+            + "subprocess of the first caller is the only iteration left");
+
+  }
+
+  @Test
+  @DisplayName("a task which is multi-instance in a called process reports both chains, outermost first")
+  public void theCalledProcessKeepsItsOwnChainLast() {
+
+    final var registry = linkedCallGraph();
+
+    assertEquals(
+        List.of("Outer", "ChildMi"),
+        elementIdsOf(registry.chainOf("Child", "ChildMi")),
+        "what the call site encloses comes first, the element's own iteration last");
+
+  }
+
+  @Test
+  @DisplayName("a call activity naming its process by an expression is not part of the graph")
+  public void anExpressionIsNoCallSite() {
+
+    final var model = model(CALL_GRAPH);
+
+    assertEquals(
+        Map.of("CallGrandChild", "GrandChild"),
+        Camunda8MultiInstance.calledProcessesOf(model, "Child"),
+        "which process '=nextProcess' reaches is decided per instance, so deploying cannot know");
+    assertEquals(
+        Map.of("CallChild", "Child"),
+        Camunda8MultiInstance.calledProcessesOf(model, "Caller"));
+
+  }
+
+  @Test
+  @DisplayName("a process called from two places gets both iterations, each path in its own order")
+  public void theChainIsTheUnionOverTheCallSites() {
+
+    final var model = model(TWO_CALLERS);
+    final var registry = new Camunda8MultiInstance.Registry();
+    Camunda8MultiInstance.wire(model, "CallerA", registry);
+    Camunda8MultiInstance.wire(model, "CallerB", registry);
+    Camunda8MultiInstance.wire(model, "Shared", registry);
+    registry.registerCall("CallerA", "CallSharedFromA", "Shared");
+    registry.registerCall("CallerB", "CallSharedFromB", "Shared");
+    registry.linkCalledProcesses();
+
+    assertEquals(
+        List.of("LoopA", "LoopB"),
+        elementIdsOf(registry.chainOf("Shared", "SharedTask")),
+        "an instance runs in one of the two, and the other one's variables are simply not in "
+            + "the job, which is where valuesOf leaves it out");
+
+  }
+
+  @Test
+  @DisplayName("a level two call sites share keeps the place the first of them gave it")
+  public void aSharedLevelKeepsOnePlace() {
+
+    final var registry = new Camunda8MultiInstance.Registry();
+    Camunda8MultiInstance.wire(model(ONE_ID_CALLER_A), "CallerA", registry);
+    Camunda8MultiInstance.wire(model(SAME_ID_CALLER_C), "CallerC", registry);
+    registry.registerCall("CallerA", "CallSharedFromA", "Shared");
+    registry.registerCall("CallerC", "CallSharedFromC", "Shared");
+    registry.linkCalledProcesses();
+
+    assertEquals(
+        List.of("Loop"),
+        elementIdsOf(registry.chainOf("Shared", "SharedTask")),
+        "both callers hand over the same thing under that ID, so one entry answers for both");
+
+  }
+
+  @Test
+  @DisplayName("two call sites whose multi-instance elements share an ID but not their shape end the boot")
+  public void anAmbiguousLevelIsRejected() {
+
+    final var registry = new Camunda8MultiInstance.Registry();
+    Camunda8MultiInstance.wire(model(ONE_ID_CALLER_A), "CallerA", registry);
+    Camunda8MultiInstance.wire(model(ONE_ID_CALLER_B), "CallerB", registry);
+    registry.registerCall("CallerA", "CallSharedFromA", "Shared");
+    registry.registerCall("CallerB", "CallSharedFromB", "Shared");
+
+    final var exception = assertThrows(IllegalStateException.class, registry::linkCalledProcesses);
+
+    assertTrue(exception.getMessage().contains("CallerA"), exception.getMessage());
+    assertTrue(exception.getMessage().contains("CallerB"), exception.getMessage());
+    assertTrue(exception.getMessage().contains("Loop"), exception.getMessage());
+    assertTrue(exception.getMessage().contains("Rename one of the two elements"), exception.getMessage());
+
+  }
+
+  @Test
+  @DisplayName("a process calling itself ends with the levels collected so far")
+  public void aRecursiveCallGraphTerminates() {
+
+    final var model = model(RECURSION);
+    final var registry = new Camunda8MultiInstance.Registry();
+    Camunda8MultiInstance.wire(model, "Recursive", registry);
+    registry.registerCall("Recursive", "CallMyself", "Recursive");
+    registry.linkCalledProcesses();
+
+    assertEquals(
+        List.of("RecursiveLoop"),
+        elementIdsOf(registry.chainOf("Recursive", "RecursiveTask")),
+        "every round writes the same variables, so the job carries the innermost round and "
+            + "the walk stops at the process it already visited");
+
+  }
+
+  @Test
+  @DisplayName("the model is told the caller's variables travel, but only where it says nothing")
+  public void propagationIsWrittenWhereTheAttributeIsAbsent() {
+
+    final var model = model(PROPAGATION);
+
+    assertTrue(
+        Camunda8MultiInstance.theCallersVariablesReachTheCalledProcess(model, "Caller", "SaysNothing"),
+        "the attribute was absent, so what the chain relies on is written down");
+    assertEquals(
+        "true",
+        propagationOf(model, "SaysNothing"));
+
+    assertFalse(
+        Camunda8MultiInstance.theCallersVariablesReachTheCalledProcess(model, "Caller", "SaysNo"),
+        "a modeller who switched the caller's context off meant it, and nothing of the caller "
+            + "reaches the called process");
+    assertEquals(
+        "false",
+        propagationOf(model, "SaysNo"),
+        "what the application modelled itself is not overwritten");
+
+    assertTrue(
+        Camunda8MultiInstance.theCallersVariablesReachTheCalledProcess(model, "Caller", "SaysYes"),
+        "a modeller who asked for the context gets the same answer as one who said nothing");
+    assertEquals(
+        "true",
+        propagationOf(model, "SaysYes"));
+
+    assertTrue(
+        Camunda8MultiInstance.theCallersVariablesReachTheCalledProcess(model, "Caller", "SaysNothing"),
+        "asking again gives the same answer");
+    assertEquals(
+        "true",
+        propagationOf(model, "SaysNothing"),
+        "and produces the same model, so a redeployment does not change the BPMN");
+
+  }
+
+  @Test
+  @DisplayName("a call activity which keeps the caller's variables out is left out of the chain")
+  public void aCallActivityWhichSwitchesThePropagationOffIsNoCallSite() {
+
+    final var registry = new Camunda8MultiInstance.Registry();
+    Camunda8MultiInstance.wire(model(CALL_GRAPH), "Caller", registry);
+    Camunda8MultiInstance.wire(model(CALL_GRAPH), "Child", registry);
+    registry.linkCalledProcesses();
+
+    assertTrue(
+        registry.chainOf("Child", "ChildTask").isEmpty(),
+        "without the call being registered, nothing of the caller is reported - which is what "
+            + "the deployment does for a call activity whose model keeps the variables at home");
+
+  }
+
+  @Test
+  @DisplayName("an input mapping of that name with another expression ends the boot instead of being ignored")
+  public void aClashingMappingIsRejected() {
+
+    final var model = model(CLASHING_MAPPING);
+
+    final var exception = assertThrows(
+        IllegalStateException.class,
+        () -> Camunda8MultiInstance.wire(model, "Clashing", new Camunda8MultiInstance.Registry()));
+
+    assertTrue(exception.getMessage().contains("Ship"), exception.getMessage());
+    assertTrue(exception.getMessage().contains("vanillabpMiIndex_Ship"), exception.getMessage());
+    assertTrue(exception.getMessage().contains("=myOwnCounter"), exception.getMessage());
+    assertTrue(exception.getMessage().contains("=loopCounter"), exception.getMessage());
 
   }
 

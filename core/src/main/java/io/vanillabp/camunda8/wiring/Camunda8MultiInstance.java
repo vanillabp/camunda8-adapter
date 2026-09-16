@@ -2,19 +2,25 @@ package io.vanillabp.camunda8.wiring;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.Activity;
 import io.camunda.zeebe.model.bpmn.instance.BaseElement;
+import io.camunda.zeebe.model.bpmn.instance.CallActivity;
 import io.camunda.zeebe.model.bpmn.instance.ExtensionElements;
 import io.camunda.zeebe.model.bpmn.instance.FlowElement;
 import io.camunda.zeebe.model.bpmn.instance.MultiInstanceLoopCharacteristics;
 import io.camunda.zeebe.model.bpmn.instance.Process;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeCalledElement;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeInput;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeIoMapping;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeLoopCharacteristics;
@@ -58,14 +64,31 @@ import lombok.extern.slf4j.Slf4j;
  * of its own element only.
  * </p>
  * <p>
+ * A called process is part of the same chain. The cluster copies the variables of every
+ * scope a call activity sits in into the called instance, so the values are there; what
+ * the model does not say is which iterations they belong to, because a process does not
+ * know who calls it. That link is read off the call activities of the CALLERS once every
+ * process of a workflow module is wired, see {@link Registry#registerCall} and
+ * {@link Registry#linkCalledProcesses()}.
+ * </p>
+ * <p>
  * Why the adapter puts input mappings into the deployed model, why they are idempotent, and why
- * that costs a new process version, is decision 5 in the repository's DECISIONS.md.
+ * that costs a new process version, is decision 5 in the repository's DECISIONS.md. The rules
+ * the chain of a called process follows are decision 30 in the repository's DECISIONS.md.
  */
 @Slf4j
 public final class Camunda8MultiInstance {
 
   /** Prefix of every variable this class injects. */
   static final String VARIABLE_PREFIX = "vanillabpMi";
+
+  /**
+   * The attribute of {@code zeebe:calledElement} which decides whether the variables of
+   * the enclosing scopes reach the called instance. Read off the DOM rather than through
+   * {@code isPropagateAllParentVariablesEnabled()}, because the model API answers the
+   * DEFAULT where the attribute is absent, and absent is the one case which may be written.
+   */
+  private static final String PROPAGATE_ALL_PARENT_VARIABLES = "propagateAllParentVariables";
 
   private Camunda8MultiInstance() {
   }
@@ -98,6 +121,35 @@ public final class Camunda8MultiInstance {
 
     private final Map<String, List<MultiInstanceElement>> chains = new ConcurrentHashMap<>();
 
+    /**
+     * Where a process is called from, by called process. A process may be called from
+     * several places, which is what makes the chain a union.
+     */
+    private final Map<String, Set<CallSite>> callSites = new ConcurrentHashMap<>();
+
+    /**
+     * What a process inherits from the places it is called from, outermost first -
+     * computed from {@link #callSites} by {@link #linkCalledProcesses()} rather than on
+     * every job.
+     */
+    private final Map<String, List<MultiInstanceElement>> inheritedChains = new ConcurrentHashMap<>();
+
+    /**
+     * One place a process is called from.
+     *
+     * @param callerBpmnProcessId The calling process, as the CLUSTER knows it
+     * @param callActivityId The BPMN ID of the call activity in that process
+     */
+    private record CallSite(String callerBpmnProcessId, String callActivityId) {
+    }
+
+    /**
+     * One multi-instance element together with the process declaring it - which is what a
+     * message about two elements of one ID has to name.
+     */
+    private record Level(String bpmnProcessId, MultiInstanceElement element) {
+    }
+
     private static String key(
         final String bpmnProcessId,
         final String elementId) {
@@ -118,6 +170,197 @@ public final class Camunda8MultiInstance {
     }
 
     /**
+     * Remembers that one process calls another one. Recorded for a call activity naming
+     * its process statically and calling a process on the same workflow aggregate; the
+     * caller decides both, because neither question is answered by this class.
+     *
+     * @param callerBpmnProcessId The calling process, as the CLUSTER knows it
+     * @param callActivityId The BPMN ID of the call activity
+     * @param calledBpmnProcessId The called process, as the CLUSTER knows it
+     */
+    public void registerCall(
+        final String callerBpmnProcessId,
+        final String callActivityId,
+        final String calledBpmnProcessId) {
+
+      callSites
+          .computeIfAbsent(calledBpmnProcessId, called -> ConcurrentHashMap.newKeySet())
+          .add(new CallSite(callerBpmnProcessId, callActivityId));
+
+    }
+
+    /**
+     * Works out what every called process inherits from the places it is called from.
+     * Called once the processes of a workflow module are wired, because a call activity
+     * of one file may name a process of another one.
+     *
+     * @throws IllegalStateException Where two call sites of one process carry multi-instance
+     *           elements of one ID which do not mean the same thing
+     */
+    public void linkCalledProcesses() {
+
+      final var linked = new LinkedHashMap<String, List<MultiInstanceElement>>();
+      for (final var calledProcess : new TreeSet<>(callSites.keySet())) {
+        final var levels = inheritedBy(calledProcess, List.of());
+        if (!levels.isEmpty()) {
+          linked
+              .put(
+                  calledProcess,
+                  levels
+                      .stream()
+                      .map(Level::element)
+                      .toList());
+        }
+      }
+      inheritedChains.putAll(linked);
+
+    }
+
+    /**
+     * The levels a process inherits from its call sites, outermost first.
+     * <p>
+     * Each call site contributes one path: what the CALLER inherits, followed by the
+     * multi-instance elements enclosing the call activity in the caller. The paths are
+     * then merged into one list, because a job reports an element and not the way its
+     * instance was reached. A level of a path which did not run is simply not in the job,
+     * and {@link Camunda8MultiInstance#valuesOf} leaves it out.
+     *
+     * @param bpmnProcessId The process asked about
+     * @param path The processes already walked through, so a call graph with a cycle ends
+     *          with the levels collected so far
+     */
+    private List<Level> inheritedBy(
+        final String bpmnProcessId,
+        final List<String> path) {
+
+      if (path.contains(bpmnProcessId)) {
+        // a process calling itself, directly or around a corner: the chain of an element
+        // in it would grow with every round, so the walk stops here
+        return List.of();
+      }
+      final var sites = callSites.get(bpmnProcessId);
+      if ((sites == null) || sites.isEmpty()) {
+        return List.of();
+      }
+      final var walked = new ArrayList<>(path);
+      walked.add(bpmnProcessId);
+      final var merged = new LinkedHashMap<String, Level>();
+      final var ordered = new ArrayList<>(sites);
+      // the union is built in a stable order, so two boots of one application report the
+      // levels of a process called from several places the same way round
+      ordered
+          .sort(
+              Comparator
+                  .comparing(CallSite::callerBpmnProcessId)
+                  .thenComparing(CallSite::callActivityId));
+      for (final var site : ordered) {
+        final var alongThisPath = new LinkedHashMap<String, Level>();
+        inheritedBy(site.callerBpmnProcessId(), walked)
+            .forEach(level -> appendLevel(alongThisPath, level));
+        chains
+            .getOrDefault(key(site.callerBpmnProcessId(), site.callActivityId()), List.of())
+            .forEach(element -> appendLevel(alongThisPath, new Level(site.callerBpmnProcessId(), element)));
+        alongThisPath.values().forEach(level -> mergeLevel(merged, level, bpmnProcessId));
+      }
+      return List.copyOf(merged.values());
+
+    }
+
+    /**
+     * Adds one level to ONE call path, where a repeated element ID is nesting rather than
+     * a choice: both write the same variables, the inner scope overwrites the outer one,
+     * and the job therefore carries the inner values. So the later occurrence replaces the
+     * earlier one and takes its place at the end. A process calling itself is where this
+     * happens by design.
+     */
+    private static void appendLevel(
+        final Map<String, Level> levels,
+        final Level level) {
+
+      levels.remove(level.element().elementId());
+      levels.put(level.element().elementId(), level);
+
+    }
+
+    /**
+     * Adds one level to the union over the call paths, where a repeated element ID is a
+     * CHOICE: only one of the paths reached the instance at hand, so one entry serves both
+     * as long as both mean the same thing. Where they do not, nobody can say what
+     * <code>@MultiInstanceElement</code> of that ID means, and the boot ends here.
+     * <p>
+     * A level two paths share keeps the place the first path gave it. Where those two paths
+     * nest the same two IDs the other way round, one of the two orders is therefore the one
+     * reported. Call paths are walked in a fixed order, so the answer is at least the same
+     * after a restart.
+     */
+    private static void mergeLevel(
+        final Map<String, Level> levels,
+        final Level level,
+        final String calledBpmnProcessId) {
+
+      final var alreadyThere = levels.putIfAbsent(level.element().elementId(), level);
+      if ((alreadyThere == null) || alreadyThere.element().equals(level.element())) {
+        return;
+      }
+      throw new IllegalStateException(
+          """
+              Two multi-instance elements named '%s' reach the BPMN process '%s' from the places it \
+              is called: the one in '%s' hands over %s, the one in '%s' hands over %s. Both write the \
+              variable '%s', so a @MultiInstanceElement("%s") of a task in '%s' cannot say which of \
+              the two it means. Rename one of the two elements."""
+              .formatted(
+                  level.element().elementId(),
+                  calledBpmnProcessId,
+                  alreadyThere.bpmnProcessId(),
+                  shapeOf(alreadyThere.element()),
+                  level.bpmnProcessId(),
+                  shapeOf(level.element()),
+                  level.element().indexVariable(),
+                  level.element().elementId(),
+                  calledBpmnProcessId));
+
+    }
+
+    /**
+     * How a multi-instance element looks to a handler - what tells two elements of one ID
+     * apart in a message.
+     */
+    private static String shapeOf(
+        final MultiInstanceElement element) {
+
+      final var parts = new ArrayList<String>();
+      parts.add("an index");
+      if (element.totalVariable() != null) {
+        parts.add("a total");
+      }
+      if (element.elementVariable() != null) {
+        parts.add("an element");
+      }
+      final var last = parts.remove(parts.size() - 1);
+      return parts.isEmpty()
+          ? last
+          : String.join(", ", parts)
+              + " and "
+              + last;
+
+    }
+
+    /**
+     * The multi-instance elements enclosing a BPMN element, outermost first.
+     * <p>
+     * Where the process is called by another one, the chain begins with what the call
+     * sites enclose. A process called from SEVERAL places gets the union of those levels:
+     * each call path keeps its own order, a level two paths share appears once, and the
+     * runtime drops whatever is not in the job, which is what
+     * {@link Camunda8MultiInstance#valuesOf} does for a level whose index variable is
+     * missing. So a chain may name more levels than the instance at hand ran in, and a
+     * handler still sees exactly the iterations it is inside of.
+     * <p>
+     * A call activity naming its process by an expression is not part of this, and neither
+     * is one calling a process with a workflow aggregate of its own. A task in such a
+     * process reports no iteration of its caller, although the cluster copies the values
+     * into the instance.
+     *
      * @param bpmnProcessId The BPMN process ID as the CLUSTER knows it
      * @param elementId The BPMN element ID the job reports
      * @return The multi-instance elements enclosing that element, outermost first
@@ -126,7 +369,26 @@ public final class Camunda8MultiInstance {
         final String bpmnProcessId,
         final String elementId) {
 
-      return chains.getOrDefault(key(bpmnProcessId, elementId), List.of());
+      final var own = chains.getOrDefault(key(bpmnProcessId, elementId), List.of());
+      final var inherited = inheritedChains.getOrDefault(bpmnProcessId, List.of());
+      if (inherited.isEmpty()) {
+        return own;
+      }
+      if (own.isEmpty()) {
+        return inherited;
+      }
+      final var ownIds = own
+          .stream()
+          .map(MultiInstanceElement::elementId)
+          .collect(Collectors.toSet());
+      final var complete = inherited
+          .stream()
+          // an ID this process uses itself writes the same variables in a scope further in,
+          // so what arrived from the call site is not in the job any more
+          .filter(element -> !ownIds.contains(element.elementId()))
+          .collect(Collectors.toCollection(ArrayList::new));
+      complete.addAll(own);
+      return List.copyOf(complete);
 
     }
 
@@ -175,6 +437,101 @@ public final class Camunda8MultiInstance {
         registry.register(bpmnProcessId, flowElement.getId(), chain);
       }
     }
+
+  }
+
+  /**
+   * The call activities of a process which say STATICALLY which process they call.
+   * <p>
+   * A call activity naming its process by an expression is left out: which process it
+   * reaches is decided per instance, and the chain is model knowledge. The same limit
+   * applies to the scoped identifiers of decision 2 in the repository's DECISIONS.md and to
+   * the workflow viewer, which read this attribute the same way.
+   *
+   * @param model The BPMN model
+   * @param bpmnProcessId The process to read, as the cluster will know it
+   * @return The called process per call activity ID, in model order
+   */
+  public static Map<String, String> calledProcessesOf(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    final var called = new LinkedHashMap<String, String>();
+    for (final var callActivity : model.getModelElementsByType(CallActivity.class)) {
+      if (!bpmnProcessId.equals(owningProcessId(callActivity))) {
+        continue;
+      }
+      final var calledProcessId = staticallyCalledProcessId(callActivity);
+      if (calledProcessId != null) {
+        called.put(callActivity.getId(), calledProcessId);
+      }
+    }
+    return called;
+
+  }
+
+  /**
+   * Whether the variables of the scopes a call activity sits in reach the called instance,
+   * writing that into the model where the model says nothing about it.
+   * <p>
+   * Leaving the attribute out means the same thing today, so writing it changes no
+   * behaviour on any cluster shipping now; what it does is write down what the chain of a
+   * called process relies on, so a later default of the engine cannot take it away quietly.
+   * Where the model says <code>false</code> the modeller switched the caller's context off
+   * on purpose. That is left alone, because nothing the application modelled itself is
+   * overwritten, which is decision 5 in the repository's DECISIONS.md, and the answer is
+   * then <code>false</code>: the values never arrive, so there is no iteration to report
+   * either.
+   *
+   * @param model The BPMN model, about to be deployed
+   * @param bpmnProcessId The process holding the call activity
+   * @param callActivityId The call activity
+   * @return Whether the caller's variables reach the called process
+   */
+  public static boolean theCallersVariablesReachTheCalledProcess(
+      final BpmnModelInstance model,
+      final String bpmnProcessId,
+      final String callActivityId) {
+
+    for (final var callActivity : model.getModelElementsByType(CallActivity.class)) {
+      if (!callActivityId.equals(callActivity.getId()) || !bpmnProcessId.equals(owningProcessId(callActivity))) {
+        continue;
+      }
+      final var calledElement = callActivity.getSingleExtensionElement(ZeebeCalledElement.class);
+      if (calledElement == null) {
+        // no process is named at all, so this call activity reaches nothing the cluster
+        // would deploy
+        return false;
+      }
+      final var asModelled = calledElement
+          .getDomElement()
+          .getAttribute(PROPAGATE_ALL_PARENT_VARIABLES);
+      if (asModelled == null) {
+        calledElement.setPropagateAllParentVariablesEnabled(true);
+        return true;
+      }
+      return !"false".equalsIgnoreCase(asModelled.trim());
+    }
+    return false;
+
+  }
+
+  /**
+   * Reads {@code zeebe:calledElement processId} of a call activity, a static process ID
+   * only - an expression is not resolvable while deploying.
+   */
+  private static String staticallyCalledProcessId(
+      final CallActivity callActivity) {
+
+    final var calledElement = callActivity.getSingleExtensionElement(ZeebeCalledElement.class);
+    if (calledElement == null) {
+      return null;
+    }
+    final var processId = calledElement.getProcessId();
+    if ((processId == null) || processId.isBlank() || processId.startsWith("=")) {
+      return null;
+    }
+    return processId;
 
   }
 
@@ -294,8 +651,25 @@ public final class Camunda8MultiInstance {
     final var alreadyThere = ioMapping
         .getInputs()
         .stream()
-        .anyMatch(input -> target.equals(input.getTarget()));
-    if (alreadyThere) {
+        .filter(input -> target.equals(input.getTarget()))
+        .findFirst()
+        .orElse(null);
+    if (alreadyThere != null) {
+      // the same mapping again is this model coming back for a redeployment, and writing
+      // it twice is what has to be avoided. A DIFFERENT one is somebody else's, and
+      // letting it stand would hand a handler the values of another iteration while the
+      // chain says otherwise - so the boot ends here instead of at the first wrong report
+      if (!source.equals(alreadyThere.getSource())) {
+        throw new IllegalStateException(
+            """
+                The BPMN element '%s' already maps something into the variable '%s': it reads '%s' \
+                while VanillaBP writes '%s' there to report the iteration of '%s'. VanillaBP does \
+                not overwrite what an application modelled itself, and it cannot use the modelled \
+                expression either, because a handler would then read the values of another \
+                iteration. Map your value into a variable of another name, or remove the input \
+                mapping and let VanillaBP write it."""
+                .formatted(activity.getId(), target, alreadyThere.getSource(), source, activity.getId()));
+      }
       return;
     }
     final var input = activity
@@ -353,11 +727,16 @@ public final class Camunda8MultiInstance {
     for (final var element : chain) {
       final var index = intOf(variables.get(element.indexVariable()));
       if (index == null) {
-        // a process deployed before this adapter version knew about multi-instance:
-        // the mappings are missing, and the core's message names what was supplied
+        // two reasons, and a job cannot tell them apart: the workflow runs on a process
+        // version deployed before this adapter knew about multi-instance, or the element
+        // belongs to a place the process is called from which this workflow did not come
+        // through, which the union over the call sites makes an everyday case. The core's
+        // message names what was supplied
         log.debug(
-            "Camunda8: no variable '{}' - multi-instance element '{}' cannot be reported. Redeploy "
-                + "the workflow module to have VanillaBP add the mappings.",
+            "Camunda8: no variable '{}' in this job, so the multi-instance element '{}' is not "
+                + "reported. Either the workflow was started on a process version deployed before "
+                + "VanillaBP added the mappings, or the element belongs to another place the "
+                + "process is called from.",
             element.indexVariable(),
             element.elementId());
         continue;

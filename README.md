@@ -1910,10 +1910,49 @@ a redeployment produces the same model - the BPMN is not rewritten twice, and no
 version comes out of an unchanged model.
 
 An application which already ran its models on an earlier version of this adapter deploys a
-NEW process version once, because the mappings are what changes the model. Workflows already
+NEW process version once, because the mappings are what changes the model. A model whose call
+activity gains `propagateAllParentVariables="true"` is rewritten once for the same reason,
+even where it carries no multi-instance element at all. Workflows already
 running stay on the version they were started on, and a task of such an instance reports no
 iteration at all rather than a wrong one - the guiding message of the platform then names the
 element it was asked about.
+
+#### A called process
+
+A call activity used for decomposition is an embedded subprocess which lives in another file,
+so a task in the called process runs in the iterations of the call activity and is told about
+them. The values need nothing from the adapter: the cluster copies the variables of every
+scope a call activity sits in into the called instance, and it keeps doing so through a second
+call activity below that. What the adapter adds is the link between the two models, because a
+BPMN process does not say who calls it. The call activities of the callers are read once every
+file of a workflow module is wired, and the chain of an element in a called process becomes the
+chain of the call site followed by its own, outermost first.
+
+A call activity only counts where its `zeebe:calledElement processId` is a plain id and where
+the called process works on the same workflow aggregate. An id given as an expression is
+decided per instance, and a process with an aggregate of its own runs a business case of its
+own. A task in either of those reports no iteration of its caller, although the cluster still
+copies the values into the instance, so a `@TaskParam` naming one of the variables would
+find it.
+
+Where the attribute is missing, the adapter writes `propagateAllParentVariables="true"` at
+such a call activity. That is what it already means today, and writing it says what the chain
+relies on. A call activity saying `false` is left alone, and it stays out of the chain as
+well: the modeller switched the caller's context off on purpose, the values never reach the
+called instance, and there is nothing to report.
+
+What that costs where a call graph is not a straight line:
+
+- A process called from several places gets the levels of all of them. Only one of those paths
+  reached the instance at hand, and the variables of the other path are not in the job, so
+  nothing wrong is reported. The cost is the fetch list, which asks for every call site's
+  variables on every activation. A level two paths share is reported once, in the place the
+  first of those paths gave it.
+- A process which calls itself ends at the first repetition, and a handler sees the round it
+  runs in rather than all the rounds above it. Every round writes the same variable names, so
+  the innermost one is what the job carries.
+- Two call sites whose multi-instance elements share a BPMN id but hand over different things
+  end the boot, because `@MultiInstanceElement` of that id would mean two things.
 
 Two details of this engine are worth knowing when modelling:
 
@@ -1921,7 +1960,10 @@ Two details of this engine are worth knowing when modelling:
   `inputCollection`, and the collection is a process variable, so it should hold identifiers
   rather than objects: it travels to the cluster with every sync point, and the business code
   can look up the rest. `inputCollection="=partnerIds"` reads an attribute of the workflow
-  aggregate like any other expression does.
+  aggregate like any other expression does. A fixed number of rounds is still modellable, since
+  the collection is a FEEL expression which has to result in an array and `=for i in 1..5
+  return i` is one. The element handed over is then the counter, so `@MultiInstanceElement`
+  answers with the number while the index and the total answer as usual.
 - **The index counts from 0** in the application, as it does on every other BPMS, although
   Camunda 8 counts iterations from 1. The adapter translates.
 
@@ -1929,18 +1971,30 @@ Characters an element id may hold but a variable name may not are replaced by `_
 multi-instance elements of one process whose ids differ only in such characters would end up
 sharing variables, which fails the deployment with a message naming both.
 
+A model which already carries an input mapping of one of these names, reading something else,
+fails the deployment too. Nothing the application modelled is overwritten, and the modelled
+expression cannot be used either, because the handler would then read the values of another
+iteration. The message names the element, the variable, the expression found and what to do
+about it.
+
 A parallel multi-instance element creates one token per instance, and each of them loads and
 saves the workflow aggregate. Two instances writing the same attribute means the one
 committing last puts back what it read, so an iteration should write a row of its own - see
 [workflow aggregates](https://github.com/vanillabp/adapter-platform-integration/wiki/Workflow-aggregates).
 
-`Camunda8MultiInstanceTest` covers the injection, its idempotency and the ambiguous element ids,
-`Camunda8MultiInstanceIT#theIterationIsReported` with
-`Camunda8WorkflowLifecycleTest#multiInstanceBindsElementIndexAndTotal` the values a handler
-sees, and `Camunda8ConcurrentTokensTest#parallelMultiInstance` the parallel tokens of the
-paragraph above. That the index reaches the application counting from 0 is
-`Camunda8MultiInstanceTest#valuesAreTranslated`. That this engine offers no loop cardinality is
-an assumption about Camunda 8, disproved by a model which deploys with one.
+`Camunda8MultiInstanceTest` covers the injection, its idempotency, the ambiguous element ids,
+the chain across a call activity, the union over call sites and the recursion stop.
+`Camunda8FetchVariablesTest#theListFollowsTheChainAcrossTheProcessBoundary` holds that the
+fetch list follows the chain without a change of its own, and
+`#aProcessOfItsOwnStaysOutsideTheChain` that a called process with a workflow aggregate of its
+own gets none of it. What a handler really sees is
+`Camunda8MultiInstanceIT#theIterationIsReported` with its Quarkus twin
+`Camunda8WorkflowLifecycleTest#multiInstanceBindsElementIndexAndTotal`, and across a call
+activity `Camunda8MultiInstanceIT#theIterationCrossesTheCallActivity`. The parallel tokens of
+the paragraph above are `Camunda8ConcurrentTokensTest#parallelMultiInstance`, and that the
+index reaches the application counting from 0 is `Camunda8MultiInstanceTest#valuesAreTranslated`.
+That this engine offers no loop cardinality is an assumption about Camunda 8, disproved by a
+model which deploys with one.
 
 ### Testing
 
@@ -2193,10 +2247,11 @@ deploying a model with a conditional event would disprove it.
 ### Multi-instance has no loop cardinality
 
 Camunda 8 iterates a multi-instance element over an `inputCollection` and offers no
-cardinality, so a model saying "run this five times" has to hand over a collection of five
-elements. The count of the instances is not reported by the engine either; the adapter
-derives it from the collection while deploying, see [Multi-instance](#multi-instance), where
-this is an assumption as well. Nothing announced.
+cardinality, so a model saying "run this five times" says it as `=for i in 1..5 return i`,
+which is an array like any other. The element handed to the handler is then the counter. The
+count of the instances is not reported by the engine either; the adapter derives it from the
+collection while deploying, see [Multi-instance](#multi-instance), where this is an assumption
+as well. Nothing announced.
 
 ### Client certificates for the cluster connection
 

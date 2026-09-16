@@ -2123,6 +2123,70 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   }
 
+  /**
+   * Reads which process of this workflow module calls which other one, and hands the graph
+   * to the multi-instance registry so an element of a called process gets the chain of its
+   * call site in front of its own.
+   * <p>
+   * Two call activities are left out. One whose <code>zeebe:calledElement processId</code>
+   * is an expression names its process per instance, which a deployment cannot resolve.
+   * One calling a process with a workflow aggregate of its own is not decomposition: such a
+   * process runs a business case of its own and is not told the iteration of whoever
+   * started it, which is what the core answers with
+   * {@code workflowsShareTheWorkflowAggregate}.
+   * <p>
+   * Where the call activity is kept, the model is also told that the caller's variables
+   * travel, unless the model already said they do not. That is
+   * {@link Camunda8MultiInstance#theCallersVariablesReachTheCalledProcess}, and a call
+   * activity which switched them off stays out of the graph.
+   *
+   * @param workflowModuleId The workflow module being deployed
+   * @param bpmsProcessingContext Everything of it, as wired
+   */
+  void wireTheProcessesThisModuleCalls(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext bpmsProcessingContext) {
+
+    for (final var model : bpmsProcessingContext.getResources().values()) {
+      for (final var process : model.getModelElementsByType(Process.class)) {
+        if (!process.isExecutable()) {
+          continue;
+        }
+        final var scopedCallerId = process.getId();
+        final var plainCallerId = plainProcessId(workflowModuleId, scopedCallerId);
+        final var calledProcesses = Camunda8MultiInstance.calledProcessesOf(model, scopedCallerId);
+        for (final var callActivity : calledProcesses.entrySet()) {
+          final var callActivityId = callActivity.getKey();
+          final var scopedCalledId = callActivity.getValue();
+          final var plainCalledId = plainProcessId(workflowModuleId, scopedCalledId);
+          if (!workflowTaskWiring
+              .workflowsShareTheWorkflowAggregate(workflowModuleId, plainCallerId, plainCalledId)) {
+            continue;
+          }
+          // the model may say that the caller's variables stay behind, and then nothing of
+          // the caller's iteration arrives - so nothing of it is registered either, rather
+          // than promising a chain whose values the cluster will never copy
+          if (!Camunda8MultiInstance
+              .theCallersVariablesReachTheCalledProcess(model, scopedCallerId, callActivityId)) {
+            log
+                .debug(
+                    "Camunda8[{}]: the call activity '{}' of BPMN process '{}' keeps the variables "
+                        + "of the enclosing scopes out of '{}', so a task there is told no iteration "
+                        + "of its caller",
+                    adapterId,
+                    callActivityId,
+                    plainCallerId,
+                    plainCalledId);
+            continue;
+          }
+          multiInstanceRegistry.registerCall(scopedCallerId, callActivityId, scopedCalledId);
+        }
+      }
+    }
+    multiInstanceRegistry.linkCalledProcesses();
+
+  }
+
   @Override
   public void deployResources(
       final String workflowModuleId,
@@ -2133,6 +2197,12 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           + "nothing to deploy to Camunda 8", workflowModuleId, adapterId);
       return;
     }
+
+    // a task in a called process runs inside the iterations its CALL ACTIVITY sits in, and
+    // only the caller's model says which those are. Every file of this module is wired by
+    // now, so this is the first moment the graph over them is complete. Before the cluster
+    // is asked anything: a model this refuses is refused without one
+    wireTheProcessesThisModuleCalls(workflowModuleId, bpmsProcessingContext);
 
     // A cluster booting together with the application lets every round of the start fail,
     // so it is waited for here: once per adapter instance, and right before the first
