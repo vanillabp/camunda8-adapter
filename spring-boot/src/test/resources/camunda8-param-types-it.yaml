@@ -18,6 +18,7 @@ vanillabp:
           resources-location: classpath*:param-types
       workflows:
         ParamTypesProcess:
+          allow-full-sync-with-bpms: true
           adapters:
             c8:
               retry-backoff: PT1S

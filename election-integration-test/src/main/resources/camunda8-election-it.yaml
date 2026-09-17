@@ -21,6 +21,9 @@ vanillabp:
       adapters:
         c8-plain:
           resources-location: classpath:it-election
+      workflows:
+        ElectionProcess:
+          allow-full-sync-with-bpms: true
   outbox:
     poll-interval: PT0.5S
     attempt-frequency: PT0.5S

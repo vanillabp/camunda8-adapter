@@ -22,3 +22,6 @@ vanillabp:
       adapters:
         c8:
           resources-location: classpath:c8-native/processes
+      workflows:
+        NativeProcess:
+          allow-full-sync-with-bpms: true

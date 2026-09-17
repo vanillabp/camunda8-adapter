@@ -23,3 +23,6 @@ vanillabp:
       adapters:
         c8:
           resources-location: classpath:c8-restart/processes
+      workflows:
+        RestartProcess:
+          allow-full-sync-with-bpms: true
