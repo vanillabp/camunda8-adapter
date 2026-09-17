@@ -313,6 +313,23 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     }
 
     @Override
+    public String getBpmnElementId() {
+
+      // the user task element the listener fired for - the element of the model, not the
+      // listener job's type
+      return job.getElementId();
+
+    }
+
+    @Override
+    public String getWorkflowId() {
+
+      // the process instance key of the cluster - what Operate is searched by
+      return String.valueOf(job.getProcessInstanceKey());
+
+    }
+
+    @Override
     public String getTaskId() {
 
       return userTaskKey;

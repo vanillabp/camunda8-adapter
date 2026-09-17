@@ -46,6 +46,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * windows wide. That is the relation which matters - the window has to sit
  * clearly below the retention, because the record is what answers the redelivery which
  * renews the lock. A configuration violating it does not even boot.
+ * <p>
+ * The cluster and the delivery log are both here, so what a record CARRIES is asserted
+ * here too: the element id of the BPMN element and the process instance key. Both are read
+ * out of the table rather than out of the invocation context, because a value only the
+ * context knows is the defect that assertion is about.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -213,6 +218,55 @@ public class Camunda8InboundIdempotencyIT {
       coreLogger.detachAppender(skippedDeliveries);
       skippedDeliveries.stop();
     }
+
+  }
+
+  @Test
+  @DisplayName("The record of a delivery names the BPMN element and the process instance")
+  public void theRecordNamesTheElementAndTheWorkflow() throws Exception {
+
+    final var aggregateId = transactionTemplate.execute(status -> repository
+        .save(new TaskDockerAggregate())
+        .getId());
+
+    // AsyncProcess parks at a @TaskId task, so the record of its delivery is written and
+    // stays. Its element id and its job type differ, which is what makes the two fields
+    // tell apart here
+    final var processInstance = clientFactoryRegistry
+        .getFactory("c8")
+        .getClient()
+        .newCreateInstanceCommand()
+        .bpmnProcessId("test-app__AsyncProcess")
+        .latestVersion()
+        .variable("id", String.valueOf(aggregateId))
+        .send()
+        .join();
+
+    // looked up by the process instance key rather than by the aggregate: the classes of
+    // this module share one in-memory database and their aggregate ids overlap, while a
+    // process instance key is the cluster's and belongs to this workflow alone. That the
+    // row is found at all is therefore already the assertion about the workflow id
+    final var elements = new java.util.concurrent.atomic.AtomicReference<List<String>>(List.of());
+    awaitUntil(
+        () -> {
+          elements
+              .set(
+                  new JdbcTemplate(dataSource)
+                      .queryForList(
+                          "SELECT BPMN_ELEMENT_ID FROM VANILLABP_TASK_DELIVERY WHERE WORKFLOW_ID = ? "
+                              + "AND TASK_DEFINITION = ?",
+                          String.class,
+                          String.valueOf(processInstance.getProcessInstanceKey()),
+                          "asyncTask"));
+          return !elements.get().isEmpty();
+        },
+        60000,
+        "the delivery of the asynchronous task to be recorded under its process instance");
+
+    assertEquals(
+        List.of("AP_task"),
+        elements.get(),
+        "the element id a modeller wrote, which is not the job type the task definition holds");
 
   }
 

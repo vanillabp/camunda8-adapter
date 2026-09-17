@@ -538,6 +538,20 @@ the core does with it is put it into the idempotency key of a message correlatio
 handler runs, so the elements of a multi-instance activity stop sharing a key
 (`Camunda8ActivationIdentityTest` pins both contracts against each other).
 
+### What else a delivery record carries
+
+Two values travel with every delivery without steering anything: `ActivatedJob#getElementId()` and
+`ActivatedJob#getProcessInstanceKey()`. The core writes both into the delivery record, and they are
+what somebody addresses the task by outside VanillaBP - an operator searching Operate, an extension
+linking a task to a place in the model. All three handlers of this adapter answer them, the job
+handler and the two listener handlers, because all three run on a job the cluster ships those values
+with.
+
+The element id is not the task definition. A task definition here is the job type, and two elements
+may share one; the element id names the element itself.
+`Camunda8InboundIdempotencyIT#theRecordNamesTheElementAndTheWorkflow` reads both back out of the
+table against a real cluster.
+
 **The cluster's own net knows about it too.** `correlateMessagePhaseTwo` derives the `messageId` it
 hands to Zeebe from workflow module, BPMN process, aggregate id, message name, correlation id and the
 activation, and the cluster deduplicates by that for as long as the message lives. Without the last
