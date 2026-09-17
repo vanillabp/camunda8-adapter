@@ -2646,11 +2646,22 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           multiInstanceRegistry.chainOf(element.scopedBpmnProcessId(), element.elementId()));
       // and what the handlers of this element read with @TaskParam: the core
       // scanned those names off the methods while wiring, so the list is what the
-      // application asks for rather than what the model happens to mention
+      // application asks for rather than what the model happens to mention.
+      // Asked with BOTH keys a method can be wired by, the way the check for a
+      // multi-instance item asks them: a method naming the element id serves this
+      // element too, and asking for the job type alone left its variables unfetched -
+      // which failed the job rather than passing null, because the worker refuses a
+      // @TaskParam it did not fetch
       variables
           .addAll(
               workflowTaskWiring
-                  .taskParameterNames(workflowModuleId, plainBpmnProcessId, element.taskDefinition()));
+                  .taskParameterNames(workflowModuleId, plainBpmnProcessId, element.elementId()));
+      if (element.taskDefinition() != null) {
+        variables
+            .addAll(
+                workflowTaskWiring
+                    .taskParameterNames(workflowModuleId, plainBpmnProcessId, element.taskDefinition()));
+      }
     }
     return Camunda8FetchVariables.Selection.of(variables);
 

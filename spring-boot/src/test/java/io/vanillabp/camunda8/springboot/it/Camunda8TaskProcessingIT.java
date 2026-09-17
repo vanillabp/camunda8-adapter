@@ -527,10 +527,22 @@ public class Camunda8TaskProcessingIT {
         bigPayload.length(),
         TaskDockerWorkflowService.OBSERVED_VARIABLES.get("derivedPayloadLength"),
         "the variable stands in no model and no property was set - the annotation alone brought it");
+    // the THIRD task is served by a method wired to the ELEMENT id: its job type is a
+    // name no method of the workflow service carries, so the core knows this handler by
+    // the element alone. The worker has to ask the cluster for 'bigPayload' all the same
     awaitUntil(
-        () -> "fetch-all|fetch-derived".equals(results(aggregateId)),
+        () -> invocations("fetchByElementId", aggregateId) >= 1,
         60000,
-        "both tasks to have committed");
+        "the task wired by its element id to be delivered");
+    assertEquals(
+        bigPayload.length(),
+        TaskDockerWorkflowService.OBSERVED_VARIABLES.get("byElementIdPayloadLength"),
+        "a @WorkflowTask(id = ...) declares its @TaskParam like any other, so its worker fetches "
+            + "the variable - asking the core by the task definition alone would leave this handler out");
+    awaitUntil(
+        () -> "fetch-all|fetch-derived|fetch-by-element-id".equals(results(aggregateId)),
+        60000,
+        "all three tasks to have committed");
 
   }
 
