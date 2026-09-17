@@ -332,6 +332,23 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
     }
 
     @Override
+    public String getBpmnElementId() {
+
+      // the element the listener sits on, which is the element of the model a reader of
+      // the record looks for
+      return job.getElementId();
+
+    }
+
+    @Override
+    public String getWorkflowId() {
+
+      // the process instance key of the cluster - what Operate is searched by
+      return String.valueOf(job.getProcessInstanceKey());
+
+    }
+
+    @Override
     public String getTaskId() {
 
       // a listener job is completed by this handler when the method returns, so there is

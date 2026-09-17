@@ -651,6 +651,24 @@ public class Camunda8JobHandler implements JobHandler {
     }
 
     @Override
+    public String getBpmnElementId() {
+
+      // the element of the model this job was created for. The task definition next to
+      // it is the job type, and a job type may be shared by several elements, so this is
+      // the answer to "which element of the model is this"
+      return job.getElementId();
+
+    }
+
+    @Override
+    public String getWorkflowId() {
+
+      // the process instance key of the cluster - what Operate is searched by
+      return String.valueOf(job.getProcessInstanceKey());
+
+    }
+
+    @Override
     public String getTaskId() {
 
       // the job key identifies the open job - used by ProcessService#completeTask
