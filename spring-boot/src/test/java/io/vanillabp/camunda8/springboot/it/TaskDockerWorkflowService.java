@@ -354,6 +354,28 @@ public class TaskDockerWorkflowService {
 
   }
 
+  /**
+   * A method wired to the ELEMENT id instead of to the task definition. The job type of
+   * this task is named after nothing in this class, so only {@code id = "FE_byId"}
+   * reaches the method, which is what this test is here for.
+   * <p>
+   * It declares a {@code @TaskParam} as well, and whether the worker fetches that
+   * variable for an id-wired method is a second question, asked where the fetch list is
+   * built. Nothing here asserts it.
+   */
+  @WorkflowTask(id = "FE_byId")
+  public void fetchByElementId(
+      final TaskDockerAggregate aggregate,
+      @TaskParam("bigPayload") final String bigPayload) {
+
+    countInvocation("fetchByElementId", aggregate);
+    OBSERVED_VARIABLES.put("byElementIdPayloadLength", bigPayload == null
+        ? -1
+        : bigPayload.length());
+    aggregate.appendResult("fetch-by-element-id");
+
+  }
+
   @WorkflowTask
   public void asyncTask(
       final TaskDockerAggregate aggregate,

@@ -1884,7 +1884,8 @@ brings, so both subscriptions are opened and the one whose kind the task never w
 And such a worker asks for every variable rather than a derived list, because deriving one
 needs the elements of that model. What cannot be reached at all is a `@WorkflowTask` method
 wired to a BPMN element id: composing a job type from an element needs the model, and the start
-says so with the two ways out.
+says so with the two ways out. This is the one place where such a method is out of reach.
+Everywhere else the cluster names the element of the job and the core routes by it.
 
 `Camunda8DeclaredProcessWorkersTest` holds which workers are opened per mode,
 `Camunda8RenamedProcessIT` the same against a cluster with prefixed identifiers.
