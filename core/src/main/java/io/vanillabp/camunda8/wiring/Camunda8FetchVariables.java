@@ -38,7 +38,9 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
  * ({@code WorkflowTaskInvoker#taskParameterNames}). Those names live on the
  * handler methods, and the core reads them off the annotations while the application
  * wires itself - so this part of the list says what the application asks for instead of
- * guessing it from the model. The workflow-end listener is left out of it: a
+ * guessing it from the model. The core is asked with the job type AND with the element
+ * id, because a method wired by {@code @WorkflowTask(id = ...)} answers to the element
+ * alone. The workflow-end listener is left out of it: a
  * {@code @WorkflowEnded} method cannot declare a {@code @TaskParam} at all, so the
  * aggregate's ID is its complete list.</li>
  * </ul>

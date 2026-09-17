@@ -1429,9 +1429,11 @@ deployed models:
   only place the adapter could see one. It was a guess in both directions: a model declares
   names nobody reads, and a handler may read a name no model declares. The core scanned the
   annotations while wiring anyway, so it answers exactly, and the model scan is gone rather
-  than kept as a second source. The workflow-end listener is the exception: a
-  `@WorkflowEnded` method cannot declare a `@TaskParam`, so that worker stays at the
-  aggregate's id.
+  than kept as a second source. The core is asked with BOTH keys a method can be wired by,
+  the job type and the element id, because a method carrying `@WorkflowTask(id = ...)`
+  answers to the element alone and asking for the job type left its variables unfetched.
+  The workflow-end listener is the exception: a `@WorkflowEnded` method cannot declare a
+  `@TaskParam`, so that worker stays at the aggregate's id.
 
 What stays out is everything nobody reads: what only the aggregate sync wrote into the
 instance, and what the model declares for its own purposes. On an aggregate with a few

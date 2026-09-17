@@ -359,9 +359,10 @@ public class TaskDockerWorkflowService {
    * this task is named after nothing in this class, so only {@code id = "FE_byId"}
    * reaches the method, which is what this test is here for.
    * <p>
-   * It declares a {@code @TaskParam} as well, and whether the worker fetches that
-   * variable for an id-wired method is a second question, asked where the fetch list is
-   * built. Nothing here asserts it.
+   * It declares a {@code @TaskParam} as well, and the worker has to ask the cluster for
+   * {@code bigPayload} all the same: the fetch list is derived from both keys, because
+   * asking for the job type alone left this method without its variable and the worker
+   * failed the job rather than passing null.
    */
   @WorkflowTask(id = "FE_byId")
   public void fetchByElementId(

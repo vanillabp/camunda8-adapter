@@ -534,8 +534,11 @@ public class Camunda8TaskProcessingIT {
         () -> invocations("fetchByElementId", aggregateId) >= 1,
         60000,
         "the task wired by its element id to be delivered");
-    // what such a handler is HANDED is a question of its own, and it is asked where the
-    // fetch list is built rather than where the delivery is routed
+    assertEquals(
+        bigPayload.length(),
+        TaskDockerWorkflowService.OBSERVED_VARIABLES.get("byElementIdPayloadLength"),
+        "a @WorkflowTask(id = ...) declares its @TaskParam like any other, so its worker fetches "
+            + "the variable - asking the core by the task definition alone would leave this handler out");
     awaitUntil(
         () -> "fetch-all|fetch-derived|fetch-by-element-id".equals(results(aggregateId)),
         60000,

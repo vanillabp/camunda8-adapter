@@ -452,6 +452,32 @@ public class Camunda8FetchVariablesTest {
   }
 
   @Test
+  @DisplayName("a method wired by the element id contributes its parameters too")
+  public void theParametersOfAnIdWiredMethodAreFetched() {
+
+    // a method carrying @WorkflowTask(id = ...) is known to the core by the element and
+    // by nothing else, so the job type answers nothing about it
+    final var deploymentService = deploymentService(
+        bpmnProcessId -> "id",
+        null,
+        key -> "ApproveLoan".equals(key)
+            ? List.of("bigPayload")
+            : List.of());
+    wire(deploymentService, TWO_PROCESSES);
+
+    assertEquals(
+        List.of("bigPayload", "id"),
+        deploymentService
+            .fetchVariablesOf(
+                MODULE,
+                List.of(new Camunda8DeploymentService.ServedElement("Loans", "ApproveLoan", "approve")))
+            .names(),
+        "asking for the job type alone left this handler without the variable it declares, and "
+            + "the worker then failed the job rather than passing null");
+
+  }
+
+  @Test
   @DisplayName("the workflow-end worker fetches the aggregate id and nothing the model declares")
   public void theWorkflowEndWorkerStaysAtOneVariable() {
 
