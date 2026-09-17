@@ -333,11 +333,17 @@ public class Camunda8TaskProcessingIT {
 
   /**
    * Everything the CREATED notification of a user task depends on, in one line: what the
-   * handler wrote into the aggregate, how often it ran at all, and which workflow it was
-   * about - the one this test started, since a test starts exactly one.
+   * handler wrote into the aggregate, how often it ran at all, which workflow it was
+   * about - the one this test started, since a test starts exactly one - and what the
+   * cluster holds for that workflow.
    * <p>
-   * What the cluster made of the listener job is in its own log, and the process instance
-   * key is the string to look for there.
+   * The cluster's half is the one which was missing when this wait ran into its minute
+   * on a runner: the application's half says the notification never came, and it says
+   * that whether the listener job was never created, was created and never handed to a
+   * worker, or was handed over and failed. Those are three different defects.
+   * <p>
+   * What the cluster made of the listener job in detail is in its own log, and the
+   * process instance key is the string to look for there.
    *
    * @param aggregateId The aggregate the notification is awaited for
    * @return What a timeout should report
@@ -346,13 +352,49 @@ public class Camunda8TaskProcessingIT {
       final Long aggregateId) {
 
     final var aggregate = repository.findById(aggregateId).orElseThrow();
-    return "results '%s', task id '%s' and %d invocation(s) of 'approveUser' for process instance %d, whose cluster side is in '%s'"
+    return "results '%s', task id '%s' and %d invocation(s) of 'approveUser' for process instance %d. The cluster holds %s for it, and its own log is in '%s'"
         .formatted(
             aggregate.getResults(),
             aggregate.getTaskId(),
             invocations("approveUser", aggregateId),
             lastStartedInstanceKey,
+            jobsTheClusterHoldsForTheStartedInstance(),
             ClusterLog.FILE);
+
+  }
+
+  /**
+   * The jobs the cluster holds for the workflow this test started, as one sentence.
+   * <p>
+   * A listener job which is there and waiting says the cluster did its part; nothing at
+   * all says the user task was never created or its listener never became a job. The
+   * answer comes from the search API, which is eventually consistent, so "no job at all"
+   * is a strong hint rather than a proof - and a hint is what a timeout has none of
+   * today.
+   *
+   * @return What the cluster holds, or why it could not be asked
+   */
+  private String jobsTheClusterHoldsForTheStartedInstance() {
+
+    try {
+      final var jobs = workflowServiceClient()
+          .newJobSearchRequest()
+          .filter(filter -> filter.processInstanceKey(lastStartedInstanceKey))
+          .send()
+          .join()
+          .items();
+      if (jobs.isEmpty()) {
+        return "no job at all";
+      }
+      return jobs
+          .stream()
+          .map(job -> "a %s job '%s' at '%s' for %s in state %s"
+              .formatted(job.getKind(), job.getType(), job.getElementId(), job.getListenerEventType(), job.getState()))
+          .collect(java.util.stream.Collectors.joining(", "));
+    } catch (final RuntimeException e) {
+      return "no answer: "
+          + e;
+    }
 
   }
 
