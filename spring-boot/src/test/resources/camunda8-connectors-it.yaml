@@ -19,6 +19,7 @@ vanillabp:
           resources-location: classpath*:connectors
       workflows:
         ConnectorProcess:
+          allow-full-sync-with-bpms: true
           adapters:
             c8:
               allow-connectors: true

@@ -16,6 +16,9 @@ vanillabp:
       adapters:
         c8:
           resources-location: classpath*:refused-start
+      workflows:
+        RefusedStartProcess:
+          allow-full-sync-with-bpms: true
   outbox:
     poll-interval: PT0.5S
     attempt-frequency: PT0.5S

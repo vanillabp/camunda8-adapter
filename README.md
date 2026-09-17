@@ -2053,6 +2053,16 @@ separation `by-adapter` deploys into, and `ClusterLog.FILE` for the file a red b
 An extension of this adapter takes the artifact as a test dependency and meets the cluster the
 adapter is tested against.
 
+Nearly every workflow of the test applications carries `allow-full-sync-with-bpms: true`.
+VanillaBP stops an application whose workflow aggregate hands every attribute to the BPMS,
+unless that workflow says it may. The aggregates here are test data. A test writes one so it
+can read it back out of the cluster, so everything really does travel, and the permission is
+the place to say it. `TaskDockerAggregate` and `C8E2eAggregate` are the two without the line.
+Their tests ask whether a `@NoSyncWithBPMS` attribute stays at home, so each of them holds
+one attribute back, and an aggregate which holds something back is never asked for a
+permission. A test application added later needs the same line for its workflow, or it will
+not boot.
+
 - **Core unit tests** (no Docker): BPMN parsing / executable-process extraction, client
   configuration validation (missing-property messages, self-managed/SaaS), and the
   process-service phase behavior.

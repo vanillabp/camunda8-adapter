@@ -24,6 +24,42 @@ vanillabp:
           retry-backoff: PT20S
           message-time-to-live: PT5H
       workflows:
+        AdHocProcess:
+          allow-full-sync-with-bpms: true
+        AggregateChangedProcess:
+          allow-full-sync-with-bpms: true
+        AuthProcess:
+          allow-full-sync-with-bpms: true
+        BlockingProcess:
+          allow-full-sync-with-bpms: true
+        DecisionProcess:
+          allow-full-sync-with-bpms: true
+        MiCallProcess:
+          allow-full-sync-with-bpms: true
+        MultiInstanceProcess:
+          allow-full-sync-with-bpms: true
+        OldProcessVersionsProcess:
+          allow-full-sync-with-bpms: true
+        QuickProcess:
+          allow-full-sync-with-bpms: true
+        RenamedProcessNew:
+          allow-full-sync-with-bpms: true
+        RenamedProcessOld:
+          allow-full-sync-with-bpms: true
+        RestartProcess:
+          allow-full-sync-with-bpms: true
+        SecondaryStorageProcess:
+          allow-full-sync-with-bpms: true
+        ShutdownProcess:
+          allow-full-sync-with-bpms: true
+        SignalCatchProcess:
+          allow-full-sync-with-bpms: true
+        TestProcess:
+          allow-full-sync-with-bpms: true
+        TimerStartProcess:
+          allow-full-sync-with-bpms: true
+        VersionedProcess:
+          allow-full-sync-with-bpms: true
         FailProcess:
           adapters:
             c8:

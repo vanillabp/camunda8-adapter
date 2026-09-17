@@ -19,6 +19,7 @@ vanillabp:
           resources-location: classpath*:listeners
       workflows:
         ListenerProcess:
+          allow-full-sync-with-bpms: true
           adapters:
             c8:
               allow-listeners: true
