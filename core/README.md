@@ -306,15 +306,18 @@ SDK - see the root `README.md`.
 
 ## Platform version guard
 
-`META-INF/vanillabp/adapter-camunda8.properties` carries this adapter's version and the
-version of the VanillaBP platform integration it was built against
+`META-INF/vanillabp/adapter-camunda8.properties` carries this adapter's version, its Maven
+coordinates and the version of the VanillaBP platform integration it was built against
 (`platform.version=${adapter-platform.version}`, filled by resource filtering configured
 in `pom.xml`). The `Camunda8DeploymentService` constructor passes it to
-`AdapterPlatformVersion.requireCompatiblePlatform(...)`, which aborts the startup with a
-guiding message if the platform integration on the classpath is older — Maven does not
-report that as a conflict, because a version managed by the application always wins over
-the version required transitively by this adapter, even as a downgrade. See
-`migration-adapter/README.md`, section "Adapter/platform version guard".
+`VanillaBpParts.requireAdapterFitsPlatform(...)`, and the platform judges the same
+descriptor once more while it boots. The boot ends with a message naming both versions and
+the dependency to change if the platform integration on the classpath is older than the one
+this adapter was built against, or if this adapter is older than the oldest one that
+platform integration still serves. Maven does not report either as a conflict, because a
+version managed by the application always wins over the version required transitively by
+this adapter, even as a downgrade. See `migration-adapter/README.md`, section "Parts which
+do not belong together", of the VanillaBP platform repository.
 
 The check itself belongs to the platform SPI, so from this repository the abort is an
 assumption: what would disprove it is a boot against an older platform integration which does
