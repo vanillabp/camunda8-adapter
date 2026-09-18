@@ -13,6 +13,26 @@ of the platform repository: the two interfaces, the calls the core expects back,
 promises and what a wrong one costs. Read it before changing anything on the SPI boundary, and
 where this adapter deviates from it, the deviation belongs in the README with its reason.
 
+## What belongs in `UPGRADE.md`
+
+[`UPGRADE.md`](./UPGRADE.md) describes the step from VanillaBP 1 to the 2.0 release and nothing
+else. An entry is owed where a version-1 application on this BPMS behaves differently or has to
+change something. A change between two snapshots of 2.0 earns no entry, however much work it was:
+it would ask the reader to follow how the release was built instead of carrying out their own
+upgrade, and git holds that history anyway.
+
+What does not go there still has a place. The end state of a new feature belongs in the wiki, which
+is where users read. A reasoning several places in this repository rely on belongs in
+[`DECISIONS.md`](./DECISIONS.md). What is neither belongs nowhere, and the commit message is where
+it is said.
+
+The file is organised per version line and then per topic, and no heading carries a date. It holds
+what this adapter asks of an upgrading application; what VanillaBP itself asks is in the
+[platform's file](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md).
+The user-facing half of both is the wiki page
+[Migrating from version 1](https://github.com/vanillabp/adapter-platform-integration/wiki/Migrating-from-version-1),
+which wins where the two disagree.
+
 ## The decision log is binding
 
 [`DECISIONS.md`](./DECISIONS.md) holds the decisions several places in this repository rely on. It
