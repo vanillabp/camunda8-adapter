@@ -428,7 +428,7 @@ public class Camunda8DeploymentServiceTest {
       return Map.of();
     }
 
-    // the migration fallback, deprecated for removal in 2.1 and none of Camunda
+    // the migration fallback, deprecated for removal and none of Camunda
     // 8's business: a test double implements it as long as the interface declares it,
     // and the mandatory 'removal' lint needs the suppression
     @SuppressWarnings("removal")
