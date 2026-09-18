@@ -64,6 +64,103 @@ jobs:
         # the other half of the check: one which always reports something would stop a
         # patch automerge forever and teach everybody to ignore it
         run: bin/client-api-changes.sh io.camunda:camunda-client-java 8.9.18 8.9.19
+      # What a find turns into is the second decision of that check, and it went untested
+      # until it broke. An alpha bump is a note, the same bump on a GA line is a red check,
+      # and bin/line-preview.sh is what tells the two apart. That used to be a Maven call.
+      # No pull request here had moved a pin since the check was written, so it never ran,
+      # and in the cockpit adapter it could not work at all: that job has no token for the
+      # snapshot BOM the POM there imports. The branch is held against POMs written in this
+      # step, not against whatever the release lines are this month.
+      - name: A preview line and a GA line are told apart
+        run: |
+          set -euo pipefail
+          fixture="${RUNNER_TEMP}/lines"
+          mkdir -p "$fixture"
+          # the shape of a real parent POM: several lines, one of them with a build block
+          # of its own, so the end of a profile is where the reading stops
+          cat > "$fixture/pom.xml" <<'POM'
+          <project>
+            <profiles>
+              <profile>
+                <id>line-8.8</id>
+                <properties>
+                  <camunda8.line>8.8</camunda8.line>
+                </properties>
+              </profile>
+              <profile>
+                <id>line-8.9</id>
+                <properties>
+                  <camunda8.line>8.9</camunda8.line>
+                </properties>
+              </profile>
+              <profile>
+                <id>line-8.10</id>
+                <properties>
+                  <camunda8.line>8.10</camunda8.line>
+                  <camunda8.line.preview>true</camunda8.line.preview>
+                </properties>
+                <build>
+                  <pluginManagement>
+                    <plugins>
+                      <plugin>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                      </plugin>
+                    </plugins>
+                  </pluginManagement>
+                </build>
+              </profile>
+            </profiles>
+          </project>
+          POM
+          cat > "$fixture/broken.xml" <<'POM'
+          <project>
+            <profiles>
+              <profile>
+                <id>line-8.9</id>
+                <properties>
+                  <camunda8.line.preview>maybe</camunda8.line.preview>
+                </properties>
+              </profile>
+            </profiles>
+          </project>
+          POM
+          says() {
+            got="$(bin/line-preview.sh "$1" "$2")"
+            [ "$got" = "$3" ] || {
+              echo "line $1 of $2 should read $3 and read ${got}" >&2
+              exit 1
+            }
+          }
+          says 8.10 "$fixture/pom.xml" true
+          says 8.9 "$fixture/pom.xml" false
+          says 8.8 "$fixture/pom.xml" false
+          refuses() {
+            status=0
+            bin/line-preview.sh "$1" "$2" || status=$?
+            [ "$status" -eq 2 ] || {
+              echo "line $1 of $2 cannot be read and has to say so, exit code was ${status}" >&2
+              exit 1
+            }
+          }
+          echo "The three readings below have to fail. Their messages are the point:"
+          refuses 8.11 "$fixture/pom.xml"
+          refuses 8.9 "$fixture/broken.xml"
+          refuses 8.9 "$fixture/gone.xml"
+      - name: Every line of this POM is readable
+        # the fixtures say the reading works, this says the POM is still written the way
+        # the reading expects, whatever the lines are called today
+        run: |
+          set -euo pipefail
+          previews=0
+          for line in $(sed -n 's|.*<id>line-\([0-9][^<]*\)</id>.*|\1|p' pom.xml); do
+            answer="$(bin/line-preview.sh "$line")"
+            echo "line ${line}: preview ${answer}"
+            [ "$answer" != "true" ] || previews=$((previews + 1))
+          done
+          [ "$previews" -le 1 ] || {
+            echo "${previews} lines call themselves the preview line, which is one too many" >&2
+            exit 1
+          }
 
   # The Renovate configuration is not read, it is run: the validator on the repository
   # configuration and on the shareable preset, and the gating check which proves that a
