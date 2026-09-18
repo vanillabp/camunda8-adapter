@@ -93,6 +93,82 @@ cannot answer the BPMS election either, so a workflow module serving two adapter
 `vanillabp.workflow-modules.<id>.election.guessing-adapters: ACCEPTED`. The application says both,
 one message per step, and comes up once both are set.
 
+### Two tables of version 1 can be dropped by hand
+
+Up to release 1.6.3 the Camunda 8 adapter kept its own record of what it had deployed, in the
+tables `CAMUNDA8_DEPLOYMENTS` and `CAMUNDA8_RESOURCES`, on MongoDB in two collections of the same
+names. It read them to get at the models of older process versions. Release 1.7.0 dropped that
+record and 2.0 asks the cluster instead, so after the upgrade nothing reads them and nothing
+writes them.
+
+They hold every BPMN file your application ever deployed, so they are the one thing worth dropping
+by hand. Do that once you no longer want what is in them. An application coming from 1.7.0 or later
+never had them.
+
+### Check your user task models, and finish what is open
+
+Up to release 1.6.3 a user task was a plain BPMN user task served by a job worker, and its
+`zeebe:formDefinition` named a `formKey`. Release 1.7.0 replaced that with a Camunda-managed user
+task (`zeebe:userTask`) whose external form reference carries the task definition, and 2.0 serves
+only that one.
+
+So grep your models for `formKey` before you upgrade. Where one sits on a user task, change the
+model: make the task a Camunda-managed one and set "External form reference"
+(`zeebe:formDefinition externalReference`) to what the `formKey` said. VanillaBP then wires the
+lifecycle listeners itself.
+
+Finish or cancel the tasks which are still open on such an element before you upgrade, because
+afterwards nothing can complete them. The id such a task hands out is a job key while the cluster
+expects a user-task key, so `ProcessService#completeUserTask` cannot answer it, and no
+notification arrives when the task is created or canceled.
+
+The deployment says all this rather than failing over it. One WARN per BPMN process names the
+elements it found and how many tasks are open on them right now. The model is valid, the workflow
+runs, and an application may well serve such a task with a job worker of its own, so ending the
+boot would be the wrong answer. Of the two numbers only the first is certain: the elements come
+from the model this boot deploys, while the open tasks are a search, and a cluster which is not up
+yet costs you that count.
+
+### A task id is decimal, and version 1's hexadecimal ids are data to migrate
+
+Version 1 could hand out a task id in hexadecimal, through `task-id-as-hex-string`, which was off
+by default. 2.0 reads task ids decimally everywhere and has no such setting, so there is no
+property to move here. The ids an application stored while the setting was on outlive the upgrade,
+and they sit in that application's own tables, so converting them is work on your data.
+
+Where such an id reaches the adapter, the failure names the old setting. It is answered as a
+permanent one, so the outbox entry is blocked after a single attempt instead of being retried ten
+times against a key which will never become a number.
+
+### `cancelUserTask` has no command on the cluster yet
+
+No cluster up to 8.9 can cancel a Camunda-managed user task by BPMN error. The engine offers no
+command for it. Throwing a BPMN error is job-based, and a Camunda-managed user task is no job;
+version 1's workaround with a marker variable was broken by version 1's own admission. The call is
+answered with a guiding error naming your release line.
+
+What makes it possible are the listeners Camunda 8.10 brings, so the operation can only ever
+arrive on a line built against 8.10 or later. Until then the way to take such a task away is the
+model: give the user task an interrupting boundary event and let your application trigger it, for
+example by correlating a message.
+
+### Workflows you brought with you end in silence, so keep the old service task for now
+
+Version 1 could not tell an application that a workflow had ended, so applications modelled a
+service task in front of every end event. `@WorkflowEnded` replaces that and the old service task
+keeps working, which makes the change one to make at leisure.
+
+On Camunda 8 the moment matters all the same. The notification hangs off an execution listener
+this adapter writes into the model it deploys, and a workflow which is already running stays on
+the process version it was started on. A workflow you brought with you therefore triggers nothing.
+Delete the old service task right after the upgrade and those workflows end without telling
+anybody, so wait until they have ended.
+
+The startup report about the versions the cluster still holds names it per old version, together
+with the user-task notifications and the message correlation those models miss as well. Camunda 7
+needs no such wait, because it attaches its listener while the engine parses a process definition,
+which reaches every version that engine holds.
+
 ### `allow-connectors` moved under the adapter
 
 Version 1 read `vanillabp.allow-connectors` at the root of the tree, with a workflow-module and a
