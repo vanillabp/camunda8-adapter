@@ -854,7 +854,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       }
       return mine
           .stream()
-          .anyMatch(instance -> instance.getState() == ProcessInstanceState.ACTIVE)
+          .anyMatch(instance -> !hasEnded(instance.getState()))
               ? WorkflowAwareness.ACTIVE
               : WorkflowAwareness.COMPLETED;
     } catch (final Exception e) {
@@ -872,6 +872,25 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           e);
       return WorkflowAwareness.BPMS_UNAVAILABLE;
     }
+
+  }
+
+  /**
+   * Whether a process instance is over.
+   * <p>
+   * Asked this way round on purpose. The client's state enum grows inside a line, and it
+   * reports a state older than the cluster as <code>UNKNOWN_ENUM_VALUE</code>: 8.10 adds
+   * <code>SUSPENDED</code> here, which is a workflow somebody can still act on. Since
+   * {@link WorkflowAwareness#COMPLETED} says the operation comes too late, a state nobody
+   * here knows has to count as running rather than as finished.
+   *
+   * @param state The state the query API reports
+   * @return Whether the instance reached its end
+   */
+  private static boolean hasEnded(
+      final ProcessInstanceState state) {
+
+    return (state == ProcessInstanceState.COMPLETED) || (state == ProcessInstanceState.TERMINATED);
 
   }
 

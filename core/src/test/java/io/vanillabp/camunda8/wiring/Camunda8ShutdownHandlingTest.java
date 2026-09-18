@@ -22,6 +22,7 @@ import org.mockito.Mockito;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker;
@@ -182,8 +183,12 @@ public class Camunda8ShutdownHandlingTest {
 
   private ActivatedJob listenerJob() {
 
-    return job(Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE
+    final var job = job(Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE
         + "someUserTask");
+    // a listener job always carries its event, and the handler serves the two the
+    // deployment added - see Camunda8UnknownClientEnumsTest for what it does with a third
+    when(job.getListenerEventType()).thenReturn(ListenerEventType.CREATING);
+    return job;
 
   }
 
