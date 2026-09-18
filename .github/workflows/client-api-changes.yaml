@@ -10,6 +10,11 @@ name: Client API changes
 # It is written once and called from businesscockpit-camunda8-adapter, which compiles
 # against the same client.
 #
+# Nothing here hands the caller's project to Maven. This job has no token for GitHub
+# Packages, and the caller imports the VanillaBP BOM as a snapshot from there, so Maven
+# would stop at the import and never reach a property. Everything this needs out of a POM
+# is read from the text.
+#
 # What selects a pull request is the pin itself and not the 'camunda8-line-pin' label
 # Renovate adds. The label exists in this repository only: the cockpit adapter has
 # io.camunda switched off in its Renovate configuration and raises its pins by hand, so
@@ -33,10 +38,11 @@ jobs:
         with:
           # the base commit is read for the version the pin had before
           fetch-depth: 0
-      - name: The script which reads the two sets of JARs
-        # it lives in the adapter repository. A pull request THERE brings its own copy, and
-        # that copy is the one which runs: a change to the script may not be checked by the
-        # version it replaces
+      - name: The scripts and the release lines of the adapter repository
+        # they live in the adapter repository. A pull request THERE brings its own copy,
+        # and that copy is the one which runs: a change to a script may not be checked by
+        # the version it replaces. A caller gets the POM along with them, and that POM is
+        # where the release lines are written down.
         if: hashFiles('bin/client-api-changes.sh') == ''
         uses: actions/checkout@v7
         with:
@@ -56,6 +62,15 @@ jobs:
           set -euo pipefail
           script=bin/client-api-changes.sh
           [ -x "$script" ] || script=.camunda8-adapter/bin/client-api-changes.sh
+          # Which line is the preview one is read from the POM the script came with, see
+          # bin/line-preview.sh. The lines are defined in this repository, and a caller
+          # follows them, so the two scripts have to come out of the same checkout.
+          line_preview="$(dirname "$script")/line-preview.sh"
+          if [ ! -x "$line_preview" ]; then
+            echo "${line_preview} is missing, so a find could not be sorted into a note or" >&2
+            echo "a red check. It belongs next to ${script}." >&2
+            exit 1
+          fi
 
           pins() {
             sed -n 's|.*<\(camunda8\.version\.line-[^>]*\)>\([^<]*\)</.*|\1 \2|p' "$1"
@@ -84,9 +99,12 @@ jobs:
               # cluster yet, so the preview line is told rather than blocked. The GA lines
               # are blocked, and that is the point: a red check is what takes the patch
               # automerge away from exactly the bumps this is about.
-              preview="$(mvn -N -q "-Pline-${line}" \
-                org.apache.maven.plugins:maven-help-plugin:3.5.1:evaluate \
-                -Dexpression=camunda8.line.preview -DforceStdout || echo null)"
+              #
+              # A script which cannot read the flag leaves this step with its message in
+              # the log. Asking Maven for the property looked shorter and hid the failure
+              # in the variable, which turned the preview line into a GA line and the note
+              # into a red check.
+              preview="$("$line_preview" "$line")"
               if [ "$preview" = "true" ]; then
                 echo "_Line ${line} is the preview line, so this is a note and not a red check._" >> "$report"
                 echo >> "$report"
