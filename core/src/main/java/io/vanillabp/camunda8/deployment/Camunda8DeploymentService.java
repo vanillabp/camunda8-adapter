@@ -55,7 +55,6 @@ import io.vanillabp.camunda8.wiring.Camunda8UserTaskListenerHandler;
 import io.vanillabp.camunda8.wiring.Camunda8WorkflowEndedHandler;
 import io.vanillabp.integration.adapter.spi.AdapterCollaborators;
 import io.vanillabp.integration.adapter.spi.AdapterDeploymentService;
-import io.vanillabp.integration.adapter.spi.AdapterPlatformVersion;
 import io.vanillabp.integration.adapter.spi.BpmnParseException;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
@@ -66,6 +65,7 @@ import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartSpec
 import io.vanillabp.integration.adapter.spi.workflowtask.BpmnTaskSpec;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskWiring;
+import io.vanillabp.integration.spi.parts.VanillaBpParts;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -464,7 +464,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     this.retryBackoffResolver = retryBackoffResolver;
 
-    AdapterPlatformVersion.requireCompatiblePlatform(ADAPTER_TYPE, Camunda8DeploymentService.class);
+    VanillaBpParts.requireAdapterFitsPlatform(ADAPTER_TYPE, Camunda8DeploymentService.class);
 
     // which release line this application runs, once per adapter id: the client named
     // here is the LOWEST cluster version these artifacts accept, and a reader comparing
