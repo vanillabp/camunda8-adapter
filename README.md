@@ -2501,6 +2501,8 @@ API of the lines; see [Release lines](#release-lines).
 two lifecycles per module. The tests skip their second run, the compiler does not, and every
 warning is then reported twice. The workflows build it the same way.
 
+What a pull request needs beyond a green build is in [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
 ## Test coverage
 
 `mvn install` builds one aggregated JaCoCo report per platform:
