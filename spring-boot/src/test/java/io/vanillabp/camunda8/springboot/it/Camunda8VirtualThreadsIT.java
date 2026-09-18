@@ -124,10 +124,14 @@ public class Camunda8VirtualThreadsIT {
         .execute(status -> quickWorkflowService.startWorkflow().getId());
     assertNotNull(quick);
 
+    // the wait is a generous guard against a job which never came; that the two really
+    // ran at the same time is what the flag below says, read by the quick handler itself.
+    // A wait as long as the block would carry that claim instead, and a machine carrying
+    // several builds stops this JVM for seconds at a time
     assertTrue(
         WorkerThreadsDockerWorkflowService.QUICK_SERVED
-            .await(WorkerThreadsDockerWorkflowService.BLOCK_MILLIS, TimeUnit.MILLISECONDS),
-        "the other worker's job was served while a handler was blocking");
+            .await(30, TimeUnit.SECONDS),
+        "the other worker's job was served at all");
     assertTrue(WorkerThreadsDockerWorkflowService.QUICK_SERVED_WHILE_BLOCKED.get(),
         "the two really ran at the same time");
     assertTrue(WorkerThreadsDockerWorkflowService.QUICK_SERVED_ON_VIRTUAL_THREAD.get(),

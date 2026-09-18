@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -34,16 +35,15 @@ public class Camunda8DrainTest {
   @DisplayName("A drain with nothing in flight and released workers returns immediately")
   public void anEmptyDrainReturnsImmediately() {
 
-    final var startedAt = System.nanoTime();
+    // the same reading as in the test of a grace of zero below: one question to the
+    // workers is a drain which returned on its first look, and no clock has to say it
+    final var workersAsked = new AtomicInteger();
+    assertTrue(drain.awaitQuiet(Duration.ofSeconds(20), 2, () -> {
+      workersAsked.incrementAndGet();
+      return true;
+    }).isQuiet());
 
-    assertTrue(drain.awaitQuiet(Duration.ofSeconds(20), 2, () -> true).isQuiet());
-
-    final var waited = (System.nanoTime() - startedAt) / 1_000_000;
-    assertTrue(
-        waited < 1000,
-        "a shutdown with nothing to wait for pays nothing (was "
-            + waited
-            + " ms)");
+    assertEquals(1, workersAsked.get(), "a shutdown with nothing to wait for pays nothing");
 
   }
 
@@ -123,9 +123,16 @@ public class Camunda8DrainTest {
 
     drain.jobStarted(4711L, "task", "someTask", "TestProcess");
 
-    final var startedAt = System.nanoTime();
-    assertFalse(drain.awaitQuiet(Duration.ZERO, 1, () -> true).isQuiet());
-    assertTrue((System.nanoTime() - startedAt) / 1_000_000 < 200, "nothing was waited for");
+    // waiting means asking the workers again on every poll, so the number of questions
+    // is what says whether anything waited. A clock would say it worse: a machine
+    // carrying several builds stops this JVM for seconds at a time, and a stopped JVM
+    // looks exactly like a drain which waited
+    final var workersAsked = new AtomicInteger();
+    assertFalse(drain.awaitQuiet(Duration.ZERO, 1, () -> {
+      workersAsked.incrementAndGet();
+      return true;
+    }).isQuiet());
+    assertEquals(1, workersAsked.get(), "the workers are asked exactly once");
 
   }
 

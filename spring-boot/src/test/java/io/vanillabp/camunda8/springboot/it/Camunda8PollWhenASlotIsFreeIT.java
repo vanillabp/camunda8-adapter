@@ -79,6 +79,11 @@ public class Camunda8PollWhenASlotIsFreeIT {
                 + CAMUNDA.getMappedPort(26500));
     registry.add("vanillabp.adapters.c8.worker-threads", () -> "1");
     registry.add("vanillabp.adapters.c8.request-timeout", () -> "PT2S");
+    // the blocking handler holds the only slot for as long as this test reads from the
+    // counters, and it holds its job with it. Two minutes rather than the twenty seconds
+    // this workflow module configures elsewhere, so a machine which stops this JVM for
+    // seconds cannot walk the block into an expired lock
+    registry.add("vanillabp.workflow-modules.test-app.adapters.c8.job-timeout", () -> "PT2M");
 
   }
 
@@ -95,12 +100,35 @@ public class Camunda8PollWhenASlotIsFreeIT {
   private MicrometerCamunda8Metrics metrics;
 
   /**
-   * How long the only execution slot stays busy here: long enough for a parked activation
-   * request to run out, for the second workflow to be started afterwards and for the
-   * measurement to be taken, and still clearly below the twenty seconds this workflow
-   * module locks a job for.
+   * How long the only execution slot may stay busy here. The test ends the block itself
+   * once it has read the counters, so this is the cap and not the length: a machine which
+   * leaves this JVM without a turn makes the block longer, not shorter, and a block which
+   * ended early would look exactly like a worker which fetched a job it could not run.
+   * <p>
+   * Below the two minutes this test locks a job for, so the handler is never inside a job
+   * whose lock ran out.
    */
-  private static final long BLOCK_MILLIS = 12_000;
+  private static final long BLOCK_MILLIS = 90_000;
+
+  /**
+   * How long the parked activation request of the quick worker is given to run out. Above
+   * the two seconds of <code>request-timeout</code>, which is how long such a request can
+   * outlive the moment the slot filled.
+   * <p>
+   * A guard and not a budget: a stopped JVM makes the wait longer, and everything the test
+   * reads afterwards is read while the slot is still busy.
+   */
+  private static final long UNTIL_A_PARKED_REQUEST_RAN_OUT = 3_000;
+
+  /**
+   * How long the start of the second workflow is given to reach the cluster before the
+   * counter is asked. Four seconds, which is eight of the half-second windows the outbox
+   * dispatches in here.
+   * <p>
+   * A guard as well: the job really being at the cluster is read at the end of this test,
+   * where the same counter goes up once the slot is free again.
+   */
+  private static final long UNTIL_THE_START_REACHED_THE_CLUSTER = 4_000;
 
   @BeforeEach
   public void resetObservations() {
@@ -136,16 +164,19 @@ public class Camunda8PollWhenASlotIsFreeIT {
     // the activation request the quick worker had parked at the cluster when the slot
     // filled runs out within request-timeout, and everything it asks afterwards waits
     // for a slot
-    Thread.sleep(3_000);
+    Thread.sleep(UNTIL_A_PARKED_REQUEST_RAN_OUT);
 
     final var quick = transactionTemplate
         .execute(status -> quickWorkflowService.startWorkflow().getId());
     assertNotNull(quick);
 
-    // long enough for the start to have reached the cluster - the outbox dispatches
-    // within half a second here - and short enough to stay inside the block
-    Thread.sleep(4_000);
+    Thread.sleep(UNTIL_THE_START_REACHED_THE_CLUSTER);
 
+    // what the counters say below is about back pressure only while the slot really is
+    // busy, so that is read first rather than assumed
+    assertTrue(
+        WorkerThreadsDockerWorkflowService.isBlocking(),
+        "the blocking handler is still inside its slot");
     assertTrue(
         activated(registry, "blockingTask") >= 1.0,
         "the measurement works: the job the blocking handler is inside was activated");
@@ -153,6 +184,10 @@ public class Camunda8PollWhenASlotIsFreeIT {
         0.0,
         activated(registry, "quickTask"),
         "but no job is fetched for a worker of an adapter whose every slot is busy");
+
+    // the reading is done, so the slot is given back now instead of at the end of a
+    // window somebody guessed at
+    WorkerThreadsDockerWorkflowService.RELEASE_THE_SLOT.countDown();
 
     assertTrue(
         WorkerThreadsDockerWorkflowService.QUICK_SERVED.await(30, TimeUnit.SECONDS),

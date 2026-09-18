@@ -29,6 +29,14 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8VirtualThreadExecutorTest {
 
+  /**
+   * How long a wait for the executor goes on before the test gives up. It guards against
+   * something which never got its turn and it measures nothing: what these tests claim is
+   * read from which kind of thread ran the work and from what was still inside its slot,
+   * so a loaded machine makes a test slower rather than red.
+   */
+  private static final long UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK = 30000;
+
   @Test
   @DisplayName("a submitted handler runs on a virtual thread")
   public void submittedWorkRunsOnAVirtualThread() throws Exception {
@@ -45,7 +53,9 @@ public class Camunda8VirtualThreadExecutorTest {
         ran.countDown();
       });
 
-      assertTrue(ran.await(5, TimeUnit.SECONDS), "the handler ran");
+      assertTrue(
+          ran.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
+          "the handler ran");
       assertTrue(virtual.get(), "the handler runs on a virtual thread");
       assertTrue(name.get().startsWith("vanillabp-c8-handler-"),
           "the thread is named after the adapter, but was: "
@@ -75,7 +85,9 @@ public class Camunda8VirtualThreadExecutorTest {
           peak.accumulateAndGet(running.incrementAndGet(), Math::max);
           started.countDown();
           try {
-            release.await(5, TimeUnit.SECONDS);
+            // the handlers stay inside until this test lets them out, so what is read
+            // about the slots below is read while they really are taken
+            release.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS);
           } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
           } finally {
@@ -85,15 +97,19 @@ public class Camunda8VirtualThreadExecutorTest {
         });
       }
 
-      assertTrue(started.await(5, TimeUnit.SECONDS), "the bound is used");
+      assertTrue(
+          started.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
+          "the bound is used");
       assertEquals(0, executor.getFreeSlots(), "every slot is taken while the handlers block");
       release.countDown();
-      assertTrue(finished.await(10, TimeUnit.SECONDS), "every job ran");
+      assertTrue(
+          finished.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
+          "every job ran");
       assertEquals(bound, peak.get(), "never more handlers at once than the bound allows");
       // the slot is given back AFTER the runnable returned, so the last job's countDown
       // may arrive before its permit is back - the CI runner is slow enough to see it
       assertTrue(
-          slotsBackWithin(executor, bound, 5000),
+          slotsBackWithin(executor, bound, UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK),
           "the slots are given back");
     } finally {
       executor.shutdownNow();
@@ -137,27 +153,44 @@ public class Camunda8VirtualThreadExecutorTest {
     try {
       final var release = new CountDownLatch(1);
       final var blocking = new CountDownLatch(bound - 1);
+      final var handlersInsideTheirSlot = new AtomicInteger();
       for (int job = 0; job < bound - 1; job++) {
         executor.execute(() -> {
+          handlersInsideTheirSlot.incrementAndGet();
           blocking.countDown();
           try {
-            release.await(5, TimeUnit.SECONDS);
+            // the handlers stay inside until this test lets them out, so the poll below
+            // can only happen while they are there
+            release.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS);
           } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
+          } finally {
+            handlersInsideTheirSlot.decrementAndGet();
           }
         });
       }
-      assertTrue(blocking.await(5, TimeUnit.SECONDS), "the handlers took their slots");
+      assertTrue(
+          blocking.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
+          "the handlers took their slots");
 
       final var polled = new CountDownLatch(1);
       final var pollThreadIsVirtual = new AtomicBoolean(true);
+      final var handlersStillInsideWhenPolled = new AtomicInteger();
       executor.schedule(() -> {
         pollThreadIsVirtual.set(Thread.currentThread().isVirtual());
+        handlersStillInsideWhenPolled.set(handlersInsideTheirSlot.get());
         polled.countDown();
       }, 10, TimeUnit.MILLISECONDS);
 
-      assertTrue(polled.await(2, TimeUnit.SECONDS),
+      // the wait is a generous guard against a poll which never ran; what says that the
+      // poll was not starved is the number of handlers which were still inside when it
+      // did run. A short wait would carry that claim itself, and on a machine carrying
+      // several builds it would report a stopped JVM as a starved poll
+      assertTrue(
+          polled.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
           "a scheduled poll runs although handlers are inside their slots");
+      assertEquals(bound - 1, handlersStillInsideWhenPolled.get(),
+          "the poll ran while every handler was still inside its slot");
       assertFalse(pollThreadIsVirtual.get(), "the timing runs on a platform thread");
       release.countDown();
     } finally {
@@ -206,11 +239,15 @@ public class Camunda8VirtualThreadExecutorTest {
           "schedule(Callable)");
       final var periodic = new CountDownLatch(2);
       final var fixedRate = executor.scheduleAtFixedRate(periodic::countDown, 0, 5, TimeUnit.MILLISECONDS);
-      assertTrue(periodic.await(5, TimeUnit.SECONDS), "scheduleAtFixedRate");
+      assertTrue(
+          periodic.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
+          "scheduleAtFixedRate");
       fixedRate.cancel(true);
       final var delayed = new CountDownLatch(2);
       final var fixedDelay = executor.scheduleWithFixedDelay(delayed::countDown, 0, 5, TimeUnit.MILLISECONDS);
-      assertTrue(delayed.await(5, TimeUnit.SECONDS), "scheduleWithFixedDelay");
+      assertTrue(
+          delayed.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
+          "scheduleWithFixedDelay");
       fixedDelay.cancel(true);
     } finally {
       executor.shutdownNow();

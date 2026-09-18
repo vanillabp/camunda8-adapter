@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntFunction;
@@ -28,6 +29,14 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8ExecutorTest {
+
+  /**
+   * How long a wait for the executor goes on before the test gives up. It guards against
+   * something which never got its turn and it measures nothing: what these tests claim is
+   * read from the slots and from the handlers waiting for one, so a loaded machine makes a
+   * test slower rather than red.
+   */
+  private static final long UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK = 30000;
 
   /**
    * The two models, each as a way of building an executor of a given width.
@@ -67,7 +76,9 @@ public class Camunda8ExecutorTest {
           peak.accumulateAndGet(running.incrementAndGet(), Math::max);
           everySlotTaken.countDown();
           try {
-            release.await(10, TimeUnit.SECONDS);
+            // the handlers stay inside until this test lets them out, so what is read
+            // about the slots below is read while they really are taken
+            release.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS);
           } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
           } finally {
@@ -77,11 +88,15 @@ public class Camunda8ExecutorTest {
         });
       }
 
-      assertTrue(everySlotTaken.await(5, TimeUnit.SECONDS), "the bound is used");
+      assertTrue(
+          everySlotTaken.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
+          "the bound is used");
       assertEquals(0, executor.getFreeSlots(), "no slot is free while the handlers block");
       assertTrue(waitingReaches(executor, jobs - bound), "the jobs which found no slot are counted");
       release.countDown();
-      assertTrue(finished.await(10, TimeUnit.SECONDS), "every job ran");
+      assertTrue(
+          finished.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
+          "every job ran");
       assertEquals(bound, peak.get(), "never more handlers at once than the bound allows");
     } finally {
       executor.shutdownNow();
@@ -111,7 +126,9 @@ public class Camunda8ExecutorTest {
 
       release.countDown();
 
-      assertTrue(polled.await(5, TimeUnit.SECONDS), "and the poll happens as soon as a slot is free");
+      assertTrue(
+          polled.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
+          "and the poll happens as soon as a slot is free");
     } finally {
       executor.shutdownNow();
     }
@@ -135,8 +152,10 @@ public class Camunda8ExecutorTest {
 
       // the poll is waiting for a slot now, which is the state a caller cancelling its
       // own scheduled task has to reach: the 8.10 client cancels the tasks around a job
-      // stream that way, and it holds the attempt which happens to be pending
-      Thread.sleep(Camunda8Executor.LOOK_FOR_A_SLOT_AGAIN_MILLIS * 2);
+      // stream that way, and it holds the attempt which happens to be pending. The state
+      // is read rather than waited out - a pause of two look-again windows only guessed
+      // at it, and on a machine carrying several builds a guess is what it stays
+      awaitThePollLookingForASlotAgain(poll);
       assertTrue(poll.cancel(false), "the waiting poll is cancelled");
       assertTrue(poll.isCancelled());
 
@@ -169,13 +188,40 @@ public class Camunda8ExecutorTest {
       executor.execute(() -> {
         everySlotTaken.countDown();
         try {
-          release.await(10, TimeUnit.SECONDS);
+          // the handlers stay inside until the caller lets them out, so every slot is
+          // really taken for as long as the test reads something about them
+          release.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS);
         } catch (final InterruptedException e) {
           Thread.currentThread().interrupt();
         }
       });
     }
-    assertTrue(everySlotTaken.await(5, TimeUnit.SECONDS), "the handlers took every slot");
+    assertTrue(
+        everySlotTaken.await(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK, TimeUnit.MILLISECONDS),
+        "the handlers took every slot");
+
+  }
+
+  /**
+   * Waits until the poll found no slot and armed the next attempt itself.
+   * <p>
+   * The test arms the first attempt a millisecond out, and every attempt the poll arms
+   * carries {@link Camunda8Executor#LOOK_FOR_A_SLOT_AGAIN_MILLIS}. So a pending attempt
+   * which is further out than that first millisecond is one the poll armed, and that is
+   * the state a cancel has to reach.
+   *
+   * @param poll The scheduled poll which found every slot busy
+   */
+  private static void awaitThePollLookingForASlotAgain(
+      final ScheduledFuture<?> poll) throws InterruptedException {
+
+    final var deadline = System.currentTimeMillis() + UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK;
+    while (poll.getDelay(TimeUnit.MILLISECONDS) <= 1) {
+      assertTrue(
+          System.currentTimeMillis() < deadline,
+          "the poll never looked for a slot again");
+      Thread.sleep(5);
+    }
 
   }
 
@@ -185,13 +231,13 @@ public class Camunda8ExecutorTest {
    *
    * @param executor The executor under test
    * @param expected How many are waiting once every submitted job arrived
-   * @return Whether the number was reached within five seconds
+   * @return Whether the number was reached before the wait gave up
    */
   private static boolean waitingReaches(
       final Camunda8Executor executor,
       final int expected) throws InterruptedException {
 
-    final var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    final var deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UNTIL_THE_EXECUTOR_COUNTS_AS_STUCK);
     while (System.nanoTime() < deadline) {
       if (executor.getWaiting() == expected) {
         return true;

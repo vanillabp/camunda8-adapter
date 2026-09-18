@@ -44,7 +44,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 // instances continued. Whatever is still in flight from that loop would continue the
 // instance of the rollback test as well, which is what made it fail in the GitHub build
 // ('expected <null> but was <recordSignal>'). The rollback test therefore runs FIRST, on a
-// cluster nobody signalled yet.
+// cluster nobody signalled yet. It broadcasts itself once it is done, to show that its
+// workflow really waited, and that broadcast is harmless: it happens after its own
+// assertion, and the other test brings workflows of its own.
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @SpringBootTest(
     classes = DockerTestApplication.class,
@@ -110,12 +112,26 @@ public class Camunda8SendSignalIT {
     // instances here are created after the commit (phase two) and need a moment to
     // reach the catch event, so the test broadcasts REPEATEDLY until both continued
     // instead of guessing a sleep - which is also what an application would do if it
-    // cared, and harmless because a signal has no deduplication anyway.
-    // generous since this module also runs a two-container test: under that
-    // load the cluster needs longer to reach the catch event, and a signal is not
-    // buffered - the broadcast has to keep meeting a workflow which already waits
+    // cared, and harmless because a signal has no deduplication anyway
+    broadcastUntilEveryWorkflowContinued(first, second);
+
+  }
+
+  /**
+   * Broadcasts until every named workflow continued, which is what says that each of them
+   * really waited at the catch event.
+   * <p>
+   * The deadline is generous, because this module also runs a two-container test: under
+   * that load the cluster needs longer to reach the catch event, and the broadcast has to
+   * keep meeting a workflow which already waits.
+   *
+   * @param aggregateIds The workflows waiting for the signal
+   */
+  private void broadcastUntilEveryWorkflowContinued(
+      final Long... aggregateIds) throws Exception {
+
     final var deadline = System.currentTimeMillis() + 150_000;
-    while (!bothContinued(first, second)) {
+    while (!everyWorkflowContinued(aggregateIds)) {
       if (System.currentTimeMillis() > deadline) {
         throw new AssertionError("the workflows waiting for the signal never continued");
       }
@@ -127,12 +143,11 @@ public class Camunda8SendSignalIT {
 
   }
 
-  private boolean bothContinued(
-      final Long first,
-      final Long second) {
+  private boolean everyWorkflowContinued(
+      final Long... aggregateIds) {
 
     return List
-        .of(first, second)
+        .of(aggregateIds)
         .stream()
         .allMatch(aggregateId -> "recordSignal".equals(
             repository
@@ -142,13 +157,23 @@ public class Camunda8SendSignalIT {
 
   }
 
+  /**
+   * How long the aggregate is watched after a rolled-back broadcast. Three seconds,
+   * against the milliseconds a broadcast which committed needs: the dispatch begins right
+   * after the commit, and a signal reaches a waiting workflow in the same step.
+   * <p>
+   * A guard and not a budget anybody has to be faster than: a machine which leaves this
+   * JVM without a turn only makes the silence longer, and what is asserted afterwards is
+   * that nothing reached the aggregate at all.
+   */
+  private static final long UNTIL_A_BROADCAST_WOULD_HAVE_ARRIVED = 3000;
+
   @Test
   @Order(1)
   @DisplayName("a broadcast in a rolled-back transaction never reaches the cluster")
   public void rollbackBroadcastsNothing() throws Exception {
 
     final var aggregateId = start();
-    Thread.sleep(2000);
 
     try {
       transactionTemplate.executeWithoutResult(status -> {
@@ -160,12 +185,18 @@ public class Camunda8SendSignalIT {
     }
 
     // the outbox entry carrying the broadcast rode the rolled-back transaction
-    Thread.sleep(3000);
+    Thread.sleep(UNTIL_A_BROADCAST_WOULD_HAVE_ARRIVED);
     assertNull(
         repository
             .findById(aggregateId)
             .map(SignalDockerAggregate::getProcessedBy)
             .orElse(null));
+
+    // and the workflow really was there to be signalled, which is what a pause after the
+    // start used to stand in for: a committed broadcast reaches it. Without this the
+    // silence above could just as well be a workflow which had not reached its catch
+    // event yet
+    broadcastUntilEveryWorkflowContinued(aggregateId);
 
   }
 

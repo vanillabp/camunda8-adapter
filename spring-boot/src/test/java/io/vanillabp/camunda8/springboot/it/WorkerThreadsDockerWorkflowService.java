@@ -25,22 +25,23 @@ import io.vanillabp.spi.service.WorkflowTask;
 public class WorkerThreadsDockerWorkflowService {
 
   /**
-   * How long the blocking handler holds its execution slot.
+   * How long the blocking handler holds its execution slot at most. A test which is done
+   * reading ends the block earlier through {@link #RELEASE_THE_SLOT}.
    */
   public static final long BLOCK_MILLIS = 4000;
 
   /**
-   * How long the blocking handler holds its execution slot in the test which is running -
-   * {@link #BLOCK_MILLIS} unless a test asked for longer, which the poll test does because
-   * it has to outlive an activation request parked at the cluster.
+   * How long the blocking handler may hold its execution slot in the test which is
+   * running - {@link #BLOCK_MILLIS} unless a test asked for a wider cap, which the poll
+   * test does because it gives the slot back itself.
    */
   private static final AtomicLong BLOCK_FOR = new AtomicLong(BLOCK_MILLIS);
 
   /**
-   * Lets a test hold the slot longer than {@link #BLOCK_MILLIS}. Put back by
+   * Lets a test cap the block somewhere else than at {@link #BLOCK_MILLIS}. Put back by
    * {@link #reset()}, which every test using these observations calls.
    *
-   * @param millis How long the next blocking handler stays inside
+   * @param millis How long the next blocking handler stays inside at most
    */
   public static void blockFor(
       final long millis) {
@@ -48,6 +49,14 @@ public class WorkerThreadsDockerWorkflowService {
     BLOCK_FOR.set(millis);
 
   }
+
+  /**
+   * What lets the blocking handler out before {@link #BLOCK_FOR} runs out. A test which
+   * reads something while the slot is busy counts this down once it is done, so the slot
+   * stays taken for as long as that test needs rather than for a number written down
+   * before the test ran.
+   */
+  public static volatile CountDownLatch RELEASE_THE_SLOT = new CountDownLatch(1);
 
   /**
    * Counted down when the blocking handler entered.
@@ -71,11 +80,6 @@ public class WorkerThreadsDockerWorkflowService {
    */
   public static final AtomicBoolean QUICK_SERVED_ON_VIRTUAL_THREAD = new AtomicBoolean();
 
-  /**
-   * When the quick handler ran, to measure how long it waited.
-   */
-  public static final AtomicLong QUICK_SERVED_AT = new AtomicLong();
-
   private static final AtomicBoolean BLOCKING = new AtomicBoolean();
 
   private static final AtomicBoolean ALREADY_BLOCKED = new AtomicBoolean();
@@ -86,11 +90,15 @@ public class WorkerThreadsDockerWorkflowService {
    */
   public static void reset() {
 
+    // a handler which is still blocked waits on the latch it entered with, so that one is
+    // counted down before it is replaced. Otherwise a test which failed early would leave
+    // its handler inside until the cap ran out, and the class after it would pay for that
+    RELEASE_THE_SLOT.countDown();
+    RELEASE_THE_SLOT = new CountDownLatch(1);
     BLOCKING_ENTERED = new CountDownLatch(1);
     QUICK_SERVED = new CountDownLatch(1);
     QUICK_SERVED_WHILE_BLOCKED.set(false);
     QUICK_SERVED_ON_VIRTUAL_THREAD.set(false);
-    QUICK_SERVED_AT.set(0);
     BLOCKING.set(false);
     ALREADY_BLOCKED.set(false);
     BLOCK_FOR.set(BLOCK_MILLIS);
@@ -117,7 +125,10 @@ public class WorkerThreadsDockerWorkflowService {
       BLOCKING.set(true);
       BLOCKING_ENTERED.countDown();
       try {
-        TimeUnit.MILLISECONDS.sleep(BLOCK_FOR.get());
+        // the block lasts until a test lets the handler out, and BLOCK_FOR is only the
+        // cap: a test which is done reading gives the slot back at once, and one which
+        // is not keeps it however long it needs
+        RELEASE_THE_SLOT.await(BLOCK_FOR.get(), TimeUnit.MILLISECONDS);
       } finally {
         BLOCKING.set(false);
       }

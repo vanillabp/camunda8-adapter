@@ -137,24 +137,22 @@ public class Camunda8WorkerThreadsIT {
             .await(30, TimeUnit.SECONDS),
         "the blocking handler was delivered");
 
-    final var startedAt = System.currentTimeMillis();
     final var quick = transactionTemplate
         .execute(status -> quickWorkflowService.startWorkflow().getId());
     assertNotNull(quick);
 
+    // the wait is a generous guard against a job which never came; what says that the
+    // second worker was not held up is the flag below, which the quick handler sets from
+    // what it found. A wait as long as the block would carry that claim itself, and on a
+    // machine carrying several builds it would report a stopped JVM as a worker which
+    // waited
     assertTrue(
         WorkerThreadsDockerWorkflowService.QUICK_SERVED
-            .await(WorkerThreadsDockerWorkflowService.BLOCK_MILLIS, TimeUnit.MILLISECONDS),
-        "the other worker's job was served while a handler was blocking, not after it");
-
-    final var waited = WorkerThreadsDockerWorkflowService.QUICK_SERVED_AT.get() - startedAt;
+            .await(30, TimeUnit.SECONDS),
+        "the other worker's job was served at all");
     assertTrue(
         WorkerThreadsDockerWorkflowService.QUICK_SERVED_WHILE_BLOCKED.get(),
         "the blocking handler was still inside its slot, so the two really ran at the same time");
-    assertTrue(waited < WorkerThreadsDockerWorkflowService.BLOCK_MILLIS,
-        "the job waited "
-            + waited
-            + " ms, which is the runtime of the blocking handler rather than the cluster's latency");
 
   }
 
