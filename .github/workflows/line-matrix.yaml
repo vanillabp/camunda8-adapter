@@ -1,4 +1,7 @@
 name: Release lines
+# What a night of this matrix found is not left in the list of runs: a line which went red
+# gets a GitHub issue, opened by release-lines-issue.yaml, and a release waits for every
+# current line of this matrix. Both are decision 31 in the repository's DECISIONS.md.
 "on":
   schedule:
     # Early enough to be green or red before anybody starts working. GitHub queues a
@@ -10,7 +13,8 @@ name: Release lines
     # longest on the hour.
     - cron: "23 0 * * *"
   workflow_dispatch:
-  # so the release workflow can run the matrix before it publishes
+  # so the checks of a pull request which moves a pin can run the matrix, and so the
+  # release workflow can gate on it before it publishes anything
   workflow_call:
 permissions:
   contents: read
@@ -44,6 +48,10 @@ jobs:
   # A pull request runs the current GA line alone, through the publish workflow. The
   # Camunda 8 integration tests are the slowest thing in the workspace, and every story
   # touching the adapter would otherwise pay for every line.
+  #
+  # The name of this job is read: release-lines-issue.yaml picks the jobs of a finished run
+  # by the prefix 'line (', which is how GitHub spells a matrix job, and takes the line out
+  # of what stands in the brackets. Renaming it leaves that workflow with nothing to report.
   line:
     needs: discover
     runs-on: ubuntu-latest

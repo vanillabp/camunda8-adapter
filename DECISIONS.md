@@ -982,3 +982,52 @@ aggregate of its own gets nothing. What a handler really sees on a cluster, two 
 deep, is `Camunda8MultiInstanceIT#theIterationCrossesTheCallActivity`.
 
 See [Multi-instance](./README.md#multi-instance).
+
+### 31. A release waits for every current line, a pull request does not
+
+A pull request builds the current GA line and tests it against that line's cluster. Every other line
+waits for the nightly matrix, and only a pull request which moves a client pin runs the matrix
+itself, because a build of line 8.9 never compiles the pin of line 8.8. See
+[What CI runs](./README.md#what-ci-runs).
+
+The rule was set in September 2026, after a night went red in the Business Cockpit's Camunda 8
+adapter and nobody saw it for a day. The waiting is safe because nothing between two releases is
+released. Every artifact `main` produces is a snapshot, so a line which breaks in the night has
+broken nothing anybody depends on, and the next morning is early enough to hear about it. Running
+every line on every pull request would buy hours of cluster tests to learn the same thing earlier
+than anybody needs it. Two rules pay for that, and they are what this entry is for.
+
+The first rule is the release. This adapter publishes one artifact per line, so a release runs only
+while every current line is green in the full matrix, its tests and its cluster included. The gate
+is that matrix itself, called from the release workflow before anything is built for publication,
+and not a look at what the matrix said last night. This repository compiles against snapshots of
+`spi-for-java` and of `adapter-platform-integration`, and every build resolves them with
+`--update-snapshots` at the moment it runs. Last night's green therefore says that this code worked
+with last night's artifacts, while the release publishes against today's, and the commit is the
+smaller half of what "the same thing" would have to mean. The matrix inside the release builds the
+commit which is released against the artifacts it is released against, and it needs no rule about
+what the same commit means after a merge. It costs the release about forty minutes. A release is
+dispatched by hand and happens a few times a year, so that is cheap, and no input switches the gate
+off: a published artifact cannot be taken back.
+
+Which lines are asked is not decided a second time. The matrix reads the `line-*` profiles of the
+POM, so it cannot fall behind the build, and the release reads the same list by running that
+workflow. The preview line is one of them here. The tests of the cluster defect that line is known
+for are excluded by tag in the POM, so what is left of the line is worth waiting for. Should an
+alpha ever break so badly that waiting for it stops making sense, it is left out of the matrix,
+and the gate follows.
+
+This repository has no release workflow yet, because a release is still done by hand. Whoever writes
+that workflow makes its first job a call of `line-matrix.yaml` with `secrets: inherit`, and puts
+every job which builds or publishes a line behind it, so the chain from the gate to the tag is hard
+and carries no input which skips it. `line-matrix.yaml` declares `workflow_call` for exactly this.
+
+The second rule is the issue. A line which breaks in the night gets a GitHub issue, so that the
+break is seen and fixed rather than scrolled past. `release-lines-issue.yaml` opens it, one per
+line, and writes the line, the commit, what the log said and a link to the run. A line which is
+still red the next night gets a comment on the issue it already has, which is found again by the
+label `release-lines` and a title naming only the line. A line which is green again gets a comment
+saying so, and the issue stays open. A green night is not a fix: the defect named at the top of
+this entry lost a workflow in about one run out of four, so three nights out of four that line was
+green. Closing would also mean that the next red night opens a second issue, and one break would
+end up spread over several. The person who merged the fix is the one who closes it.
