@@ -240,6 +240,11 @@ when no pin moved. Only the added and removed lines count: a diff carries three 
 around every hunk, so reading all of it made every change near a pin buy the whole matrix. This
 is what a client patch merging itself rests on.
 
+A night which goes red does not stay buried in the list of runs. `release-lines-issue.yaml` opens
+one issue per red line, labelled `release-lines` and titled after the line, and comments on that
+issue while the line stays red. A line which is green again gets a comment and the issue stays
+open, because a green night is not a fix. Whoever merges the fix closes it. See decision 31.
+
 ### Release and CI plumbing
 
 A release of one line consists of:
@@ -247,8 +252,9 @@ A release of one line consists of:
 1. `mvn -Pline-<id> -Drevision=<version>-<id> deploy` from the release commit, once per
    live line, all from the same commit. The preview line publishes as a pre-release with
    `-alpha<n>` appended.
-2. The nightly matrix green for every line, because that is the only evidence for the
-   tested-cluster column of the table above.
+2. Every current line green in the full matrix, run by the release itself rather than looked
+   up from last night. The release makes its first job a call of `line-matrix.yaml`, and every
+   job which builds or publishes a line comes after it. No input skips it. See decision 31.
 3. The API identity check green, so no line gained or lost a method.
 4. The line table of this README and of the wiki updated when a pin moved.
 5. The version property of every consumer pointed at the suffixed coordinates. The
