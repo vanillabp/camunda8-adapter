@@ -1,5 +1,6 @@
 package io.vanillabp.camunda8.deployment;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -8,6 +9,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -35,6 +38,19 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 public class Camunda8ShutdownDrainTest {
 
   private static final Duration GRACE = Duration.ofSeconds(2);
+
+  /**
+   * The grace of the two tests which say that a shutdown did NOT sit it out. A minute, so
+   * that sitting it out and returning early are a minute apart and no stalled JVM can be
+   * mistaken for either.
+   */
+  private static final Duration A_GRACE_NOBODY_REACHES = Duration.ofMinutes(1);
+
+  /**
+   * How long the handler of the test below stays inside its job. Long enough that a
+   * shutdown which does not wait returns while it is still there.
+   */
+  private static final long A_HANDLER_STAYS_INSIDE_FOR = 1000;
 
   private Camunda8DeploymentService deploymentService(
       final Duration grace) {
@@ -126,18 +142,23 @@ public class Camunda8ShutdownDrainTest {
   @DisplayName("A handler which comes back within the grace period is waited for, and no longer")
   public void aHandlerWithinTheGraceIsWaitedFor() {
 
-    final var service = deploymentService(GRACE);
+    final var service = deploymentService(A_GRACE_NOBODY_REACHES);
     final var context = new Camunda8ProcessingContext("c8", "test-module", new Camunda8MultiInstance.Registry());
     context.getOpenWorkers().add(openWorker());
     final var drain = service.drainOf("test-module");
     drain.jobStarted(4711L, "task", "someTask", "TestProcess");
 
+    // what happened in which order, which is what says whether the shutdown waited. A
+    // clock would say it worse: a machine carrying several builds stops this JVM for
+    // seconds at a time, and a stopped JVM looks exactly like a shutdown which waited
+    final var whatHappened = new CopyOnWriteArrayList<String>();
     final var handler = new Thread(() -> {
       try {
-        TimeUnit.MILLISECONDS.sleep(300);
+        TimeUnit.MILLISECONDS.sleep(A_HANDLER_STAYS_INSIDE_FOR);
       } catch (final InterruptedException e) {
         Thread.currentThread().interrupt();
       } finally {
+        whatHappened.add("the handler came back");
         drain.jobFinished(4711L);
       }
     });
@@ -145,14 +166,20 @@ public class Camunda8ShutdownDrainTest {
 
     final var startedAt = System.nanoTime();
     service.stopWorkflowProcessing("test-module", context);
+    whatHappened.add("the shutdown returned");
     final var waited = (System.nanoTime() - startedAt) / 1_000_000;
 
-    assertTrue(waited >= 250, "the shutdown waited for the handler (was "
-        + waited
-        + " ms)");
-    assertTrue(waited < GRACE.toMillis(), "but not the whole grace period (was "
-        + waited
-        + " ms)");
+    assertEquals(
+        List.of("the handler came back", "the shutdown returned"),
+        whatHappened,
+        "the shutdown returned after its handler, not next to it");
+    // a minute of grace against a handler which stays inside for a second: a shutdown
+    // which sat the grace out is a minute away from one which did not, and nothing a
+    // loaded machine does to this JVM falls between the two
+    assertTrue(waited < A_GRACE_NOBODY_REACHES.dividedBy(2).toMillis(),
+        "but not the whole grace period (was "
+            + waited
+            + " ms)");
     assertTrue(drain.getInFlight().isEmpty());
 
   }
@@ -203,7 +230,7 @@ public class Camunda8ShutdownDrainTest {
   @DisplayName("A module with nothing in flight is stopped without waiting")
   public void anIdleModuleIsStoppedImmediately() {
 
-    final var service = deploymentService(Duration.ofSeconds(20));
+    final var service = deploymentService(A_GRACE_NOBODY_REACHES);
     final var context = new Camunda8ProcessingContext("c8", "test-module", new Camunda8MultiInstance.Registry());
     context.getOpenWorkers().add(openWorker());
 
@@ -211,9 +238,14 @@ public class Camunda8ShutdownDrainTest {
     service.stopWorkflowProcessing("test-module", context);
     final var waited = (System.nanoTime() - startedAt) / 1_000_000;
 
-    assertTrue(waited < 1000, "nothing was waited for (was "
-        + waited
-        + " ms)");
+    // half a minute against a grace of one: a module with nothing in flight either
+    // returns at once or sits the grace out, and nothing a loaded machine does to this
+    // JVM falls between the two. A second did not say that, it only said that this JVM
+    // had its turn
+    assertTrue(waited < A_GRACE_NOBODY_REACHES.dividedBy(2).toMillis(),
+        "nothing was waited for (was "
+            + waited
+            + " ms)");
 
   }
 

@@ -974,6 +974,7 @@ public class Camunda8TaskProcessingIT {
         .save(new TaskDockerAggregate())
         .getId());
     startSecondaryProcess("SilentUserTaskProcess", silentAggregateId);
+    final var silentInstanceKey = lastStartedInstanceKey;
 
     @SuppressWarnings("unchecked")
     final var c8ProcessService = (Camunda8ProcessService<TaskDockerAggregate>) applicationContext
@@ -998,11 +999,62 @@ public class Camunda8TaskProcessingIT {
             PhaseOperations.args(PhaseTwoCall.ARG_TASK_ID, "1",
                 PhaseTwoCall.ARG_BPMN_ERROR_CODE, "ERR")));
 
-    // the silent task exists (found via a real user-task handler on the OTHER
-    // process is not necessary - completing the silent task by awareness probing
-    // is proven once a task shows up); wait briefly so the creating listener job
-    // was consumed without an incident
-    Thread.sleep(2000);
+    // and the silent task itself: the creating listener job was completed without a
+    // notification, so the process is parked at the user task. Nothing inside the
+    // application can say that - no handler of this test ever ran for it - so the
+    // cluster is asked, which is what the pause this test used to end with only hoped
+    // for
+    awaitUntil(
+        () -> !userTasksOf(silentInstanceKey).isEmpty(),
+        60000,
+        "the user task without a handler to be created at the cluster");
+    assertEquals(
+        List.of(),
+        incidentsOf(silentInstanceKey),
+        "a user task nobody listens to leaves the instance healthy");
+
+  }
+
+  /**
+   * The user tasks the cluster holds for an instance.
+   *
+   * @param processInstanceKey The instance
+   * @return The user-task keys
+   */
+  private List<Long> userTasksOf(
+      final Long processInstanceKey) {
+
+    return workflowServiceClient()
+        .newUserTaskSearchRequest()
+        .filter(filter -> filter.processInstanceKey(processInstanceKey))
+        .send()
+        .join()
+        .items()
+        .stream()
+        .map(userTask -> userTask.getUserTaskKey())
+        .toList();
+
+  }
+
+  /**
+   * What went wrong with an instance, as the cluster reports it. An empty list is how a
+   * test says that a job was consumed rather than left in an incident.
+   *
+   * @param processInstanceKey The instance
+   * @return One message per incident
+   */
+  private List<String> incidentsOf(
+      final Long processInstanceKey) {
+
+    return workflowServiceClient()
+        .newIncidentSearchRequest()
+        .filter(filter -> filter.processInstanceKey(processInstanceKey))
+        .send()
+        .join()
+        .items()
+        .stream()
+        .map(incident -> incident.getErrorMessage())
+        .toList();
 
   }
 
@@ -1033,6 +1085,17 @@ public class Camunda8TaskProcessingIT {
 
   }
 
+  /**
+   * How long the handler is watched after it ran once, before a second delivery counts as
+   * one which never came. Three seconds, against the milliseconds a job created at the
+   * cluster needs to reach a worker whose activation request is already parked there.
+   * <p>
+   * It is a guard and not a budget anybody has to be faster than: what is asserted
+   * afterwards is a count which did not grow, so a machine which leaves this JVM without a
+   * turn only makes the silence longer.
+   */
+  private static final long UNTIL_A_SECOND_DELIVERY_WOULD_HAVE_ARRIVED = 3000;
+
   @Test
   @DisplayName("The messageId deduplicates: a redelivered phase-two correlation does not double-fire")
   public void duplicateCorrelationDispatchIsDeduplicated() throws Exception {
@@ -1041,7 +1104,10 @@ public class Camunda8TaskProcessingIT {
         .save(new TaskDockerAggregate())
         .getId());
     startSecondaryProcess("MessageProcess", aggregateId);
-    Thread.sleep(2000);
+    // the instance has to wait at the catch event before anything is published to it,
+    // and the query API knowing it says so: the exporter is behind the partition, never
+    // ahead of it
+    awaitTheQueryApiKnowingTheStartedInstance(aggregateId);
 
     @SuppressWarnings("unchecked")
     final var c8ProcessService = (Camunda8ProcessService<TaskDockerAggregate>) applicationContext
@@ -1059,10 +1125,15 @@ public class Camunda8TaskProcessingIT {
         PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
             PhaseTwoCall.ARG_CORRELATION_ID, "pay-1"));
 
-    // the correlation id 'pay-1' does not match the injected '=id' subscription -
-    // nothing may fire; now correlate properly ONCE and prove single delivery
-    Thread.sleep(1000);
-    assertEquals(0, invocations("c8MessageArrived", aggregateId));
+    // the correlation id 'pay-1' matches no subscription of this instance, so neither
+    // publication may ever reach the handler. What says so is the count at the end of
+    // this test rather than this line: the matching correlation below adds exactly one
+    // invocation, and a publication which had fired after all would show up there as a
+    // second one
+    assertEquals(
+        0,
+        invocations("c8MessageArrived", aggregateId),
+        "a message published under a correlation id nobody waits for reaches no handler");
     PhaseOperations.phaseTwo(c8ProcessService, PhaseOperation.CORRELATE_MESSAGE,
         "test-app", "MessageProcess", null, aggregateId,
         PhaseOperations.args(PhaseTwoCall.ARG_MESSAGE_NAME, "C8PaymentReceived",
@@ -1071,8 +1142,11 @@ public class Camunda8TaskProcessingIT {
         () -> invocations("c8MessageArrived", aggregateId) >= 1,
         60000,
         "the matching correlation to resume the instance");
-    Thread.sleep(1500);
-    assertEquals(1, invocations("c8MessageArrived", aggregateId), "no double-fire");
+    Thread.sleep(UNTIL_A_SECOND_DELIVERY_WOULD_HAVE_ARRIVED);
+    assertEquals(
+        1,
+        invocations("c8MessageArrived", aggregateId),
+        "the redelivered publication never fired, so the handler ran once");
 
   }
 

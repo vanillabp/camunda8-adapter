@@ -37,7 +37,6 @@ public class QuickDockerWorkflowService {
         .compareAndSet(false, WorkerThreadsDockerWorkflowService.isBlocking());
     WorkerThreadsDockerWorkflowService.QUICK_SERVED_ON_VIRTUAL_THREAD
         .compareAndSet(false, Thread.currentThread().isVirtual());
-    WorkerThreadsDockerWorkflowService.QUICK_SERVED_AT.compareAndSet(0, System.currentTimeMillis());
     WorkerThreadsDockerWorkflowService.QUICK_SERVED.countDown();
 
   }

@@ -69,8 +69,14 @@ public class Camunda8RestartDeliveryTest {
   /**
    * What the first job may take before the test calls it a delivery which waited for the
    * lock.
+   * <p>
+   * Fifteen seconds against a lock of twenty: a delivery which waited for the lock cannot
+   * be faster than the lock, and one which did not takes milliseconds, so nothing a loaded
+   * machine does to this JVM falls between the two. Eight seconds did fall between them -
+   * a machine carrying several builds can leave a JVM without a turn for that long, and
+   * the number then said what the machine did rather than what the shutdown did.
    */
-  private static final Duration DELIVERED_IN_SECONDS = Duration.ofSeconds(8);
+  private static final Duration DELIVERED_WITHOUT_WAITING_FOR_THE_LOCK = Duration.ofSeconds(15);
 
   private static final Path LOG_FILE = Path
       .of("target", "c8-restart-application.log")
@@ -243,7 +249,7 @@ public class Camunda8RestartDeliveryTest {
 
     assertTrue(deliveredAfterMillis >= 0, "the job reached the handler at all");
     assertTrue(
-        deliveredAfterMillis < DELIVERED_IN_SECONDS.toMillis(),
+        deliveredAfterMillis < DELIVERED_WITHOUT_WAITING_FOR_THE_LOCK.toMillis(),
         "the first job of the restarted application was delivered in seconds rather than in a job timeout (was "
             + deliveredAfterMillis
             + " ms, the lock is "
