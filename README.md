@@ -82,6 +82,19 @@ cluster is not tested rather than not supported. Camunda documents its clients a
 compatible, so a line normally serves clusters above its pin as well, but that is Camunda's
 promise and not this project's test result.
 
+A client downgrade inside a line is not supported. Camunda adds enum literals and interface
+methods in patch releases and does not count that as breaking, so a build compiled against
+`8.9.19` can call a method `8.9.11` never had. Going back therefore fails at runtime, with a
+`NoSuchMethodError` or a value no comparison in the adapter expects, and it fails nowhere
+near the downgrade. Move the pin forward instead, or move to the line whose pin you want.
+
+The same habit is why a client bump here is read rather than trusted. Every pull request
+which raises a pin gets a comment naming the enum literals and the interface methods the new
+version added, and on a GA line it also gets a red check, so the patch automerge cannot carry
+such a change through unread. That is `.github/workflows/client-api-changes.yaml` with
+`bin/client-api-changes.sh`, and `Camunda8UnknownClientEnumsTest` holds what the adapter does
+with a literal it has never seen.
+
 The preview line is not publishable at the moment. On `8.10.0-alpha4` the user-task listener
 job of the event type `creating` never reaches its worker, so three tests of
 `Camunda8TaskProcessingIT` time out while the other 34 tests of the line pass. The cause is an

@@ -29,6 +29,42 @@ jobs:
             --update-snapshots
         run: bin/api-identity.sh
 
+  # A check which reports nothing looks exactly like a quiet week, so the script behind
+  # client-api-changes.yaml is held against three published bumps: two which added what
+  # Camunda does not call breaking, and one which added neither. It reads released
+  # artifacts, so the three answers never change, and it needs no cluster and no
+  # credentials.
+  client-api-changes-selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          java-version: 21.0.12+101.0.LTS
+          distribution: temurin
+          cache: maven
+      - name: 8.8.32 to 8.8.33 names the enum it added
+        run: |
+          set -euo pipefail
+          status=0
+          report="$(bin/client-api-changes.sh io.camunda:camunda-client-java 8.8.32 8.8.33)" || status=$?
+          echo "$report"
+          [ "$status" -eq 1 ] || { echo "a find has to leave exit code 1, got ${status}" >&2; exit 1; }
+          echo "$report" | grep -q 'ProcessDefinitionState\.DELETED'
+          echo "$report" | grep -q 'ProcessDefinition: .*getState()'
+      - name: 8.8.3 to 8.8.4 names the literal it added
+        run: |
+          set -euo pipefail
+          status=0
+          report="$(bin/client-api-changes.sh io.camunda:camunda-client-java 8.8.3 8.8.4)" || status=$?
+          echo "$report"
+          [ "$status" -eq 1 ] || { echo "a find has to leave exit code 1, got ${status}" >&2; exit 1; }
+          echo "$report" | grep -q 'BatchOperationState\.FAILED'
+      - name: 8.9.18 to 8.9.19 added neither and says so
+        # the other half of the check: one which always reports something would stop a
+        # patch automerge forever and teach everybody to ignore it
+        run: bin/client-api-changes.sh io.camunda:camunda-client-java 8.9.18 8.9.19
+
   # The Renovate configuration is not read, it is run: the validator on the repository
   # configuration and on the shareable preset, and the gating check which proves that a
   # consumer of one line is never offered another one.

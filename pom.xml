@@ -530,6 +530,10 @@
       <properties>
         <camunda8.line>8.10</camunda8.line>
         <camunda8.version>${camunda8.version.line-8.10}</camunda8.version>
+        <!-- read by the client-api-changes workflow, which turns what a client bump added
+             into a red check on the GA lines and into a comment here: an alpha changes its
+             classes all the time and must not hold up a pull request of the GA lines -->
+        <camunda8.line.preview>true</camunda8.line.preview>
       </properties>
       <build>
         <pluginManagement>

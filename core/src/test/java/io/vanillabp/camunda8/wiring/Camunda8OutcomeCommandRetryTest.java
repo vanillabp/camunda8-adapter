@@ -28,6 +28,7 @@ import io.camunda.client.CamundaClient;
 import io.camunda.client.api.ProblemDetail;
 import io.camunda.client.api.command.ProblemException;
 import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker;
@@ -368,6 +369,7 @@ public class Camunda8OutcomeCommandRetryTest {
     when(listenerJob.getType())
         .thenReturn(Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE
             + "someUserTask");
+    when(listenerJob.getListenerEventType()).thenReturn(ListenerEventType.CREATING);
 
     Camunda8UserTaskListenerHandler
         .builder()

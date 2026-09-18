@@ -19,6 +19,7 @@ import org.mockito.Mockito;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
@@ -169,6 +170,7 @@ public class Camunda8ActivationIdentityTest {
     when(listenerJob.getType())
         .thenReturn(Camunda8TaskWiring.TASKDEFINITION_USERTASK_ZEEBE
             + "someUserTask");
+    when(listenerJob.getListenerEventType()).thenReturn(ListenerEventType.CREATING);
 
     final var context = deliveredListenerContext(listenerJob);
 

@@ -146,9 +146,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
 
     final var bpmnProcessId = NameClashAvoidanceSupport
         .plainProcessId(scoping, workflowModuleId, job.getBpmnProcessId(), adapterId);
-    final var event = job.getListenerEventType() == ListenerEventType.CANCELING
-        ? TaskEvent.Event.CANCELED
-        : TaskEvent.Event.CREATED;
+    final var event = whatHappenedToTheTask(job);
     // the USER-TASK KEY is the @TaskId - it completes the task later via
     // ProcessService#completeUserTask (V1-compatible decimal representation)
     final var userTaskKey = job.getUserTask() != null
@@ -175,6 +173,23 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
             // the incident and there is no next attempt a backoff could delay
             () -> Camunda8ListenerJobs.Failure.NO_RETRIES_LEFT,
             () -> {
+              if (event == null) {
+                log
+                    .warn(
+                        "Camunda8[{}]: the listener job '{}' of user task '{}' (BPMN process '{}' of "
+                            + "workflow module '{}') reports the event '{}', which this adapter does not "
+                            + "serve - completing the job without a notification. The deployment adds a "
+                            + "'creating' and a 'canceling' task listener and nothing else, so either "
+                            + "the deployed model carries another one, or this cluster is newer than "
+                            + "the Camunda 8 client this build was compiled against.",
+                        adapterId,
+                        job.getKey(),
+                        taskDefinition,
+                        bpmnProcessId,
+                        workflowModuleId,
+                        job.getListenerEventType());
+                return Map.of();
+              }
               if (workflowTaskInvoker.workflowTaskHandlerExists(workflowModuleId, bpmnProcessId, taskDefinition)) {
                 final var aggregateIdName = workflowTaskInvoker
                     .resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId);
@@ -220,6 +235,36 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
               // the listener completion carries NO variables, see the class javadoc
               return Map.of();
             });
+
+  }
+
+  /**
+   * What happened to the user task, as the SPI tells the cases apart. This handler serves
+   * the two task listeners the deployment adds, and those deliver <code>creating</code>
+   * and <code>canceling</code>.
+   * <p>
+   * Every other event is answered with <code>null</code> instead of with one of the two.
+   * The client's event types grow inside a line: 8.10 adds <code>CANCEL</code> beside
+   * <code>CANCELING</code>, and a client older than the cluster reports an event it does
+   * not know as <code>UNKNOWN_ENUM_VALUE</code>. Reading such a job as a creation would
+   * tell the application about a task it never got, so the caller completes the job
+   * without notifying anybody instead.
+   *
+   * @param job The listener job
+   * @return The event, or <code>null</code> where the job carries one this handler does
+   *         not serve
+   */
+  private static TaskEvent.Event whatHappenedToTheTask(
+      final ActivatedJob job) {
+
+    final var eventType = job.getListenerEventType();
+    if (eventType == ListenerEventType.CREATING) {
+      return TaskEvent.Event.CREATED;
+    }
+    if (eventType == ListenerEventType.CANCELING) {
+      return TaskEvent.Event.CANCELED;
+    }
+    return null;
 
   }
 
