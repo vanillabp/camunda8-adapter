@@ -2526,11 +2526,11 @@ added to its report cannot stay unnoticed. Both are `CoverageGateTest`, and the 
 every test class of this repository follows are `TestClassConventionsTest`.
 
 The gate reports what it measured on every run, green ones included, which is the one place in
-VanillaBP where a passing test prints:
+VanillaBP where a passing test prints. The angle brackets stand for the numbers of the run:
 
 ```
-coverage gate | Spring Boot: 90.50 % instructions (1400 of 14730 missed) | at the rule of 90 %
-coverage gate | Quarkus: 88.20 % instructions (1773 of 15025 missed) | 1.80 points below the rule of 90 %, build breaks below 85 %
+coverage gate | Spring Boot: <percent> % instructions (<missed> of <total> missed) | at the rule of 90 %
+coverage gate | Quarkus: <percent> % instructions (<missed> of <total> missed) | <gap> points below the rule of 90 %, build breaks below 85 %
 ```
 
 Every release line is judged by that one number. Line 8.10 is the reason it is not the rule itself:
