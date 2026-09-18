@@ -1148,6 +1148,17 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         .stream()
         .map(listener -> new BpmnTaskSpec(listener.elementId(), listener.taskDefinition()))
         .forEach(specs::add);
+    // and every served listener gets VanillaBP's own cancel listener beside it, so the method
+    // serving the listener is told when the element is taken away. The model carries the job
+    // types the CLUSTER knows, so the plain task definition of the record is scoped back here
+    context
+        .recordListenersWithoutACancellation(
+            Camunda8TaskWiring
+                .addCancelListenersFor(
+                    model,
+                    listenersOfThisProcess,
+                    taskDefinition -> NameClashAvoidanceSupport
+                        .scopedTaskDefinition(scoping, workflowModuleId, bpmnProcessId, taskDefinition, adapterId)));
     // the core's validation below knows nothing about element templates, and a Camunda 8
     // sentence in its message would be wrong for every other BPMS. So the adapter says
     // the missing half first, and the developer reads the guidance above the failure
@@ -1962,6 +1973,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             {}
             {}
             {}
+            {}{}
             The way back: move what the listener does into a task of the model with a @WorkflowTask \
             method behind it, or set '{}: false'.
             {}""",
@@ -1979,6 +1991,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         Camunda8Listeners.WHAT_IT_COSTS,
         Camunda8Listeners.WHAT_CAMUNDA8_ADDS,
         Camunda8Listeners.WHICH_METHOD_SERVES_WHICH,
+        Camunda8Listeners.howACancellationIsReported(),
+        context
+            .getListenersWithoutACancellation()
+            .stream()
+            .map(listener -> "\n  "
+                + listener.describe())
+            .collect(Collectors.joining()),
         Camunda8Listeners.propertyKeyOf(adapterId),
         Camunda8Listeners.FRAME_LINE);
 

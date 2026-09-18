@@ -172,7 +172,7 @@ two kinds of code belong there: code that cannot compile against every supported
 and code that uses something only a newer cluster has. The test directories hold one test
 per line, which proves the pin reached the runtime.
 
-The main directories hold exactly one class today, `Camunda8JobExecutors`, and it is the
+The main directories hold two classes today. `Camunda8JobExecutors` is the
 textbook case for the scheme. The virtual-thread execution model hands the client an
 executor of the adapter's own, and which builder method takes it changed with 8.9: the 8.8
 client knows one executor for both the polling and the handler invocations, while 8.9 asks
@@ -182,6 +182,15 @@ method alone would therefore run its handlers on the client's own pool from 8.9 
 is one thread unless something says otherwise - and that is the very defect the model
 exists to fix. The class is package-private and has no public members, so the API identity
 check sees the same declaration on every line.
+
+`Camunda8CancelListeners` is the other kind of case, and the first one where a LINE decides what the
+adapter can do rather than how it says it. A `cancel` execution listener arrived with 8.10, so on 8.8
+and 8.9 only a Camunda-managed user task can report a cancellation to a served listener. The class
+answers three questions per line: whether the line has the construct, how the listener is written into
+the model, and whether a job which arrived is a cancellation. The two halves have to live together
+because both name a client constant the older lines do not have. The offer stays the same on every
+line: the boot of a module whose listeners are served says which listeners hear no cancellation here,
+so nothing is missing without a word. It is package-private with no public members as well.
 
 What a line did need so far is a dependency pin rather than code. Each client brings
 generated protobuf code, and protobuf refuses a runtime older than its gencode, while the
@@ -1352,10 +1361,31 @@ Where the switch is on, the listener is a task like any other one:
   the engine's own transaction, which is worth knowing when a module runs on both.
 
 The event is part of the listener's identity: the wiring made one task of one listener, so one
-method serves one event of one element. `@TaskEvent` receives `TaskEvent.Event#CREATED` for every
-listener, which is the only value that works at all, because a method without that parameter
+method serves one event of one element. `@TaskEvent` receives `TaskEvent.Event#CREATED` when that
+listener fires, whichever moment the modeller picked for it, because a method without the parameter
 subscribes to `CREATED` alone and any other value would leave such a method silently uncalled.
-`TaskEvent.Event` has no value for a listener's own event, and the startup report says so.
+
+`CANCELED` is the second event a listener knows, and VanillaBP has to write a listener of its own to
+deliver it. A modelled listener fires at its own moment and at no other, so an element taken away by
+an interrupting boundary event or by a terminating end event never reaches it and the method learns
+nothing. `Camunda8TaskWiring#addCancelListenersFor` therefore writes one cancel listener
+per served listener while the process is wired, carrying the SAME job type, so the cancellation
+arrives at the method which already serves that listener. A listener the modeller put on the cancel
+moment itself gets none: it hears that moment already, and a second one would report it twice. Order
+counts within one listener event and nowhere else, so nothing a modeller wrote for `creating` or
+`start` moves.
+
+What VanillaBP can write depends on the element and on the release line. A Camunda-managed user task
+carries a `canceling` task listener on every line. Every other element needs a `cancel` execution
+listener, which arrived with 8.10, so `Camunda8CancelListeners` is a per-line class: on 8.8 and 8.9 it
+answers that the line has none, the wiring returns those listeners and the startup report names them,
+rather than leaving the gap to be found at runtime. At runtime the same class answers whether an
+arriving job IS a cancellation, because `ListenerEventType.CANCEL` does not compile on the older
+lines either.
+
+A cancellation completes carrying nothing, and it falls out of the question every listener completion
+asks: only an execution listener on `end` carries values, and a canceled element has no gateway behind
+it to decide on them.
 
 Four shapes end the boot, each with a message naming the listener and the way out.
 `refuseListenersSharingAJobType` answers two served listeners of one element under ONE job type: one
@@ -1372,15 +1402,16 @@ instead of letting an incident say nothing about it, since the cluster is inside
 own and has no token to route.
 
 Every boot of a workflow module whose listeners are served writes one framed WARN naming the key,
-the module, every served listener with its element, its event and its job type, what it costs and
-the way back. Nothing silences it, see
+the module, every served listener with its element, its event and its job type, what it costs, how a
+cancellation reaches the method and the way back. Nothing silences it, see
 [decision 27](./DECISIONS.md#27-a-listener-somebody-modelled-is-a-task-and-only-where-the-application-asked-for-it).
 Where the switch is on and no model of the module carries a listener, the boot writes one line
 instead of the frame.
 
-`Camunda8ListenersTest` holds what is read out of a model, the pairs of listeners and the prefixing, and
+`Camunda8ListenersTest` holds what is read out of a model, the pairs of listeners and the prefixing,
 `Camunda8ListenersReportTest` the report of a boot, the refusal without the key and the one over a
-`@TaskId` method.
+`@TaskId` method, and `Camunda8CancelListenersTest` which element gets a cancel listener and which
+one does not.
 
 ### Ad-hoc subprocesses
 

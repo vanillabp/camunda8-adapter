@@ -250,6 +250,27 @@ public class Camunda8ProcessingContext {
   }
 
   /**
+   * The served listeners of this module whose element cannot be told that it was canceled,
+   * because the release line this adapter was built for has no cancel execution listener. Empty
+   * from release line 8.10 on, and empty on every line for a listener sitting on a
+   * Camunda-managed user task.
+   */
+  @Getter
+  private final List<Camunda8Listeners.ModelledListener> listenersWithoutACancellation = new LinkedList<>();
+
+  /**
+   * Remembers listeners of this module which hear no cancellation on this release line.
+   *
+   * @param listeners The listeners, may be empty
+   */
+  public void recordListenersWithoutACancellation(
+      final List<Camunda8Listeners.ModelledListener> listeners) {
+
+    listenersWithoutACancellation.addAll(listeners);
+
+  }
+
+  /**
    * Which multi-instance elements enclose an element of this adapter's models, collected
    * while the models are wired.
    * <p>

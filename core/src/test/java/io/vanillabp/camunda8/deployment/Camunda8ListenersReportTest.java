@@ -161,8 +161,12 @@ public class Camunda8ListenersReportTest {
             + "instance and which of them does not: "
             + logged);
     assertTrue(
-        logged.contains("TaskEvent.Event has no value"),
-        () -> "the one ambiguity this design leaves, said out loud: "
+        logged.contains("A listener knows two events and no more"),
+        () -> "what a served method is told, said out loud: "
+            + logged);
+    assertTrue(
+        logged.contains("VanillaBP writes a cancel listener of its own beside every served listener"),
+        () -> "and how the cancellation of the element reaches the method: "
             + logged);
 
   }
