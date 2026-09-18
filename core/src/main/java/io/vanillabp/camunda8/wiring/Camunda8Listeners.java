@@ -12,6 +12,7 @@ import io.camunda.zeebe.model.bpmn.instance.Process;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListenerEventType;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListeners;
+import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 
 /**
@@ -58,6 +59,26 @@ public final class Camunda8Listeners {
    * carrying it belongs to the framework and is none of the application's business.
    */
   public static final String VANILLABP_JOB_TYPE_PREFIX = "io.vanillabp.";
+
+  /**
+   * The event of a task listener which fires while a user task is being canceled, as the model
+   * spells it.
+   */
+  public static final String CANCELING_A_USER_TASK = "canceling";
+
+  /**
+   * The event of an execution listener which fires while an element is being canceled, as the
+   * model spells it. The construct arrived with release line 8.10.
+   */
+  public static final String CANCELING_AN_ELEMENT = "cancel";
+
+  /**
+   * The retries of every cancel listener VanillaBP writes beside a served one. A cancellation
+   * is not a place to retry: the cluster holds the element while the job runs, and a retry loop
+   * would hold the cancellation with it. With no retry left the first failure raises the
+   * incident, which is the answer an operator can act on.
+   */
+  public static final String CANCEL_LISTENER_RETRIES = "0";
 
   /**
    * Which kind of listener a modeller wrote, in the words the Camunda Modeler uses.
@@ -190,8 +211,9 @@ public final class Camunda8Listeners {
       no listener at this element, and a migration of the model stops at the method serving it. \
       The Process-Engine-API has no listener concept at all, which is gap 16 and 17 of that \
       adapter's GAPS.md. The event is part of a listener's identity here, so one @WorkflowTask \
-      method serves one event of one element - and @TaskEvent tells such a method nothing, \
-      because TaskEvent.Event has no value for a listener's event.""";
+      method serves one event of one element. A listener knows two events and no more: @TaskEvent \
+      receives CREATED when the modelled listener fires, and CANCELED when the element it sits on \
+      is canceled. A listener on any other moment of its element still arrives as CREATED.""";
 
   /**
    * The sentences only Camunda 8 can say, and the reason the report carries more than
@@ -210,6 +232,51 @@ public final class Camunda8Listeners {
       and names its issue 23702 while doing so. What your method changed is kept by your \
       application in both cases and reaches the cluster at the next real sync point of that \
       workflow.""";
+
+  /**
+   * How a served listener hears that its element was canceled, in the words of the startup
+   * report. VanillaBP writes a cancel listener of its own beside every served one, so the
+   * method which serves the listener is the method which hears the cancellation.
+   *
+   * @return The sentences, which depend on the release line this adapter was built for
+   */
+  public static String howACancellationIsReported() {
+
+    final var everywhere = """
+        VanillaBP writes a cancel listener of its own beside every served listener, carrying the \
+        same job type, so your method hears the cancellation of its element as CANCELED. A listener \
+        you modelled on the cancel moment itself gets none: it already hears that moment, and a \
+        second one would report it to the same method twice.""";
+    if (Camunda8CancelListeners.anyElementCanReportItsCancellation()) {
+      return everywhere;
+    }
+    final var onlyAUserTask = """
+        A cancel execution listener arrived with release line 8.10 and this adapter was built for \
+        line %s, so only a Camunda-managed user task can be told here. A listener on any other \
+        element is not told that its element was canceled. These are the ones it applies to:"""
+        .formatted(Camunda8ReleaseLine.id());
+    return everywhere
+        + " "
+        + onlyAUserTask;
+
+  }
+
+  /**
+   * Whether a listener somebody modelled IS the cancellation of its element. Such a listener
+   * needs none of VanillaBP's own: the moment it waits for is the moment VanillaBP would
+   * report, and its method would hear it twice.
+   *
+   * @param listener The listener
+   * @return Whether the modeller put it on the cancel moment
+   */
+  public static boolean isACancellation(
+      final ModelledListener listener) {
+
+    return listener.kind() == Kind.TASK_LISTENER
+        ? CANCELING_A_USER_TASK.equals(listener.event())
+        : CANCELING_AN_ELEMENT.equals(listener.event());
+
+  }
 
   /**
    * The sentence about the one ambiguity this design leaves, said wherever listeners are

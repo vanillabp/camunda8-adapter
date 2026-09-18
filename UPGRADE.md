@@ -323,12 +323,17 @@ over it. Use `end` there, which is what VanillaBP attaches to a start event itse
 `use-prefix` a served listener's job type is prefixed like every other task definition of the workflow
 module, because that is what it has become.
 
-`@TaskEvent` tells the method nothing any more. On version 1 a task-listener method could tell the
-`canceling` event from the rest through that parameter. Now the event is part of the wiring: one method
-serves one event of one element, the parameter receives `CREATED` for every listener because a method
-without it subscribes to `CREATED` alone, and `TaskEvent.Event` has no value for a listener's event at
-all. Drop the parameter where it only carried noise, and model one listener per event where a method
-needs to know.
+`@TaskEvent` answers two moments now. On version 1 a task-listener method could tell the `canceling`
+event from the rest through that parameter. Here the event is part of the wiring: one method serves one
+event of one element, so the parameter receives `CREATED` whenever the modelled listener fires,
+whichever moment the modeller picked for it. It receives `CANCELED` when the element the listener sits
+on is canceled, which VanillaBP reports through a cancel listener it writes beside your own. A method
+without the parameter subscribes to `CREATED` alone and hears no cancellation. Model one listener per
+event where a method needs to tell two of your own listeners apart.
+
+A cancel execution listener arrived with cluster 8.10. The 8.8 and 8.9 lines of this adapter can tell a
+served listener of a Camunda-managed user task about a cancellation and no other element, and the boot
+of a workflow module whose listeners are served names the listeners which hear none.
 
 A `@TaskId` parameter is refused while the process is wired. The cluster completes a listener job
 the moment the method returns, so such a task can never stay open and the id would complete nothing.

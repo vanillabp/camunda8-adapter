@@ -800,11 +800,11 @@ process, and under `use-prefix` the listener's job type is prefixed like every o
 of the workflow module, because that is what it is. Version 1 wired its listeners privately and had
 neither direction.
 
-The event is part of a listener's identity, because one method serves one event of one element.
-`@TaskEvent` tells such a method nothing: `TaskEvent.Event` has `CREATED`, `CANCELED` and `ALL`, and a
-listener's own event is none of those. What the parameter receives is therefore `CREATED` for every
-listener, which is the only value that works at all, since a method without the parameter subscribes
-to `CREATED` alone. Two listeners of one element under ONE job type end the boot naming both: one
+The event is part of a listener's identity, because one method serves one event of one element. What
+`@TaskEvent` receives is therefore `CREATED` for every listener, which is the only value that works at
+all, since a method without the parameter subscribes to `CREATED` alone. What a method hears when the
+element is CANCELED is decided by entry 32, which supersedes this paragraph in that one. Two
+listeners of one element under ONE job type end the boot naming both: one
 method would serve two events and nothing it could ask would say which one it is in. Two listeners of
 one element under different job types are fine, and a method then has to name the job type, because
 `@WorkflowTask(id = ...)` names the element and cannot tell them apart. A method declaring `@TaskId`
@@ -1031,3 +1031,66 @@ saying so, and the issue stays open. A green night is not a fix: the defect name
 this entry lost a workflow in about one run out of four, so three nights out of four that line was
 green. Closing would also mean that the next red night opens a second issue, and one break would
 end up spread over several. The person who merged the fix is the one who closes it.
+
+### 32. A served listener gets a cancel listener of VanillaBP's own, and the release line says which elements can have one
+
+This supersedes the paragraph of decision 27 about what `@TaskEvent` receives. The rest of that entry
+stays as it is.
+
+A listener fires at the moment the modeller picked and at no other. An element taken away by an
+interrupting boundary event or by a terminating end event never reaches that moment, so the method
+serving the listener is never told that the work it was waiting for is gone. Version 1 had the same
+hole and said nothing about it.
+
+`TaskEvent.Event` is not widened for this. A listener is a construct no BPMS promises the same way:
+Camunda 7 knows `start`, `end` and `take` on an execution listener, Camunda 8 knows `creating`,
+`assigning`, `updating`, `completing` and `canceling` on a task listener, and a common set over the
+two would be a promise VanillaBP cannot keep, with every new event of a BPMS forced onto a value which
+does not mean it. So a listener knows the two events `TaskEvent.Event` already has. `CREATED` is the
+modelled listener firing, whichever moment it is, and the event a method really wants is in the model:
+one listener per event, one method per listener. `CANCELED` is the element going away.
+
+VanillaBP writes the second listener itself, while the process is wired, one per served listener and
+carrying the SAME job type. One listener with one job and one method, exactly as everywhere else in this
+adapter, and the method which already serves the listener is the method which hears the cancellation.
+The alternative was one job fanning out over every listener of the element, which would have put
+`retries="0"` in front of somebody else's method, needed a delivery key per fanned-out call and a job
+timeout covering all of them. Order in a model counts within one listener event and nowhere else, so
+the added listeners move nothing a modeller wrote.
+
+A listener the modeller put on the cancel moment itself gets none. Such a method hears the moment
+through its own listener, as `CREATED`, and a second report would be the same moment twice. A modelled
+`completing` listener does get `CANCELED`, and that is meant: it waits for the task to finish, and the
+answer is that it never will.
+
+The cancel listener carries `retries="0"`. The cluster holds the element while the job runs, so a
+retry loop would hold the cancellation with it, and with no attempt left the first failure raises the
+incident an operator can act on. It costs one method and no other, which is what the listener per
+method buys.
+
+What can be written depends on the element and on the release line. A Camunda-managed user task
+carries a `canceling` task listener on every line. Every other element needs a `cancel` execution
+listener, which the cluster has from 8.10 on. `Camunda8CancelListeners` is therefore a per-line class,
+which is the first case where a line decides what this adapter can DO rather than how it says
+something, and it carries the writing half and the reading half together because both name a client
+constant the older lines do not have. The offer stays identical across the lines: the boot of a
+workflow module whose listeners are served names the listeners which hear no cancellation on this
+line, so the gap is read at startup instead of being found in production.
+
+A cancellation completes carrying nothing. That falls out of decision 1 rather than being a rule of
+its own: only an execution listener on `end` carries values, and a canceled element has no gateway
+behind it to decide on them.
+
+`Camunda8CancelListenersTest` holds which element gets a listener and which does not,
+`Camunda8CancelListenersOfAnElementTest` what each line writes for an element other than a user
+task, and `Camunda8ModelledListenerHandlerTest` that a cancellation arrives as `CANCELED` and that a
+job with no retry left is failed with none.
+
+What those tests prove about 8.10 is the model and the client: the alpha client of that line accepts
+the listener in a model and names the event of such a job. That a cluster of the line really runs the
+listener when an element is canceled has not been measured here, and an integration test of the
+spring-boot module against an 8.10 cluster is what would measure it. Until that test exists, a line
+which stops running the listener would show up as a workflow which is canceled without a word, and
+nothing in this repository would turn red.
+
+See [Listeners somebody modelled](./README.md#listeners-somebody-modelled).
