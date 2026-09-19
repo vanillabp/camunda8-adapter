@@ -1245,6 +1245,28 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // module releasing its delivery records on workflow end wants for every process it
     // deploys: the worker answering that listener's job reads the aggregate-ID variable,
     // so a listener without one would stop the workflow at its own end
+    // the element id the probe of awarenessOfWorkflow reserved for itself: it asks the
+    // engine by sending a modification which names an element no model has, and an id which
+    // by accident matches one WOULD BE ACTIVATED instead of refused. So the models are read
+    // for it here, where they are deployed, and the probe stays away from such a process
+    if (Camunda8TaskWiring.carriesTheReservedProbeElement(model)) {
+      log
+          .warn(
+              "Camunda8[{}]: the model of BPMN process '{}' (file '{}', workflow module '{}') carries "
+                  + "the element id '{}', which this adapter reserved for the probe asking the engine "
+                  + "whether it holds a workflow. That probe is not sent for this process, so an "
+                  + "extension asking where one of its workflows is waits for the search as it did "
+                  + "before. Renaming the element gives the process the faster answer back.",
+              adapterId,
+              bpmnProcessId,
+              filename,
+              workflowModuleId,
+              Camunda8TaskWiring.RESERVED_PROBE_ELEMENT_ID);
+      clientFactory
+          .getDeployedProcesses()
+          .recordTheReservedProbeElement(workflowModuleId, bpmnProcessId);
+    }
+
     final var theWorkflowCanBeNamed = aggregateIdNameOf(workflowModuleId, bpmnProcessId) != null;
     final var theEndIsReported = (workflowEndedInvoker != null) && workflowEndedInvoker
         .workflowEndedHandlerExists(workflowModuleId, bpmnProcessId) && theWorkflowCanBeNamed;

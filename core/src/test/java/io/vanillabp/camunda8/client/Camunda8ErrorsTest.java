@@ -468,4 +468,31 @@ public class Camunda8ErrorsTest {
 
   }
 
+  @Test
+  @DisplayName("A command refused about an instance the engine holds is told from one it forgot")
+  public void aRefusalAboutAnInstanceIsToldFromAForgottenKey() {
+
+    // the modification of the probe names an element the model does not have
+    assertTrue(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(400, "INVALID_ARGUMENT")));
+    assertTrue(
+        Camunda8Errors
+            .refusedAboutAnInstanceItHolds(new ClientStatusException(Status.INVALID_ARGUMENT, null)));
+    // and the business id assignment meets an instance which already carries one
+    assertTrue(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(409, "INVALID_STATE")));
+    assertTrue(
+        Camunda8Errors
+            .refusedAboutAnInstanceItHolds(new ClientStatusException(Status.FAILED_PRECONDITION, null)));
+    // a key the engine does not hold is the other answer, and it stays the other answer
+    assertFalse(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(404)));
+    assertFalse(
+        Camunda8Errors.refusedAboutAnInstanceItHolds(new ClientStatusException(Status.NOT_FOUND, null)));
+    // an expired token and a missing permission are refusals which say nothing about the
+    // instance, which is why the codes are spelled out rather than read as "not a 404"
+    assertFalse(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(401)));
+    assertFalse(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(403)));
+    assertFalse(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(503)));
+    assertFalse(Camunda8Errors.refusedAboutAnInstanceItHolds(new IllegalStateException("connection reset")));
+
+  }
+
 }

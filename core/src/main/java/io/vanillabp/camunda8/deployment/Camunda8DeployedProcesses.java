@@ -171,6 +171,50 @@ public class Camunda8DeployedProcesses {
 
   }
 
+  /**
+   * The BPMN processes whose model carries the element id this adapter reserved for the
+   * probe which asks the engine whether it holds an instance. Empty in every installation
+   * which did not happen to pick that id.
+   */
+  private final Set<String> carryingTheReservedProbeElement = ConcurrentHashMap.newKeySet();
+
+  /**
+   * Records that a model carries the element id the probe of
+   * {@code Camunda8ProcessService#awarenessOfWorkflow} reserved for itself.
+   * <p>
+   * The probe asks the engine by sending a modification which names an element no model
+   * has, so the cluster refuses it and the refusal IS the answer. An element id which by
+   * accident matches one of the model would be ACTIVATED instead, which is a change to a
+   * running workflow nobody asked for. So the models are read for it while they are
+   * deployed, and a process which carries it gets no probe.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The PLAIN BPMN process id
+   */
+  public void recordTheReservedProbeElement(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    carryingTheReservedProbeElement.add(key(workflowModuleId, bpmnProcessId));
+
+  }
+
+  /**
+   * Whether the model of that process carries the reserved element id, which is what
+   * keeps the probe away from it.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The PLAIN BPMN process id
+   * @return Whether the probe must not be sent for a workflow of that process
+   */
+  public boolean carriesTheReservedProbeElement(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    return carryingTheReservedProbeElement.contains(key(workflowModuleId, bpmnProcessId));
+
+  }
+
   private static String key(
       final String workflowModuleId,
       final String bpmnProcessId) {

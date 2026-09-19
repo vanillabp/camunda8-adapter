@@ -1,8 +1,8 @@
 package io.vanillabp.camunda8.springboot.it;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
@@ -153,21 +153,33 @@ public class Camunda8WorkflowCanceledIT {
   /**
    * The process instance key of the workflow of that aggregate, read from the job the
    * application is holding open.
+   * <p>
+   * The read goes through the search, which an exporter feeds asynchronously, so it waits
+   * for the job to turn up rather than reading once.
    */
   private long theInstanceOf(
       final Long aggregateId) throws Exception {
 
-    final var job = clientFactoryRegistry
-        .getFactory("c8")
-        .getClient()
-        .newJobSearchRequest()
-        .filter(filter -> filter.jobKey(Long.parseLong(openTaskOf(aggregateId))))
-        .send()
-        .join()
-        .items();
-    assertNotNull(job, "the cluster answers about the job the application holds open");
-    assertEquals(1, job.size(), "one job of that key");
-    return job.getFirst().getProcessInstanceKey();
+    final var instanceKey = new AtomicLong(0L);
+    awaitUntil(
+        () -> {
+          final var jobs = clientFactoryRegistry
+              .getFactory("c8")
+              .getClient()
+              .newJobSearchRequest()
+              .filter(filter -> filter.jobKey(Long.parseLong(openTaskOf(aggregateId))))
+              .send()
+              .join()
+              .items();
+          if (jobs.isEmpty()) {
+            return Boolean.FALSE;
+          }
+          instanceKey.set(jobs.getFirst().getProcessInstanceKey());
+          return Boolean.TRUE;
+        },
+        60000,
+        "the search to report the job the application holds open");
+    return instanceKey.get();
 
   }
 

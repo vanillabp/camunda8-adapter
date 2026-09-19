@@ -1009,6 +1009,32 @@ public class Camunda8AdapterConfiguration {
   }
 
   /**
+   * Whether the business id an instance of this cluster carries is one this adapter wrote.
+   * <p>
+   * Read by the probe which asks the engine whether it holds an instance
+   * ({@code Camunda8ProcessService#awarenessOfWorkflow}). Where the answer is yes and the
+   * release line has the command, the probe sends the business id assignment, which such an
+   * instance refuses with <code>409</code> and which therefore writes nothing at all.
+   * Everywhere else it sends the process instance modification, which is refused just as
+   * cleanly and needs neither 8.10 nor a business id.
+   * <p>
+   * The answer is <code>false</code> until this adapter writes that id, which is a story of
+   * its own. It is asked here rather than assumed, because the trap the assignment carries
+   * is exactly the case the answer rules out: an instance which carries NO business id
+   * accepts the assignment, and then a probe has written a value into a field the
+   * application may have wanted for something else, which cannot be undone. So the
+   * assignment is sent only where this adapter put its own id there in the first place. Why
+   * is decision 35 in the repository's DECISIONS.md.
+   *
+   * @return Whether the business id of an instance is this adapter's to write
+   */
+  public boolean writesTheBusinessIdOfAnInstance() {
+
+    return false;
+
+  }
+
+  /**
    * Validates the shutdown grace of this adapter instance - AT STARTUP, because what it
    * decides happens when nobody is watching. A negative value is a typo and fails the boot;
    * a value which does not fit into the shutdown budget of the runtime is legitimate but

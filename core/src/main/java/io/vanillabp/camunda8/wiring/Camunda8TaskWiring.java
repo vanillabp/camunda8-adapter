@@ -169,6 +169,37 @@ public final class Camunda8TaskWiring {
   }
 
   /**
+   * The element id this adapter reserved for the probe which asks the engine whether it
+   * holds a process instance.
+   * <p>
+   * The probe is a process instance modification naming an element the model does not have:
+   * the cluster refuses it and the refusal is the answer, so nothing about the workflow
+   * changes. An id which by accident matches an element of the model would be ACTIVATED
+   * instead, which is a change to a running workflow nobody asked for - so the models are
+   * read for it while they are deployed and a process which carries it gets no probe, see
+   * decision 35 in the repository's DECISIONS.md.
+   */
+  public static final String RESERVED_PROBE_ELEMENT_ID = "vanillabp-existence-probe";
+
+  /**
+   * Whether the given model carries the element id
+   * {@link #RESERVED_PROBE_ELEMENT_ID reserved for the probe}.
+   * <p>
+   * The whole FILE is read rather than the one process: a file is the deployment unit, an
+   * id is unique within it, and being one process too careful costs a search where being
+   * one too few costs a modification of a running workflow.
+   *
+   * @param model The BPMN model
+   * @return Whether anything in it carries the reserved id
+   */
+  public static boolean carriesTheReservedProbeElement(
+      final BpmnModelInstance model) {
+
+    return model.getModelElementById(RESERVED_PROBE_ELEMENT_ID) != null;
+
+  }
+
+  /**
    * The version tag the modeller gave the process
    * (<code>zeebe:versionTag</code>) - the name a
    * <code>&#64;WorkflowTask(version = "release-2026")</code> refers to.

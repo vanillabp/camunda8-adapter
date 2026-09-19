@@ -2247,7 +2247,29 @@ probe cannot: a workflow started moments ago is not searchable yet, and reportin
 `UNKNOWN_TO_BPMS` would make the core raise `WorkflowNotFoundException` with causes that all
 do not apply.
 
-The adapter reports a window instead
+**Where VanillaBP holds the cluster's own key of the workflow, the ENGINE is asked before
+the search.** Measured on 8.10.0-alpha5, 8.9.19 and 8.8.37: the create answered after 10 ms,
+the engine said "this instance exists" after 16 to 19 ms, and the search found it after 167
+to 1324 ms. The key arrives with the election, and the question is a command the engine
+REFUSES for an instance it holds, so the cluster writes no state: a process instance
+modification naming the element id `vanillabp-existence-probe`, which no model has, or, once
+this adapter writes the business id of an instance and the line has the command, the business
+id assignment. Which of the two and why is decision 35 in the repository's DECISIONS.md.
+
+The probe shortens the YES and nothing else. The engine forgets an instance the moment it
+ends, so a key it does not hold covers a completed workflow, a canceled one and a key which
+never existed alike, and only the search tells those apart. Every answer but "the engine holds
+it" falls through to the search below, unchanged, and so does a probe which could not be sent
+at all - an unreachable engine says nothing about whether the workflow is young. A model which
+happens to carry the reserved element id is found while it is deployed, the boot names it, and
+no probe is sent for a workflow of that process.
+
+Nothing is asked on a cluster this adapter SHARES with another adapter id. An instance key is
+unique per cluster and names no scope, and the election hands the same key to every adapter of
+its list, so the probe would answer about the other one's instance and end the election at the
+wrong adapter. There the search, which filters by scope, is the whole answer as before.
+
+The adapter reports a window for the rest
 (`workflowVisibilityDelay()`, configured as
 `vanillabp.adapters.<id>.workflow-visibility-timeout`, default 10 seconds, zero switches it
 off), and the core keeps asking for that long - but only while probing an adapter its
@@ -2263,7 +2285,8 @@ altogether. The alternative - asking the phase-two outbox whether a start for th
 is open or was just dispatched - was weighed and dropped; the reasoning is in
 [`migration-adapter/README.md`](https://github.com/vanillabp/adapter-platform-integration/blob/main/migration-adapter/README.md).
 
-The window is `Camunda8LocatingWorkflowsIT`, in `#theProbeFindsTheWorkflow`,
+The engine probe is `Camunda8EngineProbeIT` and `Camunda8EngineBeforeTheSearchTest`. The
+window is `Camunda8LocatingWorkflowsIT`, in `#theProbeFindsTheWorkflow`,
 `#correlatingRightAfterTheStartWorks` and `#theViewerRightAfterTheStartWorks`. The residual of
 the paragraph above is an assumption: it needs an application on several nodes without a shared
 adapter cache, and an operation waiting on a node which never heard of the workflow would
@@ -2312,19 +2335,21 @@ the cluster, and the two listener handlers after their notification. The end of 
 carries the same derivation and is left out here, because the two would report the same
 cancelation twice.
 
-A user task is not a job. The record of a user-task delivery keeps the user-task key, and
-that key handed to a job command answers `NOT_FOUND`, which read as gone would cancel a task
-the cluster is holding open. Where a workflow module carries Camunda-managed user tasks at
-all, a 404 from the job command is therefore followed by the engine command which asks about
-a USER task, and only a key neither of them holds is reported as gone. That second round trip
-is paid where a task turned out to be gone and nowhere else. Those tasks need no probe of
-their own anyway: VanillaBP writes a `canceling` task listener next to every user task it
-manages, and the cluster delivers `CANCELED` for it straight from there.
+A user task is not a job, and the BPMN process decides what that costs. The record of a
+user-task delivery keeps the user-task key, and a job command answers `NOT_FOUND` for such a
+key as long as the task is open, which read as gone would cancel a task the cluster is
+holding out to somebody. Nothing in the question tells the two apart. So where the model of a
+BPMN process carries a Camunda-managed user task, every `NOT_FOUND` of that process is
+answered with "cannot say" and the check reports nothing for it; where it carries none, a
+`NOT_FOUND` is the whole answer. The user tasks themselves need no probe anyway: VanillaBP
+writes a `canceling` task listener next to every user task it manages, and the cluster
+delivers `CANCELED` for it straight from there.
 
-What is left of the deviation is the timing. A workflow which walks into a timer or a message
-wait after the boundary event produces no job, so nothing wakes the application up and the
+Two things are left of the deviation. A workflow which walks into a timer or a message wait
+after the boundary event produces no job, so nothing wakes the application up and the
 cancellation waits for whatever comes next: the next job of that workflow, the end of the
-workflow, or the next operation which names the task.
+workflow, or the next operation which names the task. And a BPMN process which carries a
+Camunda-managed user task is left to those three, for the reason above.
 
 `Camunda8OpenTaskProbeTest` holds the three answers and the user-task case,
 `Camunda8OtherOpenTasksIT` lets a boundary event take one of two open tasks away against a

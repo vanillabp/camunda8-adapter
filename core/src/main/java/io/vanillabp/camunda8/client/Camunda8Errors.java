@@ -185,6 +185,39 @@ public final class Camunda8Errors {
   }
 
   /**
+   * Whether the cluster refused a command ABOUT AN INSTANCE IT HOLDS - the answer which
+   * makes a deliberately refused command a question about whether the engine has that
+   * instance at all.
+   * <p>
+   * An engine addressed by an instance key answers a key it does not hold with
+   * {@link #notFound(Throwable)}, and it forgets an instance the moment it ends. Everything
+   * it refuses for a reason of its own is therefore about an instance it HAS: a
+   * modification naming an element the model does not have is rejected with HTTP
+   * <code>400</code> (on gRPC <code>INVALID_ARGUMENT</code>), and a business id assigned to
+   * an instance which already carries one with HTTP <code>409</code> (on gRPC
+   * <code>FAILED_PRECONDITION</code>).
+   * <p>
+   * The list is spelled out rather than written as "anything which is not a 404", because
+   * an expired token and a missing permission are refusals too and they say nothing about
+   * the instance. Which command is sent and why both of them are refused rather than
+   * carried out is decision 35 in the repository's DECISIONS.md.
+   *
+   * @param throwable What the command about one instance threw
+   * @return Whether the cluster refused it about an instance it holds
+   */
+  public static boolean refusedAboutAnInstanceItHolds(
+      final Throwable throwable) {
+
+    return !notFound(throwable) && anyCauseAnswers(
+        throwable,
+        cause -> ((cause instanceof ClientHttpException http) && ((http.code() == 400) || (http
+            .code() == 409))) || ((cause instanceof ClientStatusException status) && ((status
+                .getStatusCode() == Status.Code.INVALID_ARGUMENT) || (status
+                    .getStatusCode() == Status.Code.FAILED_PRECONDITION))));
+
+  }
+
+  /**
    * Whether the cluster REFUSED a query-API request, which is what a cluster does that
    * cannot be searched at all.
    * <p>

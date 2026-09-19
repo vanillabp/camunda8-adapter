@@ -1208,3 +1208,82 @@ and recognises, `Camunda8WorkflowEndedKindTest` what the handler reports for whi
 instance is canceled.
 
 See [The end of a workflow](./README.md#the-end-of-a-workflow).
+
+### 35. The engine is asked before the search, and the question is a command it refuses
+
+An extension asking where a workflow is waits for the search of `awarenessOfWorkflow`. Measured in
+September 2026 on 8.10.0-alpha5, 8.9.19 and 8.8.37, one container each on an idle machine: the
+create answered after 10 ms, the engine said "this instance exists" after 16 to 19 ms, and the
+search found it after 167 to 1324 ms. After a cancelation the engine said "gone" after 21 to 25 ms
+while the search still read ACTIVE and needed 176 to 2068 ms to turn.
+
+So where VanillaBP holds the process instance key, the engine is asked first. The key arrives
+through the fourth argument of `awarenessOfWorkflow`, which the platform added for exactly this.
+
+**The probe may shorten the YES and nothing else.** The engine forgets an instance the moment it
+ends, so a key it does not hold covers a completed workflow, a canceled one and a key which never
+existed alike. `awarenessOfWorkflow` has to tell `COMPLETED` from `UNKNOWN_TO_BPMS`, because only
+the second lets the election move on to the next BPMS, and a design which read the engine's 404 as
+unknown would send every ended workflow of a migration setup to the wrong BPMS. Every answer but
+"the engine holds it" therefore falls through to the search, unchanged. A probe which cannot answer
+at all - a timeout, a broken connection, a cluster which is not there - is not a 404 and is never
+read as one: it falls through as well, and the search is what reports `BPMS_UNAVAILABLE`. Turning
+an outage into "unknown" is the one failure mode this must not add.
+
+**Which command carries the question.** Two candidates were measured and both are REFUSED by an
+instance the engine holds, which is what makes them a question: the cluster writes no state and an
+operator never finds a modification in the history of a workflow nobody modified.
+
+|              the command              | on which line  |  a live instance  | a key the engine does not hold |
+|---------------------------------------|----------------|-------------------|--------------------------------|
+| modification with one unknown element | every line     | 400               | 404                            |
+| business id assignment                | 8.10 and later | 409 INVALID_STATE | 404                            |
+
+Stephan decided on 2026-09-19 that the probe follows the business id. Where the business id of an
+instance is this adapter's own and the line has the command, the assignment is sent; everywhere
+else the modification. His reason reaches past this entry: Camunda supports three versions at a
+time and VanillaBP follows, so 8.8 and 8.9 fall away in time and the assignment becomes the only
+path which is left. Building it now means the good path is already there when the others go.
+
+The trap that resolves is the one the assignment carries. It is a question only for an instance
+which ALREADY carries a business id. An instance without one ACCEPTS it, and then a probe has
+written a value into a field the application may have wanted for something else, which cannot be
+undone. So the assignment is sent only where this adapter put its own id there in the first place,
+which `Camunda8AdapterConfiguration.writesTheBusinessIdOfAnInstance` answers. Until the story which
+writes that id lands, the answer is `false` and every line sends the modification. What the
+assignment carries is the workflow aggregate's id, so the one case where it is accepted writes the
+value this adapter would have written anyway.
+
+`Camunda8InstanceProbe` is per release line, because `newAssignProcessInstanceBusinessIdCommand`
+does not exist in the client of 8.8 or 8.9.
+
+**Nothing is asked on a shared cluster.** An instance key is unique per CLUSTER and names no
+scope, which is decision 3, and the election hands the same key to every adapter of its
+prioritized list. So where two `camunda8` adapter ids address one cluster, this probe would be
+asked about the other one's instance, answer `ACTIVE` and end the election at the wrong adapter.
+The probe is therefore skipped wherever `sharesItsCluster` is true, and the search, which filters
+by scope, answers as it did before. The everyday installation with one Camunda 8 adapter keeps the
+short path, because there that question is false anyway.
+
+**The reserved element id.** The modification is a question because it names an element the model
+does not have. An id which by accident matched one of the model would be ACTIVATED instead of
+refused, which is a change to a running workflow nobody asked for. The id is therefore
+`vanillabp-existence-probe`, and every model is read for it while it is deployed: a file which
+carries it gets a warning naming the process, and no probe is sent for a workflow of that process -
+such an election waits for the search the way it did before.
+
+**What this entry deliberately does not do.** The measurement says the long window is worth
+shortening as well: `WorkflowLocator.probeUntilVisible` waits ten seconds in steps of 250 ms for an
+answer which is `UNKNOWN_TO_BPMS`, which after a 404 from the engine means a workflow which ended,
+and neither of those gets better by waiting. Shortening it needs `workflowVisibilityDelay()` to
+learn about the workflow being asked about, and that method takes no arguments. The platform half
+which would have added the overload was not built, so this adapter ships the ACTIVE half alone and
+the shortened window waits for a story of its own. Nothing here has to change for it: the two
+numbers live in `Camunda8AdapterConfiguration` and the probe already knows the answer that story
+needs.
+
+`Camunda8EngineBeforeTheSearchTest` holds the mapping of every answer and the process the probe
+stays away from, `Camunda8ErrorsTest` the codes, and `Camunda8EngineProbeIT` runs all of it against
+a cluster on every line.
+
+See [Eventual consistency of the query API](./README.md#eventual-consistency-of-the-query-api).
