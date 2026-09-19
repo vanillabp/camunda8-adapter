@@ -8,7 +8,6 @@ name: Publish to GitHub Packages
 # the shared 2.0.0-SNAPSHOT in the registry, so whoever pushed last decided what the
 # other repositories compiled against.
 "on":
-  pull_request:
   push:
     branches:
       - main

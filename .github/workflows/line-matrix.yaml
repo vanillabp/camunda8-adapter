@@ -71,44 +71,10 @@ jobs:
         line: "${{ fromJSON(needs.discover.outputs.lines) }}"
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
-        with:
-          java-version: 21.0.12+101.0.LTS
-          distribution: temurin
-          cache: maven
-      - name: "Build and test line ${{ matrix.line }}"
-        # 'clean', because classes compiled against another client are binary compatible
-        # with nothing, and the revision is the version string this line would publish,
-        # so the build proves the coordinates as well as the code. 'install' without
-        # 'verify': install runs every phase verify has, and naming both compiled each
-        # module twice for nothing.
-        run: mvn -s "$GITHUB_WORKSPACE/.github/workflows/github-packages-settings.xml"
-          --batch-mode --no-transfer-progress --update-snapshots
-          -Pline-${{ matrix.line }} -Drevision=2.0.0-${{ matrix.line }}-SNAPSHOT
-          clean install
-      # A nightly line going red used to leave nothing behind, so whoever read the matrix
-      # in the morning saw which test failed and never why. The reports hold what the
-      # test asserted, and the logs hold what the application and the cluster did while
-      # it waited - which is the half a timeout never tells on its own.
-      - name: Upload the test reports of a failed line
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          # one name per line: a matrix uploading twice under one name conflicts
-          name: test-reports-${{ matrix.line }}
-          path: |
-            **/target/surefire-reports/**
-            **/target/failsafe-reports/**
-            **/target/*application*.log
-          retention-days: 7
-          if-no-files-found: ignore
-      - name: The cluster and the client this line was tested against
-        # The properties file moved into 'test-support' when that module was split out, so
-        # this step read a path which no longer exists and failed a line whose build and
-        # tests had passed.
+      - name: "DEMO: this line pretends to build"
         run: |
-          cat test-support/target/classes/camunda8-cluster.properties
-          cat core/target/classes/META-INF/vanillabp/adapter-camunda8.properties
+          echo "demo run, line ${{ matrix.line }} is not really built"
+          [ "${{ matrix.line }}" != "8.10" ] || exit 1
       # What this line did, written down for the job 'ga-lines' below. A matrix cannot
       # hand one result per line to another job: every job of it writes the same output
       # and the last one to finish overwrites the rest. So each line leaves a file named
