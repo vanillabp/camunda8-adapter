@@ -236,9 +236,12 @@ One pull request pays for every line anyway: the one which moves a client pin. A
 line 8.9 never compiles the pin of 8.8, so the change nobody built is exactly the one being
 proposed. `checks.yaml` notices a pin among the lines a pull request adds or removes and calls
 the matrix, and the result reports as `line-pins-verified`, which is green without a matrix run
-when no pin moved. Only the added and removed lines count: a diff carries three lines of context
-around every hunk, so reading all of it made every change near a pin buy the whole matrix. This
-is what a client patch merging itself rests on.
+when no pin moved. That check reads the GA lines of the matrix. The preview line builds there too
+and its job is on the pull request to read, but a defect of the alpha it is built against does not
+hold a pull request. The night and the release still wait for every line. Only the added and
+removed lines count: a diff carries three lines of context around every hunk, so reading all of
+it made every change near a pin buy the whole matrix. This is what a client patch merging itself
+rests on.
 
 A night which goes red does not stay buried in the list of runs. `release-lines-issue.yaml` opens
 one issue per red line, labelled `release-lines` and titled after the line, and comments on that

@@ -24,9 +24,33 @@ name: Client API changes
 "on":
   workflow_call:
   pull_request:
-    # 'labeled' as well, so a Renovate pull request which gets its label after it was
-    # opened still runs this
-    types: [opened, synchronize, labeled]
+    # 'labeled' stood here as well, so that a Renovate pull request which gets its label
+    # after it was opened still runs this. It was never needed: what selects a pull
+    # request is the pin in the POM, see above, and the pin is there from the first
+    # commit. What the trigger did do was start this once per label, and Renovate adds
+    # several: the pull request which raised the 8.8 pin in September 2026 ran this four
+    # times for one commit, and the four runs raced over the comment below.
+    types: [opened, synchronize]
+concurrency:
+  # One run of this per pull request, and the newest run wins. An older run answers about
+  # a commit nobody will merge, and two runs at once used to write the comment twice:
+  # each of them looks for a comment of its own to rewrite, and at that moment neither
+  # comment is there yet.
+  #
+  # This group cancels, and the publish group of deploy-to-github-packages.yaml does not.
+  # What that one protects is work which cannot be repeated, a snapshot half uploaded.
+  # The work here is an answer about one commit. The newest run is never the one that is
+  # cancelled, so the pull request always ends up with an answer, and with the answer for
+  # the commit somebody is about to merge.
+  #
+  # A caller in another repository may be grouped along with it, because a called
+  # workflow runs inside the caller's run, and GitHub documents nothing about what a
+  # group written here does there. Either way it costs nothing:
+  # businesscockpit-camunda8-adapter calls this from a workflow which holds this one job
+  # and nothing else, so a run cancelled there loses a repeat of this answer and the
+  # newer run gives it again.
+  group: client-api-changes-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
   pull-requests: write
