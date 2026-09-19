@@ -4,6 +4,18 @@ name: Checks
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  # One run of the checks per pull request, and the newest run wins. A pull request which
+  # moves a pin starts the whole line matrix here, which is the most expensive thing this
+  # repository runs, and the run of a commit which has been pushed over answers a question
+  # nobody will ask again.
+  #
+  # Cancelling is right here and wrong for the publish group of
+  # deploy-to-github-packages.yaml. A publish which was stopped halfway cannot be
+  # repeated, a check can. GitHub takes the older runs of a group and never the one which
+  # just arrived, so 'line-pins-verified' reports for the commit somebody will merge.
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
 env:
   # The VanillaBP artifacts are 2.0.0-SNAPSHOT and live in GitHub Packages until the
   # release. Reading them needs a token, see github-packages-settings.xml.
