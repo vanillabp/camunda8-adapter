@@ -800,10 +800,11 @@ process, and under `use-prefix` the listener's job type is prefixed like every o
 of the workflow module, because that is what it is. Version 1 wired its listeners privately and had
 neither direction.
 
-The event is part of a listener's identity, because one method serves one event of one element. What
-`@TaskEvent` receives is therefore `CREATED` for every listener, which is the only value that works at
-all, since a method without the parameter subscribes to `CREATED` alone. What a method hears when the
-element is CANCELED is decided by entry 32, which supersedes this paragraph in that one. Two
+The event is part of a listener's identity, because one method serves one event of one element.
+`@TaskEvent` tells such a method nothing: `TaskEvent.Event` has `CREATED`, `CANCELED` and `ALL`, and a
+listener's own event is none of those. What the parameter receives is therefore `CREATED` for every
+listener, which is the only value that works at all, since a method without the parameter subscribes
+to `CREATED` alone. Entry 32 replaced this paragraph for one release and entry 33 put it back. Two
 listeners of one element under ONE job type end the boot naming both: one
 method would serve two events and nothing it could ask would say which one it is in. Two listeners of
 one element under different job types are fine, and a method then has to name the job type, because
@@ -1034,8 +1035,12 @@ end up spread over several. The person who merged the fix is the one who closes 
 
 ### 32. A served listener gets a cancel listener of VanillaBP's own, and the release line says which elements can have one
 
-This supersedes the paragraph of decision 27 about what `@TaskEvent` receives. The rest of that entry
-stays as it is.
+Superseded by decision 33. The construct this entry rests on cannot sit on an activity, so what it
+describes was never deployable and it was taken out again. The entry stays because a reader of the
+code and of its history has to be able to find out what was tried.
+
+This superseded the paragraph of decision 27 about what `@TaskEvent` receives. The rest of that entry
+stayed as it was.
 
 A listener fires at the moment the modeller picked and at no other. An element taken away by an
 interrupting boundary event or by a terminating end event never reaches that moment, so the method
@@ -1092,5 +1097,51 @@ listener when an element is canceled has not been measured here, and an integrat
 spring-boot module against an 8.10 cluster is what would measure it. Until that test exists, a line
 which stops running the listener would show up as a workflow which is canceled without a word, and
 nothing in this repository would turn red.
+
+See [Listeners somebody modelled](./README.md#listeners-somebody-modelled).
+
+### 33. A cancel listener on the element is nothing the cluster takes, so a served listener hears CREATED again
+
+This supersedes decision 32 and puts the paragraph of decision 27 about what `@TaskEvent` receives
+back in force.
+
+Decision 32 had VanillaBP write a `cancel` execution listener beside every served listener, on the
+element the listener sits on. Camunda does not take it there. The 8.10 documentation lists the event
+type under the limitations of execution listeners: "`cancel`: Supported only on the process element."
+A cluster of that line says the same when it reads the model:
+
+```
+'listener-process.bpmn': - Element: Activity_Work > extensionElements > executionListeners
+    - ERROR: The 'cancel' execution listener event type is not supported for the 'serviceTask' element.
+      The 'cancel' event type is only supported on the 'process' element.
+```
+
+That is not a defect of the alpha and no patch of the line will change it. The event type answers
+a different question from the one decision 32 asked. The same page says what such a listener does when it
+fires: "Cancel listeners run when a process instance is terminated. They execute sequentially after
+all child elements have terminated and before the process reaches its final terminated state." It
+reports that the INSTANCE is gone, not that one element was taken away.
+
+Nothing of the design survives the move to the process element. It rested on one listener per served
+listener, each carrying the job type of the method which serves it, and a process element has one
+place to hang a listener on and no job type of its own. Such a listener would also fire for a
+terminated instance alone, which is one of the ways an element goes away and not the everyday one.
+So the design is removed rather than bent into a shape it was never meant for.
+
+The `canceling` task listener which decision 32 wrote beside a served listener of a Camunda-managed
+user task goes with it, although that half deploys on every line. Half an answer costs more than a
+gap somebody named: a method would hear `CANCELED` for a user task and nothing for the element next
+to it, and no rule a developer could read would tell the two apart. The `canceling` listener VanillaBP
+writes for a user task of its own is untouched. It is older than decision 32 and it still delivers
+`CANCELED` for that task.
+
+So a served listener is back where decision 27 left it. `@TaskEvent` receives `CREATED` whenever the
+modelled listener fires, whichever moment the modeller picked for it, and a listener the modeller put
+on the cancel moment is served as `CREATED` like any other. An element taken away by an interrupting
+boundary event or by a terminating end event tells a served method nothing, and the startup report
+says that out loud again.
+
+What replaces it is designed in the stories which follow this one, and both of them start at the
+process element, because that is where the cluster has the construct.
 
 See [Listeners somebody modelled](./README.md#listeners-somebody-modelled).

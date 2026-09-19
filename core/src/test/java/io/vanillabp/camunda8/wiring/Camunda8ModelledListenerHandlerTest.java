@@ -39,9 +39,9 @@ import io.vanillabp.spi.service.TaskEvent;
  * rests on a different reason: an execution listener on <code>end</code> writes into the
  * process instance like a task, an execution listener on <code>start</code> writes nothing
  * because its values would be local to the element, and a task listener writes nothing because
- * the cluster refuses the payload. The event a method is told is pinned too: the modelled listener
- * firing is CREATED, whichever moment the modeller picked for it, and the cancellation of the
- * element is CANCELED.
+ * the cluster refuses the payload. The event a method is told is pinned too: a method without a
+ * <code>@TaskEvent</code> parameter subscribes to CREATED alone, so CREATED is the only value
+ * which reaches such a method at all.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8ModelledListenerHandlerTest {
@@ -117,8 +117,8 @@ public class Camunda8ModelledListenerHandlerTest {
     assertEquals(
         TaskEvent.Event.CREATED,
         context.getTaskEvent(),
-        "the modelled listener fired, and which moment that is stands in the wiring: one method "
-            + "serves one event of one element");
+        "the only value a method without a @TaskEvent parameter is called for, and the event itself "
+            + "is in the wiring: one method serves one event of one element");
     assertEquals("42", context.getWorkflowAggregateId());
     assertEquals("7", context.getProcessVersion(), "the cluster ships it with the job");
     assertEquals("4711", context.getDeliveryId(), "one listener event is one job");
@@ -128,29 +128,12 @@ public class Camunda8ModelledListenerHandlerTest {
   }
 
   @Test
-  @DisplayName("A canceling task listener tells the method CANCELED")
-  public void aCancelingTaskListenerIsACancellation() {
-
-    final var context = deliver(
-        listenerJob("archiveTheOrder", JobKind.TASK_LISTENER, ListenerEventType.CANCELING),
-        NameClashAvoidance.NONE,
-        WorkflowTaskOutcome.completed());
-
-    assertEquals(
-        TaskEvent.Event.CANCELED,
-        context.getTaskEvent(),
-        "the cancel listener VanillaBP writes beside the modelled one carries the same job type, "
-            + "so it arrives at the same method");
-
-  }
-
-  @Test
   @DisplayName("A failing job with no retry left is failed with none, not with a negative number")
   public void aJobWithoutRetriesRaisesTheIncidentRightAway() {
 
-    final var job = listenerJob("archiveTheOrder", JobKind.TASK_LISTENER, ListenerEventType.CANCELING);
-    // what the cancel listener VanillaBP writes carries: the cluster holds the element while the
-    // job runs, so there is no attempt to spend and no backoff to wait for
+    final var job = listenerJob("archiveTheOrder");
+    // a listener the modeller wrote with retries="0": there is no attempt to spend and no
+    // backoff to wait for, so the first failure has to raise the incident
     when(job.getRetries()).thenReturn(0);
     final var invoker = mock(WorkflowTaskInvoker.class);
     when(invoker.resolveWorkflowAggregateIdName(anyString(), anyString())).thenReturn("id");

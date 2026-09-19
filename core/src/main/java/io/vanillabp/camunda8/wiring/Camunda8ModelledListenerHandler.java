@@ -32,19 +32,15 @@ import lombok.extern.slf4j.Slf4j;
  * wiring validation asked for one, and there is no user task to complete - so the two
  * handlers share the commands they send rather than a class.
  *
- * <h2>What the method is told</h2>
+ * <h2>What the method is told, and what it is not</h2>
  *
- * A listener knows two events. {@link TaskEvent.Event#CREATED} is the modelled listener
- * firing, whichever moment the modeller picked for it, because the wiring made one task of one
- * listener and the method therefore serves one moment of one element and cannot be in doubt
- * about which. {@link TaskEvent.Event#CANCELED} is the element being taken away, reported
- * through the cancel listener VanillaBP writes beside the modelled one
- * ({@code Camunda8TaskWiring#addCancelListenersFor}). Both arrive at the same method, because
- * both listeners carry the same job type.
- * <p>
- * A method without a {@code @TaskEvent} parameter subscribes to CREATED alone, so it keeps
- * serving the modelled listener and never hears a cancellation. That is what the core does for
- * every task and it is why CREATED is the value the modelled listener itself gets.
+ * The event is part of the listener's identity: the wiring made one task of one listener, so
+ * the method serves one event of one element and cannot be in doubt about which. What
+ * {@code @TaskEvent} receives is therefore {@link TaskEvent.Event#CREATED} for every
+ * listener, and that is the only value which works: a method without a
+ * {@code @TaskEvent} parameter subscribes to CREATED alone, so any other value would leave
+ * such a method silently uncalled. {@code TaskEvent.Event} has no value for a listener's own
+ * event, which the startup report says out loud.
  *
  * <h2>What the completion carries</h2>
  *
@@ -220,8 +216,8 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
    * One attempt is spent by the delivery which just failed, so what is left is one less than
    * what arrived. A job with nothing left is failed with nothing left and no backoff: the
    * incident is raised right away, there is no next attempt to delay, and a negative number
-   * would be a command the cluster refuses. That is the ordinary state of the cancel listener
-   * VanillaBP writes, which carries no retries at all.
+   * would be a command the cluster refuses. A listener modelled with {@code retries="0"} is in
+   * that state on its first delivery.
    *
    * @param job The listener job
    * @param bpmnProcessId The plain BPMN process id
@@ -245,27 +241,6 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
   }
 
   /**
-   * What the job which arrived says about the element the listener sits on.
-   *
-   * @param job The listener job
-   * @return {@link TaskEvent.Event#CANCELED} where the job is a cancellation, CREATED otherwise
-   */
-  static TaskEvent.Event whatHappenedToTheElement(
-      final ActivatedJob job) {
-
-    if ((job.getKind() == JobKind.TASK_LISTENER) && (job.getListenerEventType() == ListenerEventType.CANCELING)) {
-      return TaskEvent.Event.CANCELED;
-    }
-    // a cancel execution listener exists from release line 8.10 on, which is why the question
-    // is asked per line
-    if (Camunda8CancelListeners.isCancellationOfAnElement(job)) {
-      return TaskEvent.Event.CANCELED;
-    }
-    return TaskEvent.Event.CREATED;
-
-  }
-
-  /**
    * The variables the completion of this listener job carries, which depends on the kind of
    * listener and on its event.
    * <p>
@@ -274,10 +249,6 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
    * transaction committed, plus the aggregate-ID variable (see decision 1 in the repository's
    * DECISIONS.md). The other two carry nothing, for two different reasons - a local scope
    * which would swallow the element's own writes, and a cluster which refuses the payload.
-   * <p>
-   * A cancellation carries nothing either, and it falls out of the same question: the element
-   * is being taken away, so there is no gateway behind it to decide on anything the method
-   * wrote.
    * <p>
    * A job whose kind or event the client does not know falls to the empty map. Sending
    * nothing leaves the process instance as it was, while sending into a scope nobody checked
@@ -429,13 +400,6 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
       // the element instance the listener fires for - two listeners of one element share it,
       // and they are two deliveries within one activation
       return String.valueOf(job.getElementInstanceKey());
-
-    }
-
-    @Override
-    public TaskEvent.Event getTaskEvent() {
-
-      return whatHappenedToTheElement(job);
 
     }
 
