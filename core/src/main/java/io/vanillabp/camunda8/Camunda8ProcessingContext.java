@@ -159,6 +159,15 @@ public class Camunda8ProcessingContext {
   private final List<String> workflowEndedProcessesToWire = new LinkedList<>();
 
   /**
+   * The BPMN processes of this module whose cancelation would be reported on a newer
+   * release line, as PLAIN process ids - what the boot says out loud so the gap is read at
+   * startup instead of being found in production. Empty on the line which has the
+   * construct.
+   */
+  @Getter
+  private final List<String> processesWithoutACancelationReport = new LinkedList<>();
+
+  /**
    * The workers opened by startWorkflowProcessing, closed by
    * stopWorkflowProcessing (reverse order).
    */

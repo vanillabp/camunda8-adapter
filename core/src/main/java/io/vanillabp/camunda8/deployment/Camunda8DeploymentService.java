@@ -39,6 +39,7 @@ import io.vanillabp.camunda8.observability.Camunda8Metrics;
 import io.vanillabp.camunda8.wiring.Camunda8AllowConnectorsResolver;
 import io.vanillabp.camunda8.wiring.Camunda8AllowListenersResolver;
 import io.vanillabp.camunda8.wiring.Camunda8BpmsInitiatedStartHandler;
+import io.vanillabp.camunda8.wiring.Camunda8CancelListeners;
 import io.vanillabp.camunda8.wiring.Camunda8ConfiguredTenant;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
@@ -1242,12 +1243,33 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // module releasing its delivery records on workflow end wants for every process it
     // deploys: the worker answering that listener's job reads the aggregate-ID variable,
     // so a listener without one would stop the workflow at its own end
+    final var theWorkflowCanBeNamed = aggregateIdNameOf(workflowModuleId, bpmnProcessId) != null;
     final var theEndIsReported = (workflowEndedInvoker != null) && workflowEndedInvoker
-        .workflowEndedHandlerExists(workflowModuleId, bpmnProcessId) && (aggregateIdNameOf(
-            workflowModuleId,
-            bpmnProcessId) != null);
-    if (theEndIsReported && Camunda8TaskWiring.attachWorkflowEndedListener(model, scopedBpmnProcessId)) {
+        .workflowEndedHandlerExists(workflowModuleId, bpmnProcessId) && theWorkflowCanBeNamed;
+    // and the cancelation of an instance, which the 8.10 line reports through a listener of
+    // its own on the same element and with the same job type. It is worth having for a
+    // process this application serves a task of even where nobody declared a
+    // @WorkflowEnded method: the core reads the tasks it still believes are open in the
+    // instance and reports each of them as canceled, which is the only way an application
+    // on this BPMS hears about them at all
+    final var theCancelationIsReported = Camunda8CancelListeners
+        .theProcessCanReportItsCancellation() && (workflowEndedInvoker != null) && theWorkflowCanBeNamed && (theEndIsReported || servesAnyTaskOf(
+            workflowModuleId, bpmnProcessId, specs));
+    // the listener holds the instance until its job is answered, so both halves are
+    // written only where this adapter opens the worker which answers it. A model carrying
+    // a listener nobody serves turns a cancelation into a workflow which never goes away
+    // and which raises no incident either
+    final var endListenerAttached = theEndIsReported && Camunda8TaskWiring.attachWorkflowEndedListener(model,
+        scopedBpmnProcessId);
+    final var cancelListenerAttached = theCancelationIsReported && Camunda8TaskWiring
+        .attachWorkflowCanceledListener(model, scopedBpmnProcessId);
+    if (endListenerAttached || cancelListenerAttached) {
       context.getWorkflowEndedProcessesToWire().add(scopedBpmnProcessId);
+    }
+    if (!Camunda8CancelListeners
+        .theProcessCanReportItsCancellation() && (workflowEndedInvoker != null) && theWorkflowCanBeNamed && (theEndIsReported || servesAnyTaskOf(
+            workflowModuleId, bpmnProcessId, specs))) {
+      context.getProcessesWithoutACancelationReport().add(bpmnProcessId);
     }
 
     log.info(
@@ -1257,6 +1279,34 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         bpmnProcessId,
         filename,
         workflowModuleId);
+
+  }
+
+  /**
+   * Whether this application serves at least one task of the given BPMN process, which is
+   * what makes the cancelation of an instance worth reporting: only such a process can
+   * leave a task open which the core would then have to cancel.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmnProcessId The plain BPMN process id
+   * @param specs What the model carries, as the core was asked to validate it
+   * @return Whether a <code>&#64;WorkflowTask</code> method serves any of them
+   */
+  private boolean servesAnyTaskOf(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final List<BpmnTaskSpec> specs) {
+
+    if (workflowTaskInvoker == null) {
+      return false;
+    }
+    return specs
+        .stream()
+        .map(BpmnTaskSpec::taskDefinition)
+        .filter(Objects::nonNull)
+        .anyMatch(
+            taskDefinition -> workflowTaskInvoker
+                .workflowTaskHandlerExists(workflowModuleId, bpmnProcessId, taskDefinition));
 
   }
 
@@ -2421,6 +2471,44 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     // and what the listeners somebody modelled cost, the same way
     reportWhatListenersCost(workflowModuleId, bpmsProcessingContext);
+
+    // and what this release line cannot say about an instance which was canceled
+    reportWhatACancelationCannotSay(workflowModuleId, bpmsProcessingContext);
+
+  }
+
+  /**
+   * Says that an instance of this workflow module which is CANCELED tells the application
+   * nothing, which is what every line before 8.10 does.
+   * <p>
+   * The gap is named per workflow module and on every boot, because it stays true for as
+   * long as the application runs on this line: a workflow terminated through the API leaves
+   * the tasks the application believes are open in it open forever, and nothing else in the
+   * running system says so. On 8.10 the list is empty and nothing is written.
+   *
+   * @param workflowModuleId The workflow module
+   * @param context The module's accumulated pipeline state
+   */
+  void reportWhatACancelationCannotSay(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext context) {
+
+    final var processes = context.getProcessesWithoutACancelationReport();
+    if (processes.isEmpty()) {
+      return;
+    }
+    log
+        .warn(
+            "Camunda8[{}]: an instance of workflow module '{}' which is CANCELED reports nothing to "
+                + "the application on release line {}. A 'cancel' execution listener on the process "
+                + "element arrived with 8.10, and it is what lets VanillaBP report the end of a "
+                + "terminated instance and cancel the tasks it still believes are open in it. Until "
+                + "this application runs on a line built against 8.10 or later, those tasks stay "
+                + "open and nothing says why. The BPMN processes it is about: {}.",
+            adapterId,
+            workflowModuleId,
+            Camunda8ReleaseLine.id(),
+            String.join(", ", processes));
 
   }
 

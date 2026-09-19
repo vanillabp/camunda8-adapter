@@ -1145,3 +1145,66 @@ What replaces it is designed in the stories which follow this one, and both of t
 process element, because that is where the cluster has the construct.
 
 See [Listeners somebody modelled](./README.md#listeners-somebody-modelled).
+
+### 34. The process element reports the cancelation of an instance, and only where a worker answers it
+
+Decision 33 took the `cancel` execution listener off the element a served listener sits on, because
+a cluster refuses it there. What the 8.10 documentation says about the event type is where this
+entry starts: "`cancel`: Supported only on the process element", and "Cancel listeners run when a
+process instance is terminated. They execute sequentially after all child elements have terminated
+and before the process reaches its final terminated state."
+
+So the construct answers one question, and it is a good one. An instance canceled through the API
+reports its end, with the kind `TERMINATED`, and the core then reports every task it still believes
+is open in that instance to the application as `CANCELED`. Measured on 8.10.0-alpha5: the job says
+`CANCEL`, `job.getKind()` is `EXECUTION_LISTENER`, the job carries the process variables including
+the aggregate id, and `getProcessInstanceKey()` names the instance being terminated. A called
+process whose parent is canceled gets a job of its own, which is why the notification reports that
+key and never `getRootProcessInstanceKey()`: a derivation limited to one instance must not reach
+for the root of the call tree.
+
+Two paths are not cancelations however they look in a model. A terminate end event and an
+interrupting event subprocess both COMPLETE the instance: the end listener runs, no cancel job is
+created, and the application hears `COMPLETED`. That is the cluster's view and not a gap this
+adapter can close.
+
+**The listener and the worker are one decision.** The listener holds the instance until its job is
+answered, so a model carrying one nobody serves turns a cancelation into a workflow which never
+goes away and which raises no incident either - worse than an incident, because nothing says
+anything at all. The listener is therefore written only where this adapter also opens the worker,
+which is the same rule the end listener follows and the reason the two conditions stand next to
+each other in `wireBpmn`.
+
+**Where it is written is wider than where the end is reported.** A process whose end nobody asked
+about still gets the cancel listener, as long as this application serves a task of it and the
+aggregate id can be resolved. The reason is the derivation rather than the notification: such a
+process can leave a task open, and a canceled instance is the only moment the core can tell the
+application that the task is gone. Both listeners carry the SAME job type, so one worker answers
+both, and `Camunda8WorkflowEndedHandler` tells them apart by `job.getListenerEventType()`. Anything
+which is neither `END` nor `CANCEL` completes the job and reports nothing: the client's enum grows
+inside a line, a newer cluster reports an event this build does not know as `UNKNOWN_ENUM_VALUE`,
+and reading such a job as an end would tell the application something untrue.
+
+Retries are the ones the end listener has, which is the model's default. A failed notification is
+failed with one attempt less and a backoff, the cluster hands the job out again, and the last
+failure raises the incident. Measured: the cluster raises `EXECUTION_LISTENER_NO_RETRIES` on the
+process element with our message and the job key, the instance reads `ACTIVE` while the incident
+stands, and update retries plus resolve incident hands the same job out again until the instance
+reaches `TERMINATED`. That is deliberately not the `retries="0"` of a task listener: nothing else
+is waiting behind this listener, and a notification which failed once on a database which was busy
+deserves the second attempt.
+
+`Camunda8CancelListeners` is per release line for the same reason it was under decision 32: the
+writing half names `ZeebeExecutionListenerEventType.cancel` and the reading half
+`ListenerEventType.CANCEL`, and neither exists in the client of 8.8 or 8.9. It is public this time,
+with the retries as a parameter, because the Business Cockpit writes the same listener with retries
+of its own and must not build its own copy (see decision 28). On the lines which do not have the
+construct the boot names every BPMN process whose cancelation is therefore not reported, so the gap
+is read at startup instead of being found in production.
+
+`Camunda8CancelListenersTest` and `Camunda8CancelListenerDeploymentTest` hold what each line writes
+and recognises, `Camunda8WorkflowEndedKindTest` what the handler reports for which event, and
+`Camunda8WorkflowCanceledIT` that a cluster of the 8.10 line really runs the listener when an
+instance is canceled.
+
+See [The end of a workflow](./README.md#the-end-of-a-workflow).

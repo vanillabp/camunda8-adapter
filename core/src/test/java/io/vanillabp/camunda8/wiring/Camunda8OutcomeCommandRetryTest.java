@@ -344,8 +344,13 @@ public class Camunda8OutcomeCommandRetryTest {
         .when(invoker)
         .workflowEnded(anyString(), anyString(), any());
 
+    final var endListenerJob = job();
+    // the worker of a process' execution listeners answers two of them now, and the event
+    // the job reports is what tells them apart
+    when(endListenerJob.getListenerEventType()).thenReturn(ListenerEventType.END);
+
     new Camunda8WorkflowEndedHandler("c8", "test-module", "TestProcess", "id", invoker, drain, null)
-        .handle(jobClient, job());
+        .handle(jobClient, endListenerJob);
 
     verify(jobClient.newFailCommand(4711L).retries(2), times(1))
         .retryBackoff(Camunda8RetryBackoffResolver.DEFAULT_RETRY_BACKOFF);

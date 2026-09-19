@@ -278,13 +278,22 @@ as a variable of the process instance, where VanillaBP writes it. Every one of t
 conditions, so a caller narrows further afterwards. For user tasks the caller is the one which
 says whether it means a single task key and whether only open tasks count.
 
+`Camunda8CancelListeners` says whether an instance of the release line this build belongs to
+can report its own cancelation, writes the `cancel` execution listener of a process into a
+model, and recognises the job of such a listener. The three halves live together because all
+three name a client constant the older lines do not have, and the class is per release line
+for the same reason. An extension writes the same listener with retries of its own, so the
+retries are a parameter, and it must ask whether the line has the construct before writing
+one: a listener nobody serves holds the instance until its job is answered.
+
 `Camunda8ErrorsTest` holds both transports and the wrapped answer, `Camunda8VariableFilterTest`
 the quoting, `Camunda8DeploymentServiceTest` that a context knows which adapter, which workflow
 module and which registry its run is for, `Camunda8UserTasksReadAndPrepareTest` what separates
 reading from preparing, `Camunda8WorkersTest` what a worker carries,
 `Camunda8ListenerJobsTest` the protocol including the shutdown, `Camunda8ShutdownHooksTest` the
-hooks, the drain and the resolver, `Camunda8VisibilityWindowTest` the window and
-`Camunda8SearchesTest` the filter.
+hooks, the drain and the resolver, `Camunda8VisibilityWindowTest` the window,
+`Camunda8SearchesTest` the filter and `Camunda8CancelListenersTest` what each line writes and
+recognises.
 
 Why this list exists and what is deliberately not on it is decision 28 in the repository's
 `DECISIONS.md`.

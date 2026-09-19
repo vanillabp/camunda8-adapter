@@ -2309,15 +2309,30 @@ of a line this adapter is built against would disprove it.
 
 ### The end of a workflow
 
-The cluster runs end listeners of COMPLETED instances only, so `@WorkflowEnded` methods see
-the kind `COMPLETED` and never `TERMINATED`: a cancelled instance is removed without running
-them. What this waits on is the `cancel` execution listener of the PROCESS element, which the
-8.10 line has and which fires for a terminated instance. Independently of that the
-notification names no end event, because the listener sits on the process element rather than
-on an end event, which is structural rather than a gap to close. That end listeners run for
-completed instances only is an assumption about the cluster: a `TERMINATED` reaching a
-`@WorkflowEnded` method would disprove it. The completed case is held, in
-`Camunda8BpmsInitiatedStartIT#timerStartCreatesTheAggregate`.
+What a `@WorkflowEnded` method hears depends on the [release line](#release-lines).
+
+From the 8.10 line on it hears both kinds. The `cancel` execution listener of the PROCESS
+element fires when an instance is terminated through the API, so such an instance reports
+`TERMINATED`, and the core then reports every task VanillaBP still believes is open in it as
+`CANCELED`. Both listeners carry the same job type, the handler tells them apart by the event
+the job reports, and an event this build does not know completes the job and reports nothing.
+See decision 34 in the repository's DECISIONS.md.
+
+On the lines before that one the cluster runs end listeners of COMPLETED instances only, so a
+`@WorkflowEnded` method sees `COMPLETED` and never `TERMINATED`: a cancelled instance is
+removed without running them, and the boot of a workflow module names every BPMN process this
+is about rather than leaving it to be found.
+
+Two paths are not cancelations on any line, however they look in a model. A terminate end
+event and an interrupting event subprocess both COMPLETE the instance: the end listener runs,
+no cancel job is created, and the application hears `COMPLETED` while an open task may have
+gone with it. That is the cluster's view and not a gap this adapter can close.
+
+Independently of the line, the notification names no end event, because the listener sits on
+the process element rather than on an end event, which is structural rather than a gap to
+close. The completed case is held in
+`Camunda8BpmsInitiatedStartIT#timerStartCreatesTheAggregate`, the canceled one in
+`Camunda8WorkflowCanceledIT`, which runs on the 8.10 line of the nightly matrix.
 
 ### Conditional events
 

@@ -3,6 +3,7 @@ package io.vanillabp.camunda8.wiring;
 import java.time.Instant;
 
 import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.camunda.client.api.worker.JobHandler;
 import io.vanillabp.camunda8.client.Camunda8CommandRetry;
@@ -19,9 +20,17 @@ import lombok.extern.slf4j.Slf4j;
  * element of the process completed and gates the disappearance of the instance,
  * which is the window VanillaBP uses to call the application.
  * <p>
- * The cluster reports a COMPLETED end only: a cancelled instance is removed without
- * running end listeners, so this adapter cannot tell the application about
- * cancellations - and says so rather than faking a distinction.
+ * From release line 8.10 the same worker also consumes the CANCEL execution-listener job of
+ * the process, which the cluster runs when an instance is terminated through the API. The two
+ * jobs carry the same job type and are told apart by the event the job reports, so the
+ * application hears {@link WorkflowEnd.Kind#TERMINATED} for a canceled instance and
+ * {@link WorkflowEnd.Kind#COMPLETED} for one which reached an end event. On the lines before
+ * that one no cancel job exists, the boot says so, and a canceled instance is removed without
+ * a word.
+ * <p>
+ * Two ends are NOT cancelations, whatever they look like in a model: a terminate end event and
+ * an interrupting event subprocess both COMPLETE the instance, the end listener runs and no
+ * cancel job is created. That is the cluster's view and not a gap this adapter can close.
  * <p>
  * A failing notification fails the job with one retry less, the way the handler of a
  * service task does, so the cluster retries and finally raises an incident. While the
@@ -125,8 +134,27 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
     drain.jobStarted(job.getKey(), KIND, job.getType(), bpmnProcessId);
     try {
 
+      final var kind = whatHappenedToTheInstance(job);
       final var aggregateId = job.getVariablesAsMap().get(aggregateIdVariable);
-      if (aggregateId == null) {
+      if (kind == null) {
+        // the client's event types grow inside a line, and a cluster newer than this build
+        // reports one it does not know as UNKNOWN_ENUM_VALUE. Reading such a job as an end
+        // would tell the application something untrue, so the job is answered and nothing
+        // is reported
+        log
+            .warn(
+                "Camunda8[{}]: the execution-listener job '{}' of the instance '{}' of '{}' reports "
+                    + "the event '{}', which this adapter does not serve - completing the job without "
+                    + "a notification. The deployment adds an 'end' listener and, from release line "
+                    + "8.10 on, a 'cancel' listener, so either the deployed model carries another one, "
+                    + "or this cluster is newer than the Camunda 8 client this build was compiled "
+                    + "against.",
+                adapterId,
+                job.getKey(),
+                job.getProcessInstanceKey(),
+                bpmnProcessId,
+                job.getListenerEventType());
+      } else if (aggregateId == null) {
         // not a VanillaBP workflow, or its aggregate-ID variable was removed: there
         // is nothing this end could be reported for
         log
@@ -141,7 +169,7 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
             .workflowEnded(
                 workflowModuleId,
                 bpmnProcessId,
-                contextOf(job, String.valueOf(aggregateId)));
+                contextOf(job, String.valueOf(aggregateId), kind));
       }
 
       Camunda8CommandRetry.send(
@@ -196,9 +224,35 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
 
   }
 
+  /**
+   * How the instance of this job ended, or <code>null</code> where the job reports an event
+   * this handler does not serve.
+   * <p>
+   * Asked this way round on purpose. The client's enum grows inside a line and reports an
+   * event it does not know as <code>UNKNOWN_ENUM_VALUE</code>, so reading anything but the
+   * two known events as an end would tell the application something untrue.
+   * {@code Camunda8UserTaskListenerHandler.whatHappenedToTheTask} is the same shape.
+   *
+   * @param job The execution-listener job
+   * @return The kind of end, or <code>null</code>
+   */
+  private static WorkflowEnd.Kind whatHappenedToTheInstance(
+      final ActivatedJob job) {
+
+    if (job.getListenerEventType() == ListenerEventType.END) {
+      return WorkflowEnd.Kind.COMPLETED;
+    }
+    if (Camunda8CancelListeners.isCancellationOfTheProcess(job)) {
+      return WorkflowEnd.Kind.TERMINATED;
+    }
+    return null;
+
+  }
+
   private WorkflowEndedContext contextOf(
       final ActivatedJob job,
-      final String aggregateId) {
+      final String aggregateId,
+      final WorkflowEnd.Kind kind) {
 
     return new WorkflowEndedContext() {
 
@@ -214,8 +268,18 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
 
       @Override
       public WorkflowEnd.Kind getKind() {
-        // the cluster runs end listeners of completed instances only
-        return WorkflowEnd.Kind.COMPLETED;
+        // what the job itself reported: an end listener for a completed instance, a
+        // cancel listener for a terminated one
+        return kind;
+      }
+
+      @Override
+      public String getWorkflowId() {
+        // the key of THIS instance, which is what lets the core limit its derivation to
+        // it. Never getRootProcessInstanceKey(): that names the root of the call tree,
+        // and a called process whose parent was canceled gets a job of its own for its
+        // own instance
+        return String.valueOf(job.getProcessInstanceKey());
       }
 
       @Override
