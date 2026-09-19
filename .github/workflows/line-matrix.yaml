@@ -74,7 +74,7 @@ jobs:
       - name: "DEMO: this line pretends to build"
         run: |
           echo "demo run, line ${{ matrix.line }} is not really built"
-          [ "${{ matrix.line }}" != "8.10" ] || exit 1
+          [ "${{ matrix.line }}" != "8.8" ] || exit 1
       # What this line did, written down for the job 'ga-lines' below. A matrix cannot
       # hand one result per line to another job: every job of it writes the same output
       # and the last one to finish overwrites the rest. So each line leaves a file named
