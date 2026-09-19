@@ -2,6 +2,10 @@ name: Release lines
 # What a night of this matrix found is not left in the list of runs: a line which went red
 # gets a GitHub issue, opened by release-lines-issue.yaml, and a release waits for every
 # current line of this matrix. Both are decision 31 in the repository's DECISIONS.md.
+#
+# A pull request is the one caller which waits for less than that. It reads the output
+# 'broken-ga-lines', which leaves the preview line out. The job 'ga-lines' at the bottom
+# says why.
 "on":
   schedule:
     # Early enough to be green or red before anybody starts working. GitHub queues a
@@ -16,6 +20,12 @@ name: Release lines
   # so the checks of a pull request which moves a pin can run the matrix, and so the
   # release workflow can gate on it before it publishes anything
   workflow_call:
+    outputs:
+      broken-ga-lines:
+        description: The GA lines which did not build, separated by blanks, or 'none'.
+          Empty when this matrix did not get far enough to say, which a caller has to
+          read as a failure.
+        value: "${{ jobs.ga-lines.outputs.broken }}"
 permissions:
   contents: read
 env:
@@ -99,9 +109,25 @@ jobs:
         run: |
           cat test-support/target/classes/camunda8-cluster.properties
           cat core/target/classes/META-INF/vanillabp/adapter-camunda8.properties
+      # What this line did, written down for the job 'ga-lines' below. A matrix cannot
+      # hand one result per line to another job: every job of it writes the same output
+      # and the last one to finish overwrites the rest. So each line leaves a file named
+      # after itself.
+      - name: What this line did
+        if: always()
+        run: |
+          mkdir -p "${RUNNER_TEMP}/line-result"
+          echo "${{ job.status }}" > "${RUNNER_TEMP}/line-result/${{ matrix.line }}"
+      - name: Hand that to the job which sorts the lines
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: line-result-${{ matrix.line }}
+          path: "${{ runner.temp }}/line-result/${{ matrix.line }}"
 
   # One name that never changes, so branch protection and the release workflow have something to
-  # require while the matrix grows and shrinks with the lines.
+  # require while the matrix grows and shrinks with the lines. It needs every line, the preview
+  # line included: that is the release gate of decision 31, and the night reads it too.
   lines-verified:
     if: always()
     needs: line
@@ -111,3 +137,52 @@ jobs:
         run: |
           echo "lines: ${{ needs.line.result }}"
           [ "${{ needs.line.result }}" = "success" ]
+
+  # The same matrix, read without the preview line, for a caller which needs that answer.
+  # A pull request is the one caller which does: the preview line is built against an
+  # alpha which is rewritten under us, and a defect of that alpha may cost a night, it
+  # may not cost a pull request. The preview line still builds here, its job is on the
+  # pull request to read, and a red one still gets its issue in the night. All of that is
+  # decision 31, and 'lines-verified' above keeps the release waiting for every line.
+  #
+  # This job reports what it found, it does not fail on it. A failed job hands no output
+  # to the caller, so failing here would leave the caller with an empty answer instead of
+  # the names of the broken lines.
+  ga-lines:
+    if: always()
+    needs: [discover, line]
+    runs-on: ubuntu-latest
+    outputs:
+      broken: "${{ steps.read.outputs.broken }}"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: line-result-*
+          merge-multiple: true
+          path: line-results
+      - id: read
+        name: Which lines did not build, and which of them a pull request waits for
+        env:
+          LINES: "${{ needs.discover.outputs.lines }}"
+        run: |
+          set -euo pipefail
+          broken=""
+          counted=0
+          for line in $(echo "${LINES:-[]}" | jq -r '.[]'); do
+            counted=$((counted + 1))
+            # a line whose job was cancelled before it could write anything counts as a
+            # line which did not build
+            result=nothing
+            [ ! -f "line-results/${line}" ] || result="$(cat "line-results/${line}")"
+            preview="$(bin/line-preview.sh "$line")"
+            echo "line ${line}: ${result}, preview line: ${preview}"
+            [ "$result" != "success" ] || continue
+            [ "$preview" != "true" ] || continue
+            broken="${broken}${broken:+ }${line}"
+          done
+          if [ "$counted" -eq 0 ]; then
+            echo "No line was collected, so this run says nothing about any line." >&2
+            exit 1
+          fi
+          echo "broken=${broken:-none}" >> "$GITHUB_OUTPUT"

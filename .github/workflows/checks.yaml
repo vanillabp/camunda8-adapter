@@ -225,14 +225,33 @@ jobs:
 
   # One name that reports on every pull request, whether the matrix ran or not, so branch
   # protection can require it without blocking the pull requests which do not need it.
+  #
+  # It reads the GA lines of the matrix and not the matrix as a whole. The preview line
+  # builds there like every other line and its job is on this pull request to read, but
+  # it does not decide this check: that line is built against an alpha which is rewritten
+  # under us, and a defect of the alpha may cost a night, it may not cost a pull request.
+  # The night still opens an issue for it and a release still waits for it, which is
+  # decision 31.
   line-pins-verified:
     if: always()
     needs: [pin-change, lines]
     runs-on: ubuntu-latest
     steps:
       - name: The lines a moved pin affects were built
+        env:
+          BROKEN: "${{ needs.lines.outputs.broken-ga-lines }}"
         run: |
           echo "pins: ${{ needs.pin-change.outputs.pins }}, lines: ${{ needs.lines.result }}"
           [ "${{ needs.pin-change.outputs.pins }}" = "true" ] \
             || { echo "No pin moved."; exit 0; }
-          [ "${{ needs.lines.result }}" = "success" ]
+          case "$BROKEN" in
+            none)
+              echo "Every GA line built with the moved pin." ;;
+            "")
+              echo "The matrix did not get far enough to say which lines built, so this" >&2
+              echo "pull request has no answer about its pin. Read the jobs above." >&2
+              exit 1 ;;
+            *)
+              echo "These lines did not build with the moved pin: ${BROKEN}" >&2
+              exit 1 ;;
+          esac
