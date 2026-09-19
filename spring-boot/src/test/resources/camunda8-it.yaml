@@ -42,6 +42,8 @@ vanillabp:
           allow-full-sync-with-bpms: true
         OldProcessVersionsProcess:
           allow-full-sync-with-bpms: true
+        OtherOpenTasksProcess:
+          allow-full-sync-with-bpms: true
         QuickProcess:
           allow-full-sync-with-bpms: true
         RenamedProcessNew:

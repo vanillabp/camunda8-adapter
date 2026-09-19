@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
@@ -49,6 +50,7 @@ import io.vanillabp.camunda8.wiring.Camunda8JobTimeoutResolver;
 import io.vanillabp.camunda8.wiring.Camunda8Listeners;
 import io.vanillabp.camunda8.wiring.Camunda8ModelledListenerHandler;
 import io.vanillabp.camunda8.wiring.Camunda8MultiInstance;
+import io.vanillabp.camunda8.wiring.Camunda8OpenTaskProbe;
 import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
 import io.vanillabp.camunda8.wiring.Camunda8Scoping;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
@@ -2829,6 +2831,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                 .workflowModuleStarted(
                     workflowModuleId,
                     () -> stopWorkflowProcessing(workflowModuleId, bpmsProcessingContext)));
+    // what asks the cluster about the OTHER tasks the core believes are open in a workflow,
+    // whenever this module serves a job of it. One per module, handed to the three handlers
+    // which are a wake-up: a second copy of the rule would be a second answer to one
+    // question. It knows whether this module carries Camunda-managed user tasks, because a
+    // user-task key handed to a job command answers NOT_FOUND and would read as gone
+    final var openTaskProbe = new Camunda8OpenTaskProbe(
+        adapterId, workflowModuleId, workflowTaskInvoker, clientFactory::getClient, asyncTaskLockRenewal, theProcessesWithCamundaManagedUserTasks(
+            workflowModuleId, bpmsProcessingContext)::contains);
     bpmsProcessingContext
         .getTasksToWire()
         .forEach(task -> {
@@ -2900,6 +2910,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .multiInstanceRegistry(multiInstanceRegistry)
               .drain(drain)
               .fetchVariables(listenerFetch)
+              .openTaskProbe(openTaskProbe)
               .build())
           .timeout(
               listenerLockOf(workflowModuleId, bpmnProcessIds, "user-task listener", listenerJobType))
@@ -2962,6 +2973,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .drain(drain)
               .fetchVariables(listenerFetch)
               .retryBackoffResolver(retryBackoffResolver)
+              .openTaskProbe(openTaskProbe)
               .build())
           .timeout(listenerLockOf(workflowModuleId, scopedBpmnProcessIds, "modelled listener", jobType))
           .name("vanillabp-%s-%s".formatted(adapterId, jobType)), jobType),
@@ -3078,6 +3090,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .retryBackoffResolver(retryBackoffResolver)
               .fetchVariables(taskFetch)
               .predatesDeployedVersion(processVersions::predatesDeployedVersion)
+              .openTaskProbe(openTaskProbe)
               .build())
           .timeout(timeout)
           .name("vanillabp-%s-%s".formatted(adapterId, taskDefinition)), taskDefinition),
@@ -3105,7 +3118,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         bpmsProcessingContext,
         client,
         drain,
-        jobTypesAWorkerIsAlreadyOpenFor(servedByJobType.keySet(), bpmsProcessingContext));
+        jobTypesAWorkerIsAlreadyOpenFor(servedByJobType.keySet(), bpmsProcessingContext),
+        openTaskProbe);
 
   }
 
@@ -3160,7 +3174,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final Camunda8ProcessingContext bpmsProcessingContext,
       final CamundaClient client,
       final Camunda8Drain drain,
-      final Set<String> jobTypesAlreadyServed) {
+      final Set<String> jobTypesAlreadyServed,
+      final Camunda8OpenTaskProbe openTaskProbe) {
 
     workflowTaskWiring
         .taskWiringOfProcessesNobodyDeployed(workflowModuleId)
@@ -3182,7 +3197,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                 if (jobTypesAlreadyServed.contains(jobType)) {
                   return;
                 }
-                openTaskWorker(workflowModuleId, bpmnProcessId, jobType, bpmsProcessingContext, client, drain);
+                openTaskWorker(
+                    workflowModuleId,
+                    bpmnProcessId,
+                    jobType,
+                    bpmsProcessingContext,
+                    client,
+                    drain,
+                    openTaskProbe);
                 openedJobTypes.add(jobType);
                 // a served task definition is either a service task's or a user task's,
                 // and which of the two cannot be told without the model this application
@@ -3196,7 +3218,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                     listenerJobType,
                     bpmsProcessingContext,
                     client,
-                    drain);
+                    drain,
+                    openTaskProbe);
                 openedJobTypes.add(listenerJobType);
               });
           openWorkflowEndWorkerOfADeclaredId(
@@ -3242,6 +3265,36 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
+   * The BPMN processes of this workflow module which can hold a Camunda-managed user task,
+   * as PLAIN process ids. It decides how the probe of {@link Camunda8OpenTaskProbe} reads
+   * "the cluster has no job of that key".
+   * <p>
+   * The record of a user-task delivery keeps the USER-TASK key, and a job command answers
+   * <code>NOT_FOUND</code> for such a key as long as the task is open - which read as gone
+   * would cancel a task the cluster is holding out to somebody. The models of this module
+   * are one source; the other is a BPMN process this application declares without deploying
+   * a model under it, whose user-task listener worker is opened without anybody knowing
+   * whether the task ever was one. Both count, because a wrong "gone" costs more than a
+   * check which says nothing.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmsProcessingContext What the pipeline collected while wiring it
+   * @return The plain BPMN process ids whose tasks the probe cannot tell apart
+   */
+  private Set<String> theProcessesWithCamundaManagedUserTasks(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext bpmsProcessingContext) {
+
+    final var processes = new HashSet<String>();
+    bpmsProcessingContext
+        .getUserTasksToWire()
+        .forEach(userTask -> processes.add(plainProcessId(workflowModuleId, userTask.bpmnProcessId())));
+    processes.addAll(workflowTaskWiring.taskWiringOfProcessesNobodyDeployed(workflowModuleId).keySet());
+    return processes;
+
+  }
+
+  /**
    * The multi-instance chains this adapter registered, which is what the processing context
    * hands to an extension, see
    * {@link Camunda8ProcessingContext#getMultiInstanceRegistry()}.
@@ -3263,7 +3316,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String jobType,
       final Camunda8ProcessingContext bpmsProcessingContext,
       final CamundaClient client,
-      final Camunda8Drain drain) {
+      final Camunda8Drain drain,
+      final Camunda8OpenTaskProbe openTaskProbe) {
 
     final var plainTaskDefinition = plainTaskDefinition(workflowModuleId, bpmnProcessId, jobType);
     var workerBuilder = applyFetchVariables(applyWorkerOptions(client
@@ -3283,6 +3337,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             .retryBackoffResolver(retryBackoffResolver)
             .fetchVariables(Camunda8FetchVariables.Selection.everything())
             .predatesDeployedVersion(processVersions::predatesDeployedVersion)
+            .openTaskProbe(openTaskProbe)
             .build())
         .timeout(jobTimeoutResolver.jobTimeoutFor(workflowModuleId, bpmnProcessId, plainTaskDefinition))
         .name("vanillabp-%s-%s".formatted(adapterId, jobType)), jobType),
@@ -3310,7 +3365,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String listenerJobType,
       final Camunda8ProcessingContext bpmsProcessingContext,
       final CamundaClient client,
-      final Camunda8Drain drain) {
+      final Camunda8Drain drain,
+      final Camunda8OpenTaskProbe openTaskProbe) {
 
     var workerBuilder = applyFetchVariables(applyWorkerOptions(client
         .newWorker()
@@ -3324,6 +3380,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             .multiInstanceRegistry(multiInstanceRegistry)
             .drain(drain)
             .fetchVariables(Camunda8FetchVariables.Selection.everything())
+            .openTaskProbe(openTaskProbe)
             .build())
         .timeout(
             listenerLockOf(

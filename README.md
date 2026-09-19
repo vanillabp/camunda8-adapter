@@ -1165,9 +1165,10 @@ synchronization - as late as possible, minimizing the window between check and
 the phase-two dispatch (fewer stale outbox entries). Phase two (after the
 commit, through the outbox) sends `CompleteJob` respectively `ThrowError` (the
 BPMN error code routes boundary events); a `NOT_FOUND` answer is tolerated with
-a WARN (at-least-once residual). Camunda 8 cannot deliver `@TaskEvent CANCELED`
-- Zeebe does not notify workers about canceled jobs, which is an assumption about this
-engine, see [Task cancellation is not reported](#task-cancellation-is-not-reported).
+a WARN (at-least-once residual). Zeebe notifies no worker about a job it took away, so
+`@TaskEvent CANCELED` is not delivered at the moment the task goes: it arrives at the next
+wake-up of the same workflow, see
+[Task cancellation arrives at the next wake-up](#task-cancellation-arrives-at-the-next-wake-up-not-at-the-moment).
 
 **User tasks:** Camunda-managed user tasks (`zeebe:userTask`) with an
 EXTERNAL form reference - the reference IS the task definition (V1 convention).
@@ -2294,18 +2295,41 @@ come on a line built against 8.10 or later.
 to 8.9 offers the command is an assumption about those releases: a cancel command turning up in
 an 8.9 patch would disprove it.
 
-### Task cancellation is not reported
+### Task cancellation arrives at the next wake-up, not at the moment
 
-`@TaskEvent CANCELED` cannot be delivered for service tasks, because Zeebe does not notify
-workers about canceled jobs, so a handler subscribing to lifecycle events never learns that
-an open asynchronous task's activity was canceled. The 8.10 line brings a `cancel` execution
-listener, but a cluster takes it on the process element alone: "`cancel`: Supported only on
-the process element", says the documentation of that line, and a cluster refuses the whole
-file where such a listener sits on an activity. It reports a terminated INSTANCE rather than
-an activity a boundary event took away, so it answers a different question from this one, see
-decision 33 in the repository's DECISIONS.md. Nothing here can make a cluster report a
-canceled job, so this is an assumption, and a `@TaskEvent CANCELED` arriving from a cluster
-of a line this adapter is built against would disprove it.
+Zeebe notifies no worker about a job it took away, so nothing the cluster sends says that an
+open asynchronous task's activity was canceled. That has not changed and will not: the
+`cancel` execution listener of the 8.10 line sits on the process element and reports a
+terminated INSTANCE, which is a different question, see decision 33 in the repository's
+DECISIONS.md.
+
+What arrives instead is the same event one moment later. Whenever the cluster hands this
+application a job of a workflow, the core looks at the tasks it still believes are open in
+that workflow, this adapter asks the cluster about each of them with the `UpdateJobTimeout`
+it sends anyway, and the ones the cluster no longer has are reported as
+`@TaskEvent CANCELED`. Three handlers do it: the job handler after the outcome went back to
+the cluster, and the two listener handlers after their notification. The end of a workflow
+carries the same derivation and is left out here, because the two would report the same
+cancelation twice.
+
+A user task is not a job. The record of a user-task delivery keeps the user-task key, and
+that key handed to a job command answers `NOT_FOUND`, which read as gone would cancel a task
+the cluster is holding open. Where a workflow module carries Camunda-managed user tasks at
+all, a 404 from the job command is therefore followed by the engine command which asks about
+a USER task, and only a key neither of them holds is reported as gone. That second round trip
+is paid where a task turned out to be gone and nowhere else. Those tasks need no probe of
+their own anyway: VanillaBP writes a `canceling` task listener next to every user task it
+manages, and the cluster delivers `CANCELED` for it straight from there.
+
+What is left of the deviation is the timing. A workflow which walks into a timer or a message
+wait after the boundary event produces no job, so nothing wakes the application up and the
+cancellation waits for whatever comes next: the next job of that workflow, the end of the
+workflow, or the next operation which names the task.
+
+`Camunda8OpenTaskProbeTest` holds the three answers and the user-task case,
+`Camunda8OtherOpenTasksIT` lets a boundary event take one of two open tasks away against a
+cluster. The application switches the whole check off with
+`vanillabp.delivery.check-open-tasks-on-delivery`.
 
 ### The end of a workflow
 
