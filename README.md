@@ -1144,7 +1144,23 @@ awareness probe and the phase-one check are the same NON-ADVANCING command -
 `UpdateJobTimeout` by `async-task-lock-renewal` (which conveniently renews the open
 job's lock): success means the job exists, `NOT_FOUND` maps to
 "unknown", a connection failure to "BPMS unavailable" (never falls back to
-another adapter). The phase-one check runs as a PRE-COMMIT transaction
+another adapter). A refusal which is neither - HTTP 400, on gRPC `INVALID_ARGUMENT` -
+means the cluster HAS the job and no worker has it activated right now, so the probe
+answers `ACTIVE`. That is the everyday answer for an asynchronous task whose lock ran out:
+the job waits in the queue until a worker takes it again, and reading the gap as an outage
+would send the caller into retries for a task which is alive. Measured on 8.8.37, 8.9.19 and
+8.10.0-alpha5, where a job never activated, a job whose lock expired and a job with an open
+incident all answer the same way.
+
+The word probe makes this sound like a read, and it is not. `UpdateJobTimeout` WRITES the
+timeout it carries, so a probe moves the deadline of a job another worker is holding, in
+whichever direction `async-task-lock-renewal` points. Measured on all three lines: a probe
+which set two seconds on a job activated for five minutes let a second activation pick the
+same job key three seconds later, while the first holder still believed it owned the job. A
+short renewal is therefore not only a shorter lock, it also shortens the lock of whoever
+holds the job while somebody asks about it.
+
+The phase-one check runs as a PRE-COMMIT transaction
 synchronization - as late as possible, minimizing the window between check and
 the phase-two dispatch (fewer stale outbox entries). Phase two (after the
 commit, through the outbox) sends `CompleteJob` respectively `ThrowError` (the

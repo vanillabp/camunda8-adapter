@@ -468,6 +468,19 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
             Camunda8Errors.rejection(e));
         return WorkflowAwareness.UNKNOWN_TO_BPMS;
       }
+      if (Camunda8Errors.jobIsThereButNotActive(e)) {
+        // the cluster holds the job and refused to move its deadline, which is what it
+        // answers for a job nobody has activated right now. The everyday case is an
+        // asynchronous task whose lock ran out, and the task is alive, so the probe says
+        // so instead of sending the caller into retries
+        log.debug(
+            "Camunda8[{}]: the cluster holds task '{}' but no worker has it activated - it "
+                + "refused the probe's UpdateJobTimeout with {}",
+            adapterId,
+            taskId,
+            Camunda8Errors.rejection(e));
+        return WorkflowAwareness.ACTIVE;
+      }
       log.warn(
           "Camunda8[{}]: could not determine awareness of task '{}' - reporting BPMS_UNAVAILABLE",
           adapterId,

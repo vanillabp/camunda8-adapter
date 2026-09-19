@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Assertions;
@@ -32,6 +33,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
+import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8Errors;
@@ -1468,6 +1470,96 @@ public class Camunda8TaskProcessingIT {
       }
       throw e;
     }
+
+  }
+
+  @Test
+  @DisplayName("A task whose job waits in the queue is a task the cluster still holds")
+  public void aJobInTheQueueIsNotAnOutage() throws Exception {
+
+    // An asynchronous task keeps its job locked for async-task-lock-renewal, and when
+    // that window passes the cluster puts the job back into the queue until a worker
+    // takes it again. A probe arriving in that gap is refused, and it used to be refused
+    // in a way the adapter read as an outage - for a task which is perfectly alive.
+    //
+    // The gap is made here rather than waited for: a model this application serves no
+    // method of, so nobody re-activates the job while the test looks at it.
+    final var jobType = "dormant-"
+        + System.nanoTime();
+    final var model = Bpmn
+        .createExecutableProcess("DormantJobProcess")
+        .startEvent()
+        .serviceTask("Wait", task -> task.zeebeJobType(jobType))
+        .endEvent()
+        .done();
+    workflowServiceClient()
+        .newDeployResourceCommand()
+        .addProcessModel(model, "dormant-job-process.bpmn")
+        .send()
+        .join();
+    workflowServiceClient()
+        .newCreateInstanceCommand()
+        .bpmnProcessId("DormantJobProcess")
+        .latestVersion()
+        .send()
+        .join();
+
+    @SuppressWarnings("unchecked")
+    final var c8ProcessService = (Camunda8ProcessService<TaskDockerAggregate>) applicationContext
+        .getBean("Camunda8_ProcessService_c8");
+
+    // the job as the cluster hands it out, with a lock of one second
+    final var jobKey = activateOne(jobType, Duration.ofSeconds(1));
+
+    // and now the case an application meets: the lock runs out and the job goes back
+    // into the queue. Nobody serves this job type, so nothing takes it from there
+    Thread.sleep(3000);
+
+    assertEquals(
+        WorkflowAwareness.ACTIVE,
+        c8ProcessService.awarenessOfTask(SCOPE, "irrelevant", String.valueOf(jobKey)),
+        "a task whose lock ran out is still a task the cluster holds");
+
+    // what makes the assertion above mean something: the job really was in the queue
+    // while it was probed. The probe is refused in that state, so it moved nothing, and
+    // no worker of this application serves the type
+    assertEquals(
+        jobKey,
+        activateOne(jobType, Duration.ofSeconds(30)),
+        "the same job was waiting in the queue, so the probe met the refused answer");
+
+  }
+
+  /**
+   * Activates one job of the given type and answers its key, waiting for the cluster to
+   * offer one at all.
+   */
+  private long activateOne(
+      final String jobType,
+      final Duration lock) throws Exception {
+
+    final var activated = new AtomicLong(0L);
+    awaitUntil(
+        () -> {
+          final var jobs = workflowServiceClient()
+              .newActivateJobsCommand()
+              .jobType(jobType)
+              .maxJobsToActivate(1)
+              .timeout(lock)
+              .send()
+              .join()
+              .getJobs();
+          if (jobs.isEmpty()) {
+            return Boolean.FALSE;
+          }
+          activated.set(jobs.getFirst().getKey());
+          return Boolean.TRUE;
+        },
+        60000,
+        "the cluster to offer the job of type '"
+            + jobType
+            + "'");
+    return activated.get();
 
   }
 
