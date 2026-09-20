@@ -1155,7 +1155,7 @@ process instance is terminated. They execute sequentially after all child elemen
 and before the process reaches its final terminated state."
 
 So the construct answers one question, and it is a good one. An instance canceled through the API
-reports its end, with the kind `TERMINATED`, and the core then reports every task it still believes
+reports its end, with the kind `CANCELED`, and the core then reports every task it still believes
 is open in that instance to the application as `CANCELED`. Measured on 8.10.0-alpha5: the job says
 `CANCEL`, `job.getKind()` is `EXECUTION_LISTENER`, the job carries the process variables including
 the aggregate id, and `getProcessInstanceKey()` names the instance being terminated. A called

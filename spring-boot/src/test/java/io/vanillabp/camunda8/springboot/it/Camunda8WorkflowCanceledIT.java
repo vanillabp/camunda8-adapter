@@ -102,7 +102,7 @@ public class Camunda8WorkflowCanceledIT {
   private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   @Test
-  @DisplayName("An instance canceled through the API reports its end as TERMINATED")
+  @DisplayName("An instance canceled through the API reports its end as CANCELED")
   public void aCanceledInstanceReportsItsEnd() throws Exception {
 
     final var aggregateId = transactionTemplate
@@ -131,11 +131,11 @@ public class Camunda8WorkflowCanceledIT {
         "the application to have stored the end of the workflow");
 
     assertEquals(
-        WorkflowEnd.Kind.TERMINATED.name(),
+        WorkflowEnd.Kind.CANCELED.name(),
         CanceledDockerWorkflowService.ENDED_AS.get(String.valueOf(aggregateId)),
         "a cancelation is reported as one, not as a completion");
     assertEquals(
-        WorkflowEnd.Kind.TERMINATED.name(),
+        WorkflowEnd.Kind.CANCELED.name(),
         endedAsOf(aggregateId),
         "and the handler ran in a transaction of the application, so the aggregate holds it too");
 
