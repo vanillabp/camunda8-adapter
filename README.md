@@ -2558,13 +2558,13 @@ What a `@WorkflowEnded` method hears depends on the [release line](#release-line
 
 From the 8.10 line on it hears both kinds. The `cancel` execution listener of the PROCESS
 element fires when an instance is terminated through the API, so such an instance reports
-`TERMINATED`, and the core then reports every task VanillaBP still believes is open in it as
+`CANCELED`, and the core then reports every task VanillaBP still believes is open in it as
 `CANCELED`. Both listeners carry the same job type, the handler tells them apart by the event
 the job reports, and an event this build does not know completes the job and reports nothing.
 See decision 34 in the repository's DECISIONS.md.
 
 On the lines before that one the cluster runs end listeners of COMPLETED instances only, so a
-`@WorkflowEnded` method sees `COMPLETED` and never `TERMINATED`: a cancelled instance is
+`@WorkflowEnded` method sees `COMPLETED` and never `CANCELED`: a cancelled instance is
 removed without running them, and the boot of a workflow module names every BPMN process this
 is about rather than leaving it to be found.
 

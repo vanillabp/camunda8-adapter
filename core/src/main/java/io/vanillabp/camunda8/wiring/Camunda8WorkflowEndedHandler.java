@@ -24,7 +24,7 @@ import lombok.extern.slf4j.Slf4j;
  * From release line 8.10 the same worker also consumes the CANCEL execution-listener job of
  * the process, which the cluster runs when an instance is terminated through the API. The two
  * jobs carry the same job type and are told apart by the event the job reports, so the
- * application hears {@link WorkflowEnd.Kind#TERMINATED} for a canceled instance and
+ * application hears {@link WorkflowEnd.Kind#CANCELED} for a canceled instance and
  * {@link WorkflowEnd.Kind#COMPLETED} for one which reached an end event. On the lines before
  * that one no cancel job exists, the boot says so, and a canceled instance is removed without
  * a word.
@@ -247,7 +247,7 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
       return WorkflowEnd.Kind.COMPLETED;
     }
     if (Camunda8CancelListeners.isCancellationOfTheProcess(job)) {
-      return WorkflowEnd.Kind.TERMINATED;
+      return WorkflowEnd.Kind.CANCELED;
     }
     return null;
 
