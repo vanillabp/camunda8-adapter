@@ -44,6 +44,18 @@ which quietly turns a full run into a small one. Give them the Docker they need 
 green build as an answer about behaviour. `test-coverage-report/coverage-gate` is the last module of
 the reactor and fails below 85 percent of covered instructions per platform, while the rule is 90.
 
+## What a POM hands an application
+
+A tool which only translates our source belongs in scope `provided`, and the scope stands at the
+declaration in the module which uses the tool. Lombok is such a tool, an annotation processor is
+another. An application asked for a workflow engine, and every jar it did not ask for is one more
+thing to ship and to answer a CVE report about.
+
+Writing `<optional>true</optional>` in a `dependencyManagement` does not do it. Maven copies a
+managed version, scope and exclusions into a dependency and leaves the optional flag behind, so the
+POM we publish says nothing at all about that dependency. Lombok reached the runtime classpath of
+every application that way, here and in the platform.
+
 ## How we write
 
 Most people who read this repository read English as a second language, and so does the maintainer.

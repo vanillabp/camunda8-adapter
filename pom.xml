@@ -219,11 +219,16 @@
         <artifactId>testcontainers-junit-jupiter</artifactId>
         <version>${testcontainers.version}</version>
       </dependency>
+      <!-- 'provided' here and again at every declaration below: Lombok translates the
+           source and has no work left once the class file exists, so no application using
+           our artifacts may find it on its runtime classpath. Writing 'optional' here did
+           not do that. Maven copies a managed version, scope and exclusions into a
+           dependency, but not the optional flag, so the POMs we publish said nothing. -->
       <dependency>
         <groupId>org.projectlombok</groupId>
         <artifactId>lombok</artifactId>
         <version>${lombok.version}</version>
-        <optional>true</optional>
+        <scope>provided</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>
