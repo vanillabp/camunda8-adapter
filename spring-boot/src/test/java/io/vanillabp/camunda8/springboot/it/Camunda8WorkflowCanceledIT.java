@@ -122,10 +122,13 @@ public class Camunda8WorkflowCanceledIT {
         .send()
         .join();
 
+    // the aggregate and not the map: the handler fills both, but the map is written inside
+    // the transaction of the delivery and is therefore visible before that transaction has
+    // committed, so a reader of the database would still see the aggregate as it was
     awaitUntil(
-        () -> CanceledDockerWorkflowService.ENDED_AS.get(String.valueOf(aggregateId)) != null,
+        () -> endedAsOf(aggregateId) != null,
         60000,
-        "the application to be told that the workflow ended");
+        "the application to have stored the end of the workflow");
 
     assertEquals(
         WorkflowEnd.Kind.TERMINATED.name(),
@@ -133,8 +136,20 @@ public class Camunda8WorkflowCanceledIT {
         "a cancelation is reported as one, not as a completion");
     assertEquals(
         WorkflowEnd.Kind.TERMINATED.name(),
-        transactionTemplate.execute(status -> repository.findById(aggregateId).orElseThrow().getEndedAs()),
+        endedAsOf(aggregateId),
         "and the handler ran in a transaction of the application, so the aggregate holds it too");
+
+  }
+
+  /**
+   * How the workflow of that aggregate ended as the aggregate itself holds it, or
+   * <code>null</code> while the transaction of the delivery has not committed yet.
+   */
+  private String endedAsOf(
+      final Long aggregateId) {
+
+    return transactionTemplate
+        .execute(status -> repository.findById(aggregateId).map(CanceledDockerAggregate::getEndedAs).orElse(null));
 
   }
 
