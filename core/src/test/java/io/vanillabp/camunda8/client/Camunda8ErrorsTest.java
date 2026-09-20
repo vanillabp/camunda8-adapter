@@ -232,6 +232,35 @@ public class Camunda8ErrorsTest {
   }
 
   @Test
+  @DisplayName("And one more: a job another activation holds, on both transports")
+  public void aJobSomebodyElseHoldsIsPermanentForJobCommands() {
+
+    // measured on 8.10.0-alpha5: a completion carrying a superseded lease token, one
+    // carrying none against a leased job, a failure and a BPMN error all answer this pair
+    assertTrue(Camunda8Errors.jobHeldByAnotherActivation(problem(409, "INVALID_STATE")));
+    assertTrue(
+        Camunda8Errors.jobHeldByAnotherActivation(
+            new ClientStatusException(Status.FAILED_PRECONDITION, null)));
+    assertFalse(Camunda8Errors.repeatableJobCommandFailure(problem(409, "INVALID_STATE")));
+    assertFalse(
+        Camunda8Errors.repeatableJobCommandFailure(
+            new ClientStatusException(Status.FAILED_PRECONDITION, null)));
+
+    // the other wrong states of a job command answer 404 there, and a job which is gone
+    // is a case of its own
+    assertFalse(Camunda8Errors.jobHeldByAnotherActivation(problem(404, "NOT_FOUND")));
+    assertFalse(
+        Camunda8Errors.jobHeldByAnotherActivation(
+            new ClientStatusException(Status.NOT_FOUND, null)));
+    assertFalse(Camunda8Errors.jobHeldByAnotherActivation(problem(400, "INVALID_ARGUMENT")));
+    assertFalse(Camunda8Errors.jobHeldByAnotherActivation(new IOException("connection reset")));
+
+    // and nothing changes for an outbox entry: 409 is one of the answers it repeats for
+    assertFalse(Camunda8Errors.permanentFailure(problem(409, "INVALID_STATE")));
+
+  }
+
+  @Test
   @DisplayName("Backpressure is repeatable on both transports")
   public void backpressureIsRepeatable() {
 

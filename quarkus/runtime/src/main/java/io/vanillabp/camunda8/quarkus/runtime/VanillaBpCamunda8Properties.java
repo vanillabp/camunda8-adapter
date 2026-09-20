@@ -714,6 +714,24 @@ public interface VanillaBpCamunda8Properties {
     Optional<Duration> workflowVisibilityTimeout();
 
     /**
+     * The same window for a workflow the engine no longer holds, which is the case where
+     * only the END of it is still on its way into the read model. Zero switches the
+     * waiting off. Default: 3 seconds.
+     *
+     * @return The visibility window of an ended workflow
+     */
+    Optional<Duration> endedWorkflowVisibilityTimeout();
+
+    /**
+     * Whether the jobs this adapter holds from the activation to the answer are activated
+     * with a lease. There is no default: on a release line whose cluster has a lease, the
+     * boot stops until this says which of the two the application wants.
+     *
+     * @return What the application decided
+     */
+    Optional<Camunda8AdapterConfiguration.JobLease> jobLease();
+
+    /**
      * How this adapter instance runs what it delivers: a positive number of platform
      * threads, or the literal <code>virtual</code>. Default: four platform threads.
      *

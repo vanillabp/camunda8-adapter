@@ -37,6 +37,7 @@ import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.camunda8.client.Camunda8JobLease;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
 import io.vanillabp.camunda8.test.ClusterLog;
@@ -1555,11 +1556,15 @@ public class Camunda8TaskProcessingIT {
     final var activated = new AtomicLong(0L);
     awaitUntil(
         () -> {
-          final var jobs = workflowServiceClient()
-              .newActivateJobsCommand()
-              .jobType(jobType)
-              .maxJobsToActivate(1)
-              .timeout(lock)
+          // 'job-lease: use' is configured here, and a leased job is never handed to an
+          // activation which does not ask for one
+          final var jobs = Camunda8JobLease
+              .leaseTheActivation(
+                  workflowServiceClient()
+                      .newActivateJobsCommand()
+                      .jobType(jobType)
+                      .maxJobsToActivate(1)
+                      .timeout(lock))
               .send()
               .join()
               .getJobs();

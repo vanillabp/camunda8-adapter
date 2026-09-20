@@ -199,6 +199,32 @@ public class Camunda8CommandRetryTest {
   }
 
   @Test
+  @DisplayName("A job another activation holds ends here, without a repetition and without a failure")
+  public void aJobSomebodyElseHoldsIsDroppedQuietly() {
+
+    final var attempts = new AtomicInteger();
+
+    // the lock of this run expired while its work was running, the cluster handed the job
+    // out again and that run answered first. There is nothing to repeat, and failing the
+    // job would take it away from whoever holds it now - so the command is dropped
+    send(lockOf(Duration.ofMinutes(1)), false, () -> {
+      attempts.incrementAndGet();
+      throw problem(409);
+    });
+
+    assertEquals(1, attempts.get(), "no repetition: no attempt of it is going to be accepted");
+
+    attempts.set(0);
+    send(lockOf(Duration.ofMinutes(1)), false, () -> {
+      attempts.incrementAndGet();
+      throw new ClientStatusException(Status.FAILED_PRECONDITION, null);
+    });
+
+    assertEquals(1, attempts.get(), "and the same on the other transport");
+
+  }
+
+  @Test
   @DisplayName("A cluster which keeps rejecting costs five attempts and no more")
   public void theAttemptCountIsTheBound() {
 

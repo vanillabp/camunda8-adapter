@@ -158,6 +158,46 @@ public final class Camunda8Errors {
   }
 
   /**
+   * Whether the cluster refused a command of a job because ANOTHER activation holds that
+   * job - what an answer of a run whose lock had expired meets.
+   * <p>
+   * A worker of this adapter may lease its activations (see decision 36 in the
+   * repository's DECISIONS.md). The cluster then takes the completion, the failure and the
+   * BPMN error of a job only from whoever carries the token of the CURRENT activation, and
+   * an activation which followed an expired lock supersedes the token before it. So the
+   * run which finished first is refused and the values of the run which finished last are
+   * what the workflow continues with.
+   * <p>
+   * Measured on 8.10.0-alpha5: a completion carrying a superseded token is refused with
+   * HTTP <code>409</code>, title <code>INVALID_STATE</code>, on gRPC with
+   * <code>FAILED_PRECONDITION</code>, and a completion carrying no token at all against a
+   * leased job with the same pair. A failure and a BPMN error answer the same. Every other
+   * wrong state of a job command measured there is a <code>404</code>: a key which never
+   * existed, a job which is already completed, and a token handed to a job which carries no
+   * lease.
+   * <p>
+   * The code alone cannot say WHICH wrong state the cluster means - the REST specification
+   * says 409 is "the job is in the wrong state" and nothing narrower, and the sentence
+   * around it is the cluster's to reword (decision 16 in the repository's DECISIONS.md). So
+   * the rule this adapter follows is the honest one: a 409 of a JOB command means somebody
+   * else holds this activation, whatever the reason. Both readings end the same way - the
+   * command is not repeated, because no repetition of it is going to be accepted either.
+   *
+   * @param throwable The failure of a job-based command
+   * @return Whether another activation of that job is the one the cluster is holding
+   */
+  public static boolean jobHeldByAnotherActivation(
+      final Throwable throwable) {
+
+    return !notFound(throwable) && anyCauseAnswers(
+        throwable,
+        cause -> ((cause instanceof ClientHttpException http) && (http
+            .code() == 409)) || ((cause instanceof ClientStatusException status) && (status
+                .getStatusCode() == Status.Code.FAILED_PRECONDITION)));
+
+  }
+
+  /**
    * Whether the cluster refused a publication because a message of the same id was
    * published before and still lives - the answer which makes an outbox entry done
    * rather than repeated, because a repetition would be refused again.
@@ -336,9 +376,10 @@ public final class Camunda8Errors {
   /**
    * Whether repeating a command a JOB HANDLER sends back to the cluster - a completion, a
    * BPMN error, a failure, a lock renewal - can change its answer. It is
-   * {@link #permanentFailure} plus the one case which is permanent for a job command and
-   * not for an outbox entry: a job which is gone stays gone, and repeating a command
-   * against it would turn the benign at-least-once residual into a retry storm.
+   * {@link #permanentFailure} plus the two cases which are permanent for a job command and
+   * not for an outbox entry: a job which is gone stays gone, and a job another activation
+   * holds is not going to be handed back. Repeating either would turn the benign
+   * at-least-once residual into a retry storm which runs until the job's lock expires.
    * <p>
    * There is deliberately no separate opinion about what backpressure looks like. The
    * cluster answers it with <code>RESOURCE_EXHAUSTED</code> on gRPC and HTTP 503 on REST,
@@ -351,7 +392,8 @@ public final class Camunda8Errors {
   public static boolean repeatableJobCommandFailure(
       final Throwable throwable) {
 
-    return !jobAlreadyGone(throwable) && !permanentFailure(throwable);
+    return !jobAlreadyGone(throwable) && !jobHeldByAnotherActivation(throwable) && !permanentFailure(
+        throwable);
 
   }
 

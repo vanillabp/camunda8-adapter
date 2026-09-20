@@ -71,6 +71,16 @@ import lombok.Setter;
  *   <li>{@code .startup-wait} (optional, default {@value #DEFAULT_STARTUP_WAIT_ISO}) - how
  *       long the start waits for a cluster which is not answering yet, see
  *       {@link #startupWait}</li>
+ *   <li>{@code .workflow-visibility-timeout} (optional, default 10 seconds) - how long a
+ *       workflow this cluster holds may stay invisible to the query API, see
+ *       {@link #workflowVisibilityWindow()}</li>
+ *   <li>{@code .ended-workflow-visibility-timeout} (optional, default 3 seconds) - the same
+ *       window for a workflow the engine no longer holds, see
+ *       {@link #endedWorkflowVisibilityWindow()}</li>
+ *   <li>{@code .job-lease} ({@code use} or {@code do-not-use}, REQUIRED on a release line
+ *       whose cluster has a lease, accepted and ignored on the others) - whether the jobs
+ *       this adapter holds from the activation to the answer are leased, see
+ *       {@link #validateJobLease(String, Consumer)}</li>
  * </ul>
  * All fields are optional at binding time so applications which configure a Camunda 8
  * adapter but never actually use it still boot; {@link #validate(String)} enforces the
@@ -291,6 +301,31 @@ public class Camunda8AdapterConfiguration {
      */
     INCIDENT
   }
+
+  /**
+   * Whether this adapter leases the activation of every job it holds from the activation to
+   * the answer.
+   */
+  public enum JobLease {
+    /**
+     * Activate with a lease. The cluster then takes the answer of the CURRENT activation
+     * only, so a run whose lock expired while it worked is refused instead of overwriting
+     * what the newer run wrote.
+     */
+    USE,
+    /**
+     * Activate without one, which is what every line before 8.10 does and what an
+     * application rolling back to such a line needs.
+     */
+    DO_NOT_USE
+  }
+
+  /**
+   * Whether the jobs this adapter holds from the activation to the answer are leased. There
+   * is NO default: on a line which can lease, the boot stops until the application says
+   * which of the two it wants, see {@link #validateJobLease(String, Consumer)}.
+   */
+  private JobLease jobLease;
 
   /**
    * What this adapter does about a task which stayed open longer than
@@ -520,6 +555,23 @@ public class Camunda8AdapterConfiguration {
    * zero to switch the waiting off. Default: 10 seconds.
    */
   private Duration workflowVisibilityTimeout;
+
+  /**
+   * The same window for a workflow the ENGINE has already forgotten, which is a much
+   * shorter one.
+   * <p>
+   * The long window above exists for a workflow which has just been started: the engine
+   * holds it, and the read model needs a moment to hear about it. A workflow the engine no
+   * longer holds is a different case. It ended, or it never existed, and it has been in
+   * the read model for as long as it ran - so what is left to wait for is only the moment
+   * the END of it needs to arrive there.
+   * <p>
+   * The engine is asked before the search
+   * ({@code Camunda8ProcessService#awarenessOfWorkflow}), so the adapter knows which of
+   * the two cases it is in. Raise it where an exporter is slow, set it to zero to answer
+   * at once. Default: 3 seconds.
+   */
+  private Duration endedWorkflowVisibilityTimeout;
 
   /**
    * Whether NO connection property is set at all - the "not configured yet" state:
@@ -984,6 +1036,14 @@ public class Camunda8AdapterConfiguration {
   public static final Duration DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT = Duration.ofSeconds(10);
 
   /**
+   * How long VanillaBP waits for the read model to report the END of a workflow the engine
+   * no longer holds. Three seconds is the slowest line's measurement rounded up, and the
+   * case behind it is answered by the engine rather than waited out, see
+   * {@link #endedWorkflowVisibilityWindow()}.
+   */
+  public static final Duration DEFAULT_ENDED_WORKFLOW_VISIBILITY_TIMEOUT = Duration.ofSeconds(3);
+
+  /**
    * How long a read of this cluster may meet an answer the exporter has not caught up with
    * yet: the configured {@code workflow-visibility-timeout} or
    * {@link #DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT}.
@@ -1005,6 +1065,32 @@ public class Camunda8AdapterConfiguration {
     return workflowVisibilityTimeout != null
         ? workflowVisibilityTimeout
         : DEFAULT_WORKFLOW_VISIBILITY_TIMEOUT;
+
+  }
+
+  /**
+   * How long VanillaBP waits for the END of a workflow to become findable by the query API,
+   * once the engine has said it does not hold that workflow any more.
+   * <p>
+   * Measured in September 2026 on all three lines: after an instance was canceled the read
+   * model needed 176, 199 and 445 ms on 8.10.0-alpha5, 255 ms on 8.9.19 and 2068 ms on
+   * 8.8.37. Three seconds covers the slowest of them with room to spare, which is why it is
+   * ONE number for every line rather than one per line: the release line reaches the
+   * runtime for messages and not for behaviour (see {@code Camunda8ReleaseLine}), and a
+   * cluster is free to be newer than the line a build was compiled against.
+   * <p>
+   * Why it is not zero: a workflow which starts and ends within a few milliseconds is gone
+   * from the engine before the read model has heard of it at all, and answering
+   * {@code UNKNOWN_TO_BPMS} for a workflow which really is {@code COMPLETED} is what sends
+   * the next operation of a migration to the wrong BPMS.
+   *
+   * @return The window, never <code>null</code>
+   */
+  public Duration endedWorkflowVisibilityWindow() {
+
+    return endedWorkflowVisibilityTimeout != null
+        ? endedWorkflowVisibilityTimeout
+        : DEFAULT_ENDED_WORKFLOW_VISIBILITY_TIMEOUT;
 
   }
 
@@ -1099,6 +1185,97 @@ public class Camunda8AdapterConfiguration {
                 shutdownGrace,
                 PLATFORM_SHUTDOWN_BUDGET,
                 DEFAULT_SHUTDOWN_GRACE_ISO));
+
+  }
+
+  /**
+   * Validates that the application said whether it wants the jobs of this adapter leased -
+   * AT STARTUP, because a lease cannot be taken back per job once one was handed out.
+   * <p>
+   * On a release line whose client has no lease the key is accepted and ignored, with one
+   * line saying so: an application moves between lines with one configuration, and refusing
+   * a key there would be the one thing that makes such a move hurt.
+   *
+   * @param adapterId The adapter id
+   * @param logger Sink for the line saying the key does nothing here. It is not a warning:
+   *          the key is right where it stands, and carrying it on a line which has no
+   *          lease is what lets one configuration serve an application on either line
+   * @throws IllegalStateException On a line which can lease, where the key is not set
+   */
+  public void validateJobLease(
+      final String adapterId,
+      final Consumer<String> logger) {
+
+    if (!Camunda8JobLease.supportedByThisLine()) {
+      if (jobLease != null) {
+        logger.accept(
+            """
+                Camunda 8 adapter '%s' has '%s: %s', which has no effect on this release line: its \
+                cluster and its client know no lease, so every job is activated without one. The key is \
+                read on the 8.10 line and later, and it is kept here so one configuration can serve an \
+                application on either line."""
+                .formatted(adapterId, propertyKey(adapterId, "job-lease"), valueOf(jobLease)));
+      }
+      return;
+    }
+    if (jobLease != null) {
+      return;
+    }
+    // an adapter nobody configured a cluster for opens no worker, so it leases nothing and
+    // has nothing to decide - and an application which is not finished configuring still
+    // boots, which is what the warning about an absent configuration is for
+    if (isAbsent()) {
+      return;
+    }
+    throw new IllegalStateException(
+        """
+            Camunda 8 adapter '%s' does not say whether it leases the activation of its jobs - set '%s' \
+            to '%s' or to '%s'.
+            A lease makes the cluster take the answer of the CURRENT activation only. Where the lock of \
+            a job expires while the business method is still running, the cluster hands the job out \
+            again and the method runs a second time; with a lease the older run is refused and the \
+            workflow continues with what the newer one wrote, and without a lease the older run wins \
+            and overwrites it.
+            It has to be decided rather than defaulted because it cannot be taken back: the cluster \
+            never removes a lease from a job, a worker of the same job type which does not lease never \
+            sees a leased job again, and an application rolled back onto an older line therefore leaves \
+            the jobs it leased standing.
+            Write '%s: %s' to switch it on, or '%s: %s' to keep what every line before this one does."""
+            .formatted(
+                adapterId,
+                propertyKey(adapterId, "job-lease"),
+                valueOf(JobLease.USE),
+                valueOf(JobLease.DO_NOT_USE),
+                propertyKey(adapterId, "job-lease"),
+                valueOf(JobLease.USE),
+                propertyKey(adapterId, "job-lease"),
+                valueOf(JobLease.DO_NOT_USE)));
+
+  }
+
+  /**
+   * An enum value the way it is written in a configuration file.
+   */
+  private static String valueOf(
+      final JobLease value) {
+
+    return value
+        .name()
+        .toLowerCase()
+        .replace('_', '-');
+
+  }
+
+  /**
+   * Whether the jobs this adapter holds from the activation to the answer are activated
+   * with a lease. It is false wherever the release line has no lease, whatever is
+   * configured.
+   *
+   * @return Whether to lease
+   */
+  public boolean leasesItsJobs() {
+
+    return Camunda8JobLease.supportedByThisLine() && (jobLease == JobLease.USE);
 
   }
 

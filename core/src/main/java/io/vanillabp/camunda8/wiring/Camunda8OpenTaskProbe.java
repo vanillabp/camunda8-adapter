@@ -1,11 +1,12 @@
 package io.vanillabp.camunda8.wiring;
 
 import java.time.Duration;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 import java.util.function.Supplier;
 
 import io.camunda.client.CamundaClient;
 import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.integration.adapter.spi.workflowtask.OpenTaskProbe;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskExistence;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
@@ -46,17 +47,22 @@ import lombok.extern.slf4j.Slf4j;
  * A Camunda-managed user task is delivered through its listener job, and the id the record
  * keeps for it is the USER-TASK key. Handed to a job command that key answers
  * <code>NOT_FOUND</code> for as long as the task is open, which read as gone would cancel a
- * task the cluster is holding out to somebody. The probe of the SPI names the task and not
- * what kind of task it is, so the two cannot be told apart from the arguments, and the
- * records of one wake-up all belong to the ONE process instance the workflow id names.
+ * task the cluster is holding out to somebody.
  * <p>
- * So the BPMN process decides. Where its model carries no Camunda-managed user task, a
- * <code>NOT_FOUND</code> is the whole answer and the task is gone. Where it carries one,
- * every <code>NOT_FOUND</code> of that process is answered with
- * {@link TaskExistence#CANNOT_SAY}: the check then reports nothing for that process, which
- * is what being honest costs here and what keeps it from reporting a living user task as
- * canceled. Such a workflow still hears about a task which went away, through the end of the
- * workflow and through the next operation which names the task.
+ * The record says which task definition it belongs to, and this adapter knows its own user
+ * tasks by that name. So the refusal is per RECORD: a record whose task definition belongs
+ * to a Camunda-managed user task is answered with {@link TaskExistence#CANNOT_SAY}, and
+ * every other record of the same process is answered with what the cluster said. A model
+ * holding one user task next to three service tasks therefore still has the three derived,
+ * which the earlier rule per BPMN process took from it.
+ * <p>
+ * Two cases keep the wider answer, and both are cases where nothing tells the two kinds of
+ * task apart. A BPMN process this application declares without deploying a model has no
+ * model to read, so every task definition of it may be a user task. And a record which kept
+ * no task definition at all names nothing to look up, so it counts as one wherever its
+ * process has any. A workflow the check says nothing about still hears about a task which
+ * went away, through the end of the workflow and through the next operation which names the
+ * task.
  * <p>
  * The user tasks themselves need no probe at all. VanillaBP writes a <code>canceling</code>
  * task listener next to every user task it manages, and the cluster delivers
@@ -86,11 +92,11 @@ public class Camunda8OpenTaskProbe {
   private final Duration asyncTaskLockRenewal;
 
   /**
-   * Whether the model of a BPMN process carries a Camunda-managed user task, asked by the
-   * PLAIN process id. It decides whether a <code>NOT_FOUND</code> from a job command is the
-   * whole answer for a task of that process.
+   * Whether a record of that PLAIN BPMN process id and PLAIN task definition may name a
+   * Camunda-managed user task. It decides whether a <code>NOT_FOUND</code> from a job
+   * command is the whole answer for that one record.
    */
-  private final Predicate<String> theProcessHasCamundaManagedUserTasks;
+  private final BiPredicate<String, String> theRecordMayNameACamundaManagedUserTask;
 
   public Camunda8OpenTaskProbe(
       final String adapterId,
@@ -98,14 +104,14 @@ public class Camunda8OpenTaskProbe {
       final WorkflowTaskInvoker workflowTaskInvoker,
       final Supplier<CamundaClient> client,
       final Duration asyncTaskLockRenewal,
-      final Predicate<String> theProcessHasCamundaManagedUserTasks) {
+      final BiPredicate<String, String> theRecordMayNameACamundaManagedUserTask) {
 
     this.adapterId = adapterId;
     this.workflowModuleId = workflowModuleId;
     this.workflowTaskInvoker = workflowTaskInvoker;
     this.client = client;
     this.asyncTaskLockRenewal = asyncTaskLockRenewal;
-    this.theProcessHasCamundaManagedUserTasks = theProcessHasCamundaManagedUserTasks;
+    this.theRecordMayNameACamundaManagedUserTask = theRecordMayNameACamundaManagedUserTask;
 
   }
 
@@ -129,12 +135,36 @@ public class Camunda8OpenTaskProbe {
     }
     try {
       // every record the core asks about belongs to the one process instance the workflow
-      // id names, so they are all tasks of the BPMN process of this wake-up
-      final var theProcessHasUserTasks = theProcessHasCamundaManagedUserTasks.test(bpmnProcessId);
+      // id names, so they are all tasks of the BPMN process of this wake-up - what differs
+      // per record is the task definition, which is what the probe below reads
       workflowTaskInvoker
-          .reportTasksTheBpmsNoLongerHas(workflowModuleId, bpmnProcessId, wakeUp, (
-              workflowId,
-              taskId) -> stillExists(taskId, theProcessHasUserTasks));
+          .reportTasksTheBpmsNoLongerHas(workflowModuleId, bpmnProcessId, wakeUp, new OpenTaskProbe() {
+
+            @Override
+            public TaskExistence stillExists(
+                final String workflowId,
+                final String taskId) {
+
+              // the core asks the three-argument method, so this one is reached only by a
+              // caller which holds no task definition - which is the ambiguous case
+              return stillExists(workflowId, taskId, null);
+
+            }
+
+            @Override
+            public TaskExistence stillExists(
+                final String workflowId,
+                final String taskId,
+                final String taskDefinition) {
+
+              return Camunda8OpenTaskProbe.this
+                  .stillExists(
+                      taskId,
+                      theRecordMayNameACamundaManagedUserTask.test(bpmnProcessId, taskDefinition));
+
+            }
+
+          });
     } catch (final RuntimeException e) {
       log
           .debug(
@@ -152,14 +182,13 @@ public class Camunda8OpenTaskProbe {
    * Whether the cluster still has the task of that id.
    *
    * @param taskId The job key respectively the user-task key the delivery record kept
-   * @param theProcessHasUserTasks Whether the BPMN process of that task carries a
-   *          Camunda-managed user task, which is what makes a <code>NOT_FOUND</code>
-   *          ambiguous
+   * @param mayBeAUserTask Whether this record may name a Camunda-managed user task, which
+   *          is what makes a <code>NOT_FOUND</code> ambiguous
    * @return What the cluster said
    */
   TaskExistence stillExists(
       final String taskId,
-      final boolean theProcessHasUserTasks) {
+      final boolean mayBeAUserTask) {
 
     if (taskId == null) {
       return TaskExistence.CANNOT_SAY;
@@ -196,10 +225,11 @@ public class Camunda8OpenTaskProbe {
                 Camunda8Errors.rejection(e));
         return TaskExistence.CANNOT_SAY;
       }
-      if (theProcessHasUserTasks) {
+      if (mayBeAUserTask) {
         // the key may be the USER-TASK key of a task the cluster is holding open, and a
-        // job command answers NOT_FOUND for one of those as well. Nothing in the question
-        // tells the two apart, so this adapter says so rather than canceling a living task
+        // job command answers NOT_FOUND for one of those as well. Nothing left in the
+        // question tells the two apart, so this adapter says so rather than canceling a
+        // living task
         return TaskExistence.CANNOT_SAY;
       }
       return TaskExistence.GONE;

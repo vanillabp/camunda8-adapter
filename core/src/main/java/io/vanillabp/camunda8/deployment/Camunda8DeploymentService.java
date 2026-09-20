@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -14,6 +15,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -2621,6 +2623,68 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
+   * Opens this worker with a lease on every activation, where the application asked for
+   * one.
+   * <p>
+   * A leased activation is answered by whoever carries its token, so the run which
+   * finished last is the one the workflow continues with. It is a ratchet, per job: no
+   * command removes a lease and a worker of the same job type which does not lease never
+   * sees a leased job again, which is why the application decides and there is no default,
+   * see decision 36 in the repository's DECISIONS.md.
+   * <p>
+   * This is the answer for a worker which holds its job from the activation to the answer:
+   * the listeners, the start events the cluster fires and the end of a workflow. A worker
+   * which serves TASKS asks {@link #leaseUnlessATaskStaysOpen} instead.
+   *
+   * @param builder The worker builder
+   * @return The same builder
+   */
+  JobWorkerBuilderStep1.JobWorkerBuilderStep3 leaseTheActivations(
+      final JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder) {
+
+    return Camunda8Workers.leaseTheActivations(builder, clientFactory.getConfiguration());
+
+  }
+
+  /**
+   * The same, for a worker which serves tasks: it leases only where none of the tasks it
+   * serves can stay open.
+   * <p>
+   * An ASYNCHRONOUS task is completed in phase two, hours after the activation and by a
+   * dispatcher which holds no token, so a leased job of such a task could never be
+   * completed at all. The question is asked per job type and not per task, because a
+   * worker subscribes to a job type: one task definition it serves which wants to stay
+   * open is enough for the whole worker to activate without a lease.
+   *
+   * @param builder The worker builder
+   * @param workflowModuleId The workflow module
+   * @param served What this job type serves, or <code>null</code> where nothing is known
+   *          about it
+   * @return The same builder
+   */
+  JobWorkerBuilderStep1.JobWorkerBuilderStep3 leaseUnlessATaskStaysOpen(
+      final JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder,
+      final String workflowModuleId,
+      final Collection<ServedElement> served) {
+
+    if (!clientFactory.getConfiguration().leasesItsJobs()) {
+      return builder;
+    }
+    final var somethingStaysOpen = (served == null) || served
+        .stream()
+        .anyMatch(
+            element -> workflowTaskWiring
+                .workflowTaskCompletesAsynchronously(
+                    workflowModuleId,
+                    plainProcessId(workflowModuleId, element.scopedBpmnProcessId()),
+                    element.taskDefinition()));
+    return somethingStaysOpen
+        ? builder
+        : Camunda8Workers.leaseTheActivations(builder, clientFactory.getConfiguration());
+
+  }
+
+  /**
    * The lock of a worker which serves no task: the user-task lifecycle listeners, the start
    * events the cluster fires itself and the processes whose end is reported. All three run
    * application code inside a transaction exactly like a task does, so they are resolved the
@@ -2859,8 +2923,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // question. It knows whether this module carries Camunda-managed user tasks, because a
     // user-task key handed to a job command answers NOT_FOUND and would read as gone
     final var openTaskProbe = new Camunda8OpenTaskProbe(
-        adapterId, workflowModuleId, workflowTaskInvoker, clientFactory::getClient, asyncTaskLockRenewal, theProcessesWithCamundaManagedUserTasks(
-            workflowModuleId, bpmsProcessingContext)::contains);
+        adapterId, workflowModuleId, workflowTaskInvoker, clientFactory::getClient, asyncTaskLockRenewal, theRecordMayNameACamundaManagedUserTask(
+            workflowModuleId, bpmsProcessingContext));
     bpmsProcessingContext
         .getTasksToWire()
         .forEach(task -> {
@@ -2941,6 +3005,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           "user-task listener",
           listenerJobType,
           listenerFetch);
+      listenerWorkerBuilder = leaseTheActivations(listenerWorkerBuilder);
       final var listenerTenantId = tenantIdOf(workflowModuleId);
       if (listenerTenantId != null) {
         // with 'by-adapter': jobs of a tenant are only delivered to workers
@@ -3003,6 +3068,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           "modelled listener",
           jobType,
           listenerFetch);
+      builder = leaseTheActivations(builder);
       final var listenerTenantId = tenantIdOf(workflowModuleId);
       if (listenerTenantId != null) {
         builder = builder.tenantId(listenerTenantId);
@@ -3040,6 +3106,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               // carries into the workflow aggregate it builds, so a list would decide
               // which of the application's own values survive
               Camunda8FetchVariables.Selection.everything());
+          startWorkerBuilder = leaseTheActivations(startWorkerBuilder);
           final var startTenantId = tenantIdOf(workflowModuleId);
           if (startTenantId != null) {
             startWorkerBuilder = startWorkerBuilder.tenantId(startTenantId);
@@ -3079,6 +3146,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               "workflow-end",
               Camunda8TaskWiring.workflowEndedJobTypeOf(scopedProcessId),
               endFetch);
+          endWorkerBuilder = leaseTheActivations(endWorkerBuilder);
           final var endTenantId = tenantIdOf(workflowModuleId);
           if (endTenantId != null) {
             endWorkerBuilder = endWorkerBuilder.tenantId(endTenantId);
@@ -3120,6 +3188,8 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
           "task",
           taskDefinition,
           taskFetch);
+      workerBuilder = leaseUnlessATaskStaysOpen(
+          workerBuilder, workflowModuleId, servedByJobType.get(taskDefinition));
       final var workerTenantId = tenantIdOf(workflowModuleId);
       if (workerTenantId != null) {
         workerBuilder = workerBuilder.tenantId(workerTenantId);
@@ -3287,32 +3357,56 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
-   * The BPMN processes of this workflow module which can hold a Camunda-managed user task,
-   * as PLAIN process ids. It decides how the probe of {@link Camunda8OpenTaskProbe} reads
-   * "the cluster has no job of that key".
+   * Which records of this workflow module may name a Camunda-managed user task, asked by
+   * the PLAIN BPMN process id and the PLAIN task definition. It decides how the probe of
+   * {@link Camunda8OpenTaskProbe} reads "the cluster has no job of that key".
    * <p>
    * The record of a user-task delivery keeps the USER-TASK key, and a job command answers
    * <code>NOT_FOUND</code> for such a key as long as the task is open - which read as gone
-   * would cancel a task the cluster is holding out to somebody. The models of this module
-   * are one source; the other is a BPMN process this application declares without deploying
-   * a model under it, whose user-task listener worker is opened without anybody knowing
-   * whether the task ever was one. Both count, because a wrong "gone" costs more than a
-   * check which says nothing.
+   * would cancel a task the cluster is holding out to somebody. The task definition of a
+   * user task is the external form reference its listener job type carries, which is what
+   * the records of this adapter keep, so the models of this module say per record which
+   * kind of task is being asked about.
+   * <p>
+   * Two answers stay wide, because nothing narrows them. A BPMN process this application
+   * declares without deploying a model has no model to read, so every task definition of it
+   * counts. And a record which kept no task definition names nothing to look up, so it
+   * counts wherever its process holds such a user task at all. A wrong "gone" costs more
+   * than a check which says nothing.
    *
    * @param workflowModuleId The workflow module
    * @param bpmsProcessingContext What the pipeline collected while wiring it
-   * @return The plain BPMN process ids whose tasks the probe cannot tell apart
+   * @return Whether a record of that process and task definition may be a user task
    */
-  private Set<String> theProcessesWithCamundaManagedUserTasks(
+  BiPredicate<String, String> theRecordMayNameACamundaManagedUserTask(
       final String workflowModuleId,
       final Camunda8ProcessingContext bpmsProcessingContext) {
 
-    final var processes = new HashSet<String>();
+    final var userTaskDefinitions = new HashMap<String, Set<String>>();
     bpmsProcessingContext
         .getUserTasksToWire()
-        .forEach(userTask -> processes.add(plainProcessId(workflowModuleId, userTask.bpmnProcessId())));
-    processes.addAll(workflowTaskWiring.taskWiringOfProcessesNobodyDeployed(workflowModuleId).keySet());
-    return processes;
+        .forEach(userTask -> {
+          final var plainBpmnProcessId = plainProcessId(workflowModuleId, userTask.bpmnProcessId());
+          userTaskDefinitions
+              .computeIfAbsent(plainBpmnProcessId, process -> new HashSet<>())
+              .add(
+                  plainTaskDefinition(
+                      workflowModuleId, plainBpmnProcessId, userTask.externalFormReference()));
+        });
+    final var processesWithoutAModel = Set
+        .copyOf(workflowTaskWiring.taskWiringOfProcessesNobodyDeployed(workflowModuleId).keySet());
+    return (
+        bpmnProcessId,
+        taskDefinition) -> {
+      if (processesWithoutAModel.contains(bpmnProcessId)) {
+        return true;
+      }
+      final var userTasksOfTheProcess = userTaskDefinitions.get(bpmnProcessId);
+      if (userTasksOfTheProcess == null) {
+        return false;
+      }
+      return (taskDefinition == null) || userTasksOfTheProcess.contains(taskDefinition);
+    };
 
   }
 
@@ -3367,6 +3461,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         "task",
         jobType,
         Camunda8FetchVariables.Selection.everything());
+    workerBuilder = leaseUnlessATaskStaysOpen(
+        workerBuilder,
+        workflowModuleId,
+        List.of(new ServedElement(bpmnProcessId, null, plainTaskDefinition)));
     final var tenantId = tenantIdOf(workflowModuleId);
     if (tenantId != null) {
       workerBuilder = workerBuilder.tenantId(tenantId);
@@ -3415,6 +3513,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         "user-task listener",
         listenerJobType,
         Camunda8FetchVariables.Selection.everything());
+    workerBuilder = leaseTheActivations(workerBuilder);
     final var tenantId = tenantIdOf(workflowModuleId);
     if (tenantId != null) {
       workerBuilder = workerBuilder.tenantId(tenantId);
@@ -3462,6 +3561,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         "workflow-end",
         jobType,
         Camunda8FetchVariables.Selection.everything());
+    workerBuilder = leaseTheActivations(workerBuilder);
     final var tenantId = tenantIdOf(workflowModuleId);
     if (tenantId != null) {
       workerBuilder = workerBuilder.tenantId(tenantId);

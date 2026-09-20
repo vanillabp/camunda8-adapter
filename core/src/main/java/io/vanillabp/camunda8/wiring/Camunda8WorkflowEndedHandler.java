@@ -9,6 +9,7 @@ import io.camunda.client.api.worker.JobHandler;
 import io.vanillabp.camunda8.client.Camunda8CommandRetry;
 import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.camunda8.client.Camunda8JobLease;
 import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedContext;
 import io.vanillabp.integration.adapter.spi.workflowend.WorkflowEndedInvoker;
 import io.vanillabp.spi.service.WorkflowEnd;
@@ -179,8 +180,8 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
           job.getType(),
           job.getDeadline(),
           drain::isShuttingDown,
-          () -> client
-              .newCompleteCommand(job.getKey())
+          () -> Camunda8JobLease
+              .withToken(client.newCompleteCommand(job.getKey()), Camunda8JobLease.tokenOf(job))
               .send()
               .join());
 
@@ -211,11 +212,14 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
           job.getType(),
           job.getDeadline(),
           drain::isShuttingDown,
-          () -> client
-              .newFailCommand(job.getKey())
-              .retries(job.getRetries() - 1)
-              .retryBackoff(retryBackoff)
-              .errorMessage(Camunda8Errors.incidentMessage(e))
+          () -> Camunda8JobLease
+              .withToken(
+                  client
+                      .newFailCommand(job.getKey())
+                      .retries(job.getRetries() - 1)
+                      .retryBackoff(retryBackoff)
+                      .errorMessage(Camunda8Errors.incidentMessage(e)),
+                  Camunda8JobLease.tokenOf(job))
               .send()
               .join());
     } finally {

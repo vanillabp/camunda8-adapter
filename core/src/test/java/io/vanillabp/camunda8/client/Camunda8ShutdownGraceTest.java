@@ -128,9 +128,12 @@ public class Camunda8ShutdownGraceTest {
 
     final var configuration = configuration(Duration.ofMinutes(2));
     configuration.setRestAddress("http://localhost:8080");
+    // a configured adapter has to say whether it leases, on the line which can lease
+    configuration.setJobLease(Camunda8AdapterConfiguration.JobLease.DO_NOT_USE);
 
     Camunda8StartupValidation.validateAtStartup(
-        "c8", configuration, true, false, Duration.ofDays(7), warnings::add);
+        "c8", configuration, true, false, Duration.ofDays(7), warnings::add, line -> {
+        });
 
     assertEquals(1, warnings.size(), "the grace is checked where every other value is checked");
     assertTrue(warnings.getFirst().contains("shutdown-grace"), warnings.toString());

@@ -13,6 +13,7 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8CommandRetry;
 import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.camunda8.client.Camunda8JobLease;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
@@ -330,16 +331,19 @@ public class Camunda8JobHandler implements JobHandler {
           taskDefinition,
           job.getDeadline(),
           drain::isShuttingDown,
-          () -> client
-              .newFailCommand(job.getKey())
-              .retries(job.getRetries() - 1)
-              // without it the cluster hands the job out again at once, so a handler
-              // failing on something which needs a moment burns its retries before the
-              // cause has a chance to pass
-              .retryBackoff(retryBackoff)
-              // the type belongs into the incident as much as the message does: what a
-              // NullPointerException says on its own is 'null'
-              .errorMessage(Camunda8Errors.incidentMessage(e))
+          () -> Camunda8JobLease
+              .withToken(
+                  client
+                      .newFailCommand(job.getKey())
+                      .retries(job.getRetries() - 1)
+                      // without it the cluster hands the job out again at once, so a
+                      // handler failing on something which needs a moment burns its
+                      // retries before the cause has a chance to pass
+                      .retryBackoff(retryBackoff)
+                      // the type belongs into the incident as much as the message does:
+                      // what a NullPointerException says on its own is 'null'
+                      .errorMessage(Camunda8Errors.incidentMessage(e)),
+                  Camunda8JobLease.tokenOf(job))
               .send()
               .join());
       return;
@@ -362,16 +366,21 @@ public class Camunda8JobHandler implements JobHandler {
             taskDefinition,
             job.getDeadline(),
             drain::isShuttingDown,
-            () -> client
-                .newThrowErrorCommand(job.getKey())
-                // the model's error codes are prefixed too, so the code the
-                // business method raised has to be translated on its way to the cluster
-                .errorCode(
-                    NameClashAvoidanceSupport
-                        .scopedIdentifier(scoping, workflowModuleId, outcome.errorCode(), adapterId))
-                .errorMessage(String.valueOf(outcome.errorName()))
-                // the error boundary's outgoing path may branch on the aggregate, too
-                .variables(errorVariables)
+            () -> Camunda8JobLease
+                .withToken(
+                    client
+                        .newThrowErrorCommand(job.getKey())
+                        // the model's error codes are prefixed too, so the code the
+                        // business method raised has to be translated on its way to the
+                        // cluster
+                        .errorCode(
+                            NameClashAvoidanceSupport
+                                .scopedIdentifier(
+                                    scoping, workflowModuleId, outcome.errorCode(), adapterId))
+                        .errorMessage(String.valueOf(outcome.errorName()))
+                        // the error boundary's outgoing path may branch on the aggregate
+                        .variables(errorVariables),
+                    Camunda8JobLease.tokenOf(job))
                 .send()
                 .join());
       }
@@ -464,10 +473,13 @@ public class Camunda8JobHandler implements JobHandler {
         taskDefinition,
         job.getDeadline(),
         drain::isShuttingDown,
-        () -> client
-            .newFailCommand(job.getKey())
-            .retries(0)
-            .errorMessage(message)
+        () -> Camunda8JobLease
+            .withToken(
+                client
+                    .newFailCommand(job.getKey())
+                    .retries(0)
+                    .errorMessage(message),
+                Camunda8JobLease.tokenOf(job))
             .send()
             .join());
 
@@ -557,8 +569,8 @@ public class Camunda8JobHandler implements JobHandler {
           taskDefinition,
           job.getDeadline(),
           drain::isShuttingDown,
-          () -> client
-              .newCompleteCommand(job.getKey())
+          () -> Camunda8JobLease
+              .withToken(client.newCompleteCommand(job.getKey()), Camunda8JobLease.tokenOf(job))
               .variables(variables)
               .send()
               .join());

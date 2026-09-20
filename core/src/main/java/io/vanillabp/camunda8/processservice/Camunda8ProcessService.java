@@ -128,13 +128,70 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   @Override
   public WorkflowVisibilityDelay workflowVisibilityDelay() {
 
-    final var window = clientFactory.getConfiguration().workflowVisibilityWindow();
-    return window.isZero() || window.isNegative()
-        ? WorkflowVisibilityDelay.none()
-        : new WorkflowVisibilityDelay(
-            window, WORKFLOW_VISIBILITY_PROBE_INTERVAL);
+    return delayOf(clientFactory.getConfiguration().workflowVisibilityWindow());
 
   }
+
+  /**
+   * The same window asked for ONE workflow, which is what the core asks.
+   * <p>
+   * Two cases hide behind the long window, and the engine has already told this adapter
+   * which of them it is in. A workflow which was just STARTED is the case the long window
+   * exists for: the engine holds it and the read model needs up to ten seconds to hear
+   * about it. A workflow the engine no longer holds ended long enough ago to be in that
+   * read model, and what is still on its way there is only the END of it - measured in
+   * hundreds of milliseconds on the newer lines and two seconds on the oldest one, which
+   * is what {@code ended-workflow-visibility-timeout} covers.
+   * <p>
+   * Which of the two this workflow is in comes from the probe of
+   * {@link #awarenessOfWorkflow(WorkflowScope, AggregatePersistenceAware, Object, String)},
+   * which the core ran on this thread immediately before asking: it remembers a workflow
+   * the engine answered <code>404</code> for. Nothing else shortens anything - a probe
+   * which was skipped, which failed, or which said the engine HOLDS the workflow all leave
+   * the long window, because none of them says the workflow is over.
+   * <p>
+   * The short window changes how long the core waits and never WHAT this adapter answers
+   * afterwards. The search below still tells {@link WorkflowAwareness#COMPLETED} from
+   * {@link WorkflowAwareness#UNKNOWN_TO_BPMS}, and an ended workflow read as unknown is
+   * what sends the next operation of a migration to the wrong BPMS.
+   *
+   * @param workflowId The process instance key, or <code>null</code> where VanillaBP holds
+   *          none
+   * @return The window to wait for that workflow
+   */
+  @Override
+  public WorkflowVisibilityDelay workflowVisibilityDelay(
+      final String workflowId) {
+
+    if ((workflowId != null) && workflowId.equals(theEngineHasForgottenThisWorkflow.get())) {
+      return delayOf(clientFactory.getConfiguration().endedWorkflowVisibilityWindow());
+    }
+    return workflowVisibilityDelay();
+
+  }
+
+  /**
+   * A window as the core reads it: a window of zero or less is no waiting at all.
+   */
+  private static WorkflowVisibilityDelay delayOf(
+      final Duration window) {
+
+    return window.isZero() || window.isNegative()
+        ? WorkflowVisibilityDelay.none()
+        : new WorkflowVisibilityDelay(window, WORKFLOW_VISIBILITY_PROBE_INTERVAL);
+
+  }
+
+  /**
+   * The workflow the engine last answered "I do not hold that" about, on THIS thread.
+   * <p>
+   * It is what {@link #workflowVisibilityDelay(String)} reads, and a thread is the right
+   * place for it because the core asks the two questions one after the other on the thread
+   * of the election: it probes, and where the answer is unknown it asks how long to keep
+   * asking. Nothing is cached beyond that - the next probe on this thread writes its own
+   * answer, and an id which is not the one remembered gets the long window.
+   */
+  private final ThreadLocal<String> theEngineHasForgottenThisWorkflow = new ThreadLocal<>();
 
   /**
    * How deeply the scope hierarchy is walked when a task-scoped push looks for the
@@ -968,6 +1025,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final Object workflowAggregateId,
       final String workflowId) {
 
+    // whatever this probe finds out replaces what it found out last time, so a question
+    // it does not answer at all leaves nothing behind for the window to read
+    theEngineHasForgottenThisWorkflow.remove();
     if ((workflowId == null) || workflowId.isBlank()) {
       return false;
     }
@@ -1004,7 +1064,10 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     } catch (final Exception e) {
       if (Camunda8Errors.notFound(e)) {
         // the engine has forgotten this instance, which says nothing about whether the
-        // workflow completed or never existed - the search below is what tells those apart
+        // workflow completed or never existed - the search below is what tells those apart.
+        // What it does say is that nothing is on its way into the read model but the END of
+        // this workflow, which is what the short window of workflowVisibilityDelay waits for
+        theEngineHasForgottenThisWorkflow.set(workflowId);
         return false;
       }
       if (Camunda8Errors.refusedAboutAnInstanceItHolds(e)) {

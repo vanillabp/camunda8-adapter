@@ -100,6 +100,7 @@ public class Camunda8SharedClusterElectionIT {
     arguments.add("--vanillabp.adapters.c8-plain.workflow-visibility-timeout=PT60S");
     if (withPrefixAdapter) {
       arguments.add("--vanillabp.adapters.c8-prefix.type=camunda8");
+      arguments.add("--vanillabp.adapters.c8-prefix.job-lease=use");
       arguments.add("--vanillabp.adapters.c8-prefix.name-clash-avoidance=use-prefix");
       arguments.add("--vanillabp.adapters.c8-prefix.rest-address="
           + restAddress());

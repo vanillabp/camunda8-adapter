@@ -1272,18 +1272,117 @@ refused, which is a change to a running workflow nobody asked for. The id is the
 carries it gets a warning naming the process, and no probe is sent for a workflow of that process -
 such an election waits for the search the way it did before.
 
-**What this entry deliberately does not do.** The measurement says the long window is worth
-shortening as well: `WorkflowLocator.probeUntilVisible` waits ten seconds in steps of 250 ms for an
-answer which is `UNKNOWN_TO_BPMS`, which after a 404 from the engine means a workflow which ended,
-and neither of those gets better by waiting. Shortening it needs `workflowVisibilityDelay()` to
-learn about the workflow being asked about, and that method takes no arguments. The platform half
-which would have added the overload was not built, so this adapter ships the ACTIVE half alone and
-the shortened window waits for a story of its own. Nothing here has to change for it: the two
-numbers live in `Camunda8AdapterConfiguration` and the probe already knows the answer that story
-needs.
+**And the wait which follows a no.** `WorkflowLocator.probeUntilVisible` used to wait ten seconds
+in steps of 250 ms for an answer which is `UNKNOWN_TO_BPMS`, which after a 404 from the engine
+means a workflow which ended - and neither of those gets better by waiting. The long window exists
+for a workflow which was just STARTED: the engine holds it and the read model needs up to a second
+to hear about it. A workflow the engine no longer holds has been in that read model for as long as
+it ran, and what is still on its way there is the END of it. Measured in September 2026 on the
+three lines, after an instance was canceled: 176 to 445 ms on 8.10.0-alpha5, 255 ms on 8.9.19 and
+2068 ms on 8.8.37.
 
-`Camunda8EngineBeforeTheSearchTest` holds the mapping of every answer and the process the probe
-stays away from, `Camunda8ErrorsTest` the codes, and `Camunda8EngineProbeIT` runs all of it against
-a cluster on every line.
+So the window is asked for one workflow. The platform carries the overload
+`workflowVisibilityDelay(workflowId)` and the core calls it right after the probe, on the same
+thread, so this adapter answers the short window
+(`ended-workflow-visibility-timeout`, 3 seconds) for the workflow its own probe just met a 404 for
+and the long one (`workflow-visibility-timeout`, 10 seconds) for everything else. Which of the two
+it is comes from the probe above and from nothing else: a probe which was skipped, one which
+failed, and one which found the instance all leave the long window, because none of them says the
+workflow is over.
+
+Three seconds is ONE number for every line although the lines measured differently. The release
+line reaches the runtime for messages and not for behaviour (`Camunda8ReleaseLine`), a cluster is
+free to be newer than the line a build was compiled against, and the slowest measurement fits under
+three seconds with room to spare. What it costs the faster lines is two seconds on the case which
+waits the window out to its end, which is a workflow no BPMS of the election knows - and an
+operator who wants the second back writes the key.
+
+It is not zero, because a workflow which starts and ends within a few milliseconds is gone from the
+engine before the read model has heard of it at all. Answering `UNKNOWN_TO_BPMS` for a workflow
+which really is `COMPLETED` is the answer which sends the next operation of a migration to the
+wrong BPMS, which is the one thing neither half of this entry may do.
+
+`Camunda8EngineBeforeTheSearchTest` holds the mapping of every answer, the process the probe stays
+away from and which of the two windows each answer leaves behind, `Camunda8ErrorsTest` the codes,
+and `Camunda8EngineProbeIT` runs all of it against a cluster on every line.
 
 See [Eventual consistency of the query API](./README.md#eventual-consistency-of-the-query-api).
+
+### 36. A job this adapter holds from the activation to the answer leases it, and the application says whether
+
+Camunda 8.10 lets a worker lease an activation. The job then carries a token, and the cluster takes
+the completion, the failure and the BPMN error of that job only from whoever holds the current one.
+An activation which follows an expired lock supersedes the token before it.
+
+What it buys is small and real. Today, when the lock expires while the business method is still
+running, the cluster hands the job out again, the method runs a second time, and both runs try to
+complete. The first completion usually wins and writes the values of the OLDER run, while the newer
+run finds the job gone and logs a warning. With a lease the older completion is refused and the
+workflow continues with what the run which finished last wrote. The same duplicate work, a better
+result, and a rejection instead of a silent overwrite.
+
+**Which workers lease.** Those which hold their job from the activation to the answer: the user-task
+listeners, the listeners somebody modelled, the cancel listeners of decision 32, the start events the
+cluster fires itself and the end of a workflow. A task worker leases only where NO task definition of
+its job type completes asynchronously (`workflowTaskCompletesAsynchronously`, asked per job type
+because a worker subscribes to a job type). Phase two completes such a task by key, hours after the
+activation and from a dispatcher which holds no token, so a leased job of an asynchronous task could
+never be completed at all. One task definition of a job type which wants to stay open is therefore
+enough to switch the lease off for that whole worker.
+
+**Why the application decides and there is no default.** Leasing is a ratchet, per job. No command
+removes a lease, and once a job has been leased, a worker of the same job type which does not lease
+never sees that job again (measured on 8.10.0-alpha5: a non leasing activation never got the
+abandoned job back, while a job of the same type nobody had leased reached it at once). So an
+application rolled back to the 8.9 line leaves the jobs it leased standing, and under the name-clash
+avoidance modes `use-prefix` and `none`, where two adapter ids can share a job type, a second
+application still on 8.9 would starve on exactly those jobs. Under the default mode the job type
+carries the adapter id, so that case does not arise there.
+
+On a line whose client can lease, the boot therefore stops until `job-lease` says `use` or
+`do-not-use`, with a message which explains what a lease does and that it cannot be taken back. On
+8.8 and 8.9 the same key is accepted and ignored, and the boot says in one line that it has no
+effect there: an application moves between lines with one configuration, and refusing the key is
+what would make such a move hurt. An adapter id nobody configured a cluster for is not asked at
+all, because it opens no worker.
+
+**An extension opens its workers the same way.** `Camunda8Workers.leaseTheActivations` is public
+next to `applyWorkerOptions`, and an extension which opens listener workers on this cluster calls
+it for the same reason it calls that one: two components leasing the same job type with different
+opinions is the starvation above, and the decision belongs to the adapter's configuration rather
+than to the extension. It is deliberately not part of `applyWorkerOptions`, because only the
+caller knows whether its worker can ever serve a task which stays open. Until an extension
+follows, an application running one leaves `job-lease` at `do-not-use`.
+
+**A 409 of a job command means somebody else holds this activation.** Measured on 8.10.0-alpha5,
+over both transports: a completion carrying a superseded token is refused with HTTP `409`, title
+`INVALID_STATE`, on gRPC with `FAILED_PRECONDITION`, and so are a failure and a BPMN error; a
+completion carrying no token at all against a leased job answers the same pair. Every other wrong
+state of a job command measured there is a `404` - a key which never existed, a job already
+completed, and a token handed to a job which carries no lease.
+
+The code alone cannot say WHICH wrong state the cluster means, the REST specification says only
+"the job is in the wrong state", and the words around the code are the cluster's to reword
+(decision 16). So the rule is the honest one: a 409 of a job command means another activation holds
+this job, whatever the reason. `Camunda8CommandRetry` stops on it instead of repeating until the
+job's deadline, and it stops without failing the job: the newer run answered already, and failing
+the job would take it away from whoever holds it. The line it writes says the run converged with a
+redelivery, which is what happened.
+
+**What a lease does to the drain.** A shutdown leaves a job to its lock rather than failing it, and
+a leased job is still leased when the next pod activates it. That activation gets a fresh token and
+completes with it, measured on 8.10.0-alpha5, so the branch needs nothing of its own.
+
+**What needs no token.** The update commands. An `UpdateJobTimeout` of a leased job is accepted
+without one, and from a client which never activated that job, measured over both transports. The
+probe of `Camunda8OpenTaskProbe`, the lock renewal of an open asynchronous task and the phase-one
+check all rest on that.
+
+`Camunda8JobLease` is per release line, because `withLease` and `withLeaseToken` do not exist in
+the client of 8.8 or 8.9. `Camunda8JobLeaseTest` is per line too and holds what the client can do
+and what the boot says about the key there; `Camunda8JobLeaseDeploymentTest` holds which worker
+leases and which does not; `Camunda8ErrorsTest` and `Camunda8CommandRetryTest` hold the codes and
+what the retry makes of them; and `Camunda8JobLeaseIT` runs the whole case against a cluster of
+the 8.10 line - a handler slower than its lock, the older answer refused, the newer one accepted.
+
+See [The lease of an activation](./README.md#the-lease-of-an-activation).

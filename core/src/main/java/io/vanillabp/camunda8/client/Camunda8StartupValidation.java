@@ -40,6 +40,8 @@ public final class Camunda8StartupValidation {
    *          (<code>vanillabp.delivery.retention</code>) - the bound the renewal window of
    *          open asynchronous tasks has to stay below
    * @param warnLogger Sink for guiding warnings (the application keeps booting)
+   * @param infoLogger Sink for a line which is not a warning: a configuration which is
+   *          right and does something else here than it does on another release line
    * @throws IllegalStateException If the configuration is inconsistent and the
    *           adapter must not degrade (first priority somewhere or policy
    *           <code>fail</code>)
@@ -50,7 +52,8 @@ public final class Camunda8StartupValidation {
       final boolean firstPriorityAnywhere,
       final boolean deploymentFailureWarn,
       final Duration deliveryRetention,
-      final Consumer<String> warnLogger) {
+      final Consumer<String> warnLogger,
+      final Consumer<String> infoLogger) {
 
     // how the adapter runs its workers is independent of whether it can reach a cluster,
     // and a number which cannot work is a typo rather than a migration scenario - so this
@@ -78,6 +81,9 @@ public final class Camunda8StartupValidation {
     configuration.validateRequestTimeout(adapterId, warnLogger);
     // and neither is how long the start waits for a cluster which is not answering yet
     configuration.validateStartupWait(adapterId);
+    // and neither is whether the jobs of this adapter are leased: it cannot be taken back
+    // per job, so it is the one key this adapter has no default for
+    configuration.validateJobLease(adapterId, infoLogger);
 
     if (configuration.isAbsent()) {
       warnLogger.accept(

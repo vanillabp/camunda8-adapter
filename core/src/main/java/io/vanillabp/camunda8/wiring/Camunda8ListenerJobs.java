@@ -9,6 +9,7 @@ import io.camunda.client.api.worker.JobClient;
 import io.vanillabp.camunda8.client.Camunda8CommandRetry;
 import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.camunda8.client.Camunda8JobLease;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -118,6 +119,9 @@ public final class Camunda8ListenerJobs {
       final ListenerWork work) {
 
     drain.jobStarted(job.getKey(), kind, name, bpmnProcessId);
+    // the token of THIS activation, which the cluster demands of every answer to a leased
+    // job. It is null where the worker does not lease, and then no command carries one
+    final var leaseToken = Camunda8JobLease.tokenOf(job);
     try {
       final var variables = work.run();
       Camunda8CommandRetry
@@ -129,7 +133,8 @@ public final class Camunda8ListenerJobs {
               job.getDeadline(),
               drain::isShuttingDown,
               () -> {
-                var completion = client.newCompleteCommand(job.getKey());
+                var completion = Camunda8JobLease
+                    .withToken(client.newCompleteCommand(job.getKey()), leaseToken);
                 // a listener which carries nothing is completed without a variables payload
                 // at all, rather than with an empty one: what the cluster refuses on a task
                 // listener is the payload itself
@@ -169,9 +174,12 @@ public final class Camunda8ListenerJobs {
               job.getDeadline(),
               drain::isShuttingDown,
               () -> {
-                var command = client
-                    .newFailCommand(job.getKey())
-                    .retries(howToFail.retriesLeft());
+                var command = Camunda8JobLease
+                    .withToken(
+                        client
+                            .newFailCommand(job.getKey())
+                            .retries(howToFail.retriesLeft()),
+                        leaseToken);
                 // no backoff where no attempt is left: there is nothing to delay
                 if (howToFail.retryBackoff() != null) {
                   command = command.retryBackoff(howToFail.retryBackoff());

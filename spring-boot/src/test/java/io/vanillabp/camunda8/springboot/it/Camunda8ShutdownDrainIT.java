@@ -24,6 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
+import io.vanillabp.camunda8.client.Camunda8JobLease;
 import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.test.utils.CapturedOutput;
@@ -245,12 +246,17 @@ public class Camunda8ShutdownDrainIT {
       final CamundaClient client,
       final String jobType) {
 
-    return client
-        .newActivateJobsCommand()
-        .jobType(jobType)
-        .maxJobsToActivate(1)
-        .timeout(Duration.ofSeconds(5))
-        .workerName("shutdown-verification")
+    // this suite configures 'job-lease: use', and a job which was leased is never handed
+    // to an activation which does not ask for one. So a test reaching for a job of this
+    // application asks the way its workers ask
+    return Camunda8JobLease
+        .leaseTheActivation(
+            client
+                .newActivateJobsCommand()
+                .jobType(jobType)
+                .maxJobsToActivate(1)
+                .timeout(Duration.ofSeconds(5))
+                .workerName("shutdown-verification"))
         .requestTimeout(Duration.ofSeconds(2))
         .send()
         .join()
