@@ -543,13 +543,24 @@
               <artifactId>maven-failsafe-plugin</artifactId>
               <configuration>
                 <!--
-                  A user-task LISTENER job never reaches its worker on this line: the REST gateway
-                  of camunda/camunda:8.10.0-alpha4 throws a NullPointerException while converting a
-                  TASK_LISTENER job and drops the whole activate-jobs batch (camunda/camunda#58193,
-                  open). Three tests then sit in their deadline and turn the line red as a whole,
-                  which hides whatever else this line might break - and a matrix that is always red
-                  stops being read. They are excluded here, by tag, so the rest of the line keeps
-                  saying something. Remove this together with the tag once Camunda ships the fix.
+                  The REST gateway of this line drops a whole activate-jobs batch when it meets a
+                  task-listener job whose event carries no user task action in its headers. Those
+                  events are 'creating' and 'canceling'. An 'assigning' job triggered by an assign
+                  command, an 'updating' job and a 'completing' job do carry the action and reach
+                  their worker here as fast as on the GA lines, so a test of those events belongs
+                  on this line like any other.
+                  The tagged tests all wait for a 'creating' job. They would sit in their deadline
+                  and turn the line red as a whole, which hides whatever else this line might
+                  break, and a matrix which is always red stops being read. So they are excluded
+                  here, by tag, and the rest of the line keeps saying something.
+                  The bug is camunda/camunda#58193: the engine writes the action header only where
+                  the command carried an action, creation and cancelation carry none, and the
+                  gateway's response mapper demands one anyway and dies with a
+                  NullPointerException. The issue was closed on 2026-09-01 and 8.10.0-alpha5 was
+                  published on 2026-08-31, so that alpha is older than the fix. When the pin moves
+                  to a newer alpha, measure rather than assume: deploy a user task with a
+                  'creating' listener, start an instance and see whether the job arrives. Once one
+                  does, this exclusion and the tag go together.
                 -->
                 <excludedGroups>user-task-listener-jobs</excludedGroups>
               </configuration>
@@ -559,11 +570,13 @@
               <artifactId>maven-surefire-plugin</artifactId>
               <configuration>
                 <!--
-                  The same bug, in the suite which runs its end-to-end tests through surefire:
-                  the Quarkus tests wait for a user task's CREATED notification which the broken
-                  activate-jobs batch never delivers. Excluding the tag in failsafe alone left
-                  this line red once it got as far as this module, which is the point where the
-                  exclusion was supposed to start paying off.
+                  The same bug, in the suite which runs its end-to-end tests through surefire: the
+                  Quarkus tests wait for a user task's CREATED notification, which rides on a
+                  'creating' listener job, and the dropped activate-jobs batch never delivers it.
+                  Excluding the tag in failsafe alone left this line red once it got as far as
+                  this module, which is the point where the exclusion was supposed to start paying
+                  off. The tag means the same here as above: a 'creating' or a 'canceling' job and
+                  nothing wider.
                 -->
                 <excludedGroups>user-task-listener-jobs</excludedGroups>
               </configuration>
