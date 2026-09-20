@@ -18,6 +18,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
+import io.vanillabp.camunda8.client.Camunda8JobLease;
 import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -154,11 +155,15 @@ public class Camunda8TaskListenerVariablesCanaryIT {
 
     final var deadline = System.currentTimeMillis() + 120_000;
     while (System.currentTimeMillis() < deadline) {
-      final var jobs = client
-          .newActivateJobsCommand()
-          .jobType(JOB_TYPE)
-          .maxJobsToActivate(1)
-          .timeout(Duration.ofMinutes(2))
+      // a leased job is never handed to an activation which does not ask for one, and
+      // this suite configures 'job-lease: use'
+      final var jobs = Camunda8JobLease
+          .leaseTheActivation(
+              client
+                  .newActivateJobsCommand()
+                  .jobType(JOB_TYPE)
+                  .maxJobsToActivate(1)
+                  .timeout(Duration.ofMinutes(2)))
           .send()
           .join()
           .getJobs();

@@ -128,6 +128,7 @@ public class Camunda8UnsearchableClusterIT {
                 "--vanillabp.adapters.c8-plain.grpc-address="
                     + grpcAddress(BROKER_ALONE),
                 "--vanillabp.adapters.c8-prefix.type=camunda8",
+                "--vanillabp.adapters.c8-prefix.job-lease=use",
                 "--vanillabp.adapters.c8-prefix.name-clash-avoidance=use-prefix",
                 "--vanillabp.adapters.c8-prefix.rest-address="
                     + restAddress(BROKER_ALONE),
@@ -160,6 +161,7 @@ public class Camunda8UnsearchableClusterIT {
             "--spring.main.web-application-type=none",
             // the new BPMS of the migration, on a cluster which can be searched
             "--vanillabp.adapters.c8-prefix.type=camunda8",
+            "--vanillabp.adapters.c8-prefix.job-lease=use",
             "--vanillabp.adapters.c8-prefix.name-clash-avoidance=use-prefix",
             "--vanillabp.adapters.c8-prefix.rest-address="
                 + restAddress(SEARCHABLE_CLUSTER),
@@ -208,6 +210,7 @@ public class Camunda8UnsearchableClusterIT {
                 "--spring.config.name=camunda8-election-it",
                 "--spring.main.web-application-type=none",
                 "--vanillabp.adapters.c8-prefix.type=camunda8",
+                "--vanillabp.adapters.c8-prefix.job-lease=use",
                 "--vanillabp.adapters.c8-prefix.name-clash-avoidance=use-prefix",
                 "--vanillabp.adapters.c8-prefix.rest-address="
                     + restAddress(SEARCHABLE_CLUSTER),

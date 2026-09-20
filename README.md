@@ -1248,6 +1248,55 @@ routes the correlation to the wrong BPMS.
 `#duplicateCorrelationDispatchIsDeduplicated` and `#startWorkflowByMessageStartsInstance` hold
 the three commands, `Camunda8WorkflowLifecycleTest` the Quarkus half.
 
+### The lease of an activation
+
+From the 8.10 line on, a worker can activate a job WITH A LEASE. The job then carries a token, and
+the cluster takes the completion, the failure and the BPMN error of that job only from whoever
+holds the current token. An activation which follows an expired lock supersedes the token before
+it.
+
+It is worth having where the lock expires while the business method is still running. The cluster
+hands the job out again, the method runs a second time, and both runs try to answer. Without a
+lease the first answer wins, which is the one carrying the values of the OLDER run, and the newer
+run finds the job gone. With a lease the older answer is refused and the workflow continues with
+what the run which finished last wrote. The work is done twice either way; the result is better and
+the rejection is visible.
+
+The workers which lease are the ones which hold their job from the activation to the answer: the
+user-task listeners, the listeners somebody modelled, the cancel listeners VanillaBP writes, the
+start events the cluster fires itself and the end of a workflow. A task worker leases only where
+none of the task definitions of its job type completes asynchronously - phase two completes such a
+task by key, hours later and from a dispatcher which holds no token, so a leased job of an
+asynchronous task could never be completed at all.
+
+Because a lease is a ratchet - no command removes one, and a worker of the same job type which does
+not lease never sees a leased job again - the application has to say what it wants. There is no
+default:
+
+```yaml
+vanillabp:
+  adapters:
+    c8:
+      job-lease: use          # or: do-not-use
+```
+
+On a line whose cluster has no lease the same key is accepted and ignored, with one line in the
+boot log saying so, so one configuration serves an application on either line. On a line which has
+one, a missing key ends the boot with a message explaining the choice. What a rollback costs is the
+reason for that: an application which leased jobs and then moves back to the 8.9 line leaves those
+jobs standing, because its new workers do not lease and the cluster does not hand a leased job to
+them.
+
+An extension which opens listener workers on the same cluster leases with the adapter, through
+`Camunda8Workers.leaseTheActivations`. Two components serving one job type with different opinions is the
+starvation the ratchet describes, and the extension's workers are the ones which would starve, so an
+application running an extension which has not followed leaves the key at `do-not-use`.
+
+An answer refused because another activation holds the job arrives as HTTP `409` (`INVALID_STATE`),
+on gRPC as `FAILED_PRECONDITION`. The adapter neither repeats it nor fails the job over it: the run
+converged with a redelivery, and the newer run has answered. Why the code alone decides that is
+decision 36 in the repository's DECISIONS.md.
+
 ### Elements another runtime serves
 
 An element carrying the attribute `zeebe:modelerTemplate` was configured from an ELEMENT TEMPLATE.
@@ -2290,6 +2339,18 @@ off), and the core keeps asking for that long - but only while probing an adapte
 start and on every inbound delivery. A workflow nobody ever started has no such hint and
 still fails immediately.
 
+**The window is asked per workflow, and a workflow the engine has forgotten gets the short
+one.** Ten seconds are there for a workflow which was just started, which is exactly the case
+the probe above answers before the waiting begins. A workflow the engine no longer holds has
+been in the read model for as long as it ran, and what is still on its way there is the END
+of it: 176 to 445 ms on 8.10.0-alpha5, 255 ms on 8.9.19 and 2068 ms on 8.8.37. So the adapter
+answers `vanillabp.adapters.<id>.ended-workflow-visibility-timeout`, 3 seconds by default,
+for a workflow its own probe just met a 404 for, and the long window for everything else. The
+core asks `workflowVisibilityDelay(workflowId)` right after the probe and on the same thread,
+which is how the adapter knows which of the two cases it is in. A probe which was skipped,
+one which failed and one which found the instance all leave the long window, because none of
+them says the workflow is over.
+
 The residual: an application on several nodes without a SHARED adapter cache. An operation
 reaching a node which neither started the workflow nor received a delivery for it knows
 nothing about where the workflow lives, so it does not wait. Retrying the business operation
@@ -2348,23 +2409,29 @@ the cluster, and the two listener handlers after their notification. The end of 
 carries the same derivation and is left out here, because the two would report the same
 cancelation twice.
 
-A user task is not a job, and the BPMN process decides what that costs. The record of a
-user-task delivery keeps the user-task key, and a job command answers `NOT_FOUND` for such a
-key as long as the task is open, which read as gone would cancel a task the cluster is
-holding out to somebody. Nothing in the question tells the two apart. So where the model of a
-BPMN process carries a Camunda-managed user task, every `NOT_FOUND` of that process is
-answered with "cannot say" and the check reports nothing for it; where it carries none, a
-`NOT_FOUND` is the whole answer. The user tasks themselves need no probe anyway: VanillaBP
-writes a `canceling` task listener next to every user task it manages, and the cluster
-delivers `CANCELED` for it straight from there.
+A user task is not a job, and the RECORD says which of the two is being asked about. The
+record of a user-task delivery keeps the user-task key, and a job command answers `NOT_FOUND`
+for such a key as long as the task is open, which read as gone would cancel a task the
+cluster is holding out to somebody. What tells the two apart is the task definition the
+record carries, which the core passes with the question and which this adapter knows its own
+user tasks by: the external form reference their listener job type is built from. So a record
+naming such a user task is answered with "cannot say", and every other record of the same
+process is answered with what the cluster said. The user tasks themselves need no probe
+anyway: VanillaBP writes a `canceling` task listener next to every user task it manages, and
+the cluster delivers `CANCELED` for it straight from there.
 
-Two things are left of the deviation. A workflow which walks into a timer or a message wait
-after the boundary event produces no job, so nothing wakes the application up and the
+Two cases keep the wider answer. A BPMN process this application declares without deploying a
+model has no model to read, so every task definition of it may be a user task. And a record
+which kept no task definition at all names nothing to look up, so it counts as one wherever
+its process holds such a user task.
+
+What is left of the deviation is the timing. A workflow which walks into a timer or a message
+wait after the boundary event produces no job, so nothing wakes the application up and the
 cancellation waits for whatever comes next: the next job of that workflow, the end of the
-workflow, or the next operation which names the task. And a BPMN process which carries a
-Camunda-managed user task is left to those three, for the reason above.
+workflow, or the next operation which names the task.
 
-`Camunda8OpenTaskProbeTest` holds the three answers and the user-task case,
+`Camunda8OpenTaskProbeTest` holds the three answers and the user task next to a service task
+of the same process,
 `Camunda8OtherOpenTasksIT` lets a boundary event take one of two open tasks away against a
 cluster. The application switches the whole check off with
 `vanillabp.delivery.check-open-tasks-on-delivery`.

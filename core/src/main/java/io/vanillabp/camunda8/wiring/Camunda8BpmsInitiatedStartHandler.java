@@ -9,6 +9,7 @@ import io.camunda.client.api.worker.JobHandler;
 import io.vanillabp.camunda8.client.Camunda8CommandRetry;
 import io.vanillabp.camunda8.client.Camunda8Drain;
 import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.camunda8.client.Camunda8JobLease;
 import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
 import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartContext;
 import io.vanillabp.integration.adapter.spi.workflowstart.BpmsInitiatedStartInvoker;
@@ -161,8 +162,8 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
           startEventId,
           job.getDeadline(),
           drain::isShuttingDown,
-          () -> client
-              .newCompleteCommand(job.getKey())
+          () -> Camunda8JobLease
+              .withToken(client.newCompleteCommand(job.getKey()), Camunda8JobLease.tokenOf(job))
               .variables(variables)
               .send()
               .join());
@@ -195,11 +196,14 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
           startEventId,
           job.getDeadline(),
           drain::isShuttingDown,
-          () -> client
-              .newFailCommand(job.getKey())
-              .retries(job.getRetries() - 1)
-              .retryBackoff(retryBackoff)
-              .errorMessage(Camunda8Errors.incidentMessage(e))
+          () -> Camunda8JobLease
+              .withToken(
+                  client
+                      .newFailCommand(job.getKey())
+                      .retries(job.getRetries() - 1)
+                      .retryBackoff(retryBackoff)
+                      .errorMessage(Camunda8Errors.incidentMessage(e)),
+                  Camunda8JobLease.tokenOf(job))
               .send()
               .join());
     } finally {

@@ -52,6 +52,8 @@ public class Camunda8EngineBeforeTheSearchTest {
 
   private static final String INSTANCE_KEY = "2251799813685249";
 
+  private static final String ANOTHER_INSTANCE_KEY = "2251799813685999";
+
   private final CamundaClient client = mock(CamundaClient.class);
 
   @Test
@@ -199,6 +201,71 @@ public class Camunda8EngineBeforeTheSearchTest {
 
   }
 
+  @Test
+  @DisplayName("A workflow the engine has forgotten is waited for SECONDS, not for ten")
+  public void theWindowFollowsWhatTheEngineAnswered() {
+
+    final var service = aServiceOf(aClientFactoryWithWindows());
+    theEngineRefusesTheProbe(new ClientHttpException("Failed with code 404", 404, "no such instance"));
+    theSearchFindsNothing();
+
+    assertEquals(
+        WorkflowAwareness.UNKNOWN_TO_BPMS,
+        service.awarenessOfWorkflow(SCOPE, null, "agg-1", INSTANCE_KEY));
+
+    assertEquals(
+        Duration.ofSeconds(3),
+        service.workflowVisibilityDelay(INSTANCE_KEY).window(),
+        "what is still on its way into the read model is the END of this workflow");
+    assertEquals(
+        Duration.ofSeconds(10),
+        service.workflowVisibilityDelay(ANOTHER_INSTANCE_KEY).window(),
+        "and another workflow, which nobody asked the engine about, keeps the long window");
+    assertEquals(
+        Duration.ofSeconds(10),
+        service.workflowVisibilityDelay(null).window(),
+        "so does a caller which holds no id at all");
+    assertEquals(
+        Duration.ofSeconds(10),
+        service.workflowVisibilityDelay().window(),
+        "and so does the question without an id, which is what an older core asks");
+
+  }
+
+  @Test
+  @DisplayName("A probe which could not be sent leaves the long window")
+  public void aProbeWhichDidNotAnswerLeavesTheLongWindow() {
+
+    final var service = aServiceOf(aClientFactoryWithWindows());
+    // an unreachable engine says nothing about whether this workflow is over, so nothing
+    // here may shorten the wait
+    theEngineRefusesTheProbe(new IllegalStateException("connection reset"));
+    theSearchFindsNothing();
+
+    service.awarenessOfWorkflow(SCOPE, null, "agg-1", INSTANCE_KEY);
+
+    assertEquals(Duration.ofSeconds(10), service.workflowVisibilityDelay(INSTANCE_KEY).window());
+
+  }
+
+  @Test
+  @DisplayName("A workflow the engine still holds leaves the long window as well")
+  public void aWorkflowTheEngineHoldsLeavesTheLongWindow() {
+
+    final var service = aServiceOf(aClientFactoryWithWindows());
+    theEngineRefusesTheProbe(problem(400, "INVALID_ARGUMENT", "no such element"));
+
+    assertEquals(
+        WorkflowAwareness.ACTIVE,
+        service.awarenessOfWorkflow(SCOPE, null, "agg-1", INSTANCE_KEY));
+
+    assertEquals(
+        Duration.ofSeconds(10),
+        service.workflowVisibilityDelay(INSTANCE_KEY).window(),
+        "the engine holding it says nothing about an end, and the core does not wait here anyway");
+
+  }
+
   private Camunda8ProcessService<?> aService() {
 
     return aServiceOf(aClientFactory());
@@ -218,6 +285,20 @@ public class Camunda8EngineBeforeTheSearchTest {
   private Camunda8ClientFactory aClientFactory() {
 
     return aClientFactoryOf(false);
+
+  }
+
+  /**
+   * A cluster with both windows configured, which is what the defaults look like: ten
+   * seconds for a workflow which may just have been started, three for one the engine has
+   * already forgotten.
+   */
+  private Camunda8ClientFactory aClientFactoryWithWindows() {
+
+    final var clientFactory = aClientFactoryOf(false);
+    clientFactory.getConfiguration().setWorkflowVisibilityTimeout(Duration.ofSeconds(10));
+    clientFactory.getConfiguration().setEndedWorkflowVisibilityTimeout(Duration.ofSeconds(3));
+    return clientFactory;
 
   }
 

@@ -69,7 +69,8 @@ public class Camunda8ClientProducer {
               properties.getDeploymentFailureFor(
                   adapterId) == DeploymentFailurePolicy.WARN,
               properties.resolvedDeliveryRetention(),
-              log::warn);
+              log::warn,
+              log::info);
           // a key at a level which does not resolve it changes nothing and would be
           // silent, which is worse than a line saying where the key is read
           Camunda8Connectors.reportKeysSetAtTaskLevel(
@@ -118,6 +119,8 @@ public class Camunda8ClientProducer {
     keys.healthTimeout().ifPresent(configuration::setHealthTimeout);
     keys.startupWait().ifPresent(configuration::setStartupWait);
     keys.workflowVisibilityTimeout().ifPresent(configuration::setWorkflowVisibilityTimeout);
+    keys.endedWorkflowVisibilityTimeout().ifPresent(configuration::setEndedWorkflowVisibilityTimeout);
+    keys.jobLease().ifPresent(configuration::setJobLease);
     keys.workerThreads().ifPresent(configuration::setWorkerThreads);
     keys.workerThreadsBound().ifPresent(configuration::setWorkerThreadsBound);
     keys.maxJobsActive().ifPresent(configuration::setMaxJobsActive);

@@ -60,4 +60,35 @@ public final class Camunda8Workers {
 
   }
 
+  /**
+   * Opens this worker with a lease on every activation, where the application asked for one
+   * and the release line has one.
+   * <p>
+   * It is NOT part of {@link #applyWorkerOptions} on purpose: a worker which can ever serve
+   * an asynchronous task must not lease, because such a task is completed in phase two by a
+   * dispatcher holding no token, and only the caller knows what its worker serves. The
+   * adapter asks this for the workers which hold their job from the activation to the
+   * answer.
+   * <p>
+   * An EXTENSION which opens listener workers of its own calls it for the same reason it
+   * calls {@link #applyWorkerOptions}: two components leasing the same job type with
+   * different opinions is the starvation the ratchet describes, and the decision is the
+   * adapter's configuration rather than the extension's. Why there is no default, and what
+   * a lease costs a rollback, is decision 36 in the repository's DECISIONS.md.
+   *
+   * @param builder The worker builder
+   * @param configuration The configuration of that adapter id, as the adapter resolved it
+   *          ({@code Camunda8ClientFactory#getConfiguration()})
+   * @return The same builder
+   */
+  public static JobWorkerBuilderStep1.JobWorkerBuilderStep3 leaseTheActivations(
+      final JobWorkerBuilderStep1.JobWorkerBuilderStep3 builder,
+      final Camunda8AdapterConfiguration configuration) {
+
+    return configuration.leasesItsJobs()
+        ? Camunda8JobLease.leaseTheActivations(builder)
+        : builder;
+
+  }
+
 }

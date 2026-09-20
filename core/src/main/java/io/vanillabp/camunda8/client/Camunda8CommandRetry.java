@@ -50,6 +50,14 @@ import lombok.extern.slf4j.Slf4j;
  * left to its lock instead of being failed - a retry loop must not hold the
  * drain, and it must not turn into a failure the shutdown would have avoided.
  * <p>
+ * <b>A job somebody else holds.</b> One answer ends HERE rather than at the caller: where
+ * the cluster says another activation holds the job
+ * ({@link Camunda8Errors#jobHeldByAnotherActivation}), the command is dropped with one line
+ * and the handler goes on as if it had been accepted. That is what a leased job answers to
+ * the run whose lock expired while it worked, and there is nothing a handler could do about
+ * it - the newer run answered already, and failing the job would take it away from whoever
+ * holds it now.
+ * <p>
  * When the bound is reached the original failure is rethrown, so the behaviour after the
  * retries are used up is what it was before this class existed.
  * <p>
@@ -129,6 +137,23 @@ public final class Camunda8CommandRetry {
         }
         return;
       } catch (final RuntimeException e) {
+        if (Camunda8Errors.jobHeldByAnotherActivation(e)) {
+          // the lock of this job ran out while the work was running, the cluster handed
+          // the job out again, and that activation holds it now. Its run is the one the
+          // workflow continues with, so this answer is not sent, not repeated and not a
+          // failure of anything: both runs did the same work and the newer one won
+          log.info(
+              """
+                  Camunda8[{}]: the {} of job {} ('{}') was refused because another activation holds \
+                  the job - the run converged with a redelivery, and what the cluster keeps is what \
+                  that run answered. The lock of this run had expired while its work was still \
+                  running, so the work was done twice.""",
+              adapterId,
+              command,
+              jobKey,
+              taskName);
+          return;
+        }
         final var reason = whyToStop(e, attempt, lockDeadline, shuttingDown);
         if (reason != null) {
           if (reason.worthAWarning()) {

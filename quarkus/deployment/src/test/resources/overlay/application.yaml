@@ -2,6 +2,7 @@ vanillabp:
   adapters:
     c8:
       type: camunda8
+      job-lease: use
       rest-address: http://localhost:65535
       job-timeout: PT30S
       retry-backoff: PT30S

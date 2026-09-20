@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiPredicate;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,6 +44,12 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 public class Camunda8OpenTaskProbeTest {
 
   private static final String TASK_ID = "2251799813685249";
+
+  private static final String WORKFLOW_ID = "2251799813685240";
+
+  private static final String USER_TASK = "the-form-of-a-user-task";
+
+  private static final String SERVICE_TASK = "the-service-task";
 
   private final CamundaClient client = mock(CamundaClient.class);
 
@@ -171,6 +178,57 @@ public class Camunda8OpenTaskProbeTest {
 
   }
 
+  @Test
+  @DisplayName("One user task in a model no longer costs its service tasks their cancelation")
+  public void theRefusalIsPerRecordAndNotPerProcess() {
+
+    // the cluster answers NOT_FOUND for both of them: for the service task because its job
+    // is gone, for the user task because a job command never finds a USER-TASK key
+    theClusterRefusesTheJobTimeoutUpdate(new ClientHttpException("Failed with code 404", 404, "job not found"));
+    final var asked = new ArrayList<OpenTaskProbe>();
+    final var probe = probeOf(anInvokerWhich(asked, false), (
+        bpmnProcessId,
+        taskDefinition) -> USER_TASK.equals(taskDefinition));
+
+    probe.reportWhatTheClusterNoLongerHas("TestProcess", mock(TaskInvocationContext.class));
+
+    final var handedToTheCore = asked.get(0);
+    // both halves in ONE test, so nobody can pass it by weakening the model
+    assertEquals(
+        TaskExistence.GONE,
+        handedToTheCore.stillExists(WORKFLOW_ID, TASK_ID, SERVICE_TASK),
+        "the service task of a process which also holds a user task is derived as canceled");
+    assertEquals(
+        TaskExistence.CANNOT_SAY,
+        handedToTheCore.stillExists(WORKFLOW_ID, TASK_ID, USER_TASK),
+        "and the user task of the same process is not");
+
+  }
+
+  @Test
+  @DisplayName("A record which kept no task definition is answered by what its process holds")
+  public void aRecordWithoutATaskDefinition() {
+
+    theClusterRefusesTheJobTimeoutUpdate(new ClientHttpException("Failed with code 404", 404, "job not found"));
+    final var asked = new ArrayList<OpenTaskProbe>();
+
+    probeOf(anInvokerWhich(asked, false), true)
+        .reportWhatTheClusterNoLongerHas("TestProcess", mock(TaskInvocationContext.class));
+    assertEquals(
+        TaskExistence.CANNOT_SAY,
+        asked.get(0).stillExists(WORKFLOW_ID, TASK_ID),
+        "nothing tells the two kinds of task apart here, so nothing is reported");
+
+    asked.clear();
+    probeOf(anInvokerWhich(asked, false), false)
+        .reportWhatTheClusterNoLongerHas("TestProcess", mock(TaskInvocationContext.class));
+    assertEquals(
+        TaskExistence.GONE,
+        asked.get(0).stillExists(WORKFLOW_ID, TASK_ID),
+        "and where the process holds no such user task the answer is the whole answer");
+
+  }
+
   private Camunda8OpenTaskProbe probeOfAModuleWithoutUserTasks() {
 
     return probeOf(mock(WorkflowTaskInvoker.class), false);
@@ -179,11 +237,21 @@ public class Camunda8OpenTaskProbeTest {
 
   private Camunda8OpenTaskProbe probeOf(
       final WorkflowTaskInvoker invoker,
-      final boolean theProcessHasCamundaManagedUserTasks) {
+      final boolean everyRecordMayBeAUserTask) {
+
+    return probeOf(invoker, (
+        bpmnProcessId,
+        taskDefinition) -> everyRecordMayBeAUserTask);
+
+  }
+
+  private Camunda8OpenTaskProbe probeOf(
+      final WorkflowTaskInvoker invoker,
+      final BiPredicate<String, String> theRecordMayNameACamundaManagedUserTask) {
 
     return new Camunda8OpenTaskProbe(
         "c8", "test-module", invoker, () -> client, Duration
-            .ofHours(1), bpmnProcessId -> theProcessHasCamundaManagedUserTasks);
+            .ofHours(1), theRecordMayNameACamundaManagedUserTask);
 
   }
 

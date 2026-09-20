@@ -66,7 +66,8 @@ public class Camunda8ClientAutoConfiguration {
               coreProperties.getDeploymentFailureFor(
                   adapterId) == DeploymentFailurePolicy.WARN,
               coreProperties.resolvedDeliveryRetention(),
-              log::warn);
+              log::warn,
+              log::info);
           // a key at a level which does not resolve it changes nothing and would be
           // silent, which is worse than a line saying where the key is read
           Camunda8Connectors.reportKeysSetAtTaskLevel(

@@ -13,6 +13,7 @@ vanillabp:
   adapters:
     c8:
       type: camunda8
+      job-lease: use
       name-clash-avoidance: use-prefix
       job-timeout: PT30S
       retry-backoff: PT30S
