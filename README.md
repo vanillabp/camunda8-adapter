@@ -190,6 +190,22 @@ is committed, and the version number proves it is the same fix. Branches cannot 
 that, and the adapter changes constantly for reasons that have nothing to do with Camunda,
 which would mean cherry-picking every one of those changes into every line.
 
+The same plugin writes the POM an application reads, and that POM has to stand on its own.
+It is flattened in the `oss` mode: every version resolved, no parent, no
+`dependencyManagement`, no profiles. A property is no help there. A consumer activates none
+of our profiles, so a published POM which still named `${camunda8.version}` would resolve it
+to the default of the file, which is the current GA line, on every line. That is what every
+line did until September 2026. Nobody had looked, because the source POM reads right and the
+build of a line uses the source POM. The first sample application resolved per platform and
+line showed it: the 8.8 line handed an application the 8.9 client, whose job activations an
+8.8 cluster rejects, and the preview line handed it a client older than the code it runs.
+`Camunda8PublishedPomTest` reads the published POM on every line since and compares the
+client version in it with the client the build was compiled against.
+
+Nothing else of ours reaches an application either, and that is the point of dropping the
+parent. What this repository pins for its own build is chosen for the newest line, and a
+user of the oldest line has no reason to be given it. See decision 39.
+
 Code that cannot be shared goes into a per-line source directory added by
 `build-helper-maven-plugin`, `src/main/java-line-<id>` and `src/test/java-line-<id>`. Only
 two kinds of code belong there: code that cannot compile against every supported client,
@@ -224,6 +240,30 @@ and the line to change. Without it the failure is an `ExceptionInInitializerErro
 first command that touches the protocol, thirty lines below a message about a closed port,
 which is how a client bump used to go red. It now breaks with a sentence instead, and the
 Renovate pull request which proposes such a bump says the same thing in its body.
+
+That pin is the classpath of this build and reaches no application, because the published
+POMs carry no `dependencyManagement`. One number per line would therefore change nothing for
+a user and would only lower what the older lines are tested against, which is why there is
+one. What an application gets instead was measured on 2026-09-20, with a sample project per
+platform and line:
+
+| Line | Client gencode | Spring Boot 4.0 | Spring Boot 4.1.1 | Quarkus 3.39.3 | No platform BOM |
+|------|----------------|-----------------|-------------------|----------------|-----------------|
+| 8.8  | 4.31.1         | 4.31.1          | 4.35.1            | 4.35.0         | 4.31.1          |
+| 8.9  | 4.33.6         | 4.33.6          | 4.35.1            | 4.35.0         | 4.33.6          |
+| 8.10 | 4.36.0         | 4.36.0          | **4.35.1**        | **4.35.0**     | 4.36.0          |
+
+Spring Boot manages `protobuf-java` from 4.1 on and Quarkus manages it in every version, and
+an imported BOM wins over anything the adapter brings. So on the two GA lines an application
+runs a protobuf newer than its client asks for, which protobuf allows. On the preview line
+both platforms hand it an older one, and that is the failure this pin exists to avoid: the
+application dies with `Detected incompatible Protobuf Gencode/Runtime versions` on the first
+command that touches the protocol. Measured by loading the gateway protocol class of client
+`8.10.0-alpha5` against runtime `4.35.1` and `4.35.0`.
+
+An application on the preview line therefore pins `protobuf-java` to the gencode of that
+line's client itself, in its own `dependencyManagement`, above the platform BOM. Nothing this
+repository publishes can do it for it. The GA lines need nothing.
 
 ### The tripwire
 

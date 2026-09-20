@@ -123,13 +123,22 @@
   <dependencyManagement>
     <dependencies>
       <!-- Protobuf refuses a runtime older than the generated code linked against it, and
-           the Camunda client brings generated code: the 8.10 client needs 4.36.0, while
-           the Spring Boot BOM manages 4.34.2 and would win, because an imported BOM beats
-           a transitive version. This entry stands BEFORE that import, so it is what every
-           line gets, and it carries the gencode version of the NEWEST pinned client: a
-           runtime may be newer than the gencode, never older, so one number serves every
-           line. A mismatch is an ExceptionInInitializerError on the first command that uses
-           the protocol.
+           the Camunda client brings generated code. The Spring Boot BOM manages
+           protobuf-java itself and would win here, because an imported BOM beats a
+           transitive version, so this entry stands BEFORE that import. The number Spring
+           Boot manages moves with Spring Boot, so it is not repeated here: read it as
+           'protobuf-java.version' in the spring-boot-dependencies POM of the
+           springboot.version pinned above. Quarkus manages one of its own the same way.
+           This number carries the gencode version of the NEWEST pinned client. A runtime
+           may be newer than the gencode, never older, so ONE number serves every line and a
+           number per line would buy nothing: it would only lower what the tests of the older
+           lines run against.
+           It is the classpath of THIS build and nothing else. No application reads it: the
+           published POMs carry no parent and no dependencyManagement, so an application
+           resolves protobuf from its own platform BOM, or from the client when nothing
+           manages it. Measured on 2026-09-20 in a sample project per platform and line.
+           What that means for an application on the 8.10 line is in the README, section
+           "Release lines".
            Maven cannot take this number from the client's POM: a dependencyManagement
            version has to be written down before the client is resolved. So it is written
            down here and CHECKED against the client of the line being built, by
@@ -317,15 +326,28 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
       </plugin>
-      <!-- resolves '${revision}' in the POMs that get installed and deployed; without it
-           a consumer would read a version they cannot resolve -->
+      <!-- The POM a consumer reads is written here, and it has to stand on its own. The
+           'oss' mode writes every version into it, drops the parent and with it our
+           dependencyManagement, and keeps what a public repository asks for: name,
+           description, license, developers.
+           Standing on its own is what a release line needs. Before, the mode was
+           'resolveCiFriendliesOnly', which copies this source POM and resolves
+           '${revision}' alone. The client version then stayed a property whose value comes
+           from the active line profile, and a consumer activates no profile of ours: every
+           line published a POM asking for the client of the CURRENT GA line. An application
+           on the 8.8 line got the 8.9 client, whose job activations an 8.8 cluster rejects,
+           and an application on the preview line got a client older than the code it runs.
+           Measured on 2026-09-20 and guarded since by Camunda8PublishedPomTest.
+           The other half of the same rule: nothing an application resolves may come out of
+           our dependencyManagement, because what one line needs is no business of another
+           line's users. See decision 39 in DECISIONS.md. -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>flatten-maven-plugin</artifactId>
         <version>1.8.0</version>
         <configuration>
           <updatePomFile>true</updatePomFile>
-          <flattenMode>resolveCiFriendliesOnly</flattenMode>
+          <flattenMode>oss</flattenMode>
         </configuration>
         <executions>
           <execution>

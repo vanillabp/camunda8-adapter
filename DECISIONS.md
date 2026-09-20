@@ -1505,3 +1505,36 @@ task standing in `UPDATING` and for a task whose `updating` listener denied the 
 would cancel an open task. Everything else is "cannot say" as well.
 
 See [Task cancellation arrives at the next wake-up](./README.md#task-cancellation-arrives-at-the-next-wake-up-not-at-the-moment).
+
+### 39. A line hands an application its own client and nothing else of ours
+
+Decision 11 releases one artifact per Camunda minor so that an application can stay on the cluster
+it has. The artifact keeps that promise through the POM it publishes, because that POM is what puts
+a client on the application's classpath. Until September 2026 it did not keep it. The published POM
+was a copy of the source POM with `${revision}` filled in, the client version stood in a property
+the line profile sets, and a consumer activates no profile of ours. So every line published a POM
+asking for the client of the current GA line: an application on the 8.8 line got the 8.9 client,
+whose job activations an 8.8 cluster rejects, and an application on the preview line got a client
+older than the code it runs.
+
+**Every version is written into the published POM.** The flatten plugin runs in its `oss` mode. The
+published POM of each module names its dependencies with resolved versions, and it has no parent,
+no `dependencyManagement`, no properties and no profiles. Nothing in it depends on anything a
+consumer would have to activate or inherit. `Camunda8PublishedPomTest` reads that POM and compares
+the client version in it with the client the build was compiled against, on every line.
+
+**What one line needs is no business of another line's users.** The rule is wider than the client,
+and it is the reason the parent is dropped rather than only corrected. What this repository pins
+for its own build is chosen for the newest line: the protobuf runtime, Micrometer, Testcontainers,
+Lombok, the Spring Boot and Quarkus versions it compiles against. None of it may arrive at an
+application through us. A pin a user is supposed to have is stated in the README and pinned by the
+user, and every other pin stops at our own classpath.
+
+**The protobuf pin stays one number.** It was the question which started this, and the measurement
+answered it the other way round. The pin never reaches an application at all, so a value per line
+would change nothing a user runs and would only lower what the older lines are tested against.
+One number, at least the gencode of the newest pinned client, and `Camunda8ProtobufPinTest` checks
+it against the client of the line being built. What an application really resolves is a table in
+the README, together with the one case where an application has to pin protobuf itself.
+
+See [Release lines](./README.md#release-lines).
