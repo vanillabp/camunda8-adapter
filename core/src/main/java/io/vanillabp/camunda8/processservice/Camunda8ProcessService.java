@@ -21,12 +21,14 @@ import io.camunda.zeebe.model.bpmn.instance.Message;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8Errors;
+import io.vanillabp.camunda8.client.Camunda8InstanceProbe;
 import io.vanillabp.camunda8.client.Camunda8QueryApi;
 import io.vanillabp.camunda8.client.Camunda8RefusedStart;
 import io.vanillabp.camunda8.deployment.Camunda8ModelsTheClusterHolds;
 import io.vanillabp.camunda8.wiring.Camunda8ConfiguredTenant;
 import io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver;
 import io.vanillabp.camunda8.wiring.Camunda8Scoping;
+import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.AggregateSyncMode;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
@@ -468,6 +470,19 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
             Camunda8Errors.rejection(e));
         return WorkflowAwareness.UNKNOWN_TO_BPMS;
       }
+      if (Camunda8Errors.jobIsThereButNotActive(e)) {
+        // the cluster holds the job and refused to move its deadline, which is what it
+        // answers for a job nobody has activated right now. The everyday case is an
+        // asynchronous task whose lock ran out, and the task is alive, so the probe says
+        // so instead of sending the caller into retries
+        log.debug(
+            "Camunda8[{}]: the cluster holds task '{}' but no worker has it activated - it "
+                + "refused the probe's UpdateJobTimeout with {}",
+            adapterId,
+            taskId,
+            Camunda8Errors.rejection(e));
+        return WorkflowAwareness.ACTIVE;
+      }
       log.warn(
           "Camunda8[{}]: could not determine awareness of task '{}' - reporting BPMS_UNAVAILABLE",
           adapterId,
@@ -872,6 +887,157 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           e);
       return WorkflowAwareness.BPMS_UNAVAILABLE;
     }
+
+  }
+
+  /**
+   * The same question with the BPMS' own id of the workflow, which is what the election
+   * passes on the paths which WAIT for the read model to catch up.
+   * <p>
+   * <b>What the key buys.</b>
+   * Measured on 8.10.0-alpha5, 8.9.19 and 8.8.37: the engine says "this instance exists" 16
+   * to 19 ms after the create was sent, while the search below finds it after 167 to 1324
+   * ms. An extension asking where a workflow started moments ago is therefore answered in
+   * milliseconds instead of sitting out the visibility window.
+   * <p>
+   * <b>The rule which must not be broken.</b>
+   * The probe may shorten the YES and nothing else. The engine forgets an instance the
+   * moment it ends, so a key it does not hold covers a completed workflow, a canceled one
+   * and a key which never existed alike - and this method has to tell
+   * {@link WorkflowAwareness#COMPLETED} from {@link WorkflowAwareness#UNKNOWN_TO_BPMS},
+   * because only the second lets the election move on to the next BPMS. So every answer but
+   * "the engine holds it" falls through to the search below, unchanged.
+   * <p>
+   * A probe which cannot answer at all - a timeout, a broken connection, a cluster which is
+   * not there - is not a 404 and is never read as one. It falls through as well, and the
+   * search then decides, which is what reports {@link WorkflowAwareness#BPMS_UNAVAILABLE}
+   * for a cluster nobody can reach. A mechanism which turned an outage into "unknown" would
+   * empty a migration setup into the next BPMS.
+   * <p>
+   * On a cluster this adapter SHARES with another adapter id nothing is asked at all. An
+   * instance key is unique per cluster and names no scope, and the election hands the same
+   * id to every adapter of its list, so the probe would answer for the other one's instance
+   * and end the election at the wrong adapter.
+   *
+   * @param scope The workflow module and BPMN processes being asked about
+   * @param aggregatePersistence The workflow aggregate's persistence support
+   * @param workflowAggregateId The id of the workflow aggregate
+   * @param workflowId The process instance key, or <code>null</code> where VanillaBP holds
+   *          none
+   * @return The cluster's awareness of that workflow
+   */
+  @Override
+  public WorkflowAwareness awarenessOfWorkflow(
+      final WorkflowScope scope,
+      final AggregatePersistenceAware<A> aggregatePersistence,
+      final Object workflowAggregateId,
+      final String workflowId) {
+
+    return theEngineHoldsTheInstance(scope, workflowAggregateId, workflowId)
+        ? WorkflowAwareness.ACTIVE
+        : awarenessOfWorkflow(scope, aggregatePersistence, workflowAggregateId);
+
+  }
+
+  /**
+   * Asks the ENGINE whether it holds the given instance, which is a question it answers from
+   * the partition rather than from the index an exporter feeds.
+   * <p>
+   * Which command carries the question is
+   * {@link Camunda8InstanceProbe#askTheEngine(io.camunda.client.CamundaClient, long, String, String) per release line}
+   * and follows the business id, see decision 35 in the repository's DECISIONS.md. Both of
+   * them are REFUSED by an instance the engine holds, so the cluster writes no state and an
+   * operator never finds a modification in the history of a workflow nobody modified. The
+   * refusal is the answer:
+   * <ul>
+   * <li>HTTP <code>400</code> - the modification names an element the model does not have,
+   * which the engine can only say about an instance it holds;</li>
+   * <li>HTTP <code>409</code> - the instance already carries a business id, same thing;</li>
+   * <li>anything the command took - the instance is there, whatever the command did.</li>
+   * </ul>
+   * A <code>404</code> means the engine does not hold it, which is the answer this method
+   * may not turn into anything, and so is every failure which is not an answer at all.
+   *
+   * @param scope What the election asked about
+   * @param workflowAggregateId The aggregate, which is the business id this adapter writes
+   * @param workflowId The process instance key VanillaBP holds, or <code>null</code>
+   * @return Whether the engine reported the instance as one it holds
+   */
+  private boolean theEngineHoldsTheInstance(
+      final WorkflowScope scope,
+      final Object workflowAggregateId,
+      final String workflowId) {
+
+    if ((workflowId == null) || workflowId.isBlank()) {
+      return false;
+    }
+    if (clientFactory.sharesItsCluster()) {
+      // an instance key is unique per CLUSTER and says nothing about which adapter id
+      // deployed the process (see decision 3 in the repository's DECISIONS.md), and the
+      // election hands the same id to every adapter of its list. So on a shared cluster
+      // this probe would answer ACTIVE for the instance of the OTHER adapter id and end
+      // the election at the wrong one. The search below asks that question, and here the
+      // engine cannot be asked it without a round trip which would cost what the probe
+      // saves
+      return false;
+    }
+    if (aModelOfTheScopeCarriesTheReservedElement(scope)) {
+      return false;
+    }
+    final long processInstanceKey;
+    try {
+      processInstanceKey = Long.parseLong(workflowId);
+    } catch (final NumberFormatException e) {
+      // an instance key of this cluster is a number, so this id belongs to another BPMS
+      return false;
+    }
+    try {
+      Camunda8InstanceProbe
+          .askTheEngine(
+              clientFactory.getClient(),
+              processInstanceKey,
+              Camunda8TaskWiring.RESERVED_PROBE_ELEMENT_ID,
+              clientFactory.getConfiguration().writesTheBusinessIdOfAnInstance()
+                  ? String.valueOf(workflowAggregateId)
+                  : null);
+      return true;
+    } catch (final Exception e) {
+      if (Camunda8Errors.notFound(e)) {
+        // the engine has forgotten this instance, which says nothing about whether the
+        // workflow completed or never existed - the search below is what tells those apart
+        return false;
+      }
+      if (Camunda8Errors.refusedAboutAnInstanceItHolds(e)) {
+        return true;
+      }
+      log
+          .debug(
+              "Camunda8[{}]: the engine could not be asked whether it holds the workflow '{}' of "
+                  + "aggregate '{}' - answering from the search instead ({})",
+              adapterId,
+              workflowId,
+              workflowAggregateId,
+              Camunda8Errors.rejection(e),
+              e);
+      return false;
+    }
+
+  }
+
+  /**
+   * Whether any BPMN process of the scope carries the element id the probe reserved, which
+   * is what keeps the probe away from a workflow it might modify instead of ask about.
+   */
+  private boolean aModelOfTheScopeCarriesTheReservedElement(
+      final WorkflowScope scope) {
+
+    return scope
+        .bpmnProcessIds()
+        .stream()
+        .anyMatch(
+            bpmnProcessId -> clientFactory
+                .getDeployedProcesses()
+                .carriesTheReservedProbeElement(scope.workflowModuleId(), bpmnProcessId));
 
   }
 

@@ -1145,3 +1145,145 @@ What replaces it is designed in the stories which follow this one, and both of t
 process element, because that is where the cluster has the construct.
 
 See [Listeners somebody modelled](./README.md#listeners-somebody-modelled).
+
+### 34. The process element reports the cancelation of an instance, and only where a worker answers it
+
+Decision 33 took the `cancel` execution listener off the element a served listener sits on, because
+a cluster refuses it there. What the 8.10 documentation says about the event type is where this
+entry starts: "`cancel`: Supported only on the process element", and "Cancel listeners run when a
+process instance is terminated. They execute sequentially after all child elements have terminated
+and before the process reaches its final terminated state."
+
+So the construct answers one question, and it is a good one. An instance canceled through the API
+reports its end, with the kind `TERMINATED`, and the core then reports every task it still believes
+is open in that instance to the application as `CANCELED`. Measured on 8.10.0-alpha5: the job says
+`CANCEL`, `job.getKind()` is `EXECUTION_LISTENER`, the job carries the process variables including
+the aggregate id, and `getProcessInstanceKey()` names the instance being terminated. A called
+process whose parent is canceled gets a job of its own, which is why the notification reports that
+key and never `getRootProcessInstanceKey()`: a derivation limited to one instance must not reach
+for the root of the call tree.
+
+Two paths are not cancelations however they look in a model. A terminate end event and an
+interrupting event subprocess both COMPLETE the instance: the end listener runs, no cancel job is
+created, and the application hears `COMPLETED`. That is the cluster's view and not a gap this
+adapter can close.
+
+**The listener and the worker are one decision.** The listener holds the instance until its job is
+answered, so a model carrying one nobody serves turns a cancelation into a workflow which never
+goes away and which raises no incident either - worse than an incident, because nothing says
+anything at all. The listener is therefore written only where this adapter also opens the worker,
+which is the same rule the end listener follows and the reason the two conditions stand next to
+each other in `wireBpmn`.
+
+**Where it is written is wider than where the end is reported.** A process whose end nobody asked
+about still gets the cancel listener, as long as this application serves a task of it and the
+aggregate id can be resolved. The reason is the derivation rather than the notification: such a
+process can leave a task open, and a canceled instance is the only moment the core can tell the
+application that the task is gone. Both listeners carry the SAME job type, so one worker answers
+both, and `Camunda8WorkflowEndedHandler` tells them apart by `job.getListenerEventType()`. Anything
+which is neither `END` nor `CANCEL` completes the job and reports nothing: the client's enum grows
+inside a line, a newer cluster reports an event this build does not know as `UNKNOWN_ENUM_VALUE`,
+and reading such a job as an end would tell the application something untrue.
+
+Retries are the ones the end listener has, which is the model's default. A failed notification is
+failed with one attempt less and a backoff, the cluster hands the job out again, and the last
+failure raises the incident. Measured: the cluster raises `EXECUTION_LISTENER_NO_RETRIES` on the
+process element with our message and the job key, the instance reads `ACTIVE` while the incident
+stands, and update retries plus resolve incident hands the same job out again until the instance
+reaches `TERMINATED`. That is deliberately not the `retries="0"` of a task listener: nothing else
+is waiting behind this listener, and a notification which failed once on a database which was busy
+deserves the second attempt.
+
+`Camunda8CancelListeners` is per release line for the same reason it was under decision 32: the
+writing half names `ZeebeExecutionListenerEventType.cancel` and the reading half
+`ListenerEventType.CANCEL`, and neither exists in the client of 8.8 or 8.9. It is public this time,
+with the retries as a parameter, because the Business Cockpit writes the same listener with retries
+of its own and must not build its own copy (see decision 28). On the lines which do not have the
+construct the boot names every BPMN process whose cancelation is therefore not reported, so the gap
+is read at startup instead of being found in production.
+
+`Camunda8CancelListenersTest` and `Camunda8CancelListenerDeploymentTest` hold what each line writes
+and recognises, `Camunda8WorkflowEndedKindTest` what the handler reports for which event, and
+`Camunda8WorkflowCanceledIT` that a cluster of the 8.10 line really runs the listener when an
+instance is canceled.
+
+See [The end of a workflow](./README.md#the-end-of-a-workflow).
+
+### 35. The engine is asked before the search, and the question is a command it refuses
+
+An extension asking where a workflow is waits for the search of `awarenessOfWorkflow`. Measured in
+September 2026 on 8.10.0-alpha5, 8.9.19 and 8.8.37, one container each on an idle machine: the
+create answered after 10 ms, the engine said "this instance exists" after 16 to 19 ms, and the
+search found it after 167 to 1324 ms. After a cancelation the engine said "gone" after 21 to 25 ms
+while the search still read ACTIVE and needed 176 to 2068 ms to turn.
+
+So where VanillaBP holds the process instance key, the engine is asked first. The key arrives
+through the fourth argument of `awarenessOfWorkflow`, which the platform added for exactly this.
+
+**The probe may shorten the YES and nothing else.** The engine forgets an instance the moment it
+ends, so a key it does not hold covers a completed workflow, a canceled one and a key which never
+existed alike. `awarenessOfWorkflow` has to tell `COMPLETED` from `UNKNOWN_TO_BPMS`, because only
+the second lets the election move on to the next BPMS, and a design which read the engine's 404 as
+unknown would send every ended workflow of a migration setup to the wrong BPMS. Every answer but
+"the engine holds it" therefore falls through to the search, unchanged. A probe which cannot answer
+at all - a timeout, a broken connection, a cluster which is not there - is not a 404 and is never
+read as one: it falls through as well, and the search is what reports `BPMS_UNAVAILABLE`. Turning
+an outage into "unknown" is the one failure mode this must not add.
+
+**Which command carries the question.** Two candidates were measured and both are REFUSED by an
+instance the engine holds, which is what makes them a question: the cluster writes no state and an
+operator never finds a modification in the history of a workflow nobody modified.
+
+|              the command              | on which line  |  a live instance  | a key the engine does not hold |
+|---------------------------------------|----------------|-------------------|--------------------------------|
+| modification with one unknown element | every line     | 400               | 404                            |
+| business id assignment                | 8.10 and later | 409 INVALID_STATE | 404                            |
+
+Stephan decided on 2026-09-19 that the probe follows the business id. Where the business id of an
+instance is this adapter's own and the line has the command, the assignment is sent; everywhere
+else the modification. His reason reaches past this entry: Camunda supports three versions at a
+time and VanillaBP follows, so 8.8 and 8.9 fall away in time and the assignment becomes the only
+path which is left. Building it now means the good path is already there when the others go.
+
+The trap that resolves is the one the assignment carries. It is a question only for an instance
+which ALREADY carries a business id. An instance without one ACCEPTS it, and then a probe has
+written a value into a field the application may have wanted for something else, which cannot be
+undone. So the assignment is sent only where this adapter put its own id there in the first place,
+which `Camunda8AdapterConfiguration.writesTheBusinessIdOfAnInstance` answers. Until the story which
+writes that id lands, the answer is `false` and every line sends the modification. What the
+assignment carries is the workflow aggregate's id, so the one case where it is accepted writes the
+value this adapter would have written anyway.
+
+`Camunda8InstanceProbe` is per release line, because `newAssignProcessInstanceBusinessIdCommand`
+does not exist in the client of 8.8 or 8.9.
+
+**Nothing is asked on a shared cluster.** An instance key is unique per CLUSTER and names no
+scope, which is decision 3, and the election hands the same key to every adapter of its
+prioritized list. So where two `camunda8` adapter ids address one cluster, this probe would be
+asked about the other one's instance, answer `ACTIVE` and end the election at the wrong adapter.
+The probe is therefore skipped wherever `sharesItsCluster` is true, and the search, which filters
+by scope, answers as it did before. The everyday installation with one Camunda 8 adapter keeps the
+short path, because there that question is false anyway.
+
+**The reserved element id.** The modification is a question because it names an element the model
+does not have. An id which by accident matched one of the model would be ACTIVATED instead of
+refused, which is a change to a running workflow nobody asked for. The id is therefore
+`vanillabp-existence-probe`, and every model is read for it while it is deployed: a file which
+carries it gets a warning naming the process, and no probe is sent for a workflow of that process -
+such an election waits for the search the way it did before.
+
+**What this entry deliberately does not do.** The measurement says the long window is worth
+shortening as well: `WorkflowLocator.probeUntilVisible` waits ten seconds in steps of 250 ms for an
+answer which is `UNKNOWN_TO_BPMS`, which after a 404 from the engine means a workflow which ended,
+and neither of those gets better by waiting. Shortening it needs `workflowVisibilityDelay()` to
+learn about the workflow being asked about, and that method takes no arguments. The platform half
+which would have added the overload was not built, so this adapter ships the ACTIVE half alone and
+the shortened window waits for a story of its own. Nothing here has to change for it: the two
+numbers live in `Camunda8AdapterConfiguration` and the probe already knows the answer that story
+needs.
+
+`Camunda8EngineBeforeTheSearchTest` holds the mapping of every answer and the process the probe
+stays away from, `Camunda8ErrorsTest` the codes, and `Camunda8EngineProbeIT` runs all of it against
+a cluster on every line.
+
+See [Eventual consistency of the query API](./README.md#eventual-consistency-of-the-query-api).

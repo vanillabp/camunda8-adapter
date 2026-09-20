@@ -166,6 +166,13 @@ public class Camunda8JobHandler implements JobHandler {
   private final BiPredicate<String, Integer> predatesDeployedVersion;
 
   /**
+   * Asks the cluster about the OTHER tasks this workflow has open, once the outcome of this
+   * job went back. May be <code>null</code> (tests, and an adapter run of a core which does
+   * not drive the check), which asks nothing.
+   */
+  private final Camunda8OpenTaskProbe openTaskProbe;
+
+  /**
    * The worker this handler serves. Built through the generated
    * <code>Camunda8JobHandler.builder()</code>: seven of these twelve values may be left
    * out, and a positional list of that length no longer says which is which.
@@ -188,6 +195,8 @@ public class Camunda8JobHandler implements JobHandler {
    * @param fetchVariables What the worker asked for, or <code>null</code> for every variable
    * @param predatesDeployedVersion Whether a workflow predates the deployed version, or
    *          <code>null</code> to answer no for all of them
+   * @param openTaskProbe What asks the cluster about the other open tasks of the workflow, or
+   *          <code>null</code> to ask nothing
    */
   @Builder
   public Camunda8JobHandler(
@@ -202,8 +211,10 @@ public class Camunda8JobHandler implements JobHandler {
       final Camunda8Drain drain,
       final Camunda8RetryBackoffResolver retryBackoffResolver,
       final Camunda8FetchVariables.Selection fetchVariables,
-      final BiPredicate<String, Integer> predatesDeployedVersion) {
+      final BiPredicate<String, Integer> predatesDeployedVersion,
+      final Camunda8OpenTaskProbe openTaskProbe) {
 
+    this.openTaskProbe = openTaskProbe;
     this.predatesDeployedVersion = predatesDeployedVersion == null
         ? (
             processId,
@@ -270,6 +281,9 @@ public class Camunda8JobHandler implements JobHandler {
     final WorkflowTaskOutcome outcome;
     final String aggregateIdName;
     final Object aggregateId;
+    // built once and read twice: the invocation is what it is for, and the check of the
+    // other open tasks of this workflow is handed the same context afterwards
+    final Camunda8TaskInvocationContext context;
     try {
       aggregateIdName = workflowTaskInvoker.resolveWorkflowAggregateIdName(
           workflowModuleId,
@@ -286,12 +300,10 @@ public class Camunda8JobHandler implements JobHandler {
                 adapterId,
                 fetchVariables));
       }
-      outcome = workflowTaskInvoker.invokeWorkflowTask(
-          workflowModuleId,
-          bpmnProcessId,
-          new Camunda8TaskInvocationContext(adapterId, taskDefinition, String
-              .valueOf(aggregateId), job, multiInstanceRegistry, predatesDeployedVersion
-                  .test(job.getBpmnProcessId(), job.getProcessDefinitionVersion()), fetchVariables));
+      context = new Camunda8TaskInvocationContext(adapterId, taskDefinition, String
+          .valueOf(aggregateId), job, multiInstanceRegistry, predatesDeployedVersion
+              .test(job.getBpmnProcessId(), job.getProcessDefinitionVersion()), fetchVariables);
+      outcome = workflowTaskInvoker.invokeWorkflowTask(workflowModuleId, bpmnProcessId, context);
     } catch (final Exception e) {
       // While the module is going down, the failure is the shutdown and not the
       // application - the job keeps its lock and its retries
@@ -396,6 +408,13 @@ public class Camunda8JobHandler implements JobHandler {
             taskDefinition,
             asyncTaskLockRenewal);
       }
+    }
+
+    // and now, with the outcome of THIS job back at the cluster, the other tasks the core
+    // believes are open in the same workflow. After and not before, because the completion
+    // of this very job is what can fire the boundary event which takes another one away
+    if (openTaskProbe != null) {
+      openTaskProbe.reportWhatTheClusterNoLongerHas(bpmnProcessId, context);
     }
 
   }

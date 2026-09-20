@@ -32,6 +32,8 @@ vanillabp:
           allow-full-sync-with-bpms: true
         BlockingProcess:
           allow-full-sync-with-bpms: true
+        CancelableProcess:
+          allow-full-sync-with-bpms: true
         DecisionProcess:
           allow-full-sync-with-bpms: true
         MiCallProcess:
@@ -39,6 +41,8 @@ vanillabp:
         MultiInstanceProcess:
           allow-full-sync-with-bpms: true
         OldProcessVersionsProcess:
+          allow-full-sync-with-bpms: true
+        OtherOpenTasksProcess:
           allow-full-sync-with-bpms: true
         QuickProcess:
           allow-full-sync-with-bpms: true

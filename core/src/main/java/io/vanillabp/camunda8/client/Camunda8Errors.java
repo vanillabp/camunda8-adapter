@@ -122,6 +122,42 @@ public final class Camunda8Errors {
   }
 
   /**
+   * Whether the cluster refused a job command because the job is THERE but not activated
+   * right now - the answer which says the BPMS still holds the task.
+   * <p>
+   * Measured on 8.8.37, 8.9.19 and 8.10.0-alpha5 with the same answer on all three: an
+   * <code>UpdateJobTimeout</code> against a job which is not locked is refused with HTTP
+   * <code>400</code>, on gRPC with <code>INVALID_ARGUMENT</code>. Three situations produce
+   * it and the BPMS holds the task in all three - the job waits in the queue and was never
+   * activated, its lock ran out and it went back into the queue, or it failed with no retry
+   * left and an incident is open on it.
+   * <p>
+   * The middle one happens in normal operation. An asynchronous task keeps its job locked
+   * for <code>async-task-lock-renewal</code>, and when that hour passes the cluster puts the
+   * job back into the queue until a worker takes it again. Reading that gap as an outage
+   * sends the caller into retries for a task which is perfectly alive.
+   * <p>
+   * The CODE alone carries the meaning here, so decision 16 in the repository's DECISIONS.md
+   * needs no widening: a job command names one key, the cluster answers a key it does not
+   * hold with {@link #notFound(Throwable)}, and a refusal which is not that one is a refusal
+   * about a job the cluster HAS. Which of the three situations it is does not change the
+   * answer, so the sentence the cluster writes around the code is not read.
+   *
+   * @param throwable The failure of a job-based command
+   * @return Whether the cluster holds the job and refused the command anyway
+   */
+  public static boolean jobIsThereButNotActive(
+      final Throwable throwable) {
+
+    return !notFound(throwable) && anyCauseAnswers(
+        throwable,
+        cause -> ((cause instanceof ClientHttpException http) && (http
+            .code() == 400)) || ((cause instanceof ClientStatusException status) && (status
+                .getStatusCode() == Status.Code.INVALID_ARGUMENT)));
+
+  }
+
+  /**
    * Whether the cluster refused a publication because a message of the same id was
    * published before and still lives - the answer which makes an outbox entry done
    * rather than repeated, because a repetition would be refused again.
@@ -145,6 +181,39 @@ public final class Camunda8Errors {
         cause -> ((cause instanceof ClientHttpException http) && (http
             .code() == 409)) || ((cause instanceof ClientStatusException status) && (status
                 .getStatusCode() == Status.Code.ALREADY_EXISTS)));
+
+  }
+
+  /**
+   * Whether the cluster refused a command ABOUT AN INSTANCE IT HOLDS - the answer which
+   * makes a deliberately refused command a question about whether the engine has that
+   * instance at all.
+   * <p>
+   * An engine addressed by an instance key answers a key it does not hold with
+   * {@link #notFound(Throwable)}, and it forgets an instance the moment it ends. Everything
+   * it refuses for a reason of its own is therefore about an instance it HAS: a
+   * modification naming an element the model does not have is rejected with HTTP
+   * <code>400</code> (on gRPC <code>INVALID_ARGUMENT</code>), and a business id assigned to
+   * an instance which already carries one with HTTP <code>409</code> (on gRPC
+   * <code>FAILED_PRECONDITION</code>).
+   * <p>
+   * The list is spelled out rather than written as "anything which is not a 404", because
+   * an expired token and a missing permission are refusals too and they say nothing about
+   * the instance. Which command is sent and why both of them are refused rather than
+   * carried out is decision 35 in the repository's DECISIONS.md.
+   *
+   * @param throwable What the command about one instance threw
+   * @return Whether the cluster refused it about an instance it holds
+   */
+  public static boolean refusedAboutAnInstanceItHolds(
+      final Throwable throwable) {
+
+    return !notFound(throwable) && anyCauseAnswers(
+        throwable,
+        cause -> ((cause instanceof ClientHttpException http) && ((http.code() == 400) || (http
+            .code() == 409))) || ((cause instanceof ClientStatusException status) && ((status
+                .getStatusCode() == Status.Code.INVALID_ARGUMENT) || (status
+                    .getStatusCode() == Status.Code.FAILED_PRECONDITION))));
 
   }
 

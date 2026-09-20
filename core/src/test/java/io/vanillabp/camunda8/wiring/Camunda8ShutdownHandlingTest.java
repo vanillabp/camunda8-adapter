@@ -60,6 +60,9 @@ public class Camunda8ShutdownHandlingTest {
     when(job.getBpmnProcessId()).thenReturn("TestProcess");
     when(job.getType()).thenReturn(type);
     when(job.getVariablesAsMap()).thenReturn(Map.of("id", "42"));
+    // the worker of a process' execution listeners answers two of them now, and the event
+    // the job reports is what tells the end of an instance from its cancelation
+    Mockito.lenient().when(job.getListenerEventType()).thenReturn(ListenerEventType.END);
     return job;
 
   }

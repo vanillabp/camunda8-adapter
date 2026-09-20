@@ -1144,14 +1144,31 @@ awareness probe and the phase-one check are the same NON-ADVANCING command -
 `UpdateJobTimeout` by `async-task-lock-renewal` (which conveniently renews the open
 job's lock): success means the job exists, `NOT_FOUND` maps to
 "unknown", a connection failure to "BPMS unavailable" (never falls back to
-another adapter). The phase-one check runs as a PRE-COMMIT transaction
+another adapter). A refusal which is neither - HTTP 400, on gRPC `INVALID_ARGUMENT` -
+means the cluster HAS the job and no worker has it activated right now, so the probe
+answers `ACTIVE`. That is the everyday answer for an asynchronous task whose lock ran out:
+the job waits in the queue until a worker takes it again, and reading the gap as an outage
+would send the caller into retries for a task which is alive. Measured on 8.8.37, 8.9.19 and
+8.10.0-alpha5, where a job never activated, a job whose lock expired and a job with an open
+incident all answer the same way.
+
+The word probe makes this sound like a read, and it is not. `UpdateJobTimeout` WRITES the
+timeout it carries, so a probe moves the deadline of a job another worker is holding, in
+whichever direction `async-task-lock-renewal` points. Measured on all three lines: a probe
+which set two seconds on a job activated for five minutes let a second activation pick the
+same job key three seconds later, while the first holder still believed it owned the job. A
+short renewal is therefore not only a shorter lock, it also shortens the lock of whoever
+holds the job while somebody asks about it.
+
+The phase-one check runs as a PRE-COMMIT transaction
 synchronization - as late as possible, minimizing the window between check and
 the phase-two dispatch (fewer stale outbox entries). Phase two (after the
 commit, through the outbox) sends `CompleteJob` respectively `ThrowError` (the
 BPMN error code routes boundary events); a `NOT_FOUND` answer is tolerated with
-a WARN (at-least-once residual). Camunda 8 cannot deliver `@TaskEvent CANCELED`
-- Zeebe does not notify workers about canceled jobs, which is an assumption about this
-engine, see [Task cancellation is not reported](#task-cancellation-is-not-reported).
+a WARN (at-least-once residual). Zeebe notifies no worker about a job it took away, so
+`@TaskEvent CANCELED` is not delivered at the moment the task goes: it arrives at the next
+wake-up of the same workflow, see
+[Task cancellation arrives at the next wake-up](#task-cancellation-arrives-at-the-next-wake-up-not-at-the-moment).
 
 **User tasks:** Camunda-managed user tasks (`zeebe:userTask`) with an
 EXTERNAL form reference - the reference IS the task definition (V1 convention).
@@ -2230,7 +2247,29 @@ probe cannot: a workflow started moments ago is not searchable yet, and reportin
 `UNKNOWN_TO_BPMS` would make the core raise `WorkflowNotFoundException` with causes that all
 do not apply.
 
-The adapter reports a window instead
+**Where VanillaBP holds the cluster's own key of the workflow, the ENGINE is asked before
+the search.** Measured on 8.10.0-alpha5, 8.9.19 and 8.8.37: the create answered after 10 ms,
+the engine said "this instance exists" after 16 to 19 ms, and the search found it after 167
+to 1324 ms. The key arrives with the election, and the question is a command the engine
+REFUSES for an instance it holds, so the cluster writes no state: a process instance
+modification naming the element id `vanillabp-existence-probe`, which no model has, or, once
+this adapter writes the business id of an instance and the line has the command, the business
+id assignment. Which of the two and why is decision 35 in the repository's DECISIONS.md.
+
+The probe shortens the YES and nothing else. The engine forgets an instance the moment it
+ends, so a key it does not hold covers a completed workflow, a canceled one and a key which
+never existed alike, and only the search tells those apart. Every answer but "the engine holds
+it" falls through to the search below, unchanged, and so does a probe which could not be sent
+at all - an unreachable engine says nothing about whether the workflow is young. A model which
+happens to carry the reserved element id is found while it is deployed, the boot names it, and
+no probe is sent for a workflow of that process.
+
+Nothing is asked on a cluster this adapter SHARES with another adapter id. An instance key is
+unique per cluster and names no scope, and the election hands the same key to every adapter of
+its list, so the probe would answer about the other one's instance and end the election at the
+wrong adapter. There the search, which filters by scope, is the whole answer as before.
+
+The adapter reports a window for the rest
 (`workflowVisibilityDelay()`, configured as
 `vanillabp.adapters.<id>.workflow-visibility-timeout`, default 10 seconds, zero switches it
 off), and the core keeps asking for that long - but only while probing an adapter its
@@ -2246,7 +2285,8 @@ altogether. The alternative - asking the phase-two outbox whether a start for th
 is open or was just dispatched - was weighed and dropped; the reasoning is in
 [`migration-adapter/README.md`](https://github.com/vanillabp/adapter-platform-integration/blob/main/migration-adapter/README.md).
 
-The window is `Camunda8LocatingWorkflowsIT`, in `#theProbeFindsTheWorkflow`,
+The engine probe is `Camunda8EngineProbeIT` and `Camunda8EngineBeforeTheSearchTest`. The
+window is `Camunda8LocatingWorkflowsIT`, in `#theProbeFindsTheWorkflow`,
 `#correlatingRightAfterTheStartWorks` and `#theViewerRightAfterTheStartWorks`. The residual of
 the paragraph above is an assumption: it needs an application on several nodes without a shared
 adapter cache, and an operation waiting on a node which never heard of the workflow would
@@ -2278,30 +2318,70 @@ come on a line built against 8.10 or later.
 to 8.9 offers the command is an assumption about those releases: a cancel command turning up in
 an 8.9 patch would disprove it.
 
-### Task cancellation is not reported
+### Task cancellation arrives at the next wake-up, not at the moment
 
-`@TaskEvent CANCELED` cannot be delivered for service tasks, because Zeebe does not notify
-workers about canceled jobs, so a handler subscribing to lifecycle events never learns that
-an open asynchronous task's activity was canceled. The 8.10 line brings a `cancel` execution
-listener, but a cluster takes it on the process element alone: "`cancel`: Supported only on
-the process element", says the documentation of that line, and a cluster refuses the whole
-file where such a listener sits on an activity. It reports a terminated INSTANCE rather than
-an activity a boundary event took away, so it answers a different question from this one, see
-decision 33 in the repository's DECISIONS.md. Nothing here can make a cluster report a
-canceled job, so this is an assumption, and a `@TaskEvent CANCELED` arriving from a cluster
-of a line this adapter is built against would disprove it.
+Zeebe notifies no worker about a job it took away, so nothing the cluster sends says that an
+open asynchronous task's activity was canceled. That has not changed and will not: the
+`cancel` execution listener of the 8.10 line sits on the process element and reports a
+terminated INSTANCE, which is a different question, see decision 33 in the repository's
+DECISIONS.md.
+
+What arrives instead is the same event one moment later. Whenever the cluster hands this
+application a job of a workflow, the core looks at the tasks it still believes are open in
+that workflow, this adapter asks the cluster about each of them with the `UpdateJobTimeout`
+it sends anyway, and the ones the cluster no longer has are reported as
+`@TaskEvent CANCELED`. Three handlers do it: the job handler after the outcome went back to
+the cluster, and the two listener handlers after their notification. The end of a workflow
+carries the same derivation and is left out here, because the two would report the same
+cancelation twice.
+
+A user task is not a job, and the BPMN process decides what that costs. The record of a
+user-task delivery keeps the user-task key, and a job command answers `NOT_FOUND` for such a
+key as long as the task is open, which read as gone would cancel a task the cluster is
+holding out to somebody. Nothing in the question tells the two apart. So where the model of a
+BPMN process carries a Camunda-managed user task, every `NOT_FOUND` of that process is
+answered with "cannot say" and the check reports nothing for it; where it carries none, a
+`NOT_FOUND` is the whole answer. The user tasks themselves need no probe anyway: VanillaBP
+writes a `canceling` task listener next to every user task it manages, and the cluster
+delivers `CANCELED` for it straight from there.
+
+Two things are left of the deviation. A workflow which walks into a timer or a message wait
+after the boundary event produces no job, so nothing wakes the application up and the
+cancellation waits for whatever comes next: the next job of that workflow, the end of the
+workflow, or the next operation which names the task. And a BPMN process which carries a
+Camunda-managed user task is left to those three, for the reason above.
+
+`Camunda8OpenTaskProbeTest` holds the three answers and the user-task case,
+`Camunda8OtherOpenTasksIT` lets a boundary event take one of two open tasks away against a
+cluster. The application switches the whole check off with
+`vanillabp.delivery.check-open-tasks-on-delivery`.
 
 ### The end of a workflow
 
-The cluster runs end listeners of COMPLETED instances only, so `@WorkflowEnded` methods see
-the kind `COMPLETED` and never `TERMINATED`: a cancelled instance is removed without running
-them. What this waits on is the `cancel` execution listener of the PROCESS element, which the
-8.10 line has and which fires for a terminated instance. Independently of that the
-notification names no end event, because the listener sits on the process element rather than
-on an end event, which is structural rather than a gap to close. That end listeners run for
-completed instances only is an assumption about the cluster: a `TERMINATED` reaching a
-`@WorkflowEnded` method would disprove it. The completed case is held, in
-`Camunda8BpmsInitiatedStartIT#timerStartCreatesTheAggregate`.
+What a `@WorkflowEnded` method hears depends on the [release line](#release-lines).
+
+From the 8.10 line on it hears both kinds. The `cancel` execution listener of the PROCESS
+element fires when an instance is terminated through the API, so such an instance reports
+`TERMINATED`, and the core then reports every task VanillaBP still believes is open in it as
+`CANCELED`. Both listeners carry the same job type, the handler tells them apart by the event
+the job reports, and an event this build does not know completes the job and reports nothing.
+See decision 34 in the repository's DECISIONS.md.
+
+On the lines before that one the cluster runs end listeners of COMPLETED instances only, so a
+`@WorkflowEnded` method sees `COMPLETED` and never `TERMINATED`: a cancelled instance is
+removed without running them, and the boot of a workflow module names every BPMN process this
+is about rather than leaving it to be found.
+
+Two paths are not cancelations on any line, however they look in a model. A terminate end
+event and an interrupting event subprocess both COMPLETE the instance: the end listener runs,
+no cancel job is created, and the application hears `COMPLETED` while an open task may have
+gone with it. That is the cluster's view and not a gap this adapter can close.
+
+Independently of the line, the notification names no end event, because the listener sits on
+the process element rather than on an end event, which is structural rather than a gap to
+close. The completed case is held in
+`Camunda8BpmsInitiatedStartIT#timerStartCreatesTheAggregate`, the canceled one in
+`Camunda8WorkflowCanceledIT`, which runs on the 8.10 line of the nightly matrix.
 
 ### Conditional events
 

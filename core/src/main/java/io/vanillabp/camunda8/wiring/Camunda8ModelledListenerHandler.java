@@ -106,6 +106,12 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
   private final Camunda8RetryBackoffResolver retryBackoffResolver;
 
   /**
+   * Asks the cluster about the OTHER tasks this workflow has open, once this notification is
+   * through. May be <code>null</code>, which asks nothing.
+   */
+  private final Camunda8OpenTaskProbe openTaskProbe;
+
+  /**
    * What kind of worker this is, in the messages about a shutdown.
    */
   static final String KIND = "modelled listener";
@@ -124,6 +130,8 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
    * @param fetchVariables What the worker asked for, or <code>null</code> for every variable
    * @param retryBackoffResolver How long a failed job waits, or <code>null</code> for the
    *          default
+   * @param openTaskProbe What asks the cluster about the other open tasks of the workflow, or
+   *          <code>null</code> to ask nothing
    */
   @Builder
   public Camunda8ModelledListenerHandler(
@@ -134,8 +142,10 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
       final Camunda8MultiInstance.Registry multiInstanceRegistry,
       final Camunda8Drain drain,
       final Camunda8FetchVariables.Selection fetchVariables,
-      final Camunda8RetryBackoffResolver retryBackoffResolver) {
+      final Camunda8RetryBackoffResolver retryBackoffResolver,
+      final Camunda8OpenTaskProbe openTaskProbe) {
 
+    this.openTaskProbe = openTaskProbe;
     this.fetchVariables = fetchVariables == null
         ? Camunda8FetchVariables.Selection.everything()
         : fetchVariables;
@@ -189,13 +199,11 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
                             adapterId,
                             fetchVariables));
               }
+              final var context = new Camunda8ModelledListenerInvocationContext(
+                  adapterId, taskDefinition, String
+                      .valueOf(aggregateId), job, multiInstanceRegistry, fetchVariables);
               final var outcome = workflowTaskInvoker
-                  .invokeWorkflowTask(
-                      workflowModuleId,
-                      bpmnProcessId,
-                      new Camunda8ModelledListenerInvocationContext(
-                          adapterId, taskDefinition, String
-                              .valueOf(aggregateId), job, multiInstanceRegistry, fetchVariables));
+                  .invokeWorkflowTask(workflowModuleId, bpmnProcessId, context);
               if (outcome.kind() == WorkflowTaskOutcome.Kind.BPMN_ERROR) {
                 throw new IllegalStateException(
                     ("The @WorkflowTask method serving the listener '%s' (BPMN process '%s' of workflow "
@@ -204,6 +212,14 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
                         + "token to route. Model the logic as a task of the process where an error has to "
                         + "change the path.")
                         .formatted(taskDefinition, bpmnProcessId, workflowModuleId));
+              }
+              // a listener firing is a wake-up of its workflow like any other, so the
+              // other tasks the core believes are open in it are looked at here too. It
+              // runs INSIDE the listener work, because that is what the drain of this
+              // workflow module brackets: a shutdown waits for it instead of closing the
+              // client under it
+              if (openTaskProbe != null) {
+                openTaskProbe.reportWhatTheClusterNoLongerHas(bpmnProcessId, context);
               }
               return whatTheCompletionCarries(job, bpmnProcessId, aggregateIdName, aggregateId);
             });

@@ -422,4 +422,77 @@ public class Camunda8ErrorsTest {
 
   }
 
+  @Test
+  @DisplayName("A job the cluster holds but nobody activated is told apart from a job which is gone")
+  public void aDormantJobIsNotAJobWhichIsGone() {
+
+    // measured on 8.8.37, 8.9.19 and 8.10.0-alpha5: a job in the queue, a job whose lock
+    // ran out and a job with no retry left all answer this way
+    assertTrue(Camunda8Errors.jobIsThereButNotActive(problem(400, "INVALID_ARGUMENT")));
+    assertTrue(
+        Camunda8Errors
+            .jobIsThereButNotActive(new ClientHttpException("Failed with code 400", 400, "but it is not active")));
+    assertTrue(
+        Camunda8Errors
+            .jobIsThereButNotActive(
+                new ClientStatusException(
+                    Status.INVALID_ARGUMENT.withDescription("but it is not active"), null)));
+    // a key the cluster does not hold is the other answer, and it stays the other answer
+    assertFalse(Camunda8Errors.jobIsThereButNotActive(problem(404)));
+    assertFalse(
+        Camunda8Errors.jobIsThereButNotActive(new ClientStatusException(Status.NOT_FOUND, null)));
+    // and nothing else is this answer
+    assertFalse(Camunda8Errors.jobIsThereButNotActive(problem(409)));
+    assertFalse(Camunda8Errors.jobIsThereButNotActive(problem(503)));
+    assertFalse(Camunda8Errors.jobIsThereButNotActive(new IllegalStateException("connection reset")));
+    assertFalse(Camunda8Errors.jobIsThereButNotActive(null));
+
+  }
+
+  @Test
+  @DisplayName("The answer is found however deep the client wrapped it, and a 404 below it wins")
+  public void aDormantJobIsFoundDownTheCauseChain() {
+
+    assertTrue(
+        Camunda8Errors
+            .jobIsThereButNotActive(
+                new CompletionException(new ClientException("update failed", problem(400)))));
+    // notFound wins wherever it stands in the chain: a command which addressed a key the
+    // cluster does not hold is gone, whatever the client wrapped around it on the way up
+    assertFalse(
+        Camunda8Errors
+            .jobIsThereButNotActive(
+                new CompletionException(
+                    new ClientException(
+                        "update failed", new ClientException("retried", problem(404))))));
+
+  }
+
+  @Test
+  @DisplayName("A command refused about an instance the engine holds is told from one it forgot")
+  public void aRefusalAboutAnInstanceIsToldFromAForgottenKey() {
+
+    // the modification of the probe names an element the model does not have
+    assertTrue(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(400, "INVALID_ARGUMENT")));
+    assertTrue(
+        Camunda8Errors
+            .refusedAboutAnInstanceItHolds(new ClientStatusException(Status.INVALID_ARGUMENT, null)));
+    // and the business id assignment meets an instance which already carries one
+    assertTrue(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(409, "INVALID_STATE")));
+    assertTrue(
+        Camunda8Errors
+            .refusedAboutAnInstanceItHolds(new ClientStatusException(Status.FAILED_PRECONDITION, null)));
+    // a key the engine does not hold is the other answer, and it stays the other answer
+    assertFalse(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(404)));
+    assertFalse(
+        Camunda8Errors.refusedAboutAnInstanceItHolds(new ClientStatusException(Status.NOT_FOUND, null)));
+    // an expired token and a missing permission are refusals which say nothing about the
+    // instance, which is why the codes are spelled out rather than read as "not a 404"
+    assertFalse(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(401)));
+    assertFalse(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(403)));
+    assertFalse(Camunda8Errors.refusedAboutAnInstanceItHolds(problem(503)));
+    assertFalse(Camunda8Errors.refusedAboutAnInstanceItHolds(new IllegalStateException("connection reset")));
+
+  }
+
 }

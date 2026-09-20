@@ -101,6 +101,12 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
   private final Camunda8FetchVariables.Selection fetchVariables;
 
   /**
+   * Asks the cluster about the OTHER tasks this workflow has open, once this notification is
+   * through. May be <code>null</code>, which asks nothing.
+   */
+  private final Camunda8OpenTaskProbe openTaskProbe;
+
+  /**
    * The user-task listener worker this handler serves. Built through the generated
    * <code>Camunda8UserTaskListenerHandler.builder()</code>: four of these seven values may
    * be left out, and a positional list of that length no longer says which is which.
@@ -114,6 +120,8 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
    * @param drain What the workflow module has in flight, or <code>null</code> for a drain of
    *          this handler's own which never shuts down
    * @param fetchVariables What the worker asked for, or <code>null</code> for every variable
+   * @param openTaskProbe What asks the cluster about the other open tasks of the workflow, or
+   *          <code>null</code> to ask nothing
    */
   @Builder
   public Camunda8UserTaskListenerHandler(
@@ -123,8 +131,10 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
       final NameClashAvoidanceSupport scoping,
       final Camunda8MultiInstance.Registry multiInstanceRegistry,
       final Camunda8Drain drain,
-      final Camunda8FetchVariables.Selection fetchVariables) {
+      final Camunda8FetchVariables.Selection fetchVariables,
+      final Camunda8OpenTaskProbe openTaskProbe) {
 
+    this.openTaskProbe = openTaskProbe;
     this.fetchVariables = fetchVariables == null
         ? Camunda8FetchVariables.Selection.everything()
         : fetchVariables;
@@ -206,14 +216,12 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
                               adapterId,
                               fetchVariables));
                 }
+                final var context = new Camunda8UserTaskInvocationContext(
+                    adapterId, taskDefinition, String
+                        .valueOf(
+                            aggregateId), userTaskKey, event, job, multiInstanceRegistry, fetchVariables);
                 final var outcome = workflowTaskInvoker
-                    .invokeWorkflowTask(
-                        workflowModuleId,
-                        bpmnProcessId,
-                        new Camunda8UserTaskInvocationContext(
-                            adapterId, taskDefinition, String
-                                .valueOf(
-                                    aggregateId), userTaskKey, event, job, multiInstanceRegistry, fetchVariables));
+                    .invokeWorkflowTask(workflowModuleId, bpmnProcessId, context);
                 if (outcome.kind() == WorkflowTaskOutcome.Kind.BPMN_ERROR) {
                   throw new IllegalStateException(
                       ("The @WorkflowTask method notified about the %s event of user task '%s' (BPMN "
@@ -221,6 +229,14 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
                           + "notification handlers must not raise BPMN errors - route errors via "
                           + "ProcessService#cancelUserTask instead.")
                           .formatted(event, taskDefinition, bpmnProcessId, workflowModuleId));
+                }
+                // the creation or the cancelation of a user task is a wake-up of its
+                // workflow like any other, so the other tasks the core believes are open
+                // in it are looked at here too. It runs INSIDE the listener work, because
+                // that is what the drain of this workflow module brackets: a shutdown
+                // waits for it instead of closing the client under it
+                if (openTaskProbe != null) {
+                  openTaskProbe.reportWhatTheClusterNoLongerHas(bpmnProcessId, context);
                 }
               } else {
                 log

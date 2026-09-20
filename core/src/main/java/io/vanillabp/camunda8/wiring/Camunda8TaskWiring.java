@@ -169,6 +169,37 @@ public final class Camunda8TaskWiring {
   }
 
   /**
+   * The element id this adapter reserved for the probe which asks the engine whether it
+   * holds a process instance.
+   * <p>
+   * The probe is a process instance modification naming an element the model does not have:
+   * the cluster refuses it and the refusal is the answer, so nothing about the workflow
+   * changes. An id which by accident matches an element of the model would be ACTIVATED
+   * instead, which is a change to a running workflow nobody asked for - so the models are
+   * read for it while they are deployed and a process which carries it gets no probe, see
+   * decision 35 in the repository's DECISIONS.md.
+   */
+  public static final String RESERVED_PROBE_ELEMENT_ID = "vanillabp-existence-probe";
+
+  /**
+   * Whether the given model carries the element id
+   * {@link #RESERVED_PROBE_ELEMENT_ID reserved for the probe}.
+   * <p>
+   * The whole FILE is read rather than the one process: a file is the deployment unit, an
+   * id is unique within it, and being one process too careful costs a search where being
+   * one too few costs a modification of a running workflow.
+   *
+   * @param model The BPMN model
+   * @return Whether anything in it carries the reserved id
+   */
+  public static boolean carriesTheReservedProbeElement(
+      final BpmnModelInstance model) {
+
+    return model.getModelElementById(RESERVED_PROBE_ELEMENT_ID) != null;
+
+  }
+
+  /**
    * The version tag the modeller gave the process
    * (<code>zeebe:versionTag</code>) - the name a
    * <code>&#64;WorkflowTask(version = "release-2026")</code> refers to.
@@ -213,6 +244,74 @@ public final class Camunda8TaskWiring {
       final BpmnModelInstance model,
       final String bpmnProcessId) {
 
+    final var jobType = workflowEndedJobTypeOf(bpmnProcessId);
+    final var listeners = executionListenersOfTheProcess(model, bpmnProcessId);
+    if (listeners == null) {
+      return false;
+    }
+    if (alreadyCarries(listeners, jobType, ZeebeExecutionListenerEventType.end.name())) {
+      return true;
+    }
+
+    final var listener = listeners.getModelInstance().newInstance(ZeebeExecutionListener.class);
+    listener
+        .setEventType(ZeebeExecutionListenerEventType.end);
+    listener.setType(jobType);
+    // LAST listener: whatever the model itself does at the end of the process runs
+    // before the application is told the workflow ended
+    listeners.addChildElement(listener);
+    return true;
+
+  }
+
+  /**
+   * Attaches a <code>cancel</code> execution listener to the PROCESS element, which is what
+   * tells VanillaBP that an instance was terminated. It carries the SAME job type as the
+   * end listener next to it, so one worker answers both and the handler tells the two apart
+   * by the event the job reports.
+   * <p>
+   * The construct belongs to the 8.10 line, so the caller asks
+   * {@link Camunda8CancelListeners#theProcessCanReportItsCancellation()} first. It is also
+   * the caller's business that a worker is opened for the job type: a listener nobody serves
+   * holds the instance until its job is answered, which turns a cancelation into a workflow
+   * which never goes away and which raises no incident either.
+   *
+   * @param model The BPMN model, already scoped by <code>prepareBpmn</code>
+   * @param bpmnProcessId The SCOPED BPMN process id
+   * @return Whether a listener was attached (false if the process is not in this model)
+   */
+  public static boolean attachWorkflowCanceledListener(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    final var jobType = workflowEndedJobTypeOf(bpmnProcessId);
+    final var listeners = executionListenersOfTheProcess(model, bpmnProcessId);
+    if (listeners == null) {
+      return false;
+    }
+    if (alreadyCarries(listeners, jobType, CANCELING_AN_INSTANCE)) {
+      return true;
+    }
+
+    // the retries of the end listener, which are the model's default: a failed
+    // notification is failed with one attempt less and the last failure raises the
+    // incident an operator acts on
+    Camunda8CancelListeners.addProcessCancelListener(listeners, jobType, null);
+    return true;
+
+  }
+
+  /**
+   * The execution listeners of the given process, created where the model carries none yet.
+   *
+   * @param model The BPMN model
+   * @param bpmnProcessId The SCOPED BPMN process id
+   * @return The listeners, or <code>null</code> where this model has no such process
+   */
+  private static ZeebeExecutionListeners executionListenersOfTheProcess(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
     final var process = model
         .getModelElementsByType(Process.class)
         .stream()
@@ -220,51 +319,47 @@ public final class Camunda8TaskWiring {
         .findFirst()
         .orElse(null);
     if (process == null) {
-      return false;
+      return null;
     }
-
-    final var jobType = workflowEndedJobTypeOf(bpmnProcessId);
-    final ZeebeExecutionListeners listeners;
-    if (process
-        .getSingleExtensionElement(
-            ZeebeExecutionListeners.class) != null) {
-      listeners = process
-          .getSingleExtensionElement(
-              ZeebeExecutionListeners.class);
-      final var alreadyWired = listeners
-          .getExecutionListeners()
-          .stream()
-          .anyMatch(listener -> jobType.equals(listener.getType()));
-      if (alreadyWired) {
-        return true;
-      }
-    } else {
-      if (process.getExtensionElements() == null) {
-        process
-            .setExtensionElements(
-                process
-                    .getModelInstance()
-                    .newInstance(ExtensionElements.class));
-      }
-      listeners = process
-          .getExtensionElements()
-          .addExtensionElement(ZeebeExecutionListeners.class);
+    if (process.getSingleExtensionElement(ZeebeExecutionListeners.class) != null) {
+      return process.getSingleExtensionElement(ZeebeExecutionListeners.class);
     }
-
-    final var listener = process
-        .getModelInstance()
-        .newInstance(ZeebeExecutionListener.class);
-    listener
-        .setEventType(ZeebeExecutionListenerEventType.end);
-    listener.setType(jobType);
-    // LAST listener: whatever the model itself does at the end of the process runs
-    // before the application is told the workflow ended
-    listeners.getExecutionListeners().forEach(existing -> {
-    });
-    listeners.addChildElement(listener);
-    return true;
+    if (process.getExtensionElements() == null) {
+      process
+          .setExtensionElements(
+              process
+                  .getModelInstance()
+                  .newInstance(ExtensionElements.class));
+    }
+    return process
+        .getExtensionElements()
+        .addExtensionElement(ZeebeExecutionListeners.class);
 
   }
+
+  /**
+   * Whether the process already carries that listener, which is what re-wiring an
+   * already-processed model meets.
+   */
+  private static boolean alreadyCarries(
+      final ZeebeExecutionListeners listeners,
+      final String jobType,
+      final String eventType) {
+
+    return listeners
+        .getExecutionListeners()
+        .stream()
+        .anyMatch(listener -> jobType.equals(listener.getType()) && (listener
+            .getEventType() != null) && eventType.equals(listener.getEventType().name()));
+
+  }
+
+  /**
+   * The event of an execution listener which fires while an INSTANCE is being terminated, as
+   * the model spells it. Written as the word rather than as the client's constant, because
+   * the constant arrived with the 8.10 client and this file is compiled on every line.
+   */
+  private static final String CANCELING_AN_INSTANCE = "cancel";
 
   /**
    * One start event the cluster fires on its own, to be served by a start
