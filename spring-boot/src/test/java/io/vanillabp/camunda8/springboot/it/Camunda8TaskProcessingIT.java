@@ -359,6 +359,11 @@ public class Camunda8TaskProcessingIT {
    * that whether the listener job was never created, was created and never handed to a
    * worker, or was handed over and failed. Those are three different defects.
    * <p>
+   * The cluster is asked three questions rather than one. The job says what became of the
+   * delivery. The user task says whether the cluster ever got past <code>CREATING</code>.
+   * The incident says whether the instance is now waiting for an operator. A red run which
+   * answers all three is readable without a second one.
+   * <p>
    * What the cluster made of the listener job in detail is in its own log, and the
    * process instance key is the string to look for there.
    *
@@ -369,13 +374,17 @@ public class Camunda8TaskProcessingIT {
       final Long aggregateId) {
 
     final var aggregate = repository.findById(aggregateId).orElseThrow();
-    return "results '%s', task id '%s' and %d invocation(s) of 'approveUser' for process instance %d. The cluster holds %s for it, and its own log is in '%s'"
+    return ("results '%s', task id '%s' and %d invocation(s) of 'approveUser' for process instance %d. "
+        + "The cluster holds these jobs for it: %s. Its user tasks: %s. Its incidents: %s. "
+        + "Its own log is in '%s'")
         .formatted(
             aggregate.getResults(),
             aggregate.getTaskId(),
             invocations("approveUser", aggregateId),
             lastStartedInstanceKey,
             jobsTheClusterHoldsForTheStartedInstance(),
+            userTasksTheClusterHoldsForTheStartedInstance(),
+            incidentsTheClusterHoldsForTheStartedInstance(),
             ClusterLog.FILE);
 
   }
@@ -388,6 +397,24 @@ public class Camunda8TaskProcessingIT {
    * answer comes from the search API, which is eventually consistent, so "no job at all"
    * is a strong hint rather than a proof - and a hint is what a timeout has none of
    * today.
+   * <p>
+   * <b>Why the retries, the worker and the error message are in here.</b> A job in state
+   * <code>FAILED</code> was failed by a command somebody sent, and on 2026-09-18 a red run
+   * showed one without saying who sent it. Only three senders exist, and what they leave on
+   * the job is different for each of them:
+   * <ul>
+   * <li>this adapter, in {@code Camunda8ListenerJobs.completeOrFail}: a warning naming the
+   * job stands in the log right before it, the error message is one line of the shape
+   * <code>type: message</code>, and the retries are zero, because a user-task listener is
+   * written into the model with <code>retries="0"</code>;</li>
+   * <li>the Camunda client, for anything thrown out of a job handler before that method
+   * takes over: the retries are one BELOW what the job had, so minus one for such a
+   * listener, and the error message is a whole stack trace;</li>
+   * <li>the Camunda client again, when the worker had no execution slot for the job: the
+   * retries are unchanged and the error message says that the worker had no capacity and
+   * returned the job. That one needs <code>stream-enabled</code>, which no test here
+   * switches on.</li>
+   * </ul>
    *
    * @return What the cluster holds, or why it could not be asked
    */
@@ -405,13 +432,127 @@ public class Camunda8TaskProcessingIT {
       }
       return jobs
           .stream()
-          .map(job -> "a %s job '%s' at '%s' for %s in state %s"
-              .formatted(job.getKind(), job.getType(), job.getElementId(), job.getListenerEventType(), job.getState()))
+          .map(job -> ("a %s job '%s' at '%s' for %s in state %s with %s retries left, "
+              + "last held by worker '%s', denied %s, error message '%s'")
+              .formatted(
+                  job.getKind(),
+                  job.getType(),
+                  job.getElementId(),
+                  job.getListenerEventType(),
+                  job.getState(),
+                  job.getRetries(),
+                  job.getWorker(),
+                  job.isDenied(),
+                  inOneLine(job.getErrorMessage())))
           .collect(java.util.stream.Collectors.joining(", "));
     } catch (final RuntimeException e) {
       return "no answer: "
           + e;
     }
+
+  }
+
+  /**
+   * The user tasks the cluster holds for the workflow this test started, with the state
+   * each one is in.
+   * <p>
+   * A task standing in <code>CREATING</code> is the other half of a failed
+   * <code>creating</code> listener job: the cluster is holding the transition open and
+   * waits for an answer nobody is going to send. Without this line a reader cannot tell
+   * that case from a task the cluster never began to create.
+   *
+   * @return What the cluster holds, or why it could not be asked
+   */
+  private String userTasksTheClusterHoldsForTheStartedInstance() {
+
+    try {
+      final var userTasks = workflowServiceClient()
+          .newUserTaskSearchRequest()
+          .filter(filter -> filter.processInstanceKey(lastStartedInstanceKey))
+          .send()
+          .join()
+          .items();
+      if (userTasks.isEmpty()) {
+        return "none";
+      }
+      return userTasks
+          .stream()
+          .map(userTask -> "'%s' (key %s) in state %s"
+              .formatted(userTask.getElementId(), userTask.getUserTaskKey(), userTask.getState()))
+          .collect(java.util.stream.Collectors.joining(", "));
+    } catch (final RuntimeException e) {
+      return "no answer: "
+          + e;
+    }
+
+  }
+
+  /**
+   * What the cluster is waiting for an operator about, for the workflow this test started.
+   * <p>
+   * A listener job failed with no retry left IS an incident, so this line says whether the
+   * delivery ended there. It also names the job the incident belongs to, which is the link
+   * back to the job list above.
+   *
+   * @return What the cluster holds, or why it could not be asked
+   */
+  private String incidentsTheClusterHoldsForTheStartedInstance() {
+
+    try {
+      final var incidents = workflowServiceClient()
+          .newIncidentSearchRequest()
+          .filter(filter -> filter.processInstanceKey(lastStartedInstanceKey))
+          .send()
+          .join()
+          .items();
+      if (incidents.isEmpty()) {
+        return "none";
+      }
+      return incidents
+          .stream()
+          .map(incident -> "%s at '%s' (job %s) in state %s: '%s'"
+              .formatted(
+                  incident.getErrorType(),
+                  incident.getElementId(),
+                  incident.getJobKey(),
+                  incident.getState(),
+                  inOneLine(incident.getErrorMessage())))
+          .collect(java.util.stream.Collectors.joining(", "));
+    } catch (final RuntimeException e) {
+      return "no answer: "
+          + e;
+    }
+
+  }
+
+  /**
+   * How many characters of an error message a diagnosis carries. A stack trace is the
+   * error message of a job the Camunda client failed, and printing all of it would bury
+   * the rest of the line. The first few hundred characters hold the exception and the
+   * frames which name the class, which is what tells the senders apart.
+   */
+  private static final int ERROR_MESSAGE_EXCERPT = 400;
+
+  /**
+   * An error message of the cluster as one line a reader can scan: the line breaks of a
+   * stack trace collapsed into spaces, and only the beginning of a long one.
+   *
+   * @param message What the cluster reported, possibly <code>null</code>
+   * @return One line, never <code>null</code>
+   */
+  private static String inOneLine(
+      final String message) {
+
+    if ((message == null) || message.isBlank()) {
+      return "none";
+    }
+    final var oneLine = message.replaceAll("\\s+", " ").trim();
+    return oneLine.length() <= ERROR_MESSAGE_EXCERPT
+        ? oneLine
+        : oneLine.substring(0, ERROR_MESSAGE_EXCERPT)
+            + "... (cut after "
+            + ERROR_MESSAGE_EXCERPT
+            + " characters)";
 
   }
 

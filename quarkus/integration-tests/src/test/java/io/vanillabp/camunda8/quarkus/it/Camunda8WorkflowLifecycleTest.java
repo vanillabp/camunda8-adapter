@@ -459,7 +459,12 @@ public class Camunda8WorkflowLifecycleTest {
    * notification IS a listener job, so a job the cluster still reports as
    * <code>CREATED</code> was there to be fetched and no worker fetched it, while a
    * workflow whose listener job is gone was served and the notification was lost on this
-   * side.
+   * side. A job reported as <code>FAILED</code> was failed by a command, and the retries
+   * and the error message printed with it say who sent that command.
+   * <p>
+   * The incidents are the third place a notification can end. A listener job failed with
+   * no retry left raises one, and the user task then stays in <code>CREATING</code> until
+   * an operator resolves it.
    *
    * @param aggregateId The aggregate the notification is awaited for
    * @param processInstanceKey The workflow the user task belongs to
@@ -469,13 +474,15 @@ public class Camunda8WorkflowLifecycleTest {
       final String aggregateId,
       final String processInstanceKey) {
 
-    return "results '%s', task id '%s' and %d invocation(s) of 'approveUser', while the cluster reports the user tasks %s and the jobs %s for process instance %s"
+    return ("results '%s', task id '%s' and %d invocation(s) of 'approveUser', while the cluster reports "
+        + "the user tasks %s, the jobs %s and the incidents %s for process instance %s")
         .formatted(
             resultsOf(aggregateId),
             taskIdOf(aggregateId),
             invocations("approveUser", aggregateId),
             clusterUserTasksOf(processInstanceKey),
             clusterJobsOf(processInstanceKey),
+            clusterIncidentsOf(processInstanceKey),
             processInstanceKey);
 
   }
@@ -512,6 +519,25 @@ public class Camunda8WorkflowLifecycleTest {
 
     try {
       return strings("introspect/cluster/jobs/"
+          + processInstanceKey).toString();
+    } catch (final Exception | AssertionError e) {
+      return "<unreadable: %s>".formatted(e);
+    }
+
+  }
+
+  /**
+   * What the cluster is waiting for an operator about, or why it could not be read.
+   * Guarded like the jobs, for the same reason.
+   *
+   * @param processInstanceKey The workflow to ask about
+   * @return One entry per incident, or what went wrong instead
+   */
+  private static String clusterIncidentsOf(
+      final String processInstanceKey) {
+
+    try {
+      return strings("introspect/cluster/incidents/"
           + processInstanceKey).toString();
     } catch (final Exception | AssertionError e) {
       return "<unreadable: %s>".formatted(e);

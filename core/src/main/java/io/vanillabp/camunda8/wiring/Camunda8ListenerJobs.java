@@ -40,6 +40,15 @@ import lombok.extern.slf4j.Slf4j;
  * it. A listener which answers the cluster itself, without this protocol, buys an incident
  * on every rolling restart which catches a job in flight.
  * <p>
+ * <b>What this protocol does not cover.</b> Only what happens after a handler calls in. An
+ * exception thrown by the handler BEFORE that call never reaches this class: the Camunda
+ * client catches it, fails the job with one retry less than it had and writes the whole
+ * stack trace into the incident, and not one of the rules above applies to it, the shutdown
+ * rule least of all. So a handler keeps the work in front of the call to what cannot throw,
+ * which today is reading the job and renaming what it carries. What such a failure leaves
+ * on the job is a retry count one below the job's own, so a negative one for a user-task
+ * listener, and that number is how a red run tells it apart from a job this class failed.
+ * <p>
  * Public because an extension wires listeners into the same models and serves them from the
  * same cluster. Its listener jobs are the adapter's listener jobs in every respect a
  * shutdown cares about, and a second protocol beside this one is a second answer to the same
