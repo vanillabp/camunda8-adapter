@@ -81,9 +81,6 @@ public final class Camunda8StartupValidation {
     configuration.validateRequestTimeout(adapterId, warnLogger);
     // and neither is how long the start waits for a cluster which is not answering yet
     configuration.validateStartupWait(adapterId);
-    // and neither is whether the jobs of this adapter are leased: it cannot be taken back
-    // per job, so it is the one key this adapter has no default for
-    configuration.validateJobLease(adapterId, infoLogger);
 
     if (configuration.isAbsent()) {
       warnLogger.accept(
@@ -110,6 +107,7 @@ public final class Camunda8StartupValidation {
 
     final var missing = configuration.missingConnectionProperties();
     if (missing.isEmpty()) {
+      validateJobLease(adapterId, configuration, infoLogger);
       return;
     }
 
@@ -138,6 +136,24 @@ public final class Camunda8StartupValidation {
                 adapterId,
                 missingKeys,
                 Camunda8AdapterConfiguration.propertyKey(adapterId, "deployment-failure")));
+
+  }
+
+  /**
+   * Whether the jobs of this adapter are leased, which is the one key this adapter has no
+   * default for: a lease cannot be taken back per job.
+   * <p>
+   * It is asked LAST, and only of an adapter whose connection is complete. An adapter
+   * nobody finished configuring has a message of its own and gets one thing to fix at a
+   * time; an adapter which boots degraded serves nothing, so it opens no worker and leases
+   * nothing.
+   */
+  private static void validateJobLease(
+      final String adapterId,
+      final Camunda8AdapterConfiguration configuration,
+      final Consumer<String> infoLogger) {
+
+    configuration.validateJobLease(adapterId, infoLogger);
 
   }
 
