@@ -21,6 +21,12 @@ import java.util.stream.Collectors;
  * </ul>
  * Messages name property KEYS only, never values - credentials
  * (<code>client-secret</code> etc.) are never echoed.
+ * <p>
+ * One question here is not about configuration at all:
+ * {@link Camunda8ProtobufRuntime} asks whether the protobuf runtime of this application is
+ * new enough for the client's generated code. It is asked in the same place because it has
+ * the same answer, a message at startup instead of a failure in the middle of the first
+ * command.
  */
 public final class Camunda8StartupValidation {
 
@@ -55,6 +61,10 @@ public final class Camunda8StartupValidation {
       final Consumer<String> warnLogger,
       final Consumer<String> infoLogger) {
 
+    // before any property: a protobuf runtime older than the client's generated code lets
+    // no command of this adapter through, whatever the configuration says, and protobuf
+    // itself would say so out of a static initializer at the first command
+    Camunda8ProtobufRuntime.failIfItIsOlderThanTheClientNeeds();
     // how the adapter runs its workers is independent of whether it can reach a cluster,
     // and a number which cannot work is a typo rather than a migration scenario - so this
     // fails the boot for every adapter id, degraded or not
