@@ -101,12 +101,26 @@ public class Camunda8TaskProcessingIT {
       .of("test-module", "TestProcess");
 
   /**
-   * The three tests carrying this tag drive a user-task LISTENER job, and on the preview line such
-   * jobs never reach their worker: the REST gateway of camunda/camunda:8.10.0-alpha4 throws a
-   * NullPointerException while converting a TASK_LISTENER job and drops the whole activate-jobs
-   * batch (camunda/camunda#58193, open). Everything else of that line passes, so its profile
-   * excludes this tag instead of letting three known timeouts hide whatever else might break.
-   * Remove the tag and the exclusion in the 'line-8.10' profile once Camunda ships the fix.
+   * The tag which takes a test out of the preview line. It belongs on a test which waits for a
+   * {@code creating} or a {@code canceling} task-listener job, and on no other test. The REST
+   * gateway of the 8.10 alpha drops the whole activate-jobs batch when it meets a job of those
+   * two events: the engine writes the user task action into the job headers only where the
+   * command carried one, creation and cancelation carry none, and the gateway's response mapper
+   * demands the action anyway and throws a NullPointerException. That is camunda/camunda#58193.
+   * <p>
+   * The other listener events are untouched. An {@code assigning} job triggered by an assign
+   * command, an {@code updating} job and a {@code completing} job carry the action, and their
+   * workers get them on the alpha in the usual milliseconds, so a test of those events stays on
+   * the preview line like every other test.
+   * <p>
+   * The three tests here carrying the tag all wait for a {@code creating} job. Everything else of
+   * that line passes, so its profile excludes the tag instead of letting known timeouts hide
+   * whatever else might break.
+   * <p>
+   * The issue was closed on 2026-09-01 and 8.10.0-alpha5 was published on 2026-08-31, so that
+   * alpha is older than the fix. When the pin moves to a newer alpha, measure rather than assume:
+   * deploy a user task with a {@code creating} listener, start an instance and see whether the
+   * job arrives. Once one does, the tag and the exclusion in the 'line-8.10' profile go together.
    */
   private static final String USER_TASK_LISTENER_JOBS = "user-task-listener-jobs";
 

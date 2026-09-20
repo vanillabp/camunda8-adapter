@@ -101,13 +101,25 @@ public class Camunda8WorkflowLifecycleTest {
   private static final long QUERY_TIMEOUT_MS = 240_000;
 
   /**
-   * The two tests carrying this tag wait for a notification of a user-task LISTENER job, and on
-   * the preview line such jobs never reach their worker: the REST gateway of
-   * camunda/camunda:8.10.0-alpha4 throws a NullPointerException while converting a TASK_LISTENER
-   * job and drops the whole activate-jobs batch (camunda/camunda#58193, open). Everything else of
-   * that line passes here, so its profile excludes this tag rather than letting two known timeouts
-   * hide whatever else might break. The Spring Boot suite carries the same tag for the same reason.
-   * Remove the tag and the exclusion in the 'line-8.10' profile once Camunda ships the fix.
+   * The tag which keeps a test off the preview line. Put it on a test which waits for a
+   * {@code creating} or a {@code canceling} task-listener job. Nothing else earns it.
+   * <p>
+   * Those two events are the ones the 8.10 alpha cannot hand out. Their jobs carry no user task
+   * action in the headers, because the engine writes that header only where the command carried
+   * an action, and the REST gateway's response mapper asks for it all the same. It throws a
+   * NullPointerException, and the whole activate-jobs batch goes with it. That is
+   * camunda/camunda#58193. A job of {@code assigning} triggered by an assign command, of
+   * {@code updating} or of {@code completing} does carry the action and arrives in
+   * milliseconds, so a test of one of those runs on the preview line like any other.
+   * <p>
+   * The two tests here wait for the CREATED notification, which rides on a {@code creating} job.
+   * Everything else of that line passes, so the profile drops this tag rather than let known
+   * timeouts hide whatever else might break. The Spring Boot suite tags for the same reason.
+   * <p>
+   * Camunda closed the issue on 2026-09-01 and 8.10.0-alpha5 is from 2026-08-31, so that alpha is
+   * a day too old for the fix. A newer alpha is worth a measurement before it is believed: deploy
+   * a user task with a {@code creating} listener, start an instance and watch for the job. The
+   * day one turns up, the tag and the exclusion in the 'line-8.10' profile both go.
    */
   private static final String USER_TASK_LISTENER_JOBS = "user-task-listener-jobs";
 

@@ -95,18 +95,31 @@ such a change through unread. That is `.github/workflows/client-api-changes.yaml
 `bin/client-api-changes.sh`, and `Camunda8UnknownClientEnumsTest` holds what the adapter does
 with a literal it has never seen.
 
-The preview line is not publishable at the moment. On `8.10.0-alpha4` the user-task listener
-job of the event type `creating` never reaches its worker, so three tests of
-`Camunda8TaskProcessingIT` time out while the other 34 tests of the line pass. The cause is an
-open Camunda bug, `camunda/camunda#58193`: the REST gateway throws a `NullPointerException`
-while converting a `TASK_LISTENER` job and drops the whole activate-jobs batch.
+The preview line is not publishable at the moment. The REST gateway of `8.10.0-alpha5` drops a
+whole activate-jobs batch when it meets a task-listener job whose event carries no user task
+action in its headers, and the two events without one are `creating` and `canceling`. Every
+Camunda-managed user task this adapter deploys carries a `creating` listener, so on that alpha
+the application never hears that the task exists. The bug is `camunda/camunda#58193`: the engine
+writes the action header only where the command carried an action, creation and cancelation
+carry none, and the gateway's response mapper demands one anyway and throws a
+`NullPointerException`, which loses the whole batch and not just the one job.
 
-Those three tests are excluded on that line, by the tag `user-task-listener-jobs` in the
-`line-8.10` profile, and nowhere else. Leaving them in kept the line red as a whole, and a line
-which is always red says nothing about the day something else breaks in it. What the exclusion
-costs is written into both places: the tag in `Camunda8TaskProcessingIT` and the profile in the
-root POM name the bug and say to remove them together once Camunda ships the fix. Until then the
-preview line stays unpublishable for the same reason as before, tests or no tests.
+The gap is that narrow. An `assigning` job triggered by an assign command, an `updating` job and
+a `completing` job carry the action, and they reach their worker on the alpha as fast as on the
+GA lines. Camunda closed the issue on 2026-09-01 and `8.10.0-alpha5` is from 2026-08-31, so that
+alpha is a day too old for the fix. Whether a newer one carries it is a question for the day the
+pin moves, and the cheapest answer is a measurement: deploy a user task with a `creating`
+listener, start an instance and see whether the job arrives.
+
+The tests which wait for such a job are excluded on that line, by the tag
+`user-task-listener-jobs` in the `line-8.10` profile, and nowhere else. The tag says exactly
+that and nothing wider: a test which waits for a `creating` or a `canceling` listener job. A test
+of a listener on another event runs on the preview line like every other test. Leaving the
+waiting tests in kept the line red as a whole, and a line which is always red says nothing about
+the day something else breaks in it. What the exclusion costs is written where the tag is
+declared and where the profile excludes it, and both say to remove the two together once a
+cluster of this line hands out a `creating` job. Until then the preview line stays unpublishable
+for the same reason as before, tests or no tests.
 
 Snapshots have no suffix yet. Until the first release they are `2.0.0-SNAPSHOT` of the
 current GA line, which is what a build without a profile produces.
