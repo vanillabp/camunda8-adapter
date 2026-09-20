@@ -158,7 +158,7 @@ jobs:
       broken: "${{ steps.read.outputs.broken }}"
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: line-result-*
           merge-multiple: true
