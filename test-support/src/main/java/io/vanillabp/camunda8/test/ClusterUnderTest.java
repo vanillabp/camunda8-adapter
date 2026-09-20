@@ -116,7 +116,11 @@ public final class ClusterUnderTest {
 
     return newCluster(logName)
         // an unprotected API keeps an authentication provider out of a test which is about
-        // something else
+        // something else. It unprotects REST and nothing else: gRPC is left WITHOUT an
+        // identity here, so an activation over that transport answers with an empty list
+        // and a command over it is refused with PERMISSION_DENIED. A test about gRPC takes
+        // withAuthentication() instead, which is what Camunda8GrpcTransportIT does - that
+        // gap cost somebody an evening on an empty job queue once
         .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
         .waitingFor(
             Wait

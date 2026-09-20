@@ -11,6 +11,7 @@ import io.camunda.zeebe.model.bpmn.instance.BaseElement;
 import io.camunda.zeebe.model.bpmn.instance.Process;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListenerEventType;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListeners;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListenerEventType;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListeners;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 
@@ -120,6 +121,35 @@ public final class Camunda8Listeners {
           .formatted(bpmnProcessId, elementId, kind.described(), event, taskDefinition);
 
     }
+
+  }
+
+  /**
+   * Whether this is a task listener on <code>updating</code> - the one event which fires on
+   * the empty update this adapter probes a user task with.
+   * <p>
+   * The probe changes no attribute at all and the listener fires anyway, measured on 8.9 and
+   * on 8.10. So an element carrying such a listener is only probed where a worker of this
+   * application answers its job; anywhere else the probe would hold the task in
+   * <code>UPDATING</code> for fifteen seconds. See decision 38 in the repository's
+   * DECISIONS.md.
+   * <p>
+   * BOTH spellings count. The enum of the model API carries the old <code>update</code> next
+   * to today's <code>updating</code>, on every line this adapter builds against, and a model
+   * written with the old one produces the same job. Reading only the new spelling would send
+   * the probe at exactly the element this question exists to keep it away from.
+   *
+   * @param listener The listener as the model carries it
+   * @return Whether it is a task listener on <code>updating</code>
+   */
+  public static boolean isAnUpdatingTaskListener(
+      final ModelledListener listener) {
+
+    if (listener.kind() != Kind.TASK_LISTENER) {
+      return false;
+    }
+    return ZeebeTaskListenerEventType.updating.name().equals(listener.event()) || ZeebeTaskListenerEventType.update
+        .name().equals(listener.event());
 
   }
 

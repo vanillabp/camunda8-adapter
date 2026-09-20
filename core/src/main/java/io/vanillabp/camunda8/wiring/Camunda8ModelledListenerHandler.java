@@ -9,6 +9,7 @@ import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.camunda.client.api.worker.JobHandler;
 import io.vanillabp.camunda8.client.Camunda8Drain;
+import io.vanillabp.camunda8.client.Camunda8UserTaskProbe;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.adapter.spi.workflowtask.MultiInstanceValue;
@@ -184,6 +185,26 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
             bpmnProcessId,
             () -> howToFailThisJob(job, bpmnProcessId, taskDefinition),
             () -> {
+              if (Camunda8UserTaskProbe.isOurOwnProbe(job)) {
+                // this job exists because THIS adapter asked whether the user task is
+                // still open, and the empty update fires a modelled 'updating' listener
+                // although it changes nothing. Closing it here is what keeps the question
+                // from reaching the application: a method serving an 'updating' listener
+                // is written for an update somebody made, and a probe made none.
+                // Returning early also skips the check of the other open tasks below,
+                // which matters more than it looks: that check is what sent this probe,
+                // and running it again from the job it caused would probe the next user
+                // task, fire the next listener and start over
+                log
+                    .debug(
+                        "Camunda8[{}]: the {} job '{}' (type '{}') was fired by this adapter's own "
+                            + "user-task probe - completing it without calling the application",
+                        adapterId,
+                        KIND,
+                        job.getKey(),
+                        job.getType());
+                return Map.of();
+              }
               final var aggregateIdName = workflowTaskInvoker
                   .resolveWorkflowAggregateIdName(workflowModuleId, bpmnProcessId);
               final var aggregateId = job.getVariablesAsMap().get(aggregateIdName);

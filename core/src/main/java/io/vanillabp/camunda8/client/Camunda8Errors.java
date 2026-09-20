@@ -258,6 +258,35 @@ public final class Camunda8Errors {
   }
 
   /**
+   * Whether the cluster refused an update ABOUT A USER TASK IT HOLDS - the answer which
+   * makes the empty update of {@link Camunda8UserTaskProbe} a question about whether the
+   * task is still open.
+   * <p>
+   * A user task the cluster no longer has is answered with {@link #notFound(Throwable)}.
+   * HTTP <code>409</code> (on gRPC <code>FAILED_PRECONDITION</code>) is something else: it
+   * was measured for a task standing in state <code>UPDATING</code> and for a task whose
+   * modelled <code>updating</code> listener denied the update, and in both cases the task
+   * was there to be refused about.
+   * <p>
+   * HTTP <code>400</code> is deliberately NOT in here, although the endpoint documents it.
+   * No run has ever produced one for a user task, so what it would mean is a guess, and a
+   * guess in this direction turns an open task into a canceled one.
+   *
+   * @param throwable What the update of one user task threw
+   * @return Whether the cluster refused it about a user task it holds
+   */
+  public static boolean refusedAboutAUserTaskItHolds(
+      final Throwable throwable) {
+
+    return !notFound(throwable) && anyCauseAnswers(
+        throwable,
+        cause -> ((cause instanceof ClientHttpException http) && (http
+            .code() == 409)) || ((cause instanceof ClientStatusException status) && (status
+                .getStatusCode() == Status.Code.FAILED_PRECONDITION)));
+
+  }
+
+  /**
    * Whether the cluster REFUSED a query-API request, which is what a cluster does that
    * cannot be searched at all.
    * <p>

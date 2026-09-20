@@ -245,6 +245,16 @@ promises that the adapter went first.
 counters, which carry the adapter id and the job type, and the stream timeout. A worker an
 extension opens with it looks to an operator like a worker of the adapter.
 
+`Camunda8Workers.leaseTheActivations` opens a worker with a lease on every activation, where the
+application asked for one and the release line has one. It is not part of `applyWorkerOptions`,
+because a worker which can ever serve an asynchronous task must not lease: such a task is
+completed in phase two by a dispatcher holding no token, and only the caller knows what its
+worker serves. An extension whose workers hold their job from the activation to the answer calls
+it for the same reason it calls `applyWorkerOptions`. Two components leasing the same job type
+with different opinions is the starvation the ratchet describes, and the decision belongs to the
+adapter's configuration rather than to the extension. Why there is no default, and what a lease
+costs a rollback, is decision 36 in the repository's `DECISIONS.md`.
+
 `Camunda8ListenerJobs.completeOrFail` runs a listener job the way this adapter runs its own -
 registered with the drain, both answers through `Camunda8CommandRetry`, and a failure during a
 shutdown left to its lock rather than reported. That last part is what a listener modelled with

@@ -121,6 +121,8 @@ public class Camunda8ClientProducer {
     keys.workflowVisibilityTimeout().ifPresent(configuration::setWorkflowVisibilityTimeout);
     keys.endedWorkflowVisibilityTimeout().ifPresent(configuration::setEndedWorkflowVisibilityTimeout);
     keys.jobLease().ifPresent(configuration::setJobLease);
+    keys.aggregateIdAsBusinessId().ifPresent(configuration::setAggregateIdAsBusinessId);
+    keys.probeOpenUserTasks().ifPresent(configuration::setProbeOpenUserTasks);
     keys.workerThreads().ifPresent(configuration::setWorkerThreads);
     keys.workerThreadsBound().ifPresent(configuration::setWorkerThreadsBound);
     keys.maxJobsActive().ifPresent(configuration::setMaxJobsActive);

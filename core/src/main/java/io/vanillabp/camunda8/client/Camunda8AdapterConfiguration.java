@@ -81,6 +81,14 @@ import lombok.Setter;
  *       whose cluster has a lease, accepted and ignored on the others) - whether the jobs
  *       this adapter holds from the activation to the answer are leased, see
  *       {@link #validateJobLease(String, Consumer)}</li>
+ *   <li>{@code .aggregate-id-as-business-id} (optional, default {@code false}) - whether a
+ *       workflow this adapter starts carries the workflow aggregate's id as its business
+ *       id, which is there to be read and nothing else, see
+ *       {@link #validateAggregateIdAsBusinessId(String, Consumer)}</li>
+ *   <li>{@code .probe-open-user-tasks} (optional, default {@code false}) - whether the
+ *       check which looks at the other open tasks of a workflow asks the cluster about
+ *       each Camunda-managed user task of a running instance, see
+ *       {@link #validateProbeOpenUserTasks(String, Consumer)}</li>
  * </ul>
  * All fields are optional at binding time so applications which configure a Camunda 8
  * adapter but never actually use it still boot; {@link #validate(String)} enforces the
@@ -572,6 +580,46 @@ public class Camunda8AdapterConfiguration {
    * at once. Default: 3 seconds.
    */
   private Duration endedWorkflowVisibilityTimeout;
+
+  /**
+   * Whether a workflow this adapter starts carries the workflow aggregate's id as its
+   * business id. Default: <code>false</code>.
+   * <p>
+   * It is there for the eye and for nothing else. Operate shows the business id where a
+   * reader looks first, and the aggregate's id is otherwise a process variable two clicks
+   * further away. VanillaBP never reads the value back, on any line, so switching the key
+   * on changes nothing about how a workflow is found again.
+   * <p>
+   * Off by default because the field is the application's until this adapter takes it: the
+   * assignment is single and irreversible, and an installation which wants its own value
+   * there would lose it without ever being asked. See
+   * {@link #validateAggregateIdAsBusinessId(String, Consumer)} and decision 37 in the
+   * repository's DECISIONS.md.
+   */
+  private boolean aggregateIdAsBusinessId = false;
+
+  /**
+   * Whether the per task probe of {@code Camunda8OpenTaskProbe} is sent for the
+   * Camunda-managed user tasks this adapter serves. Default: <code>false</code>.
+   * <p>
+   * The check which looks at the other open tasks of a workflow asks the ENGINE about the
+   * process instance first, and a <code>404</code> there answers every record of that
+   * workflow at once. What this key adds is the second question, one round trip per user
+   * task of an instance which is still running: whether THAT task is still open. It is off
+   * by default because the answer costs a command per task and fires a modelled
+   * <code>updating</code> listener while it is at it, and most applications learn about a
+   * canceled user task from its cancel listener anyway. See decision 38 in the repository's
+   * DECISIONS.md.
+   */
+  private boolean probeOpenUserTasks = false;
+
+  /**
+   * How many characters a business id may carry. The cluster refuses a longer one with
+   * "The provided businessId exceeds the limit of 256 characters", and a refusal at the
+   * START of a workflow is the worst place for one, so a longer aggregate id is cut rather
+   * than rejected - nothing reads the value back.
+   */
+  public static final int BUSINESS_ID_LIMIT = 256;
 
   /**
    * Whether NO connection property is set at all - the "not configured yet" state:
@@ -1104,19 +1152,129 @@ public class Camunda8AdapterConfiguration {
    * Everywhere else it sends the process instance modification, which is refused just as
    * cleanly and needs neither 8.10 nor a business id.
    * <p>
-   * The answer is <code>false</code> until this adapter writes that id, which is a story of
-   * its own. It is asked here rather than assumed, because the trap the assignment carries
-   * is exactly the case the answer rules out: an instance which carries NO business id
-   * accepts the assignment, and then a probe has written a value into a field the
-   * application may have wanted for something else, which cannot be undone. So the
-   * assignment is sent only where this adapter put its own id there in the first place. Why
-   * is decision 35 in the repository's DECISIONS.md.
+   * The answer follows {@code aggregate-id-as-business-id} and the release line. It is asked
+   * rather than assumed, because of the trap the assignment carries: an instance which
+   * carries NO business id ACCEPTS it, and then a probe has written into a field the
+   * application may have wanted for something else, which cannot be undone. Where this
+   * adapter writes the field itself there is nothing to take away, so the assignment is sent
+   * there and nowhere else.
+   * <p>
+   * One case is left and it is deliberate. A workflow started BEFORE the key was switched on
+   * carries no business id, so the first probe of it is accepted and writes one. What it
+   * writes is the value the start would have written, which is why it is accepted rather
+   * than guarded against. Why is decision 35 in the repository's DECISIONS.md.
    *
    * @return Whether the business id of an instance is this adapter's to write
    */
   public boolean writesTheBusinessIdOfAnInstance() {
 
-    return false;
+    return Camunda8BusinessId.supportedByThisLine() && aggregateIdAsBusinessId;
+
+  }
+
+  /**
+   * The business id this adapter writes for a workflow aggregate, ready to be sent.
+   * <p>
+   * One place answers it, because two commands carry the value: the create of a workflow
+   * writes it, and on the 8.10 line the probe of {@link Camunda8InstanceProbe} sends the
+   * same value as a question. A probe carrying a different string than the create wrote
+   * would be accepted where it should be refused, which turns a question into a change.
+   *
+   * @param workflowAggregateId The workflow aggregate's id
+   * @return What to send, or <code>null</code> where this adapter writes none
+   */
+  public String businessIdOf(
+      final Object workflowAggregateId) {
+
+    if (!writesTheBusinessIdOfAnInstance() || (workflowAggregateId == null)) {
+      return null;
+    }
+    final var id = String.valueOf(workflowAggregateId);
+    if (id.isBlank()) {
+      // the cluster answers "No businessId provided" for an empty string and for a single
+      // blank, and an aggregate with an id like that has bigger problems than its display
+      return null;
+    }
+    return id.length() > BUSINESS_ID_LIMIT
+        ? id.substring(0, BUSINESS_ID_LIMIT)
+        : id;
+
+  }
+
+  /**
+   * Says what {@code probe-open-user-tasks} does here - AT STARTUP, because it is the key
+   * which costs a command per open user task and fires a listener somebody modelled. A key
+   * with that much behind it says so once rather than being found in a cluster's logs.
+   *
+   * @param adapterId The adapter id
+   * @param logger Sink for that line
+   */
+  public void validateProbeOpenUserTasks(
+      final String adapterId,
+      final Consumer<String> logger) {
+
+    if (!probeOpenUserTasks) {
+      return;
+    }
+    logger.accept(
+        """
+            Camunda 8 adapter '%s' asks the cluster about every open USER TASK of a workflow whenever \
+            it looks at the other tasks of that workflow ('%s: true'). That is one command per user \
+            task of an instance which is still running, and the command fires a modelled 'updating' \
+            task listener although it changes nothing. A listener this application serves is closed by \
+            the adapter without any method of yours running; an element whose 'updating' listener \
+            belongs to a worker this application does not run is not asked about at all, because there \
+            the probe would leave the task in state UPDATING for fifteen seconds. Switch the key off \
+            where no user task of yours can be completed past VanillaBP - the 'canceling' listener \
+            reports those anyway."""
+            .formatted(adapterId, propertyKey(adapterId, "probe-open-user-tasks")));
+
+  }
+
+  /**
+   * Says what {@code aggregate-id-as-business-id} does here - AT STARTUP, once per adapter
+   * id, because everything it decides afterwards happens per started workflow and a line
+   * per workflow would drown the log.
+   * <p>
+   * Two things are worth saying and neither is a warning. On a release line without the
+   * field the key is accepted and nothing is sent, which is what lets one configuration
+   * serve an application on either line. And where the key is on, an aggregate id longer
+   * than the cluster's limit is CUT, which is a thing to know before somebody reads a
+   * truncated id in Operate and looks for a defect.
+   *
+   * @param adapterId The adapter id
+   * @param logger Sink for that line
+   */
+  public void validateAggregateIdAsBusinessId(
+      final String adapterId,
+      final Consumer<String> logger) {
+
+    if (!aggregateIdAsBusinessId) {
+      return;
+    }
+    if (!Camunda8BusinessId.supportedByThisLine()) {
+      logger.accept(
+          """
+              Camunda 8 adapter '%s' has '%s: true', which has no effect on this release line: an \
+              instance of its cluster carries no business id, and a create command carrying one is \
+              refused with 400. The key is read on the 8.9 line and later, and it is kept here so one \
+              configuration can serve an application on either line."""
+              .formatted(adapterId, propertyKey(adapterId, "aggregate-id-as-business-id")));
+      return;
+    }
+    logger.accept(
+        """
+            Camunda 8 adapter '%s' writes the workflow aggregate's id as the business id of every \
+            workflow it starts ('%s: true'). It is there to be READ, in Operate and in the searches of \
+            this cluster: VanillaBP finds a workflow by the process variable carrying that id and never \
+            by this field. An aggregate id longer than %d characters is cut to that length, because the \
+            cluster refuses a longer one and the start of a workflow is the worst place for a refusal. \
+            A workflow somebody else started keeps the business id it has - this adapter writes the \
+            field at creation and never assigns one afterwards."""
+            .formatted(
+                adapterId,
+                propertyKey(adapterId, "aggregate-id-as-business-id"),
+                BUSINESS_ID_LIMIT));
 
   }
 

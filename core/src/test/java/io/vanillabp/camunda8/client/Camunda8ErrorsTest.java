@@ -498,6 +498,26 @@ public class Camunda8ErrorsTest {
   }
 
   @Test
+  @DisplayName("A user task refused about is told from one the cluster no longer has")
+  public void aRefusalAboutAUserTaskIsToldFromAGoneOne() {
+
+    // measured for a task standing in UPDATING and for a task whose 'updating' listener
+    // denied the update, and in both cases the task was there to be refused about
+    assertTrue(Camunda8Errors.refusedAboutAUserTaskItHolds(problem(409, "CONFLICT")));
+    assertTrue(
+        Camunda8Errors
+            .refusedAboutAUserTaskItHolds(new ClientStatusException(Status.FAILED_PRECONDITION, null)));
+    // 404 is the answer which means the task is gone, and it stays that answer
+    assertFalse(Camunda8Errors.refusedAboutAUserTaskItHolds(problem(404)));
+    assertFalse(
+        Camunda8Errors.refusedAboutAUserTaskItHolds(new ClientStatusException(Status.NOT_FOUND, null)));
+    // 400 is in the endpoint's list and no run has ever produced one for a user task, so
+    // what it would mean is a guess - and a guess here cancels an open task
+    assertFalse(Camunda8Errors.refusedAboutAUserTaskItHolds(problem(400, "INVALID_ARGUMENT")));
+
+  }
+
+  @Test
   @DisplayName("A command refused about an instance the engine holds is told from one it forgot")
   public void aRefusalAboutAnInstanceIsToldFromAForgottenKey() {
 

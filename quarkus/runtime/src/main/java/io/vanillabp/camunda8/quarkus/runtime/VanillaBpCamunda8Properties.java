@@ -732,6 +732,24 @@ public interface VanillaBpCamunda8Properties {
     Optional<Camunda8AdapterConfiguration.JobLease> jobLease();
 
     /**
+     * Whether a workflow this adapter starts carries the workflow aggregate's id as its
+     * business id, which is there to be read in Operate and nowhere read back by
+     * VanillaBP. Default: <code>false</code>.
+     *
+     * @return Whether the aggregate's id is written there
+     */
+    Optional<Boolean> aggregateIdAsBusinessId();
+
+    /**
+     * Whether the check which looks at the other open tasks of a workflow asks the cluster
+     * about each Camunda-managed user task of an instance which is still running. Default:
+     * <code>false</code>.
+     *
+     * @return Whether a user task gets a probe of its own
+     */
+    Optional<Boolean> probeOpenUserTasks();
+
+    /**
      * How this adapter instance runs what it delivers: a positive number of platform
      * threads, or the literal <code>virtual</code>. Default: four platform threads.
      *

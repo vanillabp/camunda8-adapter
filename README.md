@@ -121,6 +121,17 @@ declared and where the profile excludes it, and both say to remove the two toget
 cluster of this line hands out a `creating` job. Until then the preview line stays unpublishable
 for the same reason as before, tests or no tests.
 
+The gap is REST's. The same cluster hands the same jobs out over gRPC: measured on 2026-09-19
+against `8.10.0-alpha5`, a `creating` job arrived in 342 ms and a `canceling` job in 107 ms on
+that transport, while REST dropped both batches. So an installation which wants the preview
+line before the fix reaches an alpha could set `prefer-rest-over-grpc: false` and get its user
+tasks back. We do not recommend it and the default stays REST. The switch is per adapter
+instance and not per job type, so the whole adapter would speak gRPC, and no other traffic of
+this repository has ever been tested that way - the one thing that is now proven is that a job
+arrives at all, which is `Camunda8GrpcTransportIT`. Weigh an untested transport against
+somebody else's regression which is already fixed upstream, and the waiting is usually the
+cheaper of the two.
+
 Snapshots have no suffix yet. Until the first release they are `2.0.0-SNAPSHOT` of the
 current GA line, which is what a build without a profile produces.
 
@@ -1871,11 +1882,40 @@ operation carries no idempotency key at all, because the values are read when th
 dispatched and a retry is therefore harmless.
 
 Independent of the annotations the workflow aggregate's ID is written as a process variable
-named after the aggregate's ID attribute, always as a string, because Camunda 8 has no
-business key. A cluster stores variables as JSON and compares against that JSON, so an
+named after the aggregate's ID attribute, and always as a string. That variable is what
+VanillaBP reads a workflow back by, the business id below is not, and a string is what a
+variable search of this cluster can compare without knowing the aggregate's id type. A cluster stores variables as JSON and compares against that JSON, so an
 instance search has to quote the value (`{"name":"id","value":"\"4711\""}`); an unquoted
 filter finds nothing, which is what `Camunda8VariableFilters` encodes for the process
 service and the viewer alike (`Camunda8VariableFilterTest`).
+
+From 8.9 on an instance also carries a BUSINESS ID, and this adapter can write the
+aggregate's id there as well:
+
+```yaml
+vanillabp:
+  adapters:
+    c8:
+      aggregate-id-as-business-id: true    # default: false
+```
+
+It is there for the eye. Operate shows the business id where a reader looks first, and the
+variable above is two clicks further away, so a person tracing a workflow finds it faster.
+VanillaBP itself never reads the field back, on any line: the variable stays what finds a
+workflow again, and a search by business id is served by the same index as every other
+search, so it is no shortcut either.
+
+Off by default, because the field is the application's until this adapter takes it. Assigning
+one is single and irreversible, so an installation which wants its own value there would lose
+it without being asked. The id is written by the create command and never assigned
+afterwards, which means a workflow somebody else started keeps whatever business id it has.
+An aggregate id longer than the cluster's limit of 256 characters is CUT to that length
+rather than refused: nothing reads it back, and the start of a workflow is the worst place
+for a refusal. The boot says that once per adapter id, and nothing is written per started
+workflow. On the 8.8 line the field does not exist at all - the cluster answers a create
+carrying one with `400` - so the key is accepted there, nothing is sent, and the boot says
+so. Why, and what the probe of the election does with the same value, is decision 37 in the
+repository's `DECISIONS.md`.
 
 What travels with a command is `Camunda8SharedValuesTest`. The two scopes a push writes are
 `Camunda8AggregateChangedIT` and its Quarkus twins
@@ -2257,9 +2297,10 @@ searches FOR, which is what a reader sizing their cluster needs:
    viewer. Finding a workflow by its aggregate's ID is a search
    (`newProcessInstanceSearchRequest` filtered by the aggregate-ID variable).
 2. `aggregateChanged`, which needs the process-instance respectively element-instance key
-   `SetVariables` addresses. Camunda 8 has neither a business key nor a command addressing a
-   workflow by one of its variables, so a search is the only way from the aggregate's ID to
-   those keys.
+   `SetVariables` addresses. Camunda 8 has no command addressing a workflow by one of its
+   variables, so a search is the only way from the aggregate's ID to those keys. The business
+   id of 8.9 and later is no way round it: searching by it reads the same index as every
+   other search.
 3. Version boundaries naming a `zeebe:versionTag`, since resolving a tag to a version is a
    definition search. Boundaries made of numbers need no search: a job carries its version.
 4. The viewer's instance-related answers: which version a running workflow uses, the element
@@ -2314,7 +2355,7 @@ the search.** Measured on 8.10.0-alpha5, 8.9.19 and 8.8.37: the create answered 
 the engine said "this instance exists" after 16 to 19 ms, and the search found it after 167
 to 1324 ms. The key arrives with the election, and the question is a command the engine
 REFUSES for an instance it holds, so the cluster writes no state: a process instance
-modification naming the element id `vanillabp-existence-probe`, which no model has, or, once
+modification naming the element id `vanillabp-existence-probe`, which no model has, or, where
 this adapter writes the business id of an instance and the line has the command, the business
 id assignment. Which of the two and why is decision 35 in the repository's DECISIONS.md.
 
@@ -2402,36 +2443,71 @@ DECISIONS.md.
 
 What arrives instead is the same event one moment later. Whenever the cluster hands this
 application a job of a workflow, the core looks at the tasks it still believes are open in
-that workflow, this adapter asks the cluster about each of them with the `UpdateJobTimeout`
-it sends anyway, and the ones the cluster no longer has are reported as
-`@TaskEvent CANCELED`. Three handlers do it: the job handler after the outcome went back to
-the cluster, and the two listener handlers after their notification. The end of a workflow
-carries the same derivation and is left out here, because the two would report the same
-cancelation twice.
+that workflow, this adapter asks the cluster about them, and the ones the cluster no longer
+has are reported as `@TaskEvent CANCELED`. Three handlers do it: the job handler after the
+outcome went back to the cluster, and the two listener handlers after their notification. The
+end of a workflow carries the same derivation and is left out here, because the two would
+report the same cancelation twice.
+
+The cheapest question comes first: does the ENGINE still hold the process instance those
+records belong to? That is one command, one to two milliseconds, and it is refused rather
+than carried out, exactly the way the election's probe asks it (see decision 35 in the
+repository's DECISIONS.md). A `404` there answers the whole list at once, because an instance
+the engine has forgotten holds nothing open. It is asked once per workflow and not once per
+record, so twenty records of one workflow cost one of these.
+
+Then the tasks, and what kind of task decides how. A job is asked about with the
+`UpdateJobTimeout` this adapter sends anyway: `NOT_FOUND` is gone, a 400 saying nobody has
+the job activated right now means the task is alive, and anything else is "cannot say".
 
 A user task is not a job, and the RECORD says which of the two is being asked about. The
 record of a user-task delivery keeps the user-task key, and a job command answers `NOT_FOUND`
 for such a key as long as the task is open, which read as gone would cancel a task the
 cluster is holding out to somebody. What tells the two apart is the task definition the
 record carries, which the core passes with the question and which this adapter knows its own
-user tasks by: the external form reference their listener job type is built from. So a record
-naming such a user task is answered with "cannot say", and every other record of the same
-process is answered with what the cluster said. The user tasks themselves need no probe
-anyway: VanillaBP writes a `canceling` task listener next to every user task it manages, and
-the cluster delivers `CANCELED` for it straight from there.
+user tasks by: the external form reference their listener job type is built from. The user
+tasks need no question of their own in the everyday case: VanillaBP writes a `canceling` task
+listener next to every user task it manages, and the cluster delivers `CANCELED` for it
+straight from there. So a record naming such a user task is answered with "cannot say" by
+default, and every other record of the same process is answered with what the cluster said.
 
-Two cases keep the wider answer. A BPMN process this application declares without deploying a
-model has no model to read, so every task definition of it may be a user task. And a record
-which kept no task definition at all names nothing to look up, so it counts as one wherever
-its process holds such a user task.
+`vanillabp.adapters.<id>.probe-open-user-tasks: true` adds the question for whoever wants
+task-level certainty anyway. It sends an empty `UpdateUserTask` per user task of an instance
+which is still running: `204` in 5 to 21 milliseconds for a task which is open, `404` for a
+task which is gone, `409` for a task standing in `UPDATING` or one whose listener denied the
+update, which both mean it is there. A `400` says nothing, because no run has ever produced
+one for a user task. It is off by default because it costs a command per task and because it
+fires a modelled `updating` listener while it is at it, measured on 8.9 and on 8.10, although
+the update changes nothing at all.
+
+That listener job is this adapter's own doing, so this adapter closes it. A job whose
+`getUserTask().getAction()` is `io.vanillabp:probe` and whose `getChangedAttributes()` is
+empty is completed at once and no `@WorkflowTask` method runs for it. Both halves, not one:
+the action is a string anybody may send, and an empty change list alone is not ours either.
+See decision 38 in the repository's `DECISIONS.md`.
+
+An `updating` listener of a job type this application does NOT serve is the case the mark
+cannot reach. A foreign worker or a connector behind such a listener sees a real update, and
+a job nobody answers holds the task in `UPDATING` for fifteen seconds while assign and
+complete are refused with `409`. The adapter knows at deployment which listeners it serves,
+so THIS check sends no probe for such an element and answers "cannot say" for its tasks,
+whatever the key says. `awarenessOfUserTask` and the pre-commit check of `completeUserTask`
+still ask about the one task their caller named, because a caller holding that task is the
+party entitled to wait for the answer.
+
+Three cases keep the wider answer for the same reason. A BPMN process this application
+declares without deploying a model has no model to read, so a record of it may name either
+kind of task. A record which kept no task definition at all names nothing to look up. And the
+foreign `updating` listener above. In all three nothing is sent and nothing is derived.
 
 What is left of the deviation is the timing. A workflow which walks into a timer or a message
 wait after the boundary event produces no job, so nothing wakes the application up and the
 cancellation waits for whatever comes next: the next job of that workflow, the end of the
 workflow, or the next operation which names the task.
 
-`Camunda8OpenTaskProbeTest` holds the three answers and the user task next to a service task
-of the same process,
+`Camunda8OpenTaskProbeTest` holds the answers and the order the two commands are sent in,
+`Camunda8UserTaskProbeTest` the mark, `Camunda8OpenTaskProbeWiringTest` what the deployment
+tells the probe a record names, and
 `Camunda8OtherOpenTasksIT` lets a boundary event take one of two open tasks away against a
 cluster. The application switches the whole check off with
 `vanillabp.delivery.check-open-tasks-on-delivery`.

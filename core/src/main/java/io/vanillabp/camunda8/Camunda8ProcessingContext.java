@@ -259,6 +259,35 @@ public class Camunda8ProcessingContext {
   }
 
   /**
+   * Per PLAIN BPMN process id of this module, the elements carrying an
+   * <code>updating</code> task listener which no method of this application serves.
+   * <p>
+   * Such an element is never probed. The empty update which asks whether a user task is
+   * still open fires that listener, a worker this application does not run does not answer
+   * it, and the task then stands in <code>UPDATING</code> for fifteen seconds while assign
+   * and complete are refused. The check says "cannot say" for those tasks instead, see
+   * decision 38 in the repository's DECISIONS.md.
+   */
+  @Getter
+  private final Map<String, Set<String>> elementsWithAnUpdatingListenerNobodyServes = new LinkedHashMap<>();
+
+  /**
+   * Remembers one element whose <code>updating</code> task listener nothing here serves.
+   *
+   * @param bpmnProcessId The PLAIN BPMN process id
+   * @param elementId The BPMN element carrying the listener
+   */
+  public void recordUpdatingListenerNobodyServes(
+      final String bpmnProcessId,
+      final String elementId) {
+
+    elementsWithAnUpdatingListenerNobodyServes
+        .computeIfAbsent(bpmnProcessId, process -> new LinkedHashSet<>())
+        .add(elementId);
+
+  }
+
+  /**
    * Which multi-instance elements enclose an element of this adapter's models, collected
    * while the models are wired.
    * <p>

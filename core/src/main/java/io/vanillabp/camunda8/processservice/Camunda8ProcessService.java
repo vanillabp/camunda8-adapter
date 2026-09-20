@@ -19,11 +19,13 @@ import io.camunda.client.api.search.response.Job;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.camunda.zeebe.model.bpmn.instance.Message;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
+import io.vanillabp.camunda8.client.Camunda8BusinessId;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.client.Camunda8InstanceProbe;
 import io.vanillabp.camunda8.client.Camunda8QueryApi;
 import io.vanillabp.camunda8.client.Camunda8RefusedStart;
+import io.vanillabp.camunda8.client.Camunda8UserTaskProbe;
 import io.vanillabp.camunda8.deployment.Camunda8ModelsTheClusterHolds;
 import io.vanillabp.camunda8.wiring.Camunda8ConfiguredTenant;
 import io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver;
@@ -705,7 +707,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     clientFactory
         .getClient()
         .newUpdateUserTaskCommand(taskKeyOf(taskId))
-        .action("io.vanillabp:probe")
+        .action(Camunda8UserTaskProbe.ACTION)
         .send()
         .join();
 
@@ -1057,9 +1059,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
               clientFactory.getClient(),
               processInstanceKey,
               Camunda8TaskWiring.RESERVED_PROBE_ELEMENT_ID,
-              clientFactory.getConfiguration().writesTheBusinessIdOfAnInstance()
-                  ? String.valueOf(workflowAggregateId)
-                  : null);
+              clientFactory
+                  .getConfiguration()
+                  .businessIdOf(workflowAggregateId));
       return true;
     } catch (final Exception e) {
       if (Camunda8Errors.notFound(e)) {
@@ -2204,6 +2206,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     if (tenantId != null && !tenantId.isBlank()) {
       command = command.tenantId(tenantId);
     }
+    // the aggregate's id in the field Operate shows first, where the application asked for
+    // that. Nothing of VanillaBP reads it back, and on a line without the field nothing is
+    // sent, see decision 37 in the repository's DECISIONS.md
+    command = Camunda8BusinessId
+        .writeTo(
+            command,
+            clientFactory
+                .getConfiguration()
+                .businessIdOf(workflowAggregateId));
 
     final ProcessInstanceEvent event;
     try {
