@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" child.project.url.inherit.append.path="false" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>org.camunda.community.vanillabp</groupId>
@@ -8,6 +8,18 @@
   <packaging>pom</packaging>
   <name>VanillaBP Camunda 8 adapter</name>
   <description>VanillaBP adapter for Camunda 8 (Version 2)</description>
+  <!-- Every artifact of this repository points at the repository itself. A child
+       inherits this address and the three <scm> ones with its own name appended unless it
+       is told not to, so the artifact 'camunda8-adapter' advertised
+       'https://github.com/vanillabp/camunda8-adapter/camunda8-adapter', which is no page.
+       Nobody saw it while the values lived in the parent alone, and since the flatten mode
+       is 'oss' every published POM carries its own resolved copy and prints it. The four
+       'inherit.append.path' attributes turn the appending off, one on <project> above for
+       the URL and three on <scm> below. The repository root is the same value for every
+       artifact, it survives a module being renamed or moved, and a reader who wants the
+       module is one click away from it. Camunda8PublishedPomTest reads the addresses back
+       out of the published POM. -->
+  <url>https://github.com/vanillabp/camunda8-adapter</url>
 
   <licenses>
     <license>
@@ -38,6 +50,15 @@
     <module>test-coverage-report</module>
   </modules>
 
+  <scm child.scm.connection.inherit.append.path="false" child.scm.developerConnection.inherit.append.path="false" child.scm.url.inherit.append.path="false">
+    <connection>scm:git:https://github.com/vanillabp/camunda8-adapter.git</connection>
+    <developerConnection>scm:git:https://github.com/vanillabp/camunda8-adapter.git</developerConnection>
+    <url>https://github.com/vanillabp/camunda8-adapter/tree/main</url>
+  </scm>
+
+  <!-- Where we deploy, which is our business and not a user's: the flatten plugin takes
+       this out of the published POM, see below. It stays here because the deploy needs
+       it. -->
   <distributionManagement>
     <snapshotRepository>
       <id>github</id>
@@ -353,6 +374,13 @@
         <configuration>
           <updatePomFile>true</updatePomFile>
           <flattenMode>oss</flattenMode>
+          <pomElements>
+            <!-- Where we deploy is nothing a user of the artifact can act on, and on an
+                 artifact which later sits on Maven Central it would point a reader at our
+                 GitHub Packages registry. The source POM keeps it, because the deploy
+                 reads it from there. -->
+            <distributionManagement>remove</distributionManagement>
+          </pomElements>
         </configuration>
         <executions>
           <execution>

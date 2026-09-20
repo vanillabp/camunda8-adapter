@@ -1538,3 +1538,29 @@ it against the client of the line being built. What an application really resolv
 the README, together with the one case where an application has to pin protobuf itself.
 
 See [Release lines](./README.md#release-lines).
+
+### 40. An artifact says where it comes from and nothing about where we deploy
+
+Decision 39 made the published POM a complete and self-contained description of what an
+application resolves. What that POM says about the artifact itself was written for the eye of a
+maintainer and was never read by anyone else, because it only existed once, in the parent. Since
+every published POM carries its own resolved copy, every artifact prints it.
+
+**Every artifact names the repository root.** Maven hands a child the parent's `url` and all three
+`scm` elements with the child's own name appended, so each artifact advertised an address like
+`https://github.com/vanillabp/camunda8-adapter/camunda8-adapter`, which is no page. The four
+`inherit.append.path` attributes in the parent POM turn the appending off. The same address for
+every artifact is deliberate: a link into a module directory breaks when the module is renamed or
+moved, and a reader who wants the module finds it from the root in one click.
+
+**`distributionManagement` leaves the published POM.** Where we deploy is nothing a user of the
+artifact can use or act on, and on an artifact sitting on Maven Central it would point a reader at
+our GitHub Packages registry. It stays in the source POM, because the deploy reads it from there,
+and the flatten plugin removes it from what we publish.
+
+**A deploy is every module or none.** The POMs of one build belong together, and a `-pl` deploy
+publishes a mixture in which each half is valid on its own. Nobody notices until a user resolves
+the artifact. The publish workflow deploys the whole reactor, so `CONTRIBUTING.md` says the rule
+for the case a person runs the deploy by hand.
+
+`Camunda8PublishedPomTest` reads the addresses and the absence back out of the published POM.

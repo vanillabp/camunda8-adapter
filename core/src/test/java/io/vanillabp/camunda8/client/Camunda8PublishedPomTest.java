@@ -29,12 +29,19 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * The published POM is read from disk rather than derived, because deriving it would repeat
  * the reasoning the mistake was made in. It is the file the flatten plugin writes during
  * 'process-resources' and Maven installs and deploys in place of the source POM.
+ * <p>
+ * The same file also says where the artifact comes from and, until September 2026, where we
+ * deploy it. An address which opens and a silence about our registry are cheap to check here,
+ * and both are the kind of thing which comes back without anybody noticing.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8PublishedPomTest {
 
   /** The POM which is installed and deployed for this module, written by the flatten plugin. */
   private static final Path PUBLISHED_POM = Path.of(".flattened-pom.xml");
+
+  /** The one address every artifact of this repository names, whichever module it is. */
+  private static final String REPOSITORY = "https://github.com/vanillabp/camunda8-adapter";
 
   @Test
   @DisplayName("the published POM asks for the client of this release line")
@@ -80,6 +87,83 @@ public class Camunda8PublishedPomTest {
 
   }
 
+  @Test
+  @DisplayName("the published POM names an address which opens")
+  public void thePublishedPomNamesAnAddressWhichOpens() throws Exception {
+
+    final var published = read();
+    final var wrong = new StringBuilder();
+    appendWhereWrong(wrong, "url", childText(published, "url"), REPOSITORY);
+    final var scm = child(published, "scm");
+    appendWhereWrong(wrong, "scm/connection", childText(scm, "connection"), "scm:git:"
+        + REPOSITORY
+        + ".git");
+    appendWhereWrong(
+        wrong,
+        "scm/developerConnection",
+        childText(scm, "developerConnection"),
+        "scm:git:"
+            + REPOSITORY
+            + ".git");
+    appendWhereWrong(wrong, "scm/url", childText(scm, "url"), REPOSITORY
+        + "/tree/main");
+
+    if (wrong.isEmpty()) {
+      return;
+    }
+    throw new AssertionError(
+        ("The POM published for release line %s names addresses we did not write:%s"
+            + "%nMaven appends the artifact's name to the URL and to all three scm elements of a "
+            + "child unless the four 'inherit.append.path' attributes in the parent pom.xml say "
+            + "otherwise, and an address with a module name in it is no page. Every artifact of "
+            + "this repository names the repository root.")
+            .formatted(Camunda8ReleaseLine.id(), wrong));
+
+  }
+
+  @Test
+  @DisplayName("the published POM says nothing about where we deploy")
+  public void thePublishedPomSaysNothingAboutWhereWeDeploy() throws Exception {
+
+    final var published = read();
+    if (published.getElementsByTagName("distributionManagement").getLength() == 0) {
+      return;
+    }
+    throw new AssertionError(
+        ("The POM published for release line %s carries a distributionManagement. It names the "
+            + "registry WE deploy to, which a user of the artifact can neither use nor act on, and "
+            + "on an artifact sitting on Maven Central it points a reader at GitHub Packages. The "
+            + "source pom.xml keeps it because the deploy reads it from there, and the flatten "
+            + "plugin takes it out of what we publish: check <pomElements> in the parent pom.xml.")
+            .formatted(Camunda8ReleaseLine.id()));
+
+  }
+
+  /**
+   * Notes one address which is not the one we wrote, so a run reports all of them at once
+   * rather than the first.
+   */
+  private static void appendWhereWrong(
+      final StringBuilder wrong,
+      final String element,
+      final String actual,
+      final String expected) {
+
+    if (expected.equals(actual)) {
+      return;
+    }
+    wrong
+        .append("%n  <%s> is %s, expected %s".formatted(element, actual == null
+            ? "absent"
+            : "'"
+                + actual
+                + "'",
+            "'"
+                + expected
+                + "'"));
+
+  }
+
   private Element read() throws Exception {
 
     if (!Files.isRegularFile(PUBLISHED_POM)) {
@@ -119,6 +203,43 @@ public class Camunda8PublishedPomTest {
             + "module stopped using the Camunda client, and then the release lines are about "
             + "something else than they were, or this test reads the wrong file.")
             .formatted(Camunda8ReleaseLine.id(), groupId, artifactId));
+
+  }
+
+  /**
+   * A direct child element of the given one, or {@code null} where it has none of that
+   * name. Direct, because a POM repeats names: 'url' stands under the project, under every
+   * license and inside 'scm'.
+   */
+  private static Element child(
+      final Element parent,
+      final String tagName) {
+
+    if (parent == null) {
+      return null;
+    }
+    final var children = parent.getChildNodes();
+    for (var i = 0; i < children.getLength(); i++) {
+      final var node = children.item(i);
+      if ((node instanceof final Element element) && tagName.equals(element.getTagName())) {
+        return element;
+      }
+    }
+    return null;
+
+  }
+
+  /** The text of a direct child element, or {@code null} where there is none. */
+  private static String childText(
+      final Element parent,
+      final String tagName) {
+
+    final var element = child(parent, tagName);
+    return element == null
+        ? null
+        : element
+            .getTextContent()
+            .trim();
 
   }
 

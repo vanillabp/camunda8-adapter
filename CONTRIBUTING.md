@@ -44,6 +44,13 @@ which quietly turns a full run into a small one. Give them the Docker they need 
 green build as an answer about behaviour. `test-coverage-report/coverage-gate` is the last module of
 the reactor and fails below 85 percent of covered instructions per platform, while the rule is 90.
 
+Deploying is all modules or none. The POMs a build publishes belong together, and `-pl` would
+send half of them: a parent in its new form next to module POMs from before it, each half valid
+on its own, so nobody sees it until a user resolves the artifact and Maven says "The POM is
+invalid, transitive dependencies (if any) will not be available". A local build repairs that, a
+registry keeps it. The publish workflow always deploys the whole reactor, so this is a mistake
+only a person can make.
+
 ## What a POM hands an application
 
 A tool which only translates our source belongs in scope `provided`, and the scope stands at the
