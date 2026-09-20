@@ -20,6 +20,11 @@
 
   <dependencies>
     <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
       <groupId>org.camunda.community.vanillabp</groupId>
       <artifactId>camunda8-adapter-spring-boot</artifactId>
       <version>${project.version}</version>
