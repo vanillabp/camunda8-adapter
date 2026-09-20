@@ -1,16 +1,11 @@
 package io.vanillabp.camunda8.client;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-
-import javax.xml.parsers.DocumentBuilderFactory;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.w3c.dom.Element;
 
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
+import io.vanillabp.camunda8.test.PublishedPom;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -24,115 +19,58 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * the line profile sets, the published POM was a copy of the source POM, and a consumer
  * activates none of our profiles, so every line asked for the client of the current GA
  * line. That is what the flatten plugin's 'oss' mode ended, and this test is what keeps it
- * ended.
+ * ended. See decision 39 in the repository's DECISIONS.md.
  * <p>
- * The published POM is read from disk rather than derived, because deriving it would repeat
- * the reasoning the mistake was made in. It is the file the flatten plugin writes during
- * 'process-resources' and Maven installs and deploys in place of the source POM.
+ * The same POM also says where the artifact comes from, and it used to say where we deploy
+ * it. Decision 40 is about that half.
+ * <p>
+ * What the assertions know sits in {@link PublishedPom} of the module 'test-support',
+ * because the Business Cockpit's Camunda 8 adapter is built the same way and checks the same
+ * promise. This test is the caller which names the artifact and the versions expected of it.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8PublishedPomTest {
 
-  /** The POM which is installed and deployed for this module, written by the flatten plugin. */
-  private static final Path PUBLISHED_POM = Path.of(".flattened-pom.xml");
+  /** The one address every artifact of this repository names, whichever module it is. */
+  private static final String REPOSITORY = "https://github.com/vanillabp/camunda8-adapter";
 
   @Test
   @DisplayName("the published POM asks for the client of this release line")
-  public void thePublishedPomAsksForTheClientOfThisLine() throws Exception {
+  public void thePublishedPomAsksForTheClientOfThisLine() {
 
-    final var published = read();
-    final var client = dependencyVersion(published, "io.camunda", "camunda-client-java");
-
-    if (Camunda8ReleaseLine.clientVersion().equals(client)) {
-      return;
-    }
-    throw new AssertionError(
-        ("The POM published for release line %s asks for Camunda client %s, but this build was "
-            + "compiled against %s. An application takes its client from that POM, so it would run "
-            + "code of one client against another one. A version reaches the published POM only "
-            + "when the flatten plugin resolves it: check that <flattenMode> in the parent pom.xml "
-            + "is still 'oss'.")
-            .formatted(
-                Camunda8ReleaseLine.id(),
-                client == null
-                    ? "no version at all"
-                    : client,
-                Camunda8ReleaseLine.clientVersion()));
+    PublishedPom
+        .ofTheModuleUnderTest()
+        .asksFor("io.camunda", "camunda-client-java", Camunda8ReleaseLine.clientVersion());
 
   }
 
   @Test
   @DisplayName("the published POM leaves an application nothing of ours to inherit")
-  public void thePublishedPomHasNoParentAndNoDependencyManagement() throws Exception {
+  public void thePublishedPomHasNoParentAndNoDependencyManagement() {
 
-    final var published = read();
-    if ((published.getElementsByTagName("parent").getLength() == 0) && (published
-        .getElementsByTagName("dependencyManagement").getLength() == 0)) {
-      return;
-    }
-    throw new AssertionError(
-        "The POM published for release line %s carries a parent or a dependencyManagement. "
-            .formatted(Camunda8ReleaseLine.id())
-            + "Both are read when an application resolves its dependencies, and both would hand it "
-            + "versions this repository picked for the newest line, the protobuf pin of the parent "
-            + "pom.xml above all. What one line needs is no business of another line's users, see "
-            + "decision 39 in the repository's DECISIONS.md.");
+    PublishedPom
+        .ofTheModuleUnderTest()
+        .handsAnApplicationNothingToInherit();
 
   }
 
-  private Element read() throws Exception {
+  @Test
+  @DisplayName("the published POM names an address which opens")
+  public void thePublishedPomNamesAnAddressWhichOpens() {
 
-    if (!Files.isRegularFile(PUBLISHED_POM)) {
-      throw new AssertionError(
-          "The published POM is missing at '%s'. The flatten plugin writes it in the phase "
-              .formatted(PUBLISHED_POM.toAbsolutePath())
-              + "'process-resources', so this test cannot run from an IDE which skipped it.");
-    }
-    final var factory = DocumentBuilderFactory.newInstance();
-    factory.setNamespaceAware(false);
-    return factory
-        .newDocumentBuilder()
-        .parse(PUBLISHED_POM.toFile())
-        .getDocumentElement();
+    PublishedPom
+        .ofTheModuleUnderTest()
+        .pointsAt(REPOSITORY);
 
   }
 
-  /**
-   * The version the published POM declares for one dependency, or {@code null} where it
-   * declares the dependency without one.
-   */
-  private String dependencyVersion(
-      final Element project,
-      final String groupId,
-      final String artifactId) {
+  @Test
+  @DisplayName("the published POM says nothing about where we deploy")
+  public void thePublishedPomSaysNothingAboutWhereWeDeploy() {
 
-    final var dependencies = project.getElementsByTagName("dependency");
-    for (var i = 0; i < dependencies.getLength(); i++) {
-      final var dependency = (Element) dependencies.item(i);
-      if (groupId.equals(textOf(dependency, "groupId")) && artifactId
-          .equals(textOf(dependency, "artifactId"))) {
-        return textOf(dependency, "version");
-      }
-    }
-    throw new AssertionError(
-        ("The POM published for release line %s declares no dependency on %s:%s. Either this "
-            + "module stopped using the Camunda client, and then the release lines are about "
-            + "something else than they were, or this test reads the wrong file.")
-            .formatted(Camunda8ReleaseLine.id(), groupId, artifactId));
-
-  }
-
-  private static String textOf(
-      final Element dependency,
-      final String tagName) {
-
-    final var elements = dependency.getElementsByTagName(tagName);
-    return elements.getLength() == 0
-        ? null
-        : elements
-            .item(0)
-            .getTextContent()
-            .trim();
+    PublishedPom
+        .ofTheModuleUnderTest()
+        .saysNothingAboutWhereWeDeploy();
 
   }
 

@@ -265,6 +265,14 @@ An application on the preview line therefore pins `protobuf-java` to the gencode
 line's client itself, in its own `dependencyManagement`, above the platform BOM. Nothing this
 repository publishes can do it for it. The GA lines need nothing.
 
+What the adapter can do is say it. `Camunda8ProtobufRuntime` loads one generated class while
+the adapter validates its configuration, which is a class load the client does a moment later
+anyway, and turns protobuf's refusal into a message naming the version to pin and where to put
+it. So the application fails at startup like every other configuration problem here, instead of
+starting and dying on its first command with an `ExceptionInInitializerError` somewhere in
+business code. Anything else which goes wrong while loading that class is no answer about
+protobuf and keeps nobody from booting.
+
 ### The tripwire
 
 This scheme was chosen because the per-line delta is small. If the delta grows past a
