@@ -837,7 +837,7 @@ public class C8E2eIntrospectionController {
    * The user tasks of a workflow, as the query API reports them.
    *
    * @param processInstanceKey The instance
-   * @return One user-task key per entry
+   * @return One line per user task: its key, the element it sits on and its state
    */
   @GET
   @Path("/cluster/user-tasks/{processInstanceKey}")
@@ -851,7 +851,44 @@ public class C8E2eIntrospectionController {
         .join()
         .items()
         .stream()
-        .map(task -> String.valueOf(task.getUserTaskKey()))
+        // the state carries the answer to a lost creation: a task standing in CREATING is
+        // one whose creating listener job was never answered, and the cluster holds the
+        // transition open until somebody does
+        .map(task -> "%s at '%s' in state %s"
+            .formatted(task.getUserTaskKey(), task.getElementId(), task.getState()))
+        .toList();
+
+  }
+
+  /**
+   * What the cluster is waiting for an operator about, for one workflow.
+   * <p>
+   * A listener job failed with no retry left IS an incident, so this is where a lost
+   * notification ends when the delivery reached a handler and the handler said no.
+   *
+   * @param processInstanceKey The instance
+   * @return One line per incident: its type, the element it sits on, the job it belongs
+   *         to and the message an operator reads
+   */
+  @GET
+  @Path("/cluster/incidents/{processInstanceKey}")
+  public List<String> clusterIncidents(
+      @PathParam("processInstanceKey") final Long processInstanceKey) {
+
+    return client()
+        .newIncidentSearchRequest()
+        .filter(filter -> filter.processInstanceKey(processInstanceKey))
+        .send()
+        .join()
+        .items()
+        .stream()
+        .map(incident -> "%s at '%s' (job %s) in state %s: '%s'"
+            .formatted(
+                incident.getErrorType(),
+                incident.getElementId(),
+                incident.getJobKey(),
+                incident.getState(),
+                inOneLine(incident.getErrorMessage())))
         .toList();
 
   }
@@ -863,9 +900,18 @@ public class C8E2eIntrospectionController {
    * offered to the worker, or was it offered and lost on the way? The state answers it.
    * A job the cluster still holds as <code>CREATED</code> was activatable and nobody
    * fetched it, while a job which is gone reached somebody.
+   * <p>
+   * A job in state <code>FAILED</code> raises a second question: who sent the fail
+   * command. The retries and the error message answer it. This adapter writes a warning
+   * first and sends a one-line message, with zero retries for a user-task listener,
+   * which it writes into the model with <code>retries="0"</code>. The Camunda client
+   * fails a job whose handler threw with one retry LESS than the job had and a whole
+   * stack trace as the message, and it fails a job its worker had no slot for with the
+   * retries unchanged and a message saying so.
    *
    * @param processInstanceKey The instance
-   * @return One line per job: its key, type, state, remaining retries and lock deadline
+   * @return One line per job: its key, type, state, remaining retries, lock deadline,
+   *         worker and error message
    */
   @GET
   @Path("/cluster/jobs/{processInstanceKey}")
@@ -879,14 +925,46 @@ public class C8E2eIntrospectionController {
         .join()
         .items()
         .stream()
-        .map(job -> "%d %s %s, %d retries left, locked until %s"
+        .map(job -> "%d %s %s, %d retries left, locked until %s, worker '%s', error message '%s'"
             .formatted(
                 job.getJobKey(),
                 job.getType(),
                 job.getState(),
                 job.getRetries(),
-                job.getDeadline()))
+                job.getDeadline(),
+                job.getWorker(),
+                inOneLine(job.getErrorMessage())))
         .toList();
+
+  }
+
+  /**
+   * How many characters of an error message an introspection line carries. The error
+   * message of a job the Camunda client failed is a whole stack trace, and all of it
+   * would bury the rest of the line.
+   */
+  private static final int ERROR_MESSAGE_EXCERPT = 400;
+
+  /**
+   * An error message of the cluster as one line: the line breaks of a stack trace
+   * collapsed into spaces, and only the beginning of a long one.
+   *
+   * @param message What the cluster reported, possibly <code>null</code>
+   * @return One line, never <code>null</code>
+   */
+  private static String inOneLine(
+      final String message) {
+
+    if ((message == null) || message.isBlank()) {
+      return "none";
+    }
+    final var oneLine = message.replaceAll("\\s+", " ").trim();
+    return oneLine.length() <= ERROR_MESSAGE_EXCERPT
+        ? oneLine
+        : oneLine.substring(0, ERROR_MESSAGE_EXCERPT)
+            + "... (cut after "
+            + ERROR_MESSAGE_EXCERPT
+            + " characters)";
 
   }
 
