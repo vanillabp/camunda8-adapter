@@ -1249,10 +1249,11 @@ The trap that resolves is the one the assignment carries. It is a question only 
 which ALREADY carries a business id. An instance without one ACCEPTS it, and then a probe has
 written a value into a field the application may have wanted for something else, which cannot be
 undone. So the assignment is sent only where this adapter put its own id there in the first place,
-which `Camunda8AdapterConfiguration.writesTheBusinessIdOfAnInstance` answers. Until the story which
-writes that id lands, the answer is `false` and every line sends the modification. What the
-assignment carries is the workflow aggregate's id, so the one case where it is accepted writes the
-value this adapter would have written anyway.
+which `Camunda8AdapterConfiguration.writesTheBusinessIdOfAnInstance` answers. That is the key
+`aggregate-id-as-business-id` of decision 37, off by default, so an installation which does not
+ask for it sends the modification on every line. What the assignment carries is the workflow
+aggregate's id, so the one case where it is accepted writes the value this adapter would have
+written anyway.
 
 `Camunda8InstanceProbe` is per release line, because `newAssignProcessInstanceBusinessIdCommand`
 does not exist in the client of 8.8 or 8.9.
@@ -1386,3 +1387,121 @@ what the retry makes of them; and `Camunda8JobLeaseIT` runs the whole case again
 the 8.10 line - a handler slower than its lock, the older answer refused, the newer one accepted.
 
 See [The lease of an activation](./README.md#the-lease-of-an-activation).
+
+### 37. The workflow aggregate's id may be the business id of an instance, and only for the eye
+
+Camunda 7 keeps the workflow aggregate's id in its business key. Camunda 8 grew a field of the
+same kind with 8.9 and this adapter wrote none until now, so a person looking at a workflow in
+Operate had to open the variables to see which aggregate it belongs to.
+
+`vanillabp.adapters.<id>.aggregate-id-as-business-id` writes it there. Stephan decided on
+2026-09-19 that it is a key and not a default, and that VanillaBP never reads the value back. The
+reason for writing it is the human one, the reason for leaving it off is that the field belongs
+to the application until this adapter takes it: an assignment is single and irreversible, so an
+installation which wants its own value there would lose it without ever having been asked.
+
+Three things follow from "only for the eye", and each of them makes the feature smaller.
+
+**Nothing reads it.** The aggregate's id travels as a process variable at every start, and every
+part of this adapter keeps reading that variable. A search by business id is served by the same
+index as every other search, so the field is no shortcut to a workflow either.
+
+**A value which does not fit is CUT.** The cluster refuses a business id longer than 256
+characters with "The provided businessId exceeds the limit of 256 characters", and the aggregate
+ids of VanillaBP are bounded nowhere. Refusing at the start of a workflow is the worst place for
+a refusal, and nothing depends on reading the value back, so a longer id is truncated. The boot
+says so once per adapter id, and nothing is written per started workflow: a line per start would
+drown the log and say the same thing every time. An empty id and a single blank are refused by
+the cluster as well ("No businessId provided"), so nothing is sent for one.
+
+**It is written at creation and never assigned.** A workflow somebody else started therefore
+keeps whatever business id it has, which is the whole of "an application which sets its own keeps
+it" - there is no moment at which this adapter would overwrite one.
+
+**The 8.8 line has no such field.** Its cluster answers a create carrying one with `400`,
+"Request property [businessId] cannot be parsed". There the key is accepted and nothing is sent,
+with one line at the boot saying so, because an application moves between lines with one
+configuration.
+
+**What the election's probe does with it.** Decision 35 left one branch waiting for this entry.
+Where this key is on and the line has the assignment command, the probe of
+`Camunda8ProcessService#awarenessOfWorkflow` sends the business id assignment, which an instance
+already carrying this adapter's id refuses with `409` - a question which writes nothing.
+Everywhere else it sends the process instance modification as before. Both commands carry the
+value `Camunda8AdapterConfiguration.businessIdOf` answers, truncation included, because a probe
+carrying a different string than the create wrote would be accepted where it has to be refused.
+
+**What this refines in decision 1.** That entry opens with "Camunda 8 has no business key", which
+was true of every cluster this adapter had met when it was written. It is the reason the
+aggregate's id travels as a process variable, and that reason stands: the variable is still what
+VanillaBP reads a workflow back by, on every line. What changes is only that the cluster now has
+a second place to put the same value in, for a person to read.
+
+`Camunda8BusinessId` is per release line, because `CreateProcessInstanceCommandStep3.businessId`
+does not exist in the client of 8.8. `Camunda8BusinessIdTest` is per line too and holds what
+reaches the command and what the boot says there, and `Camunda8InstanceProbeTest` of the 8.10
+line holds which of the two commands the probe sends once the key is on.
+
+See [Sharing the workflow aggregate](./README.md#sharing-the-workflow-aggregate).
+
+### 38. A probe of a user task is recognised by its action AND its empty change list
+
+The check which looks at the other open tasks of a workflow can ask about a Camunda-managed user
+task, and the command which asks is an `UpdateUserTask` carrying nothing but an audit action. It
+answers from the partition instead of the index: `204` in 5 to 21 milliseconds for a task which
+is open and `404` for one which is gone, measured on 8.9.19 and on 8.10.0-alpha5.
+
+The command has a side effect nobody would guess from the documentation of the endpoint. It fires
+a modelled `updating` task listener although it changes no attribute at all, measured on both
+lines. A listener job which is not answered holds the task in state `UPDATING` for fifteen
+seconds, and assigning or completing it is refused with `409` for as long as that lasts. So a
+probe which nobody serves takes a task out of service.
+
+**The mark.** `ActivatedJob.getUserTask().getAction()` hands the action of the probe back, and
+`getChangedAttributes()` is empty because the update changed nothing. Both methods exist on
+8.8.37, 8.9.19 and 8.10.0-alpha5. A job carrying both is completed at once by
+`Camunda8ModelledListenerHandler` and no `@WorkflowTask` method runs for it.
+
+Both halves and not one, which is the decision. The action is a string anybody may send, so
+reading it alone would let a foreign update silence a listener the application wrote. An empty
+change list alone is not this adapter's doing either: another party may send an empty update for
+reasons of its own. Together they are specific enough, and a false positive costs a listener
+notification rather than a task.
+
+**What the mark cannot reach.** An `updating` listener whose job type this application does not
+serve belongs to a foreign worker or to a connector runtime, and to that worker the probe is a
+real update. The adapter knows at deployment which listeners it serves, so the check of the other
+open tasks sends no probe for such an element at all and answers "cannot say" for its tasks. That
+is one rule and not a second mechanism beside the mark.
+
+The rule holds for that CHECK and not for the two probes which ask about a task somebody named.
+`awarenessOfUserTask` and the pre-commit check of `completeUserTask` send the same empty update
+for the one task a caller is about to work on, and they send it whatever listener sits there: a
+caller which is holding that task in its hands is the party which may wait fifteen seconds for an
+answer, and refusing to ask would leave it with no answer at all. The check above is the opposite
+case, an uninvited question about a task nobody asked about, and that is the one which has to
+stay out of the way. Both spellings of the event count, `update` as well as `updating`: the model
+API carries the old name next to the new one on every line, and a model written with it produces
+the same job.
+
+**A probe of a served listener waits for this application.** The empty update does not return
+until the listener job it fired has been answered, and the worker which answers it is one of
+this application's own. So the probe holds the execution slot it runs on while a second slot
+serves the job. An application with a single slot (`worker-threads: 1`) and a served `updating`
+listener therefore waits out the cluster's fifteen seconds and reads `504`, which is "cannot
+say" - no task is harmed and nothing is derived, but the wake-up is slow. The everyday four
+slots have room for both.
+
+**Off by default.** `vanillabp.adapters.<id>.probe-open-user-tasks` is `false`, because the
+question costs one command per user task and because most applications never need it: VanillaBP
+writes a `canceling` task listener next to every user task it manages, and the cluster delivers
+`CANCELED` straight from there. What runs without the key is the question one level up - the
+engine is asked whether it still holds the process instance, once per workflow, and a `404` there
+answers every record of that workflow at once.
+
+**What an answer means.** `404` is gone. `409` is a task the cluster has: it was measured for a
+task standing in `UPDATING` and for a task whose `updating` listener denied the update. `400` is
+"cannot say", because no run has ever produced one for a user task and a guess in that direction
+would cancel an open task. Everything else is "cannot say" as well.
+
+See [Task cancellation arrives at the next wake-up](./README.md#task-cancellation-arrives-at-the-next-wake-up-not-at-the-moment).

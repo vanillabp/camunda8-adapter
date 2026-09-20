@@ -10,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
@@ -19,11 +20,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.response.UserTaskProperties;
 import io.camunda.client.api.search.enums.JobKind;
 import io.camunda.client.api.search.enums.ListenerEventType;
 import io.camunda.client.api.worker.JobClient;
 import io.vanillabp.camunda8.TestScoping;
 import io.vanillabp.camunda8.client.Camunda8Drain;
+import io.vanillabp.camunda8.client.Camunda8UserTaskProbe;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
 import io.vanillabp.integration.adapter.spi.workflowtask.TaskInvocationContext;
 import io.vanillabp.integration.adapter.spi.workflowtask.WorkflowTaskInvoker;
@@ -279,6 +282,62 @@ public class Camunda8ModelledListenerHandlerTest {
         message.getValue().contains("The listener job"),
         () -> "the message names what kind of job it was: "
             + message.getValue());
+
+  }
+
+  @Test
+  @DisplayName("The listener job of this adapter's own probe is closed without the application")
+  public void ourOwnProbeIsClosedWithoutTheApplication() {
+
+    final var invoker = mock(WorkflowTaskInvoker.class);
+
+    Camunda8ModelledListenerHandler
+        .builder()
+        .adapterId("c8")
+        .workflowModuleId("test-module")
+        .workflowTaskInvoker(invoker)
+        .drain(drain)
+        .build()
+        .handle(jobClient, aProbesOwnListenerJob("watchTheUpdate", Camunda8UserTaskProbe.ACTION, List.of()));
+
+    verify(invoker, never()).invokeWorkflowTask(anyString(), anyString(), any());
+    verify(jobClient).newCompleteCommand(4711L);
+    verify(jobClient.newCompleteCommand(4711L), never()).variables(any(Map.class));
+
+  }
+
+  @Test
+  @DisplayName("Half the mark is not the mark, and the method runs")
+  public void halfTheMarkIsNotTheMark() {
+
+    // the action alone is a string anybody may send, and an empty change list alone is not
+    // this adapter's doing either - so neither half on its own keeps a method from running
+    deliver(
+        aProbesOwnListenerJob("watchTheUpdate", "somebody-elses-action", List.of()),
+        NameClashAvoidance.NONE,
+        WorkflowTaskOutcome.completed());
+    deliver(
+        aProbesOwnListenerJob("watchTheUpdate", Camunda8UserTaskProbe.ACTION, List.of("dueDate")),
+        NameClashAvoidance.NONE,
+        WorkflowTaskOutcome.completed());
+
+  }
+
+  /**
+   * An <code>updating</code> task-listener job as the cluster hands it over, carrying the
+   * action and the changed attributes the mark is read from.
+   */
+  private static ActivatedJob aProbesOwnListenerJob(
+      final String jobType,
+      final String action,
+      final List<String> changedAttributes) {
+
+    final var job = listenerJob(jobType, JobKind.TASK_LISTENER, ListenerEventType.UPDATING);
+    final var userTask = mock(UserTaskProperties.class);
+    when(userTask.getAction()).thenReturn(action);
+    when(userTask.getChangedAttributes()).thenReturn(changedAttributes);
+    when(job.getUserTask()).thenReturn(userTask);
+    return job;
 
   }
 

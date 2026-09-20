@@ -81,6 +81,12 @@ public final class Camunda8StartupValidation {
     configuration.validateRequestTimeout(adapterId, warnLogger);
     // and neither is how long the start waits for a cluster which is not answering yet
     configuration.validateStartupWait(adapterId);
+    // and what the business id of a started workflow carries is said once here, because
+    // everything it decides afterwards happens per started workflow
+    configuration.validateAggregateIdAsBusinessId(adapterId, infoLogger);
+    // and so is the question this adapter asks about every open user task, for the same
+    // reason: what it decides happens per wake-up and nowhere a reader would look
+    configuration.validateProbeOpenUserTasks(adapterId, infoLogger);
 
     if (configuration.isAbsent()) {
       warnLogger.accept(

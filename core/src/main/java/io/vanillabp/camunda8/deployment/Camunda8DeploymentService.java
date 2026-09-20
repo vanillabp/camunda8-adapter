@@ -15,7 +15,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BiPredicate;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -1759,14 +1759,21 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       // cluster that is not a model the adapter may simply pass over: the cluster creates the job
       // and the workflow stands at it. So it is named, and the boot goes on - a worker somebody
       // else runs may well be the answer, and only the application knows
-      sayWhichListenerJobsNothingServes(
-          workflowModuleId,
-          process.getId(),
-          filename,
-          listeners
-              .stream()
-              .filter(listener -> !served.contains(listener))
-              .toList());
+      final var unserved = listeners
+          .stream()
+          .filter(listener -> !served.contains(listener))
+          .toList();
+      sayWhichListenerJobsNothingServes(workflowModuleId, process.getId(), filename, unserved);
+      // an element whose 'updating' listener nothing here answers is an element the open
+      // task check must not probe: the empty update fires that listener and nobody closes
+      // its job. The id is the plain one already - this runs while the file is prepared,
+      // before name-clash avoidance rewrites anything
+      unserved
+          .stream()
+          .filter(Camunda8Listeners::isAnUpdatingTaskListener)
+          .forEach(
+              listener -> context
+                  .recordUpdatingListenerNobodyServes(process.getId(), listener.elementId()));
       if (served.isEmpty()) {
         continue;
       }
@@ -2923,8 +2930,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // question. It knows whether this module carries Camunda-managed user tasks, because a
     // user-task key handed to a job command answers NOT_FOUND and would read as gone
     final var openTaskProbe = new Camunda8OpenTaskProbe(
-        adapterId, workflowModuleId, workflowTaskInvoker, clientFactory::getClient, asyncTaskLockRenewal, theRecordMayNameACamundaManagedUserTask(
-            workflowModuleId, bpmsProcessingContext));
+        adapterId, workflowModuleId, workflowTaskInvoker, clientFactory::getClient, clientFactory::getConfiguration, asyncTaskLockRenewal, theKindOfTaskARecordNames(
+            workflowModuleId, bpmsProcessingContext), bpmnProcessId -> clientFactory
+                .getDeployedProcesses()
+                .carriesTheReservedProbeElement(workflowModuleId, bpmnProcessId));
     bpmsProcessingContext
         .getTasksToWire()
         .forEach(task -> {
@@ -3357,9 +3366,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
-   * Which records of this workflow module may name a Camunda-managed user task, asked by
-   * the PLAIN BPMN process id and the PLAIN task definition. It decides how the probe of
-   * {@link Camunda8OpenTaskProbe} reads "the cluster has no job of that key".
+   * What a delivery record of this workflow module names, asked by the PLAIN BPMN process
+   * id and the PLAIN task definition. It decides which command the probe of
+   * {@link Camunda8OpenTaskProbe} can ask with, and how it reads a
+   * <code>NOT_FOUND</code>.
    * <p>
    * The record of a user-task delivery keeps the USER-TASK key, and a job command answers
    * <code>NOT_FOUND</code> for such a key as long as the task is open - which read as gone
@@ -3368,30 +3378,42 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * the records of this adapter keep, so the models of this module say per record which
    * kind of task is being asked about.
    * <p>
-   * Two answers stay wide, because nothing narrows them. A BPMN process this application
-   * declares without deploying a model has no model to read, so every task definition of it
-   * counts. And a record which kept no task definition names nothing to look up, so it
-   * counts wherever its process holds such a user task at all. A wrong "gone" costs more
-   * than a check which says nothing.
+   * Three answers are {@link Camunda8OpenTaskProbe.KindOfTask#CANNOT_TELL}, and each of
+   * them because nothing here narrows it further. A BPMN process this application declares
+   * without deploying a model has no model to read, so a record of it may name either kind.
+   * A record which kept no task definition names nothing to look up, so it counts as the
+   * ambiguous case wherever its process holds a user task at all. And a user task carrying
+   * an <code>updating</code> listener no method of this application serves is a task the
+   * probe would leave standing in <code>UPDATING</code>, so it is not asked about either. A
+   * wrong "gone" costs more than a check which says nothing.
    *
    * @param workflowModuleId The workflow module
    * @param bpmsProcessingContext What the pipeline collected while wiring it
-   * @return Whether a record of that process and task definition may be a user task
+   * @return What a record of that process and task definition names
    */
-  BiPredicate<String, String> theRecordMayNameACamundaManagedUserTask(
+  BiFunction<String, String, Camunda8OpenTaskProbe.KindOfTask> theKindOfTaskARecordNames(
       final String workflowModuleId,
       final Camunda8ProcessingContext bpmsProcessingContext) {
 
+    final var unserved = bpmsProcessingContext.getElementsWithAnUpdatingListenerNobodyServes();
     final var userTaskDefinitions = new HashMap<String, Set<String>>();
+    final var userTasksNobodyMayProbe = new HashMap<String, Set<String>>();
     bpmsProcessingContext
         .getUserTasksToWire()
         .forEach(userTask -> {
           final var plainBpmnProcessId = plainProcessId(workflowModuleId, userTask.bpmnProcessId());
+          final var plainTaskDefinition = plainTaskDefinition(
+              workflowModuleId, plainBpmnProcessId, userTask.externalFormReference());
           userTaskDefinitions
               .computeIfAbsent(plainBpmnProcessId, process -> new HashSet<>())
-              .add(
-                  plainTaskDefinition(
-                      workflowModuleId, plainBpmnProcessId, userTask.externalFormReference()));
+              .add(plainTaskDefinition);
+          if (unserved
+              .getOrDefault(plainBpmnProcessId, Set.of())
+              .contains(userTask.activityId())) {
+            userTasksNobodyMayProbe
+                .computeIfAbsent(plainBpmnProcessId, process -> new HashSet<>())
+                .add(plainTaskDefinition);
+          }
         });
     final var processesWithoutAModel = Set
         .copyOf(workflowTaskWiring.taskWiringOfProcessesNobodyDeployed(workflowModuleId).keySet());
@@ -3399,13 +3421,22 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         bpmnProcessId,
         taskDefinition) -> {
       if (processesWithoutAModel.contains(bpmnProcessId)) {
-        return true;
+        return Camunda8OpenTaskProbe.KindOfTask.CANNOT_TELL;
       }
-      final var userTasksOfTheProcess = userTaskDefinitions.get(bpmnProcessId);
-      if (userTasksOfTheProcess == null) {
-        return false;
+      final var userTasksOfTheProcess = userTaskDefinitions.getOrDefault(bpmnProcessId, Set.of());
+      if (taskDefinition == null) {
+        return userTasksOfTheProcess.isEmpty()
+            ? Camunda8OpenTaskProbe.KindOfTask.A_JOB
+            : Camunda8OpenTaskProbe.KindOfTask.CANNOT_TELL;
       }
-      return (taskDefinition == null) || userTasksOfTheProcess.contains(taskDefinition);
+      if (!userTasksOfTheProcess.contains(taskDefinition)) {
+        return Camunda8OpenTaskProbe.KindOfTask.A_JOB;
+      }
+      return userTasksNobodyMayProbe
+          .getOrDefault(bpmnProcessId, Set.of())
+          .contains(taskDefinition)
+              ? Camunda8OpenTaskProbe.KindOfTask.CANNOT_TELL
+              : Camunda8OpenTaskProbe.KindOfTask.A_CAMUNDA_MANAGED_USER_TASK;
     };
 
   }
