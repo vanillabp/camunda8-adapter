@@ -88,15 +88,15 @@ public class Camunda8CancelListenersTest {
   }
 
   @Test
-  @DisplayName("A cancel listener job reports a terminated workflow, named by its instance key")
-  public void aCancelReportsATerminatedWorkflow() {
+  @DisplayName("A cancel listener job reports a canceled workflow, named by its instance key")
+  public void aCancelReportsACanceledWorkflow() {
 
     final var happened = Camunda8WorkflowEndedFixture
         .whatTheHandlerDoesWith(ListenerEventType.CANCEL);
 
     assertEquals(1, happened.reported().size(), "an instance canceled through the API reports its end");
     assertEquals(
-        WorkflowEnd.Kind.TERMINATED,
+        WorkflowEnd.Kind.CANCELED,
         happened.reported().getFirst().getKind(),
         "and it reports it as the cancelation it is");
     assertEquals(
