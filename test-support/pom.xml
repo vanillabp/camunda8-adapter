@@ -10,12 +10,13 @@
 
   <artifactId>camunda8-adapter-test-support</artifactId>
   <name>VanillaBP Camunda 8 adapter - Test support</name>
-  <description>The Camunda 8 cluster an integration test of this adapter, or of an extension of it, runs against.</description>
+  <description>The Camunda 8 cluster an integration test of this adapter, or of an extension of it, runs against, and what the POMs of such an adapter have to promise.</description>
 
   <dependencies>
     <!-- the only one: these classes start containers and write what the containers
          printed. No JUnit, no Camunda client, no VanillaBP - what a test does WITH the
-         cluster belongs to the test -->
+         cluster belongs to the test, and PublishedPom needs nothing but the JDK and an
+         AssertionError -->
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers</artifactId>
@@ -26,7 +27,10 @@
        classpath cannot read another module's test classes, and this module exists because
        four of them were reading a copy of the same two classes instead. It is published
        with the adapter's other artifacts and on the same release line, because the cluster
-       a test needs follows the client the line pins. -->
+       a test needs follows the client the line pins, and so does the promise PublishedPom
+       reads back out of a published POM. Another repository which builds a Camunda 8
+       adapter takes both from here, and a change to them reaches it with the next snapshot
+       of this line. -->
 
   <build>
     <resources>
