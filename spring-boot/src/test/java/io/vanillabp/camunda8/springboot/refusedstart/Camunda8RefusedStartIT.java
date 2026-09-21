@@ -100,11 +100,17 @@ public class Camunda8RefusedStartIT {
    */
   private static final int TOO_BIG_FOR_THE_CLUSTER = 5 * 1024 * 1024;
 
-  private static final String ENTRIES_OF_THE_OUTBOX = "select id from TXNO_OUTBOX";
+  private static final String ENTRIES_OF_THE_OUTBOX = "select ID from VANILLABP_PHASE_TWO_OUTBOX";
 
-  private static final String IS_THE_ENTRY_BLOCKED = "select blocked from TXNO_OUTBOX where id = ?";
+  /**
+   * The store writes a status on an entry it will not repeat again, so this reads that
+   * status instead of a flag of its own.
+   */
+  private static final String STATUS_OF_THE_ENTRY = "select STATUS from VANILLABP_PHASE_TWO_OUTBOX where ID = ?";
 
-  private static final String ATTEMPTS_OF_THE_ENTRY = "select attempts from TXNO_OUTBOX where id = ?";
+  private static final String STATUS_OF_A_BLOCKED_ENTRY = "BLOCKED";
+
+  private static final String ATTEMPTS_OF_THE_ENTRY = "select ATTEMPTS from VANILLABP_PHASE_TWO_OUTBOX where ID = ?";
 
   @Autowired
   private RefusedStartWorkflowService workflowService;
@@ -395,7 +401,8 @@ public class Camunda8RefusedStartIT {
   private Boolean isBlocked(
       final String entry) {
 
-    return jdbcTemplate.queryForObject(IS_THE_ENTRY_BLOCKED, Boolean.class, entry);
+    return STATUS_OF_A_BLOCKED_ENTRY
+        .equals(jdbcTemplate.queryForObject(STATUS_OF_THE_ENTRY, String.class, entry));
 
   }
 
