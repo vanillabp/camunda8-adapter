@@ -258,21 +258,26 @@ public final class Camunda8Errors {
   }
 
   /**
-   * Whether the cluster refused an update ABOUT A USER TASK IT HOLDS - the answer which
+   * Whether the cluster refused a command ABOUT A USER TASK IT HOLDS - the answer which
    * makes the empty update of {@link Camunda8UserTaskProbe} a question about whether the
-   * task is still open.
+   * task is still open, and which keeps a completion from being read as a task which is
+   * gone.
    * <p>
    * A user task the cluster no longer has is answered with {@link #notFound(Throwable)}.
-   * HTTP <code>409</code> (on gRPC <code>FAILED_PRECONDITION</code>) is something else: it
-   * was measured for a task standing in state <code>UPDATING</code> and for a task whose
-   * modelled <code>updating</code> listener denied the update, and in both cases the task
-   * was there to be refused about.
+   * HTTP <code>409</code> (on gRPC <code>FAILED_PRECONDITION</code>) is something else. It
+   * was measured for three states of a task the cluster was holding: a task standing in
+   * <code>UPDATING</code>, a task whose modelled <code>updating</code> listener denied the
+   * update, and a task standing in <code>CREATING</code> because a <code>creating</code>
+   * listener of it had not been answered yet. The third one is the everyday case, because
+   * VanillaBP notifies the application FROM such a listener: an application which completes
+   * its user task right away addresses a task the cluster is still creating, and both the
+   * empty update and the completion answer <code>409</code> while that lasts.
    * <p>
    * HTTP <code>400</code> is deliberately NOT in here, although the endpoint documents it.
    * No run has ever produced one for a user task, so what it would mean is a guess, and a
    * guess in this direction turns an open task into a canceled one.
    *
-   * @param throwable What the update of one user task threw
+   * @param throwable What the command about one user task threw
    * @return Whether the cluster refused it about a user task it holds
    */
   public static boolean refusedAboutAUserTaskItHolds(

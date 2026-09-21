@@ -28,7 +28,12 @@ import lombok.extern.slf4j.Slf4j;
  * sent for backpressure is repeated rather than turned into a lost answer;</li>
  * <li>a failure while the module is SHUTTING DOWN is not reported at all. The job is left to
  * its lock: the cluster hands it out again once the lock expires, with its retries
- * untouched.</li>
+ * untouched;</li>
+ * <li>work which is not part of the transition runs AFTER the answer went back, and still
+ * inside the drain. The transition stands still while the job is open, and on a
+ * <code>creating</code> listener that means the user task stands in <code>CREATING</code>,
+ * where the cluster refuses every command against it - including the completion the
+ * application may have sent the moment it heard about the task.</li>
  * </ol>
  * <p>
  * <b>What a listener modelled with <code>retries="0"</code> may expect during a shutdown.</b>
@@ -104,6 +109,10 @@ public final class Camunda8ListenerJobs {
   /**
    * Runs a listener job and answers the cluster, following the protocol described on this
    * class.
+   * <p>
+   * A caller with work to do once the answer is at the cluster hands it to
+   * {@link #completeOrFail(String, JobClient, ActivatedJob, Camunda8Drain, String, String, String, Supplier, ListenerWork, Runnable)}
+   * instead.
    *
    * @param adapterId The adapter id whose worker delivered the job
    * @param client The job client of the worker
@@ -127,7 +136,78 @@ public final class Camunda8ListenerJobs {
       final Supplier<Failure> failure,
       final ListenerWork work) {
 
+    completeOrFail(adapterId, client, job, drain, kind, name, bpmnProcessId, failure, work, null);
+
+  }
+
+  /**
+   * Runs a listener job, answers the cluster, and then does what the caller wants done once
+   * the cluster has that answer.
+   * <p>
+   * The second step exists because a listener job is a transition the cluster is standing
+   * in. A <code>creating</code> listener holds its user task in state <code>CREATING</code>
+   * until the job is completed, and the cluster refuses every command against a task in that
+   * state - the completion the application may have sent the moment it heard about the task
+   * among them. So work which is not part of the transition runs after the answer, not
+   * before it, and it still runs inside the {@link Camunda8Drain} of this workflow module.
+   *
+   * @param adapterId The adapter id whose worker delivered the job
+   * @param client The job client of the worker
+   * @param job The listener job
+   * @param drain The drain of the workflow module this worker belongs to
+   * @param kind What kind of listener this is, in the messages about a shutdown
+   * @param name The task definition respectively the job type, as the application knows it
+   * @param bpmnProcessId The BPMN process, as the application knows it
+   * @param failure How a failure is reported - asked only when the work threw, so a caller
+   *          resolving it from configuration pays nothing on the ordinary path
+   * @param work The listener itself
+   * @param onceTheClusterHasTheAnswer What to do after the job was completed, or
+   *          <code>null</code> for nothing. It is not run for a job which was failed or left
+   *          to its lock, and it must not throw: the job is answered by the time it runs, so
+   *          a failure of it can no longer be reported to the cluster
+   */
+  public static void completeOrFail(
+      final String adapterId,
+      final JobClient client,
+      final ActivatedJob job,
+      final Camunda8Drain drain,
+      final String kind,
+      final String name,
+      final String bpmnProcessId,
+      final Supplier<Failure> failure,
+      final ListenerWork work,
+      final Runnable onceTheClusterHasTheAnswer) {
+
     drain.jobStarted(job.getKey(), kind, name, bpmnProcessId);
+    try {
+      if (!answerTheCluster(adapterId, client, job, drain, kind, name, failure, work)) {
+        return;
+      }
+      if (onceTheClusterHasTheAnswer != null) {
+        onceTheClusterHasTheAnswer.run();
+      }
+    } finally {
+      drain.jobFinished(job.getKey());
+    }
+
+  }
+
+  /**
+   * Runs the listener and tells the cluster how it went.
+   *
+   * @return Whether the job was COMPLETED. A job which was failed, and a job left to its
+   *         lock by a shutdown, answer <code>false</code>
+   */
+  private static boolean answerTheCluster(
+      final String adapterId,
+      final JobClient client,
+      final ActivatedJob job,
+      final Camunda8Drain drain,
+      final String kind,
+      final String name,
+      final Supplier<Failure> failure,
+      final ListenerWork work) {
+
     // the token of THIS activation, which the cluster demands of every answer to a leased
     // job. It is null where the worker does not lease, and then no command carries one
     final var leaseToken = Camunda8JobLease.tokenOf(job);
@@ -154,11 +234,12 @@ public final class Camunda8ListenerJobs {
                     .send()
                     .join();
               });
+      return true;
     } catch (final Exception e) {
       // work cut off by a shutdown is not a defect of the application, and the job is left
       // to its lock so the next instance of it gets the listener
       if (drain.leaveJobToItsLock(job.getKey(), kind, name, e)) {
-        return;
+        return false;
       }
       final var howToFail = failure.get();
       log
@@ -198,8 +279,7 @@ public final class Camunda8ListenerJobs {
                     .send()
                     .join();
               });
-    } finally {
-      drain.jobFinished(job.getKey());
+      return false;
     }
 
   }

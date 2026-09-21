@@ -27,8 +27,12 @@ import lombok.extern.slf4j.Slf4j;
  * and this class answers the one question an adapter can answer, for one task at a time.
  * <p>
  * It is called from the three handlers which are a wake-up of a workflow: the job handler,
- * after the outcome went back to the cluster, and the two listener handlers, after their
- * notification. Not from the handler which reports the end of a workflow, because the end is a
+ * after the outcome went back to the cluster, the user-task listener handler, after the
+ * listener job was completed, and the handler of the listeners somebody modelled, inside its
+ * listener work. The user-task one waits for the completion because that completion is what
+ * ends state <code>CREATING</code> of the task the application was just told about, and a
+ * task in that state refuses the completion the application may already have sent.
+ * Not from the handler which reports the end of a workflow, because the end is a
  * stronger statement than a job and the core already derives the same cancelations from it,
  * and not from the handler which starts an instance, because an instance which has just
  * started has nothing else open.
