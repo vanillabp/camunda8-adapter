@@ -598,6 +598,39 @@ Quarkus by `Camunda8WorkflowLifecycleTest#aStaleCompletionRaisesTheGuidingExcept
 Quarkus one reads the exception out of the `RollbackException` that JTA wraps a failed
 `beforeCompletion` in.
 
+### A user task the cluster is still creating
+
+VanillaBP tells an application about a Camunda-managed user task from the `creating` task
+listener it writes into the model, and a task whose `creating` listener has not been answered
+stands in state `CREATING`. The `@WorkflowTask` method runs inside that listener job, so the
+application holds a valid task key while the cluster is still creating the task. Completing the
+task right there is allowed, and an application which answers a user task from its notification
+does exactly that.
+
+The cluster refuses every command against a task in that state with HTTP `409` and the title
+`INVALID_STATE`. That is the answer of the empty update phase one sends and of the completion
+phase two sends. The adapter reads it as what it says, which is that the task is there. Phase
+one lets the transaction commit: it aborts a transaction whose task is GONE, and a task the
+cluster refuses a command about is not gone. Phase two waits the state out, five attempts
+spread over less than half a second, which is more than the state needs once the listener job
+has been answered. Where those attempts are used up the outbox takes the operation over as it
+does for any other repeatable failure, so nothing is lost and the ordinary case stays fast.
+
+Two more places read the same answer. `awarenessOfUserTask` reports such a task as `ACTIVE`
+instead of reporting the cluster as unavailable, and the check of the other open tasks has
+always read it that way. The other state behind that answer is `UPDATING`, which a modelled
+`updating` listener can produce.
+
+The adapter also keeps the window as short as it can. A user-task listener job is completed
+before the check of the other open tasks of that workflow runs, because completing that job is
+what ends state `CREATING`, and every millisecond before it is a millisecond the application
+cannot use the task key it was just handed.
+
+`Camunda8UserTaskStillCreatingTest` holds both phases without a cluster.
+`Camunda8UserTaskStillCreatingIT` forces the state against a real one, with a model whose
+second `creating` listener nobody answers, so the task stays in `CREATING` until the test
+answers that job itself.
+
 ### The delivery identity is a job key, so it belongs to one cluster
 
 `Camunda8JobHandler` reports the job key as the delivery id, which is what the core remembers a processed delivery

@@ -7,9 +7,16 @@ import java.util.function.BooleanSupplier;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The bounded retry around the command a job handler sends BACK to the cluster - the
- * completion, the BPMN error, the failure and the lock renewal of an open asynchronous
- * task.
+ * The bounded retries this adapter puts around a command whose answer another attempt can
+ * change. There are two of them, and they wait out two different things.
+ * <p>
+ * {@link #send} carries the command a job handler sends BACK to the cluster - the
+ * completion, the BPMN error, the failure and the lock renewal of an open asynchronous task
+ * - and waits out a cluster which is busy. {@link #sendWhileTheUserTaskIsStillChanging}
+ * carries a phase-two command against a Camunda-managed user task and waits out a task the
+ * cluster has not finished creating. Both use the same attempt count and the same backoff,
+ * so the adapter tells one story about how long it waits. Everything in this comment is
+ * about the first one unless it says otherwise.
  * <p>
  * <b>Why it exists.</b> A command the cluster rejects because it is busy arrives as
  * <code>RESOURCE_EXHAUSTED</code> on gRPC and as HTTP 503 on REST, and nothing in the
@@ -177,6 +184,74 @@ public final class Camunda8CommandRetry {
             command,
             jobKey,
             taskName,
+            attempt,
+            backoffMillis(attempt),
+            e);
+        if (!sleep(nextBackoff(attempt))) {
+          throw e;
+        }
+        ++attempt;
+      }
+    }
+
+  }
+
+  /**
+   * Sends a command against a Camunda-managed user task, repeating it while the cluster
+   * refuses it because the task is in a transition of its own.
+   * <p>
+   * <b>Why it exists.</b> VanillaBP tells an application about a user task from the
+   * <code>creating</code> listener of that task, so the task stands in state
+   * <code>CREATING</code> while the application is being notified and until the listener
+   * job of that notification is answered on the partition. An application which answers its
+   * task in the same breath addresses a task the cluster is still creating, and the cluster
+   * refuses the completion with HTTP <code>409</code>
+   * ({@link Camunda8Errors#refusedAboutAUserTaskItHolds}). That answer is repeatable, so the
+   * outbox would send the operation again - after <code>attempt-frequency</code>, thirty
+   * seconds by default, for a state which passes in a few milliseconds.
+   * <p>
+   * <b>What bounds it.</b> {@value #MAX_ATTEMPTS} attempts with the backoff of
+   * {@link #send}, under half a second all together. This runs on a thread of the phase-two
+   * dispatcher, and half a second of it is a hiccup while thirty seconds of waiting is a
+   * delay somebody notices. Nothing is lost when the attempts are used up: the failure is
+   * rethrown and the outbox repeats the entry as it does today.
+   *
+   * @param adapterId The adapter instance, for the messages
+   * @param command What is being sent, named the way the log should name it (e.g.
+   *          <code>completion</code>)
+   * @param taskId The user task the command belongs to
+   * @param send The command itself
+   * @throws RuntimeException The original failure, once no further attempt is allowed
+   */
+  public static void sendWhileTheUserTaskIsStillChanging(
+      final String adapterId,
+      final String command,
+      final String taskId,
+      final Runnable send) {
+
+    var attempt = 1;
+    while (true) {
+      try {
+        send.run();
+        if (attempt > 1) {
+          log.info(
+              "Camunda8[{}]: the {} of user task '{}' went through on attempt {}",
+              adapterId,
+              command,
+              taskId,
+              attempt);
+        }
+        return;
+      } catch (final RuntimeException e) {
+        if (!Camunda8Errors.refusedAboutAUserTaskItHolds(e) || (attempt >= MAX_ATTEMPTS)) {
+          throw e;
+        }
+        log.debug(
+            "Camunda8[{}]: the {} of user task '{}' was refused on attempt {} because the task is "
+                + "in a transition of its own - retrying in {} ms",
+            adapterId,
+            command,
+            taskId,
             attempt,
             backoffMillis(attempt),
             e);

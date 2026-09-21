@@ -2,6 +2,7 @@ package io.vanillabp.camunda8.wiring;
 
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.client.api.search.enums.ListenerEventType;
@@ -170,6 +171,11 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     final var taskDefinition = NameClashAvoidanceSupport
         .plainTaskDefinition(scoping, workflowModuleId, bpmnProcessId, scopedTaskDefinition, adapterId);
 
+    // what the application was told about this user task, written by the work below and
+    // read once the cluster has the answer to this listener job. It stays empty where no
+    // notification happened at all
+    final var theNotification = new AtomicReference<TaskInvocationContext>();
+
     Camunda8ListenerJobs
         .completeOrFail(
             adapterId,
@@ -230,14 +236,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
                           + "ProcessService#cancelUserTask instead.")
                           .formatted(event, taskDefinition, bpmnProcessId, workflowModuleId));
                 }
-                // the creation or the cancelation of a user task is a wake-up of its
-                // workflow like any other, so the other tasks the core believes are open
-                // in it are looked at here too. It runs INSIDE the listener work, because
-                // that is what the drain of this workflow module brackets: a shutdown
-                // waits for it instead of closing the client under it
-                if (openTaskProbe != null) {
-                  openTaskProbe.reportWhatTheClusterNoLongerHas(bpmnProcessId, context);
-                }
+                theNotification.set(context);
               } else {
                 log
                     .trace(
@@ -250,6 +249,20 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
               }
               // the listener completion carries NO variables, see the class javadoc
               return Map.of();
+            },
+            () -> {
+              // the creation or the cancelation of a user task is a wake-up of its workflow
+              // like any other, so the other tasks the core believes are open in it are
+              // looked at here too. AFTER the listener job was answered and not inside the
+              // work: on a 'creating' listener the completion of that job is what ends
+              // state CREATING, and until it reaches the partition the cluster refuses the
+              // completion the application may have sent for this very task. It still runs
+              // inside the drain of this workflow module, so a shutdown waits for it
+              // instead of closing the client under it
+              final var wakeUp = theNotification.get();
+              if ((openTaskProbe != null) && (wakeUp != null)) {
+                openTaskProbe.reportWhatTheClusterNoLongerHas(bpmnProcessId, wakeUp);
+              }
             });
 
   }

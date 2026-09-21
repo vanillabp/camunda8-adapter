@@ -21,6 +21,7 @@ import io.camunda.zeebe.model.bpmn.instance.Message;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8BusinessId;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
+import io.vanillabp.camunda8.client.Camunda8CommandRetry;
 import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.client.Camunda8InstanceProbe;
 import io.vanillabp.camunda8.client.Camunda8QueryApi;
@@ -671,6 +672,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // never advances the task; it answers NOT_FOUND for gone tasks. Side effect: modeller-defined
     // 'updating' task listeners fire - documented in the README.
     //
+    // A task in the middle of a transition of its own is refused rather than answered,
+    // and a refusal about a task is a task the cluster has, see
+    // Camunda8Errors#refusedAboutAUserTaskItHolds. CREATING is the state to expect here:
+    // the application is notified from the 'creating' listener, so it may ask about a task
+    // the cluster has not finished creating.
+    //
     // As for service tasks, a user-task key is unique per cluster, and on a
     // shared one the scope is asked before the task is claimed
     if (!belongsToThisAdapter(scope, taskId, true)) {
@@ -688,6 +695,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
             taskId,
             Camunda8Errors.rejection(e));
         return WorkflowAwareness.UNKNOWN_TO_BPMS;
+      }
+      if (Camunda8Errors.refusedAboutAUserTaskItHolds(e)) {
+        log.debug(
+            "Camunda8[{}]: user task '{}' is in a transition of its own - the cluster refused the "
+                + "probe's UpdateUserTask with {}, which is a task it holds",
+            adapterId,
+            taskId,
+            Camunda8Errors.rejection(e));
+        return WorkflowAwareness.ACTIVE;
       }
       log.warn(
           "Camunda8[{}]: could not determine awareness of user task '{}' - reporting BPMS_UNAVAILABLE",
@@ -730,6 +746,20 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
                   .formatted(request.taskId()),
               e);
         }
+        if (Camunda8Errors.refusedAboutAUserTaskItHolds(e)) {
+          // this check aborts a transaction whose task is GONE, and a task the cluster
+          // refuses a command ABOUT is not gone. The common case is a task the cluster is
+          // still creating: the application was notified from the 'creating' listener of
+          // that very task, so it may answer while the creation is still on the way. The
+          // completion of phase two waits that out, see completeUserTask
+          log.debug(
+              "Camunda8[{}]: the pre-commit check found user task '{}' in a transition of its own "
+                  + "- the cluster refused the empty update with {}, which is a task it holds",
+              adapterId,
+              request.taskId(),
+              Camunda8Errors.rejection(e));
+          return;
+        }
         throw e;
       }
     });
@@ -740,12 +770,23 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final PhaseTwoRequest<A> request) {
 
     try {
-      clientFactory
-          .getClient()
-          .newCompleteUserTaskCommand(taskKeyOf(request.taskId()))
-          .variables(variablesOf(request.aggregatePersistence(), request.workflowAggregateId()))
-          .send()
-          .join();
+      final var taskKey = taskKeyOf(request.taskId());
+      // read ONCE and not per attempt: every attempt carries what the caller committed, and
+      // reading the aggregate again would cost a transaction per attempt
+      final var variables = variablesOf(request.aggregatePersistence(), request.workflowAggregateId());
+      // the task may still be in CREATING, because the application was notified from the
+      // 'creating' listener of this very task and may have answered in the same breath
+      Camunda8CommandRetry
+          .sendWhileTheUserTaskIsStillChanging(
+              adapterId,
+              "completion",
+              request.taskId(),
+              () -> clientFactory
+                  .getClient()
+                  .newCompleteUserTaskCommand(taskKey)
+                  .variables(variables)
+                  .send()
+                  .join());
       log.info(
           "Camunda8[{}]: completed user task '{}' of BPMN process '{}' of workflow module '{}'",
           adapterId,
