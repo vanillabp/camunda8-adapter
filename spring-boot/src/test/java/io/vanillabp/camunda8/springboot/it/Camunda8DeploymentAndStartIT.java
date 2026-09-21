@@ -32,8 +32,8 @@ import io.vanillabp.spi.process.ProcessService;
  * End-to-end integration test of the Camunda 8 adapter against a real Camunda 8 cluster
  * (Testcontainers, the cluster of the active release line with its Elasticsearch,
  * unprotected API). It drives the <b>full two-phase workflow start through
- * {@code ProcessService#startWorkflow}</b> inside a JPA transaction with the gruelbox
- * phase-two outbox:
+ * {@code ProcessService#startWorkflow}</b> inside a JPA transaction with the phase-two
+ * outbox:
  * <ul>
  *   <li>the BPMN {@code TestProcess} is deployed to the cluster on application startup,</li>
  *   <li>starting a workflow inside a committed transaction creates the process instance
@@ -68,7 +68,7 @@ public class Camunda8DeploymentAndStartIT {
 
   private static final String JOB_TYPE = "test-job";
 
-  private static final String COUNT_OUTBOX_ENTRIES = "select count(*) from TXNO_OUTBOX";
+  private static final String COUNT_OUTBOX_ENTRIES = "select count(*) from VANILLABP_PHASE_TWO_OUTBOX";
 
   @Container
   static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
