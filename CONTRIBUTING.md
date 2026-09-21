@@ -38,6 +38,13 @@ Classes compiled against one client are binary compatible with no other one, so 
 directory does not fail to compile, it fails at runtime with a `NoClassDefFoundError`. See
 [Release lines](./README.md#release-lines) for which lines are alive and how long.
 
+Two tools read the javadoc here. The compiler compiles every module with
+`-Xdoclint:all,-missing`, so it reads a package private class as well, and it reads the per-line
+source tree of the line you build. The javadoc plugin reads what a release publishes and therefore
+starts at protected. A broken `{@link}` or a tag HTML no longer knows fails the build in either
+place. Because the compiler only sees the line it builds, a change in `src/main/java-line-8.8` or
+`src/main/java-line-8.10` is only checked by a build of that line.
+
 The integration tests start a Camunda 8 cluster in Docker through Testcontainers. They are the
 slowest thing in the whole VanillaBP workspace, and they are skipped where Docker is not available,
 which quietly turns a full run into a small one. Give them the Docker they need before you read a
