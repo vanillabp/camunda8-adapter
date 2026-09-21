@@ -2291,7 +2291,7 @@ not boot.
 - **Spring Boot** `Camunda8DeploymentAndStartIT` (real Camunda 8 via Testcontainers, the
   cluster of `ClusterUnderTest`): boots the application (deploying the BPMN to the cluster
   on startup) and drives the full two-phase start through `ProcessService#startWorkflow`
-  inside a JPA transaction with the gruelbox outbox. It asserts that the process instance
+  inside a JPA transaction with the phase-two outbox. It asserts that the process instance
   appears only **after** the transaction commits, carrying the aggregate's ID as the `id`
   variable (named after the test aggregate's ID property; observed by a raw Camunda 8 job
   worker on the service task), and **never** after a rollback (the outbox entry is gone
