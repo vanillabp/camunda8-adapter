@@ -1673,7 +1673,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * The id this adapter hands the cluster for a correlated message, which is what the
    * cluster deduplicates by for as long as the message lives.
    *
-   * <h2>Why it looks like VanillaBP's own key and is not the same thing</h2>
+   * <h4>Why it looks like VanillaBP's own key and is not the same thing</h4>
    *
    * Both are derived from the same values, and they guard different windows: VanillaBP's
    * key deduplicates the entries which have not been dispatched yet, this one deduplicates
@@ -1681,7 +1681,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * be dropped by the second, which is why the adapter says so when the cluster refuses a
    * publication.
    *
-   * <h2>Why the activation is part of it</h2>
+   * <h4>Why the activation is part of it</h4>
    *
    * A called process is a secondary workflow of the SAME aggregate, so the three elements
    * of a multi-instance call activity agree in module, process, aggregate, message name
@@ -2327,7 +2327,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * for a service task, the user task's key for a user task. Always a decimal number,
    * which is why the failure is worth a message of its own.
    *
-   * <h2>Why this exists</h2>
+   * <h4>Why this exists</h4>
    *
    * VanillaBP 1 could hand out the same key in HEXADECIMAL
    * (<code>task-id-as-hex-string</code>, off by default), and an application which

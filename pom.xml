@@ -290,11 +290,13 @@
           <configuration>
             <release>${version.java}</release>
             <compilerArgs>
-              <!-- a javadoc which names a method is checked like any other claim: a link
-                   the compiler cannot resolve is an error, a parameter documented twice a
-                   warning. Only the reference group is on, so wording and missing comments
-                   stay a matter of review. -->
-              <arg>-Xdoclint:reference</arg>
+              <!-- javac is the only javadoc check which reads a package private class and
+                   a per-line source tree. The javadoc plugin below reads what a release
+                   publishes, so it starts at protected, and it never sees the code of the
+                   two lines a build does not select. Every group is checked here except
+                   'missing': a comment which was never written is a warning, not a broken
+                   build. -->
+              <arg>-Xdoclint:all,-missing</arg>
             </compilerArgs>
             <annotationProcessorPaths>
               <path>
