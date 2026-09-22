@@ -2590,6 +2590,22 @@ whatever the key says. `awarenessOfUserTask` and the pre-commit check of `comple
 still ask about the one task their caller named, because a caller holding that task is the
 party entitled to wait for the answer.
 
+Whoever else sends a command to a probed task is refused while the probe runs. A task under
+update stands in `UPDATING` until the update and its listener job are through, and every
+command against it answers `409 INVALID_STATE` for that long. Measured on 2026-09-22 against
+8.9.19, over twenty probes of a task whose listener this application serves: 60 to 145
+milliseconds per probe. They lie closest together in the first second of an instance, because
+this check runs after every listener job and after every job the application is handed. No
+sender of this adapter is troubled by it, because all four read the status code and not the
+name of the state: `preflightCompleteUserTask` lets the transaction commit, `completeUserTask`
+repeats through `sendWhileTheUserTaskIsStillChanging`, `awarenessOfUserTask` answers `ACTIVE`
+and this check answers `STILL_THERE`. A sender past VanillaBP gets the refusal raw, and a task
+list written on the client of the BPMS is the likely one. That is what the wiki says where the
+key is documented:
+[asking about open user tasks](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration#asking-about-open-user-tasks).
+`Camunda8UserTaskProbeIT` is the one place here which sends the way such a task list does, and
+it waits the window out.
+
 Three cases keep the wider answer for the same reason. A BPMN process this application
 declares without deploying a model has no model to read, so a record of it may name either
 kind of task. A record which kept no task definition at all names nothing to look up. And the
