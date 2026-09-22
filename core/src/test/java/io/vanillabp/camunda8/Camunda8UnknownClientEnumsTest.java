@@ -47,7 +47,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * The client grows its enums inside a release line, and Camunda does not count that as a
  * breaking change: 8.9 added <code>DRAINING</code> to the process definition states, 8.10
  * adds <code>SUSPENDED</code> to the instance states and <code>CANCEL</code> to the
- * listener events. A client older than the cluster it talks to reports a value it does not
+ * listener events. A patch does it too: 8.8.39 brought <code>DRAINING</code> to the 8.8
+ * line. A client older than the cluster it talks to reports a value it does not
  * know as <code>UNKNOWN_ENUM_VALUE</code>, and this adapter is built per line, so an
  * application running the 8.8 line against an 8.10 cluster meets exactly that. Neither the
  * compiler nor a test that only uses the literals of today notices.
