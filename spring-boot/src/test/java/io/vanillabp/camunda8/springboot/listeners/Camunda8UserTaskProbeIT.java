@@ -21,6 +21,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.service.TaskEvent;
@@ -191,16 +192,43 @@ public class Camunda8UserTaskProbeIT {
 
   }
 
+  /**
+   * Completes a user task the way somebody outside VanillaBP does, waiting out a task the
+   * cluster is busy with.
+   * <p>
+   * The probe this test switches on is an <code>UpdateUserTask</code>, and a task under
+   * update stands in state <code>UPDATING</code> until the update and its listener job are
+   * through. Measured on 8.9.19: 60 to 145 milliseconds per probe of the served task, and
+   * every command against the task is answered with HTTP <code>409</code> for that long.
+   * The probes are densest right after the instance starts, which is where this test sends
+   * its completions, and a run of the pull request for story 419 was refused there.
+   * <p>
+   * The adapter waits the same window out wherever it sends such a command itself, see
+   * {@code Camunda8CommandRetry#sendWhileTheUserTaskIsStillChanging}. A task list has no
+   * such helper and pays the <code>409</code>, so the test which plays the task list waits
+   * here.
+   */
   private void completeThroughTheCluster(
-      final String userTaskKey) {
+      final String userTaskKey) throws InterruptedException {
 
     assertNotNull(userTaskKey, "the user task has to be known before it can be completed elsewhere");
-    clientFactoryRegistry
-        .getFactory("c8")
-        .getClient()
-        .newCompleteUserTaskCommand(Long.parseLong(userTaskKey))
-        .send()
-        .join();
+    final var deadline = System.currentTimeMillis() + 10000;
+    while (true) {
+      try {
+        clientFactoryRegistry
+            .getFactory("c8")
+            .getClient()
+            .newCompleteUserTaskCommand(Long.parseLong(userTaskKey))
+            .send()
+            .join();
+        return;
+      } catch (final RuntimeException e) {
+        if (!Camunda8Errors.refusedAboutAUserTaskItHolds(e) || (System.currentTimeMillis() > deadline)) {
+          throw e;
+        }
+        Thread.sleep(100);
+      }
+    }
 
   }
 
