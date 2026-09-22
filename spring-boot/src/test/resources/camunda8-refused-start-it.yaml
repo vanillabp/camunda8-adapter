@@ -22,4 +22,4 @@ vanillabp:
           allow-full-sync-with-bpms: true
   outbox:
     poll-interval: PT0.5S
-    attempt-frequency: PT0.5S
+    attempt-frequency: PT30S
