@@ -105,8 +105,15 @@ public class Camunda8OtherOpenTasksIT {
       workflowService.correlate(aggregate, "TakeTaskAway");
     });
 
+    // the wait ends at the handler's COMMIT, because the aggregate read below is written
+    // by that commit. The map the handler fills is already set a moment earlier, while
+    // its transaction is still open, so waiting for the map and reading the aggregate
+    // right after can read the aggregate before the commit wrote anything into it
     awaitUntil(
-        () -> OtherOpenTasksDockerWorkflowService.WHAT_HAPPENED.get(String.valueOf(aggregateId)) != null,
+        () -> repository
+            .findById(aggregateId)
+            .map(OtherOpenTasksDockerAggregate::getWhatHappenedToTheTakenTask)
+            .orElse(null) != null,
         120000,
         "the next wake-up of the workflow to report the task which is gone");
 
