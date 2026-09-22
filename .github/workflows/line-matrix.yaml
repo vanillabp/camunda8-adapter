@@ -100,7 +100,7 @@ jobs:
             **/target/surefire-reports/**
             **/target/failsafe-reports/**
             **/target/*application*.log
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: ignore
       - name: The cluster and the client this line was tested against
         # The properties file moved into 'test-support' when that module was split out, so

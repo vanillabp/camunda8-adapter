@@ -2589,9 +2589,13 @@ default, and every other record of the same process is answered with what the cl
 
 `vanillabp.adapters.<id>.probe-open-user-tasks: true` adds the question for whoever wants
 task-level certainty anyway. It sends an empty `UpdateUserTask` per user task of an instance
-which is still running: `204` in 5 to 21 milliseconds for a task which is open, `404` for a
-task which is gone, `409` for a task standing in `UPDATING` or one whose listener denied the
-update, which both mean it is there. A `400` says nothing, because no run has ever produced
+which is still running: `204` for a task which is open, `404` for a task which is gone, `409`
+for a task standing in `UPDATING` or one whose listener denied the update, which both mean it
+is there. How long the `204` takes depends on whether the element carries an `updating`
+listener. Measured on 2026-09-19, one container each on an idle machine: 5 to 21 milliseconds
+against `camunda/camunda:8.9.19` and `camunda/camunda:8.10.0-alpha5` with no listener modelled,
+106 to 111 milliseconds on 8.9.19 and 15 to 78 milliseconds on 8.10.0-alpha5 with a modelled
+listener a worker answered. A `400` says nothing, because no run has ever produced
 one for a user task. It is off by default because it costs a command per task and because it
 fires a modelled `updating` listener while it is at it, measured on 8.9 and on 8.10, although
 the update changes nothing at all.

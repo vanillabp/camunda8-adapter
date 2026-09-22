@@ -61,6 +61,13 @@ jobs:
       # booting their application in a forked JVM it is ONLY in that application's own
       # log file. Surefire prints its last line, which is never the interesting one -
       # a timeout waiting for a notification says nothing about why it never came.
+      #
+      # They are kept for a month because that is how far back somebody reads. The
+      # measurement of story 433 went over thirty days of runs, and the reports of the
+      # red ones were gone for all but the newest: seven days is shorter than the time
+      # between a red run and the day somebody asks what it was. A run of this job
+      # uploads nothing while it is green, so the month costs storage only for the runs
+      # it is kept for.
       - name: Upload the test reports of a failed build
         if: failure()
         uses: actions/upload-artifact@v7
@@ -70,7 +77,7 @@ jobs:
             **/target/surefire-reports/**
             **/target/failsafe-reports/**
             **/target/*application*.log
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: ignore
       - name: Collect coverage reports
         if: "${{ github.event_name == 'push' }}"
@@ -136,7 +143,7 @@ jobs:
           path: |
             quarkus/native-image-tests/target/native-image-application.log
             quarkus/native-image-tests/target/failsafe-reports/**
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: ignore
   deploy-coverage-report:
     if: "${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}"
