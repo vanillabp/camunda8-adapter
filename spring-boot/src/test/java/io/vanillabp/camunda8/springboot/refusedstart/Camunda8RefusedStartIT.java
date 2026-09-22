@@ -363,6 +363,18 @@ public class Camunda8RefusedStartIT {
    * <p>
    * The entry is found by what the outbox held before, because the class starts more
    * than one workflow and a blocked entry stays in the table.
+   * <p>
+   * The counter reads claims rather than finished dispatches. A poll raises it the moment
+   * it takes the entry, and that claim leases the entry for
+   * {@code vanillabp.outbox.attempt-frequency}. A dispatch which outlasts its lease is
+   * claimed by the next poll and counted a second time, although the first one is still
+   * on its way. The start of this class carries five megabytes on purpose: sending them
+   * took 150 to 300 ms against {@code camunda/camunda:8.8.39} on 2026-09-22, and more
+   * than half a second on the CI runner of that day, where this assertion read two
+   * attempts and one dispatch. So {@code camunda8-refused-start-it.yaml} leases for
+   * PT30S where the other integration tests lease for PT0.5S, and the lease is the whole
+   * reason that one value differs. Measured on the same day: at PT0.1S the count is two
+   * in three runs out of three, at PT0.5S it is one in five out of five.
    */
   private void assertTheStartIsBlockedAfterOneAttempt(
       final List<String> entriesBefore) throws InterruptedException {
