@@ -1366,10 +1366,24 @@ it.
 
 It is worth having where the lock expires while the business method is still running. The cluster
 hands the job out again, the method runs a second time, and both runs try to answer. Without a
-lease the first answer wins, which is the one carrying the values of the OLDER run, and the newer
-run finds the job gone. With a lease the older answer is refused and the workflow continues with
-what the run which finished last wrote. The work is done twice either way; the result is better and
-the rejection is visible.
+lease the first answer wins, and which run that is comes down to which one finishes first. The age
+of the activation decides nothing. Measured against `camunda/camunda:8.9.19` on 2026-09-21 with one
+pod and one worker, both orders were run: the run which answered first was taken both times, and
+the other run got its command rejected with `NOT_FOUND`, which reads exactly like a job that is
+long gone. With a lease the older answer is refused and the workflow continues with what the run
+which finished last wrote. The work is done twice either way; the result is better and the
+rejection is visible.
+
+Whether the second run happens at all depends on the client. Up to `8.8.36` and `8.9.17` a worker
+which still held a job stopped asking for work, so its own expired job could only be picked up
+somewhere else, in practice by a second pod. From `8.8.37` and `8.9.18` on the worker keeps asking
+while its handler runs, and the measurement above is that case: the same worker activated its own
+expired job again about a second after the lock had run out. This build pins `8.8.39` and `8.9.21`,
+so both GA lines behave that way. The 8.10 client still carries the old behaviour up to
+`8.10.0-alpha5`, and 8.10 is the only line which has a lease at all: measured there on 2026-09-21,
+a single worker holding its job saw no second activation for 120 seconds, with the lease and
+without it. So on the line which can lease, the race a lease decides still needs a second worker
+today. Only a repaired 8.10 client has both halves at once.
 
 The workers which lease are the ones which hold their job from the activation to the answer: the
 user-task listeners, the listeners somebody modelled, the cancel listeners VanillaBP writes, the
