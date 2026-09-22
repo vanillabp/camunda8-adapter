@@ -54,7 +54,7 @@ permissions:
   contents: read
 jobs:
   issue:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       # the POM, for the client this line pins, and bin/line-preview.sh
       contents: read

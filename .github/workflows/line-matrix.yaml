@@ -37,7 +37,7 @@ jobs:
   # The live lines are not maintained here: they are the line-* profiles of the parent
   # POM, which also carry the pins. So the matrix cannot fall behind the build.
   discover:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       lines: "${{ steps.list.outputs.lines }}"
     steps:
@@ -64,7 +64,7 @@ jobs:
   # of what stands in the brackets. Renaming it leaves that workflow with nothing to report.
   line:
     needs: discover
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -132,7 +132,7 @@ jobs:
   lines-verified:
     if: always()
     needs: line
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Every line built
         run: |
@@ -153,7 +153,7 @@ jobs:
   ga-lines:
     if: always()
     needs: [discover, line]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       broken: "${{ steps.read.outputs.broken }}"
     steps:

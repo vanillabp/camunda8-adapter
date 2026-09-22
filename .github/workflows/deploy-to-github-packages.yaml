@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -91,7 +91,7 @@ jobs:
     # the extension names them. So this job builds the binary and runs it against a real
     # cluster, which is what the integration test of 'quarkus/native-image-tests' does.
     # Its own job: the native build takes minutes and must not delay publishing.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: read
@@ -143,7 +143,7 @@ jobs:
     environment:
       name: github-pages
       url: "${{ steps.deployment.outputs.page_url }}"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: publish
     steps:
       - name: Deploy to GitHub Pages
