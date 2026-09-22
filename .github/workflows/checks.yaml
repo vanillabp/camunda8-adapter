@@ -242,8 +242,9 @@ jobs:
   # builds there like every other line and its job is on this pull request to read, but
   # it does not decide this check: that line is built against an alpha which is rewritten
   # under us, and a defect of the alpha may cost a night, it may not cost a pull request.
-  # The night still opens an issue for it and a release still waits for it, which is
-  # decision 31 in the repository's DECISIONS.md.
+  # It gets an issue of its own instead, written by the job below, the night opens one for
+  # 'main', and a release still waits for every line, which is decision 31 in the
+  # repository's DECISIONS.md.
   line-pins-verified:
     if: always()
     needs: [pin-change, lines]
@@ -267,3 +268,21 @@ jobs:
               echo "These lines did not build with the moved pin: ${BROKEN}" >&2
               exit 1 ;;
           esac
+
+  # A preview line which breaks here does not stop this pull request, and it does not pass
+  # unnoticed either. This job opens an issue for it. The head of preview-line-issue.yaml
+  # says why that issue is written for a pull request, and why it cannot be written inside
+  # the matrix.
+  #
+  # 'issues: write' is granted here and nowhere else in this file. The matrix above is
+  # called by the release gate too, and a called workflow may not ask for more than its
+  # caller was granted, so the permission has to sit on the caller.
+  preview-line-issue:
+    if: always() && needs.pin-change.outputs.pins == 'true'
+    needs: [pin-change, lines]
+    permissions:
+      contents: read
+      # the jobs of this run, which is where the lines of the matrix report
+      actions: read
+      issues: write
+    uses: ./.github/workflows/preview-line-issue.yaml
