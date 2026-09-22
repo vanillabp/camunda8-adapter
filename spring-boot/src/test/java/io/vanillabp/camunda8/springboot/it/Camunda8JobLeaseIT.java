@@ -42,11 +42,18 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * carries the values of the OLDER run. With a lease that answer is refused, and the job
  * stays with the activation holding it.
  * <p>
- * The second activation is the test's own rather than a redelivery. A redelivery cannot be
- * timed: a job whose lock expired goes back into the queue when the cluster gets round to
- * it, and what this test is about is the ORDER of the two answers. So it takes the job over
- * the way a second pod would, lets the handler answer into that, and reads what the adapter
- * made of the refusal.
+ * The second activation is the test's own rather than a redelivery, and not because a
+ * redelivery is slow. Measured on 2026-09-21 against {@code camunda/camunda:8.10.0-alpha5},
+ * one cluster, a lock of 30 seconds and a poll every 100 ms: a job whose lock expired is
+ * handed out again about a second later, a listener job like any other. What does not happen
+ * is a redelivery to the worker which is still holding the job. That one gets it back in the
+ * moment its handler returns, and not before, over 120 seconds of waiting, with nothing in
+ * the log to say so. Any other worker, on the same client too, got it after 0.27 to 1.4
+ * seconds, so the worker name is not what decides it.
+ * <p>
+ * The handler of this test is that worker. So the second activation has to come from
+ * somewhere else, and the test asks for the job the way a second pod would, lets the handler
+ * answer into that, and reads what the adapter made of the refusal.
  * <p>
  * It runs on the 8.10 line and nowhere else, because no earlier client can ask for a lease.
  * The pull-request checks build the GA lines, so what proves this is the nightly matrix.
