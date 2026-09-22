@@ -25,12 +25,20 @@ import org.w3c.dom.Element;
  * and that is what the parameters are for. Each repository keeps its own test methods with
  * its own names and calls these assertions from them.
  * <p>
+ * A build whose version does not carry the release line should say which run a failure came
+ * from, see {@link #inTheRun(String)}.
+ * <p>
  * The POM is read from disk rather than derived, because deriving it would repeat the
  * reasoning the mistake was made in.
  * <p>
  * This module is published per release line, so this class travels with the line an
  * application compiles against. A change here reaches another repository with the next
  * snapshot of this line and not before.
+ * <p>
+ * It is a module of its own, and not part of 'test-support', because that one starts
+ * containers and would put Testcontainers on the test classpath of a module which only wants
+ * to read a file. The two are never wanted together: a module asks either for a cluster or
+ * for this.
  */
 public final class PublishedPom {
 
@@ -42,10 +50,33 @@ public final class PublishedPom {
 
   private final Element project;
 
+  private String run;
+
   private PublishedPom(
       final Element project) {
 
     this.project = project;
+
+  }
+
+  /**
+   * Names the run these assertions belong to, and every failure message repeats it.
+   * <p>
+   * A message names the coordinate of the artifact, and in a build whose version carries the
+   * release line that coordinate already says which line was meant. Where the version is
+   * plain, as it is in a pull request build, it says nothing, and a reader of a red build has
+   * to guess which of several lines produced it. This module cannot fill the gap itself: it
+   * knows the line it was built for, not the line the caller is testing.
+   *
+   * @param run Whatever identifies this run to somebody reading its failure, e.g. the release
+   *          line and the client version the build selected
+   * @return This, so a test can go on asking
+   */
+  public PublishedPom inTheRun(
+      final String run) {
+
+    this.run = run;
+    return this;
 
   }
 
@@ -231,13 +262,19 @@ public final class PublishedPom {
 
   }
 
-  /** The artifact this POM is published for, named the way a failure message can act on. */
+  /**
+   * The artifact this POM is published for, named the way a failure message can act on, and
+   * with the run appended where the caller named one. See {@link #inTheRun(String)}.
+   */
   private String coordinate() {
 
-    return "%s:%s:%s".formatted(
+    final var coordinate = "%s:%s:%s".formatted(
         textOfChild(project, "groupId"),
         textOfChild(project, "artifactId"),
         textOfChild(project, "version"));
+    return run == null
+        ? coordinate
+        : "%s (%s)".formatted(coordinate, run);
 
   }
 

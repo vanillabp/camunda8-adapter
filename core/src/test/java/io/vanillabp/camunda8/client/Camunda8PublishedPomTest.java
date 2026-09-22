@@ -1,5 +1,8 @@
 package io.vanillabp.camunda8.client;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,9 +27,14 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * The same POM also says where the artifact comes from, and it used to say where we deploy
  * it. Decision 40 is about that half.
  * <p>
- * What the assertions know sits in {@link PublishedPom} of the module 'test-support',
+ * What the assertions know sits in {@link PublishedPom} of the module 'published-pom',
  * because the Business Cockpit's Camunda 8 adapter is built the same way and checks the same
  * promise. This test is the caller which names the artifact and the versions expected of it.
+ * <p>
+ * It also names the release line, because a failure has to say which line it came from. Our
+ * nightly version carries the line and a pull request build's version does not, and the
+ * module cannot fill that in: it knows the line it was built for, not the line a caller is
+ * testing.
  */
 @ExtendWith(SuppressOutputExtension.class)
 public class Camunda8PublishedPomTest {
@@ -38,8 +46,7 @@ public class Camunda8PublishedPomTest {
   @DisplayName("the published POM asks for the client of this release line")
   public void thePublishedPomAsksForTheClientOfThisLine() {
 
-    PublishedPom
-        .ofTheModuleUnderTest()
+    thePublishedPom()
         .asksFor("io.camunda", "camunda-client-java", Camunda8ReleaseLine.clientVersion());
 
   }
@@ -48,9 +55,7 @@ public class Camunda8PublishedPomTest {
   @DisplayName("the published POM leaves an application nothing of ours to inherit")
   public void thePublishedPomHasNoParentAndNoDependencyManagement() {
 
-    PublishedPom
-        .ofTheModuleUnderTest()
-        .handsAnApplicationNothingToInherit();
+    thePublishedPom().handsAnApplicationNothingToInherit();
 
   }
 
@@ -58,9 +63,7 @@ public class Camunda8PublishedPomTest {
   @DisplayName("the published POM names an address which opens")
   public void thePublishedPomNamesAnAddressWhichOpens() {
 
-    PublishedPom
-        .ofTheModuleUnderTest()
-        .pointsAt(REPOSITORY);
+    thePublishedPom().pointsAt(REPOSITORY);
 
   }
 
@@ -68,9 +71,34 @@ public class Camunda8PublishedPomTest {
   @DisplayName("the published POM says nothing about where we deploy")
   public void thePublishedPomSaysNothingAboutWhereWeDeploy() {
 
-    PublishedPom
+    thePublishedPom().saysNothingAboutWhereWeDeploy();
+
+  }
+
+  @Test
+  @DisplayName("a failure names the release line the run was about")
+  public void aFailureNamesTheReleaseLine() {
+
+    final var failure = assertThrows(
+        AssertionError.class,
+        () -> thePublishedPom()
+            .asksFor("io.camunda", "camunda-client-java", "a version no build ever used"));
+
+    assertTrue(
+        failure.getMessage().contains(Camunda8ReleaseLine.id()),
+        () -> "a red build has several lines to choose from and this message names none of "
+            + "them: "
+            + failure.getMessage());
+
+  }
+
+  /** The POM this build publishes for this module, told which run is asking. */
+  private static PublishedPom thePublishedPom() {
+
+    return PublishedPom
         .ofTheModuleUnderTest()
-        .saysNothingAboutWhereWeDeploy();
+        .inTheRun("release line "
+            + Camunda8ReleaseLine.id());
 
   }
 
