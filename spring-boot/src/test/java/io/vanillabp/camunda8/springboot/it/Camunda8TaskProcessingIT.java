@@ -2,7 +2,6 @@ package io.vanillabp.camunda8.springboot.it;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -863,11 +862,14 @@ public class Camunda8TaskProcessingIT {
         .getId());
     startSecondaryProcess("AsyncProcess", aggregateId);
 
+    // the job key the handler reports is written by its COMMIT, so the wait has to end
+    // at the commit as well. The invocation counter is raised by the first statement of
+    // the handler and is therefore true a few milliseconds earlier, while the aggregate
+    // in the database still carries no task id at all
     awaitUntil(
-        () -> invocations("asyncTask", aggregateId) == 1,
+        () -> repository.findById(aggregateId).map(TaskDockerAggregate::getTaskId).orElse(null) != null,
         60000,
-        "the async task to be invoked once");
-    assertNotNull(repository.findById(aggregateId).orElseThrow().getTaskId(), "job key committed as task id");
+        "the async task to commit its job key");
 
     // the task's job timeout is PT2S - without the dormancy lock extension the
     // job would be redelivered within this horizon
