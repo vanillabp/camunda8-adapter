@@ -50,10 +50,10 @@
     </dependency>
     <!-- for one test and not for a cluster: PublishedPom knows what the POM of a Camunda 8
          adapter has to promise, and the Business Cockpit's adapter asks the same of its
-         own artifacts. It brings Testcontainers along, which nothing here uses -->
+         own artifacts. The module holds that one class and needs nothing but the JDK -->
     <dependency>
       <groupId>org.camunda.community.vanillabp</groupId>
-      <artifactId>camunda8-adapter-test-support</artifactId>
+      <artifactId>camunda8-adapter-published-pom</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

@@ -39,6 +39,7 @@
 
   <modules>
     <module>core</module>
+    <module>published-pom</module>
     <module>test-support</module>
     <module>spring-boot</module>
     <module>election-integration-test</module>
@@ -224,6 +225,11 @@
         <groupId>io.camunda</groupId>
         <artifactId>camunda-client-java</artifactId>
         <version>${camunda8.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.camunda.community.vanillabp</groupId>
+        <artifactId>camunda8-adapter-published-pom</artifactId>
+        <version>${revision}</version>
       </dependency>
       <dependency>
         <groupId>org.camunda.community.vanillabp</groupId>

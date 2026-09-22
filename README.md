@@ -202,6 +202,16 @@ line showed it: the 8.8 line handed an application the 8.9 client, whose job act
 `Camunda8PublishedPomTest` reads the published POM on every line since and compares the
 client version in it with the client the build was compiled against.
 
+What that test knows about a published POM sits in `PublishedPom`, published as
+`org.camunda.community.vanillabp:camunda8-adapter-published-pom` from the module
+`published-pom`. The Business Cockpit's Camunda 8 adapter makes the same promise and calls
+the same assertions, so neither repository keeps a copy which could drift. The module has
+no dependencies at all, because the class reads a file and throws an `AssertionError`. A
+caller says with `inTheRun(...)` which run it is asking for, and every failure message
+repeats it: a version like `2.0.0-8.9-SNAPSHOT` names the line by itself, a pull request
+build's plain version does not, and this module knows the line it was built for rather than
+the line the caller is testing.
+
 Nothing else of ours reaches an application either, and that is the point of dropping the
 parent. What this repository pins for its own build is chosen for the newest line, and a
 user of the oldest line has no reason to be given it. See decision 39.
@@ -2274,6 +2284,10 @@ What it offers: `cluster()` and `cluster(logName)` for the everyday cluster,
 separation `by-adapter` deploys into, and `ClusterLog.FILE` for the file a red build uploads.
 An extension of this adapter takes the artifact as a test dependency and meets the cluster the
 adapter is tested against.
+
+The module holds the cluster and nothing else. `PublishedPom` used to sit beside it and moved
+into `published-pom`, because Testcontainers is an honest dependency of a cluster and dead
+weight on the classpath of a module which only reads a file. No module ever wanted both.
 
 Nearly every workflow of the test applications carries `allow-full-sync-with-bpms: true`.
 VanillaBP stops an application whose workflow aggregate hands every attribute to the BPMS,
