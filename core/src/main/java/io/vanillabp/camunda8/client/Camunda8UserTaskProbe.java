@@ -13,10 +13,12 @@ import io.camunda.client.api.search.enums.ListenerEventType;
  *
  * An <code>UpdateUserTask</code> carrying nothing but an action changes no attribute of the
  * task and advances nothing. It is answered by the partition rather than by the index an
- * exporter feeds: measured against 8.9.19 and 8.10.0-alpha5, <code>204</code> in 5 to 21
- * milliseconds for a task which is open and <code>404</code> for a task which was completed
- * or never existed, while the search the same question used to take was between 167 and 2068
- * milliseconds behind the engine.
+ * exporter feeds: measured on 2026-09-19 against 8.9.19 and 8.10.0-alpha5 with no
+ * <code>updating</code> listener modelled, <code>204</code> in 5 to 21 milliseconds for a task
+ * which is open and <code>404</code> for a task which was completed or never existed, while
+ * the search the same question used to take was between 167 and 2068 milliseconds behind the
+ * engine. A modelled listener a worker answers makes the same <code>204</code> take 106 to 111
+ * milliseconds on 8.9.19 and 15 to 78 milliseconds on 8.10.0-alpha5.
  *
  * <h2>The mark, and why the change list belongs to it</h2>
  *
