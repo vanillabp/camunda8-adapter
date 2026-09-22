@@ -330,6 +330,13 @@ one issue per red line, labelled `release-lines` and titled after the line, and 
 issue while the line stays red. A line which is green again gets a comment and the issue stays
 open, because a green night is not a fix. Whoever merges the fix closes it. See decision 31.
 
+A preview line which breaks on a pull request gets an issue as well, and a separate one.
+`checks.yaml` calls `preview-line-issue.yaml` after the matrix, which opens it under the label
+`preview-line` and a title naming the line, and writes a comment instead while such an issue is
+open. The pull request stays green, so the break would otherwise turn up in the night after the
+pin was merged, with nothing pointing back at the change which caused it. Nothing closes that
+issue either: a later pull request builds another branch and says nothing about this break.
+
 ### Release and CI plumbing
 
 A release of one line consists of:
