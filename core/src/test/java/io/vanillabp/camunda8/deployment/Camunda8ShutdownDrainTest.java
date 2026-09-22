@@ -306,7 +306,9 @@ public class Camunda8ShutdownDrainTest {
         service.drainOf("test-module").isShuttingDown(),
         "the module went through its ordinary shutdown");
     assertTrue(clientFactory.getOpenWorkflowModules().isEmpty(), "and is not open any more");
-    final var logged = output.getOut() + output.getErr();
+    // the view of this test, not of the class: the test below says the same sentence is
+    // absent, and both are only about the shutdown this test just ran
+    final var logged = output.getAllOfThisTest();
     assertTrue(
         logged.contains("did not stop workflow processing"),
         "the missing hook is named rather than silently made up for: "
@@ -336,7 +338,10 @@ public class Camunda8ShutdownDrainTest {
 
     clientFactory.close();
 
-    final var logged = output.getOut() + output.getErr();
+    // the view of this test, not of the class: the test above prints the sentence this
+    // one says is absent, so read over the whole class the assertion would hold only as
+    // long as that test happens to run later
+    final var logged = output.getAllOfThisTest();
     assertFalse(
         logged.contains("did not stop workflow processing"),
         "the ordinary path says nothing about a missing hook: "

@@ -144,13 +144,16 @@ public class Camunda8JobLeaseIT {
     LeaseDockerWorkflowService.mayAnswer.countDown();
 
     awaitUntil(
-        () -> logOf(output).contains("another activation holds the job"),
+        () -> theRefusalOfJob(output, takenOver.getKey()),
         60000,
-        "the adapter to be told that its answer came too late");
+        "the adapter to be told that its answer to job "
+            + takenOver.getKey()
+            + " came too late");
 
     assertEquals(1, LeaseDockerWorkflowService.RUNS.get(), "the handler ran once in this test");
     // a failure would have counted the job's retries down and could have raised an
-    // incident over work which was done and is fine
+    // incident over work which was done and is fine. Read over the whole class this
+    // would also speak for every other test of it, so it reads this test alone
     assertFalse(
         logOf(output).contains("failing the job"),
         "the refused answer did not turn into a failure of the job");
@@ -204,10 +207,35 @@ public class Camunda8JobLeaseIT {
 
   }
 
+  /**
+   * What this test printed, and nothing of what ran before it. An assertion about a
+   * sentence which is NOT in the log is only true for the test which makes it.
+   */
   private static String logOf(
       final CapturedOutput output) {
 
-    return output.getOut() + output.getErr();
+    return output.getAllOfThisTest();
+
+  }
+
+  /**
+   * Whether the adapter reported the refused answer OF THIS JOB. The sentence names the
+   * job, and a wait which only looked for the refusal would be over as soon as any job of
+   * this class was refused.
+   *
+   * @param output What the test printed so far
+   * @param jobKey The job the answer belongs to
+   * @return Whether that line is in the log
+   */
+  private static boolean theRefusalOfJob(
+      final CapturedOutput output,
+      final long jobKey) {
+
+    final var thisJob = "of job "
+        + jobKey;
+    return logOf(output)
+        .lines()
+        .anyMatch(line -> line.contains(thisJob) && line.contains("another activation holds the job"));
 
   }
 
