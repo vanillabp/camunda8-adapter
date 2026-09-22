@@ -1203,8 +1203,9 @@ public class Camunda8AdapterConfiguration {
 
   /**
    * Says what {@code probe-open-user-tasks} does here - AT STARTUP, because it is the key
-   * which costs a command per open user task and fires a listener somebody modelled. A key
-   * with that much behind it says so once rather than being found in a cluster's logs.
+   * which costs a command per open user task, fires a listener somebody modelled and holds
+   * the task against every other sender while it runs. A key with that much behind it says
+   * so once rather than being found in a cluster's logs.
    *
    * @param adapterId The adapter id
    * @param logger Sink for that line
@@ -1221,7 +1222,11 @@ public class Camunda8AdapterConfiguration {
             Camunda 8 adapter '%s' asks the cluster about every open USER TASK of a workflow whenever \
             it looks at the other tasks of that workflow ('%s: true'). That is one command per user \
             task of an instance which is still running, and the command fires a modelled 'updating' \
-            task listener although it changes nothing. A listener this application serves is closed by \
+            task listener although it changes nothing. While one of these updates runs, the task stands \
+            in state UPDATING and the cluster refuses every command against it with 409. VanillaBP reads \
+            that as 'the cluster has this task' and repeats, which is one reason a task list of yours \
+            belongs on the ProcessService; one sending on the Camunda client has to repeat for itself. \
+            A listener this application serves is closed by \
             the adapter without any method of yours running; an element whose 'updating' listener \
             belongs to a worker this application does not run is not asked about at all, because there \
             the probe would leave the task in state UPDATING for fifteen seconds. Switch the key off \
