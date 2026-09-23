@@ -11,12 +11,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import javax.sql.DataSource;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import io.camunda.client.CamundaClient;
@@ -26,6 +28,8 @@ import io.vanillabp.camunda8.client.Camunda8RefusedStart;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
+import io.vanillabp.integration.test.utils.outbox.PhaseTwoOutboxReader;
+import io.vanillabp.integration.test.utils.outbox.PhaseTwoOutboxReader.Entry;
 
 /**
  * What a Camunda 8 cluster does with a start it will not carry out, measured against a
@@ -65,18 +69,6 @@ public class Camunda8RefusedStartIT extends SpringBootTestOnTheSharedCluster {
    */
   private static final int TOO_BIG_FOR_THE_CLUSTER = 5 * 1024 * 1024;
 
-  private static final String ENTRIES_OF_THE_OUTBOX = "select ID from VANILLABP_PHASE_TWO_OUTBOX";
-
-  /**
-   * The store writes a status on an entry it will not repeat again, so this reads that
-   * status instead of a flag of its own.
-   */
-  private static final String STATUS_OF_THE_ENTRY = "select STATUS from VANILLABP_PHASE_TWO_OUTBOX where ID = ?";
-
-  private static final String STATUS_OF_A_BLOCKED_ENTRY = "BLOCKED";
-
-  private static final String ATTEMPTS_OF_THE_ENTRY = "select ATTEMPTS from VANILLABP_PHASE_TWO_OUTBOX where ID = ?";
-
   @Autowired
   private RefusedStartWorkflowService workflowService;
 
@@ -87,13 +79,30 @@ public class Camunda8RefusedStartIT extends SpringBootTestOnTheSharedCluster {
   private TransactionTemplate transactionTemplate;
 
   @Autowired
-  private JdbcTemplate jdbcTemplate;
+  private DataSource dataSource;
+
+  /**
+   * What this class asks about the phase-two outbox. It comes from the platform's test
+   * tools, so neither the name of the table nor the value it writes on a blocked entry
+   * is written down here.
+   * <p>
+   * This application runs the outbox table VanillaBP writes itself, so the reader is
+   * told which table to read instead of looking for the one which is there.
+   */
+  private PhaseTwoOutboxReader outbox;
 
   @Autowired
   private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   @Autowired
   private Camunda8ProcessService<RefusedStartAggregate> camunda8ProcessService;
+
+  @BeforeEach
+  void takeTheOutbox() {
+
+    outbox = PhaseTwoOutboxReader.ofTheVanillaBpOutbox(dataSource);
+
+  }
 
   private CamundaClient client() {
 
@@ -107,7 +116,7 @@ public class Camunda8RefusedStartIT extends SpringBootTestOnTheSharedCluster {
   @DisplayName("A request the cluster will not take blocks the outbox entry after one attempt")
   public void aRequestTheClusterWillNotTakeBlocksTheEntryAfterOneAttempt() throws Exception {
 
-    final var entriesBefore = entriesOfTheOutbox();
+    final var entryIdsBefore = entryIdsOfTheOutbox();
 
     // an application keeps a document in its aggregate, and every attribute of an
     // aggregate travels to the cluster as a process variable. This one is heavier than
@@ -120,7 +129,7 @@ public class Camunda8RefusedStartIT extends SpringBootTestOnTheSharedCluster {
     assertNotNull(aggregate.getId(), "the start returned a persisted aggregate");
     assertTrue(repository.findById(aggregate.getId()).isPresent(), "which is committed");
 
-    assertTheStartIsBlockedAfterOneAttempt(entriesBefore);
+    assertTheStartIsBlockedAfterOneAttempt(entryIdsBefore);
 
   }
 
@@ -270,12 +279,12 @@ public class Camunda8RefusedStartIT extends SpringBootTestOnTheSharedCluster {
 
       // and the same start the way an application makes it: the aggregate is committed,
       // the entry is written, and the dispatch meets the answer above
-      final var entriesBefore = entriesOfTheOutbox();
+      final var entryIdsBefore = entryIdsOfTheOutbox();
       final var aggregate = transactionTemplate
           .execute(status -> workflowService.startWorkflow("a document any cluster would take"));
       assertNotNull(aggregate.getId(), "the start returned a persisted aggregate");
 
-      assertTheStartIsBlockedAfterOneAttempt(entriesBefore);
+      assertTheStartIsBlockedAfterOneAttempt(entryIdsBefore);
     } finally {
       client()
           .newDeployResourceCommand()
@@ -342,11 +351,11 @@ public class Camunda8RefusedStartIT extends SpringBootTestOnTheSharedCluster {
    * in three runs out of three, at PT0.5S it is one in five out of five.
    */
   private void assertTheStartIsBlockedAfterOneAttempt(
-      final List<String> entriesBefore) throws InterruptedException {
+      final List<String> entryIdsBefore) throws InterruptedException {
 
     awaitUntil(
-        () -> theEntryAddedTo(entriesBefore)
-            .map(this::isBlocked)
+        () -> theEntryAddedTo(entryIdsBefore)
+            .map(Entry::isBlocked)
             .orElse(Boolean.FALSE),
         "the outbox entry of the refused start to be blocked");
 
@@ -354,39 +363,36 @@ public class Camunda8RefusedStartIT extends SpringBootTestOnTheSharedCluster {
     // wrote the block instead of counting 'vanillabp.outbox.block-after-attempts' down
     assertEquals(
         Integer.valueOf(1),
-        theEntryAddedTo(entriesBefore).map(this::attemptsOf).orElse(null),
+        theEntryAddedTo(entryIdsBefore).map(Entry::attempts).orElse(null),
         "the entry is blocked after the first attempt rather than after the last one");
 
   }
 
-  private List<String> entriesOfTheOutbox() {
+  /**
+   * The whole outbox rather than the entries of one process: this application runs a
+   * single process, so asking for that process would answer the same. The two cases
+   * which start it tell their own entry apart by what the outbox held before.
+   *
+   * @return The id of every entry the outbox holds
+   */
+  private List<String> entryIdsOfTheOutbox() {
 
-    return jdbcTemplate.queryForList(ENTRIES_OF_THE_OUTBOX, String.class);
-
-  }
-
-  private Optional<String> theEntryAddedTo(
-      final List<String> entriesBefore) {
-
-    return entriesOfTheOutbox()
+    return outbox
+        .entries()
         .stream()
-        .filter(entry -> !entriesBefore.contains(entry))
+        .map(Entry::id)
+        .toList();
+
+  }
+
+  private Optional<Entry> theEntryAddedTo(
+      final List<String> entryIdsBefore) {
+
+    return outbox
+        .entries()
+        .stream()
+        .filter(entry -> !entryIdsBefore.contains(entry.id()))
         .findFirst();
-
-  }
-
-  private Boolean isBlocked(
-      final String entry) {
-
-    return STATUS_OF_A_BLOCKED_ENTRY
-        .equals(jdbcTemplate.queryForObject(STATUS_OF_THE_ENTRY, String.class, entry));
-
-  }
-
-  private Integer attemptsOf(
-      final String entry) {
-
-    return jdbcTemplate.queryForObject(ATTEMPTS_OF_THE_ENTRY, Integer.class, entry);
 
   }
 

@@ -4,13 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrowsExactly;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import javax.sql.DataSource;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
@@ -20,6 +21,7 @@ import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import io.vanillabp.integration.adapter.spi.WorkflowScope;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
+import io.vanillabp.integration.test.utils.outbox.PhaseTwoOutboxReader;
 import io.vanillabp.spi.process.ProcessService;
 
 /**
@@ -56,8 +58,6 @@ public class Camunda8DeploymentAndStartIT extends SpringBootTestOnTheSharedClust
 
   private static final String JOB_TYPE = "test-job";
 
-  private static final String COUNT_OUTBOX_ENTRIES = "select count(*) from VANILLABP_PHASE_TWO_OUTBOX";
-
   @Autowired
   private ProcessService<DockerAggregate> processService;
 
@@ -65,7 +65,16 @@ public class Camunda8DeploymentAndStartIT extends SpringBootTestOnTheSharedClust
   private TransactionTemplate transactionTemplate;
 
   @Autowired
-  private JdbcTemplate jdbcTemplate;
+  private DataSource dataSource;
+
+  /**
+   * What this class asks about the phase-two outbox. It comes from the platform's test
+   * tools, so the name of the table stays out of this class.
+   * <p>
+   * This application runs the outbox table VanillaBP writes itself, so the reader is
+   * told which table to read instead of looking for the one which is there.
+   */
+  private PhaseTwoOutboxReader outbox;
 
   @Autowired
   private Camunda8ClientFactoryRegistry clientFactoryRegistry;
@@ -102,10 +111,18 @@ public class Camunda8DeploymentAndStartIT extends SpringBootTestOnTheSharedClust
 
   }
 
-  private long countOutboxEntries() {
+  @BeforeEach
+  void takeTheOutbox() {
 
-    final var count = jdbcTemplate.queryForObject(COUNT_OUTBOX_ENTRIES, Long.class);
-    return count == null ? 0 : count;
+    outbox = PhaseTwoOutboxReader.ofTheVanillaBpOutbox(dataSource);
+
+  }
+
+  private int countOutboxEntries() {
+
+    return outbox
+        .entries()
+        .size();
 
   }
 
