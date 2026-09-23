@@ -18,6 +18,17 @@ import jakarta.inject.Singleton;
 @ApplicationScoped
 public class Camunda8MetricsProducer {
 
+  /**
+   * Built by CDI, which needs a no-arg constructor to proxy an application-scoped bean.
+   */
+  public Camunda8MetricsProducer() {
+  }
+
+  /**
+   * Publishes the adapter's meter binder, which Quarkus then applies to its registry.
+   *
+   * @return The binder of this adapter's own numbers
+   */
   @Produces
   @Singleton
   public MicrometerCamunda8Metrics camunda8Metrics() {

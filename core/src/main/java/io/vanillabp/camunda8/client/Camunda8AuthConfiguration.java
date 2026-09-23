@@ -42,6 +42,13 @@ import lombok.Setter;
 public class Camunda8AuthConfiguration {
 
   /**
+   * Opens the auth block with its defaults. Every adapter section has one, whether the
+   * application wrote any of its keys or not.
+   */
+  public Camunda8AuthConfiguration() {
+  }
+
+  /**
    * How an adapter instance authenticates against its cluster.
    */
   public enum Method {
@@ -61,6 +68,8 @@ public class Camunda8AuthConfiguration {
   public static final String SAAS_AUDIENCE = "zeebe.camunda.io";
 
   /**
+   * The token endpoint of Camunda's login service, the second of the two SaaS presets.
+   *
    * @see #SAAS_AUDIENCE
    */
   public static final String SAAS_AUTHORIZATION_SERVER_URL = "https://login.cloud.camunda.io/oauth/token";

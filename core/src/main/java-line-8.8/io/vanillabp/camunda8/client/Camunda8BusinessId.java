@@ -25,7 +25,9 @@ public final class Camunda8BusinessId {
   }
 
   /**
-   * @return Whether an instance of this release line can carry a business id at all
+   * Whether an instance of this release line can carry a business id at all.
+   *
+   * @return <code>false</code>: neither this client nor an 8.8 cluster knows the field
    */
   public static boolean supportedByThisLine() {
 

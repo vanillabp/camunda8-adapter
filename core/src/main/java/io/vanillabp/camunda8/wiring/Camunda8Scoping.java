@@ -380,20 +380,6 @@ public final class Camunda8Scoping {
   }
 
   /**
-   * Whether the element carrying this extension element is one a runtime other than this
-   * application serves, and connectors are allowed for its process.
-   * <p>
-   * Its job type was never an identifier of this workflow module. It names a runtime
-   * somebody else deployed, cluster-wide, so prefixing it would rename something this
-   * application does not own. The price is stated rather than
-   * hidden: under {@code use-prefix} such a job type reaches the cluster unscoped, which is
-   * the very clash the mode exists to avoid. It costs nothing here, because a connector
-   * runtime subscribes to that type globally anyway and two workflow modules carrying the
-   * same connector element are meant to reach the same runtime. Refusing the combination
-   * instead would take the only isolation mode which works without a multi-tenant cluster
-   * away from every application that wants one connector.
-   */
-  /**
    * Rewrites the job type of one listener where the workflow module serves it and prefixes
    * its identifiers.
    *
@@ -430,6 +416,20 @@ public final class Camunda8Scoping {
 
   }
 
+  /**
+   * Whether the element carrying this extension element is one a runtime other than this
+   * application serves, and connectors are allowed for its process.
+   * <p>
+   * Its job type was never an identifier of this workflow module. It names a runtime
+   * somebody else deployed, cluster-wide, so prefixing it would rename something this
+   * application does not own. The price is stated rather than
+   * hidden: under {@code use-prefix} such a job type reaches the cluster unscoped, which is
+   * the very clash the mode exists to avoid. It costs nothing here, because a connector
+   * runtime subscribes to that type globally anyway and two workflow modules carrying the
+   * same connector element are meant to reach the same runtime. Refusing the combination
+   * instead would take the only isolation mode which works without a multi-tenant cluster
+   * away from every application that wants one connector.
+   */
   private static boolean isServedByAnotherRuntime(
       final BpmnModelElementInstance extensionElement,
       final String workflowModuleId,

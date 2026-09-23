@@ -35,6 +35,13 @@ import io.vanillabp.integration.adapter.spi.WorkflowAggregateSync;
  */
 public class Camunda8AdapterBeanRegistrar implements BeanRegistrar {
 
+  /**
+   * Built by Spring, which is handed this registrar as a class and needs a no-arg constructor
+   * to build it.
+   */
+  public Camunda8AdapterBeanRegistrar() {
+  }
+
   @Override
   public void register(
       final BeanRegistry registry,

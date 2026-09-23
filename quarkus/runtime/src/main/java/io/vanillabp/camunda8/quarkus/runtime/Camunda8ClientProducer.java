@@ -41,8 +41,23 @@ import jakarta.inject.Singleton;
 @ApplicationScoped
 public class Camunda8ClientProducer {
 
+  /**
+   * Built by CDI, which needs a no-arg constructor to proxy an application-scoped bean.
+   */
+  public Camunda8ClientProducer() {
+  }
+
   private static final Logger log = Logger.getLogger(Camunda8ClientProducer.class);
 
+  /**
+   * Builds the one registry of this application, with a client factory per configured adapter id
+   * of type <code>camunda8</code>. The ids come from the platform's own properties, and the
+   * adapter's overlay is read per id.
+   *
+   * @param properties The platform's properties, which name the configured adapter ids and
+   *          their types
+   * @return The registry, with every completely configured client already built
+   */
   @Produces
   @Singleton
   public Camunda8ClientFactoryRegistry camunda8ClientFactoryRegistry(
@@ -167,6 +182,11 @@ public class Camunda8ClientProducer {
 
   }
 
+  /**
+   * Closes every client of the registry when the application goes down.
+   *
+   * @param registry The registry CDI is disposing of
+   */
   public void close(
       @Disposes final Camunda8ClientFactoryRegistry registry) {
 

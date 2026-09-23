@@ -42,6 +42,9 @@ import java.time.Duration;
 public interface Camunda8MessageTimeToLiveResolver {
 
   /**
+   * How long the cluster keeps a published message of this name waiting for a workflow to
+   * correlate it.
+   *
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process ID
    * @param messageName The BPMN message name, as the application wrote it (without any

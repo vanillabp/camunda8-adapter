@@ -155,6 +155,8 @@ public final class Camunda8Authentication {
   }
 
   /**
+   * Which of the three methods this adapter instance ended up with, the detected one included.
+   *
    * @return The method this adapter instance uses
    */
   public Camunda8AuthConfiguration.Method getMethod() {

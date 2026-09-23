@@ -30,6 +30,13 @@ import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 public class Camunda8DeployedProcesses {
 
   /**
+   * Opens an empty record. The client factory of an adapter id owns one, and the deployment
+   * of every workflow module fills it at each boot.
+   */
+  public Camunda8DeployedProcesses() {
+  }
+
+  /**
    * A process deployed by this application version.
    *
    * @param workflowModuleId The workflow module the process belongs to
@@ -67,6 +74,12 @@ public class Camunda8DeployedProcesses {
    */
   private final Map<String, Set<String>> declaredWithoutDeployment = new ConcurrentHashMap<>();
 
+  /**
+   * Notes a process the deployment just sent to the cluster, under both keys the viewer reads
+   * it back by.
+   *
+   * @param deployedProcess What the cluster answered the deployment with
+   */
   public void record(
       final DeployedProcess deployedProcess) {
 
@@ -147,6 +160,9 @@ public class Camunda8DeployedProcesses {
   }
 
   /**
+   * The model behind one definition key, which is how the viewer serves BPMN XML without asking
+   * the cluster.
+   *
    * @param processDefinitionKey The Camunda 8 process definition key
    * @return The deployed process or <code>null</code> if not deployed by this
    *         application version
@@ -159,6 +175,9 @@ public class Camunda8DeployedProcesses {
   }
 
   /**
+   * Which version of a BPMN process the running application version deployed, which is the
+   * version a workflow started now would run on.
+   *
    * @param workflowModuleId The workflow module id
    * @param bpmnProcessId The BPMN process id
    * @return The version deployed by this application version or <code>null</code>

@@ -31,6 +31,8 @@ public class Camunda8VirtualThreadExecutor extends Camunda8Executor {
   private final Semaphore slots;
 
   /**
+   * Builds the virtual-thread half and the semaphore which bounds it.
+   *
    * @param adapterId The adapter id, used to name the threads
    * @param bound How many handlers may run at the same time
    */

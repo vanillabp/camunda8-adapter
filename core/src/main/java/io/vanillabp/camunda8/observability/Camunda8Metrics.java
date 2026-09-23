@@ -64,8 +64,16 @@ public interface Camunda8Metrics {
    */
   String JOBS_WAITING = "vanillabp.camunda8.jobs.waiting";
 
+  /**
+   * The tag naming the adapter instance a measurement belongs to. Every meter here carries it,
+   * because an application may run more than one Camunda 8 adapter at once.
+   */
   String TAG_ADAPTER = "adapter";
 
+  /**
+   * The tag naming the job type a measurement belongs to. The job counters carry it, the
+   * execution slots do not: the slots are shared by every worker of an adapter instance.
+   */
   String TAG_JOB_TYPE = "job.type";
 
   /**

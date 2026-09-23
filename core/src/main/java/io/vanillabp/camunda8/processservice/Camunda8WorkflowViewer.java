@@ -30,7 +30,6 @@ import io.vanillabp.spi.process.ProcessDefinition;
 import io.vanillabp.spi.process.WorkflowElementHistory;
 import io.vanillabp.spi.process.WorkflowElementType;
 import io.vanillabp.spi.process.WorkflowHistory;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -60,7 +59,6 @@ import lombok.extern.slf4j.Slf4j;
  * is the process definition key.
  */
 @Slf4j
-@RequiredArgsConstructor
 public class Camunda8WorkflowViewer {
 
   private final String adapterId;
@@ -88,6 +86,33 @@ public class Camunda8WorkflowViewer {
    * than one per read.
    */
   private final AtomicBoolean viewerQueryFailureWarned = new AtomicBoolean();
+
+  /**
+   * Builds the viewer of one configured adapter id, which the process service of that id owns.
+   * <p>
+   * Written out rather than generated, because javadoc does not run Lombok: a generated
+   * constructor is missing from the published documentation, which then advertises a no-arg
+   * constructor this class has never had.
+   *
+   * @param adapterId The configured adapter id this viewer answers for
+   * @param clientFactory The clients of that adapter id
+   * @param scopedProcessId Turns a workflow module id and a plain BPMN process id into the id
+   *          the cluster knows
+   * @param tenantIdOf The tenant a workflow module's instances live in, or <code>null</code>
+   *          where the mode uses none
+   */
+  public Camunda8WorkflowViewer(
+      final String adapterId,
+      final Camunda8ClientFactory clientFactory,
+      final BinaryOperator<String> scopedProcessId,
+      final UnaryOperator<String> tenantIdOf) {
+
+    this.adapterId = adapterId;
+    this.clientFactory = clientFactory;
+    this.scopedProcessId = scopedProcessId;
+    this.tenantIdOf = tenantIdOf;
+
+  }
 
   /**
    * The process definitions of the addressed (sub-)workflow.

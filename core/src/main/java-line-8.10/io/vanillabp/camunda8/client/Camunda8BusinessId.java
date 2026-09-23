@@ -29,7 +29,9 @@ public final class Camunda8BusinessId {
   }
 
   /**
-   * @return Whether an instance of this release line can carry a business id at all
+   * Whether an instance of this release line can carry a business id at all.
+   *
+   * @return <code>true</code>: this line writes the field when the instance is created
    */
   public static boolean supportedByThisLine() {
 

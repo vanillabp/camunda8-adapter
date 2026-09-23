@@ -30,6 +30,8 @@ public interface Camunda8FetchVariablesResolver {
   Camunda8FetchVariables.Mode DEFAULT_FETCH_VARIABLES = Camunda8FetchVariables.Mode.DERIVED;
 
   /**
+   * Which variables the worker of a task asks the cluster for.
+   *
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process ID
    * @param taskDefinition The task definition (job type), or <code>null</code> for the

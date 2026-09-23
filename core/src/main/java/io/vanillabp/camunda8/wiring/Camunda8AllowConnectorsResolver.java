@@ -65,6 +65,9 @@ public interface Camunda8AllowConnectorsResolver {
   }
 
   /**
+   * Whether this BPMN process may carry elements another runtime serves, and which property key
+   * said so.
+   *
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The PLAIN BPMN process ID
    * @return The most specific configured setting, never <code>null</code>

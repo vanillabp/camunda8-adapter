@@ -305,6 +305,9 @@ public class Camunda8ProcessingContext {
   private final Camunda8MultiInstance.Registry multiInstanceRegistry;
 
   /**
+   * Opens the context of one pipeline run, which the deployment service then fills while it
+   * walks the BPMN files of the workflow module.
+   *
    * @param adapterId The adapter id this pipeline run belongs to
    * @param workflowModuleId The workflow module whose files this run deploys
    * @param multiInstanceRegistry The multi-instance chains of that adapter
@@ -358,6 +361,14 @@ public class Camunda8ProcessingContext {
 
   }
 
+  /**
+   * Whether this run collected no BPMN resource at all.
+   * <p>
+   * A workflow module without an executable process is no mistake, so the deployment service
+   * asks this and skips the deployment instead of sending an empty one.
+   *
+   * @return Whether there is nothing to deploy
+   */
   public boolean isEmpty() {
 
     return resources.isEmpty();

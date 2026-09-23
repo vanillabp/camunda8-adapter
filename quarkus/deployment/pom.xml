@@ -61,6 +61,19 @@
         </configuration>
       </plugin>
       <plugin>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <!-- Only what is written here. The Quarkus extension processor below writes an
+               accessor class per build-step class into target/generated-sources, and nobody can
+               put a comment on a file the build creates. Javadoc reads every compile source root
+               by default, so those classes were four warnings the check can never be satisfied
+               about. This module is the only one which generates sources, so the narrowing stays
+               here rather than in the parent, where it would also hide the per-line source tree
+               of the core. -->
+          <sourcepath>${project.basedir}/src/main/java</sourcepath>
+        </configuration>
+      </plugin>
+      <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
         <executions>
           <execution>

@@ -48,7 +48,6 @@ import io.vanillabp.integration.spi.PhaseOperation;
 import io.vanillabp.spi.process.ProcessDefinition;
 import io.vanillabp.spi.process.TaskNotFoundException;
 import io.vanillabp.spi.process.WorkflowHistory;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -82,7 +81,6 @@ import lombok.extern.slf4j.Slf4j;
  * @param <A> The workflow-aggregate type
  */
 @Slf4j
-@RequiredArgsConstructor
 // see decision 4 in the repository's DECISIONS.md
 @SuppressWarnings("LombokSetterMayBeUsed")
 public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
@@ -113,6 +111,36 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * technical aggregate-ID variable is written then.
    */
   private final WorkflowAggregateSync aggregateSync;
+
+  /**
+   * Builds the process service of one configured adapter id. The platform bean of Spring Boot
+   * or Quarkus is the caller, once per adapter id it found in the configuration.
+   * <p>
+   * Written out rather than generated, because javadoc does not run Lombok: a generated
+   * constructor is missing from the published documentation, which then advertises a no-arg
+   * constructor this class has never had.
+   *
+   * @param adapterId The configured adapter id this instance answers for
+   * @param clientFactory The clients of that adapter id
+   * @param asyncTaskLockRenewal How far a probe pushes the lock of a job it looks at
+   * @param preCommitRegistrar Where phase one hooks its check into the caller's unit of work
+   * @param aggregateSync Which aggregate attributes reach the cluster, or <code>null</code>
+   *          to send the aggregate id alone
+   */
+  public Camunda8ProcessService(
+      final String adapterId,
+      final Camunda8ClientFactory clientFactory,
+      final Duration asyncTaskLockRenewal,
+      final PreCommitRegistrar preCommitRegistrar,
+      final WorkflowAggregateSync aggregateSync) {
+
+    this.adapterId = adapterId;
+    this.clientFactory = clientFactory;
+    this.asyncTaskLockRenewal = asyncTaskLockRenewal;
+    this.preCommitRegistrar = preCommitRegistrar;
+    this.aggregateSync = aggregateSync;
+
+  }
 
   /**
    * How often the probe is repeated while waiting - deliberately not configurable:

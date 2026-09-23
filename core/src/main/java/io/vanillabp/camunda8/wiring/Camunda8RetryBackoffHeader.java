@@ -53,6 +53,13 @@ public class Camunda8RetryBackoffHeader {
    */
   private final Set<String> alreadyReported = ConcurrentHashMap.newKeySet();
 
+  /**
+   * Opens the reader of one workflow module, which remembers the elements it already spoke
+   * about.
+   *
+   * @param adapterId The adapter id this belongs to
+   * @param workflowModuleId The workflow module whose models are read
+   */
   public Camunda8RetryBackoffHeader(
       final String adapterId,
       final String workflowModuleId) {

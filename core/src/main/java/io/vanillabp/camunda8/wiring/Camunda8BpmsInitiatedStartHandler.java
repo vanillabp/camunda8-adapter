@@ -77,6 +77,18 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
    */
   private final Camunda8RetryBackoffResolver retryBackoffResolver;
 
+  /**
+   * Builds the handler without a drain and without a retry-backoff resolver, which is what a
+   * test needs.
+   *
+   * @param adapterId The adapter id this handler belongs to
+   * @param workflowModuleId The workflow module the start event belongs to
+   * @param bpmnProcessId The PLAIN BPMN process id the start event belongs to
+   * @param startEventId The BPMN element id of the start event
+   * @param kind What fires the start event: a timer, a signal or a condition
+   * @param signalName The signal name where the kind is a signal, <code>null</code> otherwise
+   * @param bpmsInitiatedStartInvoker What the platform calls when the cluster starts a workflow
+   */
   public Camunda8BpmsInitiatedStartHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -90,6 +102,19 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
 
   }
 
+  /**
+   * Builds the handler without a retry-backoff resolver, so a failed job waits the backoff the
+   * cluster itself decides on.
+   *
+   * @param adapterId The adapter id this handler belongs to
+   * @param workflowModuleId The workflow module the start event belongs to
+   * @param bpmnProcessId The PLAIN BPMN process id the start event belongs to
+   * @param startEventId The BPMN element id of the start event
+   * @param kind What fires the start event: a timer, a signal or a condition
+   * @param signalName The signal name where the kind is a signal, <code>null</code> otherwise
+   * @param bpmsInitiatedStartInvoker What the platform calls when the cluster starts a workflow
+   * @param drain Where the running handler is counted, or <code>null</code> for a drain of its own
+   */
   public Camunda8BpmsInitiatedStartHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -105,6 +130,21 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
 
   }
 
+  /**
+   * Builds the handler of one start event with everything it can be given. The deployment
+   * service uses this one; the shorter ones above fill the tail with <code>null</code>.
+   *
+   * @param adapterId The adapter id this handler belongs to
+   * @param workflowModuleId The workflow module the start event belongs to
+   * @param bpmnProcessId The PLAIN BPMN process id the start event belongs to
+   * @param startEventId The BPMN element id of the start event
+   * @param kind What fires the start event: a timer, a signal or a condition
+   * @param signalName The signal name where the kind is a signal, <code>null</code> otherwise
+   * @param bpmsInitiatedStartInvoker What the platform calls when the cluster starts a workflow
+   * @param drain Where the running handler is counted, or <code>null</code> for a drain of its own
+   * @param retryBackoffResolver Answers how long the cluster waits before it offers a failed job
+   *          again, or <code>null</code> for the cluster's own backoff
+   */
   public Camunda8BpmsInitiatedStartHandler(
       final String adapterId,
       final String workflowModuleId,

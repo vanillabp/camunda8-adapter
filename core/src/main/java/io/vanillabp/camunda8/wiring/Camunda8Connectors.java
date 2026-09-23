@@ -74,6 +74,8 @@ public final class Camunda8Connectors {
                                               String elementTemplate) {
 
     /**
+     * The element in one line, which is how the startup report names it.
+     *
      * @return The element as one line of the startup report
      */
     public String describe() {

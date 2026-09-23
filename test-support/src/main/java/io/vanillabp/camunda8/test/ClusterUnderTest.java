@@ -86,6 +86,9 @@ public final class ClusterUnderTest {
   }
 
   /**
+   * The image every cluster of this build starts from. The build filters it in, so it follows the
+   * client the line was compiled against.
+   *
    * @return The image of the cluster under test, e.g. {@code camunda/camunda:8.9.19}
    */
   public static DockerImageName image() {
@@ -144,6 +147,9 @@ public final class ClusterUnderTest {
   private static GenericContainer<?> shared;
 
   /**
+   * Where a started cluster answers REST calls. The port is mapped, so it is only known once the
+   * container runs.
+   *
    * @param cluster A started cluster
    * @return Where its REST API answers, e.g. {@code http://localhost:32770}
    */
@@ -155,6 +161,9 @@ public final class ClusterUnderTest {
   }
 
   /**
+   * Where a started cluster answers gRPC calls. The port is mapped, so it is only known once the
+   * container runs.
+   *
    * @param cluster A started cluster
    * @return Where its gRPC gateway answers, e.g. {@code http://localhost:32771}
    */
@@ -227,6 +236,8 @@ public final class ClusterUnderTest {
   public static final String USERNAME = "demo";
 
   /**
+   * The password of that user.
+   *
    * @see #USERNAME
    */
   public static final String PASSWORD = "demo";
