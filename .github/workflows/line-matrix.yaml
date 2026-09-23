@@ -110,7 +110,14 @@ jobs:
       # runs whatever the build did.
       - name: Remove the containers this line started
         if: always()
-        run: docker ps -aq --filter label=org.testcontainers=true | xargs -r docker rm -f
+        # Same race as in deploy-to-github-packages.yaml: Ryuk removes the same containers,
+        # 'docker rm' then exits 123 on "removal ... is already in progress", and a line
+        # whose tests were green went red on the cleanup. A belt does not decide a build.
+        run: |
+          docker ps -aq --filter label=org.testcontainers=true \
+            | xargs -r docker rm -f \
+            || echo "Some containers were already going away, which is Ryuk doing the same work."
+          exit 0
       - name: The cluster and the client this line was tested against
         # The properties file moved into 'test-support' when that module was split out, so
         # this step read a path which no longer exists and failed a line whose build and
