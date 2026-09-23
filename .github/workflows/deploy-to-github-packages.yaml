@@ -87,7 +87,15 @@ jobs:
       # runs whatever the build did.
       - name: Remove the containers the tests started
         if: always()
-        run: docker ps -aq --filter label=org.testcontainers=true | xargs -r docker rm -f
+        # Ryuk removes the same containers, so the two race: 'docker rm' answers
+        # "removal of container ... is already in progress" and exits 123, which failed a
+        # publish job whose tests were all green. This step is a belt, not a check, so it
+        # reports what it could not remove and leaves the verdict to the build.
+        run: |
+          docker ps -aq --filter label=org.testcontainers=true \
+            | xargs -r docker rm -f \
+            || echo "Some containers were already going away, which is Ryuk doing the same work."
+          exit 0
       - name: Collect coverage reports
         if: "${{ github.event_name == 'push' }}"
         run: |
