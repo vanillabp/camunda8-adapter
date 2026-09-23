@@ -23,6 +23,8 @@ public class Camunda8PlatformThreadExecutor extends Camunda8Executor {
   private final ThreadPoolExecutor handlers;
 
   /**
+   * Builds the pool which is the bound, with as many threads as the configured number.
+   *
    * @param adapterId The adapter id, used to name the threads
    * @param bound How many handlers may run at the same time
    */

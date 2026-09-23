@@ -34,6 +34,26 @@ import jakarta.enterprise.inject.Produces;
 @ApplicationScoped
 public class Camunda8ProcessServiceProducer {
 
+  /**
+   * Built by CDI, which needs a no-arg constructor to proxy an application-scoped bean.
+   */
+  public Camunda8ProcessServiceProducer() {
+  }
+
+  /**
+   * Builds one process service per configured adapter id of type <code>camunda8</code>.
+   * <p>
+   * The list is what the platform looks up, because a CDI producer cannot yield one bean per id
+   * an application configures at runtime.
+   *
+   * @param properties The platform's properties, which name the configured adapter ids and
+   *          their types
+   * @param clientFactoryRegistry Where each service gets the client of its adapter id
+   * @param preCommitRegistrar Where phase one hooks its check into the caller's unit of work
+   * @param aggregateSync Which aggregate attributes reach the cluster
+   * @param scoping How identifiers are kept apart where two adapter ids share a cluster
+   * @return One service per configured adapter id of this type
+   */
   @Produces
   public List<MigratableProcessService<Object>> camunda8MigratableProcessServices(
       final MigrationAdapterProperties properties,

@@ -56,6 +56,9 @@ public final class ClusterLog {
   }
 
   /**
+   * Opens a log consumer for one container and gives it a number of its own, so two containers
+   * of the same kind stay apart in the file.
+   *
    * @param kind What the container is, e.g. {@code broker}
    * @return A log consumer for one container, to be handed to
    *         {@code withLogConsumer(...)}

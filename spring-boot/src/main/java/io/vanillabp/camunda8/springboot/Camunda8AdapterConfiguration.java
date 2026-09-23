@@ -17,6 +17,16 @@ import io.vanillabp.integration.processservice.SpringBootMigrationAdapterAutoCon
 @AutoConfiguration(before = SpringBootMigrationAdapterAutoConfiguration.class)
 public class Camunda8AdapterConfiguration extends AdapterConfigurationBase {
 
+  /**
+   * Built by Spring Boot while it reads the auto-configuration imports.
+   */
+  public Camunda8AdapterConfiguration() {
+  }
+
+  /**
+   * The adapter type this auto-configuration registers, taken from the deployment service so
+   * both halves cannot drift apart.
+   */
   public static final String ADAPTER_TYPE = Camunda8DeploymentService.ADAPTER_TYPE;
 
   @Override

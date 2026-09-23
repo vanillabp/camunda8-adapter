@@ -29,6 +29,9 @@ import io.vanillabp.integration.adapter.spi.health.AdapterHealth;
  */
 public final class Camunda8Health {
 
+  /**
+   * The adapter type this check belongs to, which is what the platform reports it under.
+   */
   public static final String ADAPTER_TYPE = "camunda8";
 
   private Camunda8Health() {

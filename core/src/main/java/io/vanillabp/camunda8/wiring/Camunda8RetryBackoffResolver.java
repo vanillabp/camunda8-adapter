@@ -67,6 +67,9 @@ public interface Camunda8RetryBackoffResolver {
   }
 
   /**
+   * How long the cluster waits before it offers a failed job of this task again, and whether
+   * the task level is where that came from.
+   *
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process ID
    * @param taskDefinition The task definition (job type), or <code>null</code> for the

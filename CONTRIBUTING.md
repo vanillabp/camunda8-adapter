@@ -44,9 +44,27 @@ directory does not fail to compile, it fails at runtime with a `NoClassDefFoundE
 Two tools read the javadoc here. The compiler compiles every module with
 `-Xdoclint:all,-missing`, so it reads a package private class as well, and it reads the per-line
 source tree of the line you build. The javadoc plugin reads what a release publishes and therefore
-starts at protected. A broken `{@link}` or a tag HTML no longer knows fails the build in either
-place. Because the compiler only sees the line it builds, a change in `src/main/java-line-8.8` or
+starts at protected. One thing below protected is shown as well: the fields a serializable class
+carries into its serialized form, which is why a private field of an exception is asked for a
+comment too. A broken `{@link}` or a tag HTML no longer knows fails the build in either place.
+Because the compiler only sees the line it builds, a change in `src/main/java-line-8.8` or
 `src/main/java-line-8.10` is only checked by a build of that line.
+
+A comment which is missing breaks the build. Everything this repository publishes has one now, and
+the plugin fails on a warning so that it stays that way. Write the sentence rather than switching
+the check off, and write the one a reader needs: this is the API an application is built against,
+and `@return the value` is the same gap in a longer form. The modules which publish nothing -
+`smoke-test`, `election-integration-test` and the two Quarkus test modules - do not run the goal at
+all.
+
+The per-line source trees make this a check per line. Each line carries its own
+`Camunda8BusinessId`, `Camunda8JobLease` and `Camunda8CancelListeners`, and a build sees the tree of
+the line it selects, so a comment written on one line says nothing about the other two. Build all
+three before you call the javadoc clean:
+
+```bash
+for line in 8.8 8.9 8.10; do mvn -B -Pline-$line clean package -Dmaven.test.skip=true -DskipITs; done
+```
 
 The integration tests start a Camunda 8 cluster in Docker through Testcontainers. They are the
 slowest thing in the whole VanillaBP workspace, and they are skipped where Docker is not available,

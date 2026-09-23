@@ -46,6 +46,34 @@ import jakarta.inject.Singleton;
 @ApplicationScoped
 public class Camunda8DeploymentServiceProducer {
 
+  /**
+   * Built by CDI, which needs a no-arg constructor to proxy an application-scoped bean.
+   */
+  public Camunda8DeploymentServiceProducer() {
+  }
+
+  /**
+   * Builds one deployment service per configured adapter id of type <code>camunda8</code>.
+   * <p>
+   * The list is what the platform looks up, because a CDI producer cannot yield one bean per id
+   * an application configures at runtime. Its element type carries <code>Object</code> for both
+   * type parameters on purpose, see the class javadoc.
+   *
+   * @param properties The platform's properties, which name the configured adapter ids and
+   *          their types
+   * @param clientFactoryRegistry Where each service gets the client of its adapter id
+   * @param workflowTaskRegistry What the application serves, per task
+   * @param scoping How identifiers are kept apart where two adapter ids share a cluster
+   * @param workflowAggregateSync Which aggregate attributes reach the cluster
+   * @param preCommitRegistrar Where phase one hooks its check into the caller's unit of work
+   * @param workflowEndedInvoker What is called when a workflow ended, where the application
+   *          asked to be told
+   * @param bpmsInitiatedStartInvoker What is called when the cluster starts a workflow on its
+   *          own
+   * @param metrics Where this adapter's own numbers go, absent where the application brings no
+   *          Micrometer
+   * @return One service per configured adapter id of this type
+   */
   @Produces
   @Singleton
   @SuppressWarnings({

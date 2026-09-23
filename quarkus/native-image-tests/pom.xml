@@ -17,6 +17,9 @@
     <!-- test-only module: nothing to publish -->
     <maven.install.skip>true</maven.install.skip>
     <maven.deploy.skip>true</maven.deploy.skip>
+    <!-- and no documentation either: what is published is what a javadoc is written for,
+         and this module publishes nothing. The check stays on in every module which does. -->
+    <maven.javadoc.skip>true</maven.javadoc.skip>
     <!-- the code under test runs in a native binary, which no Java agent instruments:
          this module measures no coverage and therefore appears in no aggregated report.
          The empty agent keeps the inherited '@{jacoco.agent}' argLine resolvable. -->

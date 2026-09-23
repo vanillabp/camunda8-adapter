@@ -83,6 +83,16 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
    */
   private final Camunda8RetryBackoffResolver retryBackoffResolver;
 
+  /**
+   * Builds the handler without a drain and without a retry-backoff resolver, which is what a
+   * test needs.
+   *
+   * @param adapterId The adapter id this handler belongs to
+   * @param workflowModuleId The workflow module the process belongs to
+   * @param bpmnProcessId The PLAIN BPMN process id whose end is reported
+   * @param aggregateIdVariable The process variable carrying the workflow aggregate's id
+   * @param workflowEndedInvoker What the platform calls when a workflow of that process ended
+   */
   public Camunda8WorkflowEndedHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -94,6 +104,17 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
 
   }
 
+  /**
+   * Builds the handler without a retry-backoff resolver, so a failed job waits the backoff the
+   * cluster itself decides on.
+   *
+   * @param adapterId The adapter id this handler belongs to
+   * @param workflowModuleId The workflow module the process belongs to
+   * @param bpmnProcessId The PLAIN BPMN process id whose end is reported
+   * @param aggregateIdVariable The process variable carrying the workflow aggregate's id
+   * @param workflowEndedInvoker What the platform calls when a workflow of that process ended
+   * @param drain Where the running handler is counted, or <code>null</code> for a drain of its own
+   */
   public Camunda8WorkflowEndedHandler(
       final String adapterId,
       final String workflowModuleId,
@@ -106,6 +127,19 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
 
   }
 
+  /**
+   * Builds the handler of one process with everything it can be given. The deployment service
+   * uses this one; the shorter ones above fill the tail with <code>null</code>.
+   *
+   * @param adapterId The adapter id this handler belongs to
+   * @param workflowModuleId The workflow module the process belongs to
+   * @param bpmnProcessId The PLAIN BPMN process id whose end is reported
+   * @param aggregateIdVariable The process variable carrying the workflow aggregate's id
+   * @param workflowEndedInvoker What the platform calls when a workflow of that process ended
+   * @param drain Where the running handler is counted, or <code>null</code> for a drain of its own
+   * @param retryBackoffResolver Answers how long the cluster waits before it offers a failed job
+   *          again, or <code>null</code> for the cluster's own backoff
+   */
   public Camunda8WorkflowEndedHandler(
       final String adapterId,
       final String workflowModuleId,

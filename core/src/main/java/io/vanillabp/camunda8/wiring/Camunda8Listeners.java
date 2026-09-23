@@ -83,6 +83,8 @@ public final class Camunda8Listeners {
     }
 
     /**
+     * The kind in words, so a message reads like a sentence rather than like an enum.
+     *
      * @return What a message calls this kind
      */
     public String described() {
@@ -113,6 +115,9 @@ public final class Camunda8Listeners {
                                  String taskDefinition) {
 
     /**
+     * The listener in one line, which is how the startup report and the guiding messages name
+     * it.
+     *
      * @return The listener as one line of a message
      */
     public String describe() {

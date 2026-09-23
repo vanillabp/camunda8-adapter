@@ -81,6 +81,9 @@ public abstract class Camunda8Executor implements ScheduledExecutorService {
   private final AtomicInteger handlersRunning = new AtomicInteger();
 
   /**
+   * Builds the shared half every execution model has: the timing threads, the counter of
+   * running handlers, and the bound both models are read against.
+   *
    * @param adapterId The adapter id, used to name the threads
    * @param bound How many handlers may run at the same time
    * @param handling The half which runs what the client submits
@@ -103,6 +106,8 @@ public abstract class Camunda8Executor implements ScheduledExecutorService {
   }
 
   /**
+   * The limit this adapter id runs its handlers under, whichever execution model it uses.
+   *
    * @return How many handlers may run at the same time
    */
   public int getBound() {
@@ -159,6 +164,8 @@ public abstract class Camunda8Executor implements ScheduledExecutorService {
   protected abstract void leaveSlot();
 
   /**
+   * The handling half, for a subclass which has to reach the executor it handed over.
+   *
    * @return The half which runs what the client submits
    */
   protected ExecutorService handling() {

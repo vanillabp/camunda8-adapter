@@ -15,4 +15,10 @@ import io.vanillabp.camunda8.springboot.Camunda8AdapterBeanRegistrar;
 @Import(Camunda8AdapterBeanRegistrar.class)
 public class Camunda8AdapterProcessServiceConfiguration {
 
+  /**
+   * Built by Spring Boot while it reads the auto-configuration imports.
+   */
+  public Camunda8AdapterProcessServiceConfiguration() {
+  }
+
 }

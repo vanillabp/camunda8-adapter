@@ -30,6 +30,13 @@ import io.micrometer.core.instrument.binder.MeterBinder;
  */
 public class MicrometerCamunda8Metrics implements Camunda8Metrics, MeterBinder {
 
+  /**
+   * Opens the binder without a registry. Micrometer hands the registry over later, so nothing
+   * is counted until it does.
+   */
+  public MicrometerCamunda8Metrics() {
+  }
+
   private volatile MeterRegistry registry;
 
   private final Map<String, Counter> counters = new ConcurrentHashMap<>();

@@ -26,7 +26,9 @@ public final class Camunda8CancelListeners {
   }
 
   /**
-   * @return Whether an instance of this line can report its own cancelation
+   * Whether an instance of this line can report its own cancelation.
+   *
+   * @return <code>false</code>: the <code>cancel</code> execution listener arrived with 8.10
    */
   public static boolean theProcessCanReportItsCancellation() {
 
@@ -58,6 +60,9 @@ public final class Camunda8CancelListeners {
   }
 
   /**
+   * Reads a listener job which arrived and says whether it is the cancelation of the
+   * instance rather than one of the other listener events.
+   *
    * @param job The listener job which arrived
    * @return Whether it reports the cancelation of the instance it belongs to, which no job
    *         of this line does

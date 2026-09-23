@@ -86,6 +86,15 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   @FunctionalInterface
   public interface TasksOfModel {
 
+    /**
+     * Reads the tasks out of one model.
+     *
+     * @param workflowModuleId The workflow module ID
+     * @param bpmnProcessId The PLAIN BPMN process ID
+     * @param version The version the cluster assigned
+     * @param model The model as the cluster runs it
+     * @return The tasks the model declares
+     */
     Collection<BpmnTaskSpec> of(
         String workflowModuleId,
         String bpmnProcessId,
@@ -97,6 +106,9 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   private TasksOfModel tasksOfModel;
 
   /**
+   * Hands over how a model is read for tasks. The deployment service does this after both
+   * halves are built, because each one needs the other.
+   *
    * @param tasksOfModel How the deployment service reads a model
    */
   public void setTasksOfModel(
@@ -115,6 +127,14 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   @FunctionalInterface
   public interface WhatAModelDeclares<T> {
 
+    /**
+     * Runs the walk over one model.
+     *
+     * @param workflowModuleId The workflow module ID
+     * @param bpmnProcessId The PLAIN BPMN process ID
+     * @param model The model as the cluster runs it
+     * @return What the walk found, empty where the model declares none of it
+     */
     Collection<T> of(
         String workflowModuleId,
         String bpmnProcessId,
@@ -130,6 +150,8 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   public interface HeldModelOfVersion {
 
     /**
+     * Reads the model of one version off the cluster.
+     *
      * @param workflowModuleId The workflow module ID
      * @param bpmnProcessId The PLAIN BPMN process ID
      * @param version The version the cluster assigned
@@ -148,6 +170,9 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   private WhatAModelDeclares<BpmsInitiatedStartSpec> startEventsOfModel;
 
   /**
+   * Hands over how a model the cluster holds is fetched, for the same reason
+   * {@link #setTasksOfModel(TasksOfModel)} is handed over rather than passed in.
+   *
    * @param heldModelOfVersion How the deployment service gets at a model the cluster
    *          holds
    */
@@ -159,6 +184,9 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   }
 
   /**
+   * Hands over how the start events of a model are read, for the same reason
+   * {@link #setTasksOfModel(TasksOfModel)} is handed over rather than passed in.
+   *
    * @param startEventsOfModel How the deployment service reads the start events a model
    *          declares
    */
@@ -182,6 +210,9 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   private WhatAModelDeclares<String> concurrentTokenElementsOfModel;
 
   /**
+   * Hands over how the elements which can put a second token into a workflow are read, for the
+   * same reason {@link #setTasksOfModel(TasksOfModel)} is handed over rather than passed in.
+   *
    * @param concurrentTokenElementsOfModel How the deployment service reads the elements
    *          which can put a second token into a workflow of a model
    */
@@ -290,6 +321,15 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   @FunctionalInterface
   public interface IdentifiersOfModel {
 
+    /**
+     * Reads the identifiers out of one model.
+     *
+     * @param workflowModuleId The workflow module ID
+     * @param bpmnProcessId The PLAIN BPMN process ID
+     * @param version The version the cluster assigned
+     * @param model The model as the cluster runs it
+     * @return The identifiers the model declares
+     */
     Collection<ModelIdentifier> of(
         String workflowModuleId,
         String bpmnProcessId,
@@ -301,6 +341,9 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   private IdentifiersOfModel identifiersOfModel;
 
   /**
+   * Hands over how the identifiers of a model are read, for the same reason
+   * {@link #setTasksOfModel(TasksOfModel)} is handed over rather than passed in.
+   *
    * @param identifiersOfModel How the deployment service reads the identifiers a model
    *          declares
    */
@@ -582,6 +625,17 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
 
   }
 
+  /**
+   * Builds the version reader of one adapter id. The client arrives as a supplier because the
+   * deployment service builds this before the client exists.
+   *
+   * @param adapterId The adapter id whose cluster is asked
+   * @param client Where the client of that id comes from
+   * @param scopedProcessIds Turns a workflow module id and a plain BPMN process id into the id
+   *          the cluster knows
+   * @param tenants The tenant a workflow module's instances live in, or <code>null</code> where
+   *          the mode uses none
+   */
   public Camunda8ProcessVersions(
       final String adapterId,
       final Supplier<CamundaClient> client,

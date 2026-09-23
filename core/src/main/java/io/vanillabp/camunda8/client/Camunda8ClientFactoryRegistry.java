@@ -19,6 +19,9 @@ public class Camunda8ClientFactoryRegistry implements AutoCloseable {
   private final Map<String, Camunda8ClientFactory> factories;
 
   /**
+   * Builds one factory per configured adapter id, eagerly, so a connection nobody can use is
+   * found while the application boots.
+   *
    * @param configurationsByAdapterId The connection configuration of every
    *          configured adapter id of type {@code camunda8} (the id set always
    *          comes from the platform's core properties)
@@ -73,6 +76,9 @@ public class Camunda8ClientFactoryRegistry implements AutoCloseable {
   }
 
   /**
+   * The factory of one adapter id, which is how everything else in this adapter reaches a
+   * client.
+   *
    * @param adapterId The adapter ID
    * @return The client factory of the given adapter instance
    * @throws IllegalStateException If no Camunda 8 adapter of that id is configured -

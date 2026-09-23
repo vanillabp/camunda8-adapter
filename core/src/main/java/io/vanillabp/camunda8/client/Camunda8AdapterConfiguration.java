@@ -99,6 +99,13 @@ import lombok.Setter;
 public class Camunda8AdapterConfiguration {
 
   /**
+   * Opens an adapter section with the default values of its keys. The platform integration
+   * builds one per configured adapter id and fills it through the setters.
+   */
+  public Camunda8AdapterConfiguration() {
+  }
+
+  /**
    * The prefix of the canonical per-adapter configuration namespace (see class
    * javadoc) - the shared VanillaBP tree's adapters section.
    */
@@ -124,6 +131,12 @@ public class Camunda8AdapterConfiguration {
    */
   private boolean defaultedPropertySet = false;
 
+  /**
+   * Sets the connection mode and marks this section as configured, which is what tells an
+   * adapter nobody wrote a key for from one whose keys do not fit together.
+   *
+   * @param mode The mode the application wrote
+   */
   public void setMode(
       final Mode mode) {
 
@@ -138,6 +151,12 @@ public class Camunda8AdapterConfiguration {
 
   private boolean preferRestOverGrpc = true;
 
+  /**
+   * Sets which of the two protocols is preferred and marks this section as configured, the
+   * same way {@link #setMode(Mode)} does.
+   *
+   * @param preferRestOverGrpc What the application wrote
+   */
   public void setPreferRestOverGrpc(
       final boolean preferRestOverGrpc) {
 

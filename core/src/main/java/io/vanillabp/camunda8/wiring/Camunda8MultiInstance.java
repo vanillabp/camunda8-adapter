@@ -119,6 +119,13 @@ public final class Camunda8MultiInstance {
    */
   public static class Registry {
 
+    /**
+     * Opens an empty registry. The deployment service of one adapter id fills it while it wires
+     * that adapter's models.
+     */
+    public Registry() {
+    }
+
     private final Map<String, List<MultiInstanceElement>> chains = new ConcurrentHashMap<>();
 
     /**

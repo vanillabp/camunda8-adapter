@@ -44,6 +44,8 @@ public interface VanillaBpCamunda8Properties {
   /**
    * The adapter sections of the shared tree, keyed by adapter ID - only the
    * Camunda 8 connection keys are modeled here.
+   *
+   * @return The sections, keyed by adapter id, empty where the application wrote none
    */
   Map<String, Camunda8AdapterKeys> adapters();
 
@@ -339,16 +341,6 @@ public interface VanillaBpCamunda8Properties {
   }
 
   /**
-   * The <code>adapters.&lt;id&gt;</code> sections of the three levels below the adapter,
-   * most specific first - what every scope-specific key is resolved through.
-   *
-   * @param workflowModuleId The workflow module ID
-   * @param bpmnProcessId The BPMN process ID
-   * @param taskDefinition The task definition (job type)
-   * @param adapterId The adapter ID
-   * @return The sections which exist, most specific first
-   */
-  /**
    * Resolves the time-to-live of a published message with most-specific-wins semantics,
    * where the MOST specific level is the message rather than a task; falls back to the
    * adapter-level value and finally to <code>null</code>, which leaves the command alone
@@ -513,6 +505,16 @@ public interface VanillaBpCamunda8Properties {
 
   }
 
+  /**
+   * The <code>adapters.&lt;id&gt;</code> sections of the three levels below the adapter,
+   * most specific first - what every scope-specific key is resolved through.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The BPMN process ID
+   * @param taskDefinition The task definition (job type)
+   * @param adapterId The adapter ID
+   * @return The sections which exist, most specific first
+   */
   private Stream<Camunda8ScopedKeys> scopedKeysMostSpecificFirst(
       final String workflowModuleId,
       final String bpmnProcessId,
@@ -554,49 +556,67 @@ public interface VanillaBpCamunda8Properties {
 
     /**
      * Connection mode: <code>self-managed</code> (default) or <code>saas</code>.
+     *
+     * @return The mode, empty where the application wrote none
      */
     Optional<Camunda8AdapterConfiguration.Mode> mode();
 
     /**
      * REST API address of a self-managed cluster (e.g.
      * <code>http://localhost:8080</code>).
+     *
+     * @return The address, empty where the application wrote none
      */
     Optional<String> restAddress();
 
     /**
      * gRPC address of a self-managed cluster (required when
      * <code>prefer-rest-over-grpc</code> is <code>false</code>).
+     *
+     * @return The address, empty where the application wrote none
      */
     Optional<String> grpcAddress();
 
     /**
      * Whether the client uses the REST API (recommended, default) or gRPC for its
      * commands.
+     *
+     * @return The choice, empty where the application wrote none
      */
     Optional<Boolean> preferRestOverGrpc();
 
     /**
      * The Camunda 8 multi-tenancy tenant (optional, both modes).
+     *
+     * @return The tenant id, empty where the application wrote none
      */
     Optional<String> tenantId();
 
     /**
      * SaaS cluster ID.
+     *
+     * @return The cluster id, empty where the application wrote none
      */
     Optional<String> clusterId();
 
     /**
      * SaaS region.
+     *
+     * @return The region, empty where the application wrote none
      */
     Optional<String> region();
 
     /**
      * SaaS OAuth client ID.
+     *
+     * @return The client id, empty where the application wrote none
      */
     Optional<String> clientId();
 
     /**
      * SaaS OAuth client secret.
+     *
+     * @return The client secret, empty where the application wrote none
      */
     Optional<String> clientSecret();
 

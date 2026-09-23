@@ -110,6 +110,9 @@ public final class Camunda8FetchVariables {
                           List<String> names) {
 
     /**
+     * The selection of a worker which asks for everything, which is what mode <code>all</code>
+     * ends up as.
+     *
      * @return A selection asking for the complete variable scope
      */
     public static Selection everything() {
@@ -119,6 +122,8 @@ public final class Camunda8FetchVariables {
     }
 
     /**
+     * The selection of a worker which asks for named variables only.
+     *
      * @param names The variable names, in any order
      * @return A selection asking for those names, sorted so it is stable across
      *         restarts
@@ -131,6 +136,9 @@ public final class Camunda8FetchVariables {
     }
 
     /**
+     * Whether this selection brings one variable along, which is what a guiding message about a
+     * variable nobody fetched is built on.
+     *
      * @param name A variable name
      * @return Whether a job of this worker carries that variable
      */
@@ -142,6 +150,8 @@ public final class Camunda8FetchVariables {
     }
 
     /**
+     * The selection in words, for a reader rather than for the cluster.
+     *
      * @return What the startup line and the guiding messages call this selection
      */
     public String describe() {

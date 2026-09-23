@@ -72,6 +72,13 @@ public class Camunda8QueryApi {
    */
   private volatile Boolean answers;
 
+  /**
+   * Builds the query half of one adapter id. The client arrives as a supplier because the
+   * factory builds this before it builds the client itself.
+   *
+   * @param adapterId The adapter id this asks for
+   * @param client Where the client of that id comes from
+   */
   public Camunda8QueryApi(
       final String adapterId,
       final Supplier<CamundaClient> client) {

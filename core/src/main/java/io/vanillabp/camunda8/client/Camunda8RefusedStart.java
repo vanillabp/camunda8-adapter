@@ -21,6 +21,9 @@ public class Camunda8RefusedStart extends RuntimeException {
   private static final long serialVersionUID = 1L;
 
   /**
+   * Reports a start the cluster refused for good, carrying the cluster's own answer as the
+   * cause.
+   *
    * @param message What an operator reads next to the blocked outbox entry
    * @param refusal What the cluster answered the create command with
    */

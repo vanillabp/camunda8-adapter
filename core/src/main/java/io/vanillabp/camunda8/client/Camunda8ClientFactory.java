@@ -98,6 +98,14 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
   private CamundaClient client;
 
+  /**
+   * Builds the factory of one configured adapter id. The registry does this once per id, and
+   * everything the id cannot live without is resolved here so a bad value fails the boot
+   * rather than the first workflow.
+   *
+   * @param adapterId The configured adapter id
+   * @param configuration The section the application wrote for that id
+   */
   public Camunda8ClientFactory(
       final String adapterId,
       final Camunda8AdapterConfiguration configuration) {
@@ -172,6 +180,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
   private volatile boolean closed = false;
 
   /**
+   * The client of this adapter instance, which everything reaching the cluster goes through.
+   *
    * @return The eagerly built {@link CamundaClient} of this adapter instance
    * @throws IllegalStateException If the adapter's connection configuration is
    *         incomplete (runtime backstop naming the missing properties) or the
@@ -406,6 +416,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
+   * Which other adapter ids of this application address the same cluster.
+   *
    * @return The other adapter ids addressing this cluster, empty where this id is alone
    */
   public List<String> getAdapterIdsSharingTheCluster() {
@@ -415,6 +427,9 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
+   * Whether this adapter id shares its cluster, which is what makes a name clash between two
+   * ids possible in the first place.
+   *
    * @return Whether another <code>camunda8</code> adapter id addresses the same cluster
    */
   public boolean sharesItsCluster() {
@@ -514,6 +529,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
+   * Which workflow modules of this adapter id still have workers running.
+   *
    * @return The workflow modules of this adapter instance whose workers are open
    */
   public synchronized Set<String> getOpenWorkflowModules() {
@@ -569,7 +586,9 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
-   * @return How long a job of this adapter id stays locked, never <code>null</code>
+   * The resolver which answers how long a job of this adapter id stays locked.
+   *
+   * @return That resolver, never <code>null</code>
    */
   public Camunda8JobTimeoutResolver getJobTimeoutResolver() {
 

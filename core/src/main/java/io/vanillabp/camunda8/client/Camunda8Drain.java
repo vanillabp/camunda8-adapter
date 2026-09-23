@@ -84,6 +84,9 @@ public class Camunda8Drain {
   private volatile boolean shuttingDown;
 
   /**
+   * Opens the drain of one workflow module. The client factory builds one per module, on first
+   * use.
+   *
    * @param adapterId The adapter instance this belongs to
    * @param workflowModuleId The workflow module whose workers are drained
    */
@@ -169,6 +172,9 @@ public class Camunda8Drain {
   }
 
   /**
+   * What this module has in flight, which is what a shutdown waits for and what a report names
+   * where it gave up waiting.
+   *
    * @return The deliveries whose handler is running right now
    */
   public Collection<InFlightJob> getInFlight() {
@@ -199,6 +205,8 @@ public class Camunda8Drain {
                              boolean workersReleased) {
 
     /**
+     * Whether both halves came back, which is the only outcome a shutdown may call clean.
+     *
      * @return Whether the module is quiet: no handler inside the application, no
      *         activation request of this module left at the cluster
      */

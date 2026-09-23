@@ -61,6 +61,9 @@ public interface Camunda8AllowListenersResolver {
   }
 
   /**
+   * Whether this BPMN process may carry listeners nobody serves, and which property key said
+   * so.
+   *
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The PLAIN BPMN process ID
    * @return The most specific configured setting, never <code>null</code>

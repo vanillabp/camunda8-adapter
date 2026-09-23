@@ -38,8 +38,11 @@ public final class Camunda8ReleaseLine {
   }
 
   /**
-   * @return The Camunda 8 minor this build belongs to, e.g. <code>8.9</code>, which is the
-   *         lowest cluster version it accepts, or <code>unknown</code>.
+   * The Camunda 8 minor this build belongs to, which is the lowest cluster version it
+   * accepts.
+   *
+   * @return The line, e.g. <code>8.9</code>, or <code>unknown</code> where the descriptor was
+   *         not readable
    */
   public static String id() {
 
@@ -48,8 +51,10 @@ public final class Camunda8ReleaseLine {
   }
 
   /**
-   * @return The exact Camunda client this build was compiled against, e.g.
-   *         <code>8.9.16</code>, or <code>unknown</code>.
+   * The exact Camunda client this build was compiled against.
+   *
+   * @return The client version, e.g. <code>8.9.16</code>, or <code>unknown</code> where the
+   *         descriptor was not readable
    */
   public static String clientVersion() {
 

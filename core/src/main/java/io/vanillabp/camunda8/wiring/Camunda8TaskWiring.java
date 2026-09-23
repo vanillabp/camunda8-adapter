@@ -76,6 +76,11 @@ public final class Camunda8TaskWiring {
                                    String activityId,
                                    String taskDefinition) {
 
+    /**
+     * The task in the shape the platform's own checks read it.
+     *
+     * @return The element id and the task definition of this task
+     */
     public BpmnTaskSpec toSpec() {
 
       return new BpmnTaskSpec(activityId, taskDefinition);
@@ -158,6 +163,9 @@ public final class Camunda8TaskWiring {
   public static final String TASKDEFINITION_WORKFLOW_ENDED = "io.vanillabp.workflowEnd:";
 
   /**
+   * The job type of a process' end execution listener, built from the prefix above so the
+   * worker and the model agree on one string.
+   *
    * @param scopedBpmnProcessId The BPMN process id the cluster knows
    * @return The job type of the process' end execution listener
    */
@@ -377,6 +385,8 @@ public final class Camunda8TaskWiring {
                                                  String signalName) {
 
     /**
+     * The job type of this start event's execution listener.
+     *
      * @return The job type of this start event's execution listener
      */
     public String listenerJobType() {
@@ -388,6 +398,9 @@ public final class Camunda8TaskWiring {
   }
 
   /**
+   * The job type of a start event's execution listener. One worker serves one start event, so
+   * the element id is part of the job type.
+   *
    * @param scopedBpmnProcessId The BPMN process id the cluster knows
    * @param startEventId The BPMN id of the start event
    * @return The job type of the start event's execution listener
@@ -573,6 +586,11 @@ public final class Camunda8TaskWiring {
                                        String activityId,
                                        String externalFormReference) {
 
+    /**
+     * The user task in the shape the platform's own checks read it.
+     *
+     * @return The element id and the task definition of this user task
+     */
     public BpmnTaskSpec toSpec() {
 
       return BpmnTaskSpec.userTask(activityId, externalFormReference);
@@ -581,6 +599,8 @@ public final class Camunda8TaskWiring {
 
     /**
      * The job type of this user task's lifecycle listeners.
+     *
+     * @return That job type
      */
     public String listenerJobType() {
 

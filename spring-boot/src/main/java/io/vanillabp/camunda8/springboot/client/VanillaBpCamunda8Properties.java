@@ -46,6 +46,13 @@ import lombok.Setter;
 public class VanillaBpCamunda8Properties {
 
   /**
+   * Bound by Spring Boot, which builds the section with this constructor and then calls the
+   * setters.
+   */
+  public VanillaBpCamunda8Properties() {
+  }
+
+  /**
    * The adapter sections of the shared tree, keyed by adapter ID - only the
    * Camunda 8 connection keys are modeled here (bound directly onto the
    * platform-neutral {@link Camunda8AdapterConfiguration}).
@@ -70,6 +77,12 @@ public class VanillaBpCamunda8Properties {
    * Resolves the job timeout for a task with most-specific-wins semantics across
    * the four levels; falls back to the adapter-level value and finally the
    * default.
+   *
+   * @param workflowModuleId The workflow module the task belongs to
+   * @param bpmnProcessId The BPMN process the task belongs to
+   * @param taskDefinition The task definition (job type)
+   * @param adapterId The adapter id whose keys are read
+   * @return The most specific configured timeout, or the default where no level configures one
    */
   public Duration jobTimeoutFor(
       final String workflowModuleId,
@@ -94,6 +107,12 @@ public class VanillaBpCamunda8Properties {
   /**
    * Resolves the backoff of a FAILED job with the same most-specific-wins semantics;
    * falls back to the adapter-level value and finally the default of ten seconds.
+   *
+   * @param workflowModuleId The workflow module the task belongs to
+   * @param bpmnProcessId The BPMN process the task belongs to
+   * @param taskDefinition The task definition (job type)
+   * @param adapterId The adapter id whose keys are read
+   * @return The most specific configured backoff, or the default where no level configures one
    */
   public Duration retryBackoffFor(
       final String workflowModuleId,
@@ -519,6 +538,13 @@ public class VanillaBpCamunda8Properties {
   @Setter
   public static class Camunda8ScopedKeys {
 
+    /**
+     * Bound by Spring Boot, which builds the section with this constructor and then calls the
+     * setters.
+     */
+    public Camunda8ScopedKeys() {
+    }
+
     private Duration jobTimeout;
 
     private Duration retryBackoff;
@@ -553,6 +579,13 @@ public class VanillaBpCamunda8Properties {
   public static class Camunda8ModuleScopedKeys extends Camunda8ScopedKeys {
 
     /**
+     * Bound by Spring Boot, which builds the section with this constructor and then calls the
+     * setters.
+     */
+    public Camunda8ModuleScopedKeys() {
+    }
+
+    /**
      * The Camunda 8 tenant this workflow module is deployed into, overriding the name the
      * adapter section gives every module of this application.
      */
@@ -567,6 +600,13 @@ public class VanillaBpCamunda8Properties {
   @Setter
   public static class ModuleOverlay {
 
+    /**
+     * Bound by Spring Boot, which builds the section with this constructor and then calls the
+     * setters.
+     */
+    public ModuleOverlay() {
+    }
+
     private Map<String, Camunda8ModuleScopedKeys> adapters = Map.of();
 
     private Map<String, WorkflowOverlay> workflows = Map.of();
@@ -579,6 +619,13 @@ public class VanillaBpCamunda8Properties {
   @Getter
   @Setter
   public static class WorkflowOverlay {
+
+    /**
+     * Bound by Spring Boot, which builds the section with this constructor and then calls the
+     * setters.
+     */
+    public WorkflowOverlay() {
+    }
 
     private Map<String, Camunda8ScopedKeys> adapters = Map.of();
 
@@ -600,6 +647,13 @@ public class VanillaBpCamunda8Properties {
   @Setter
   public static class MessageOverlay {
 
+    /**
+     * Bound by Spring Boot, which builds the section with this constructor and then calls the
+     * setters.
+     */
+    public MessageOverlay() {
+    }
+
     private Map<String, Camunda8ScopedKeys> adapters = Map.of();
 
   }
@@ -610,6 +664,13 @@ public class VanillaBpCamunda8Properties {
   @Getter
   @Setter
   public static class TaskOverlay {
+
+    /**
+     * Bound by Spring Boot, which builds the section with this constructor and then calls the
+     * setters.
+     */
+    public TaskOverlay() {
+    }
 
     private Map<String, Camunda8ScopedKeys> adapters = Map.of();
 

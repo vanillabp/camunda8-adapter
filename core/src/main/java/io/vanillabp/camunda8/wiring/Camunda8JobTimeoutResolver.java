@@ -24,6 +24,8 @@ public interface Camunda8JobTimeoutResolver {
   Duration DEFAULT_JOB_TIMEOUT = Duration.ofMinutes(5);
 
   /**
+   * How long a job of this task stays locked for the worker which activated it.
+   *
    * @param workflowModuleId The workflow module ID
    * @param bpmnProcessId The BPMN process ID
    * @param taskDefinition The task definition (job type)

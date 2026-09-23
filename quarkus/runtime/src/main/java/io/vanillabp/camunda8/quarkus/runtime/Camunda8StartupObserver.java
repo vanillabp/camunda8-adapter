@@ -15,6 +15,12 @@ import jakarta.enterprise.inject.Instance;
 @ApplicationScoped
 public class Camunda8StartupObserver {
 
+  /**
+   * Built by CDI, which needs a no-arg constructor to proxy an application-scoped bean.
+   */
+  public Camunda8StartupObserver() {
+  }
+
   void onStart(
       @Observes final StartupEvent event,
       final Instance<Camunda8ClientFactoryRegistry> clientFactoryRegistry) {

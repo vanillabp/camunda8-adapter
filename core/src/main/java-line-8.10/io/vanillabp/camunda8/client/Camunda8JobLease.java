@@ -36,7 +36,9 @@ public final class Camunda8JobLease {
   }
 
   /**
-   * @return Whether the client of this release line can lease an activation at all
+   * Whether the client of this release line can lease an activation at all.
+   *
+   * @return <code>true</code>: this is the first line whose client and cluster have a lease
    */
   public static boolean supportedByThisLine() {
 
@@ -86,6 +88,9 @@ public final class Camunda8JobLease {
   }
 
   /**
+   * Carries the token into the completion of a job, which the cluster takes from whoever holds
+   * the current one.
+   *
    * @param command The completion of a job
    * @param token What {@link #tokenOf(ActivatedJob)} answered for it
    * @return The same command, carrying the token where there is one
@@ -101,6 +106,9 @@ public final class Camunda8JobLease {
   }
 
   /**
+   * Carries the token into the failure of a job, which the cluster takes from whoever holds
+   * the current one.
+   *
    * @param command The failure of a job
    * @param token What {@link #tokenOf(ActivatedJob)} answered for it
    * @return The same command, carrying the token where there is one
@@ -116,6 +124,9 @@ public final class Camunda8JobLease {
   }
 
   /**
+   * Carries the token into the BPMN error of a job, which the cluster takes from whoever holds
+   * the current one.
+   *
    * @param command The BPMN error of a job
    * @param token What {@link #tokenOf(ActivatedJob)} answered for it
    * @return The same command, carrying the token where there is one

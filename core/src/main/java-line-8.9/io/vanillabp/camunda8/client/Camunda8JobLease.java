@@ -31,7 +31,9 @@ public final class Camunda8JobLease {
   }
 
   /**
-   * @return Whether the client of this release line can lease an activation at all
+   * Whether the client of this release line can lease an activation at all.
+   *
+   * @return <code>false</code>: the client this line is compiled against has no lease
    */
   public static boolean supportedByThisLine() {
 
@@ -79,6 +81,8 @@ public final class Camunda8JobLease {
   }
 
   /**
+   * Would carry the token into the completion of a job, which this line cannot do.
+   *
    * @param command The completion of a job
    * @param token What {@link #tokenOf(ActivatedJob)} answered for it
    * @return The same command, unchanged
@@ -92,6 +96,8 @@ public final class Camunda8JobLease {
   }
 
   /**
+   * Would carry the token into the failure of a job, which this line cannot do.
+   *
    * @param command The failure of a job
    * @param token What {@link #tokenOf(ActivatedJob)} answered for it
    * @return The same command, unchanged
@@ -105,6 +111,8 @@ public final class Camunda8JobLease {
   }
 
   /**
+   * Would carry the token into the BPMN error of a job, which this line cannot do.
+   *
    * @param command The BPMN error of a job
    * @param token What {@link #tokenOf(ActivatedJob)} answered for it
    * @return The same command, unchanged

@@ -52,6 +52,8 @@ public class Camunda8ModelsTheClusterHolds {
   public sealed interface Answer {
 
     /**
+     * The cluster was asked and answered.
+     *
      * @param models The models the cluster holds
      * @param freshlyRead Whether every model was read by THIS call - a caller about
      *          to refuse something re-reads first where this is <code>false</code>,
@@ -77,6 +79,8 @@ public class Camunda8ModelsTheClusterHolds {
   public interface ModelsOfProcess {
 
     /**
+     * Reads every version the cluster holds under one BPMN process id.
+     *
      * @param workflowModuleId The workflow module ID
      * @param bpmnProcessId The PLAIN BPMN process ID
      * @return The models, empty where the cluster holds nothing under the id, or
@@ -107,6 +111,15 @@ public class Camunda8ModelsTheClusterHolds {
    */
   private final Set<String> reportedUnreadable = ConcurrentHashMap.newKeySet();
 
+  /**
+   * Opens the picture of one adapter id. It starts out empty and settles per BPMN process id as
+   * the checks ask for it.
+   *
+   * @param adapterId The adapter id whose cluster is asked
+   * @param deployedProcesses What this application version deployed, which is read before the
+   *          cluster is
+   * @param modelsOfProcess How a version of a process is read off the cluster
+   */
   public Camunda8ModelsTheClusterHolds(
       final String adapterId,
       final Camunda8DeployedProcesses deployedProcesses,

@@ -43,6 +43,22 @@ import lombok.extern.slf4j.Slf4j;
 })
 public class Camunda8ClientAutoConfiguration {
 
+  /**
+   * Built by Spring Boot while it reads the auto-configuration imports.
+   */
+  public Camunda8ClientAutoConfiguration() {
+  }
+
+  /**
+   * Builds the one registry of this application, with a client factory per configured adapter id
+   * of type <code>camunda8</code>. The ids come from the platform's own properties, and the
+   * adapter's overlay is read per id.
+   *
+   * @param coreProperties The platform's properties, which name the configured adapter ids and
+   *          their types
+   * @param overlay The adapter's own view of the same tree
+   * @return The registry, with every completely configured client already built
+   */
   @Bean(destroyMethod = "close")
   public Camunda8ClientFactoryRegistry camunda8ClientFactoryRegistry(
       final VanillaBpConfigurationProperties coreProperties,
@@ -100,6 +116,14 @@ public class Camunda8ClientAutoConfiguration {
   public static class Camunda8MetricsConfiguration {
 
     /**
+     * Built by Spring Boot where Micrometer is on the classpath.
+     */
+    public Camunda8MetricsConfiguration() {
+    }
+
+    /**
+     * Publishes the adapter's meter binder, which Spring Boot then applies to its registry.
+     *
      * @return The meter binder of this adapter's own numbers
      */
     @Bean
