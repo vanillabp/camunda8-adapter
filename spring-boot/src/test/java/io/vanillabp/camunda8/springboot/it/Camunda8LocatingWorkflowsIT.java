@@ -13,17 +13,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -39,43 +35,20 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
-// closed when the class is done: every IT here has a context of its own (its own
-// container), Spring would keep them all until the JVM exits, and a context outliving
-// its cluster keeps its job workers polling an address nobody answers - which is what
-// made the later classes of this module run into their timeouts
-@DirtiesContext
-public class Camunda8LocatingWorkflowsIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
+public class Camunda8LocatingWorkflowsIT extends SpringBootTestOnTheSharedCluster {
 
   @DynamicPropertySource
   static void camunda8Properties(
       final DynamicPropertyRegistry registry) {
 
-    registry
-        .add(
-            "vanillabp.adapters.c8.rest-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(8080));
     // the correlation right after the start waits for two things to happen: the
     // phase-two outbox dispatching the start (poll interval 10s) and the exporter
     // feeding the query API. The production default of 10s covers the export lag of
     // a warm cluster, not a cold container plus a poll interval
     registry.add("vanillabp.adapters.c8.workflow-visibility-timeout", () -> "PT60S");
-    registry
-        .add(
-            "vanillabp.adapters.c8.grpc-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(26500));
 
   }
 

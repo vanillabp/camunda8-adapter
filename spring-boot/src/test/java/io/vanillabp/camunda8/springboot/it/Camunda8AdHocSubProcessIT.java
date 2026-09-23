@@ -14,15 +14,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -40,38 +34,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
-// closed when the class is done, for the reason every IT of this module gives: a context
-// outliving its cluster keeps its job workers polling an address nobody answers
-@DirtiesContext
-public class Camunda8AdHocSubProcessIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
-
-  @DynamicPropertySource
-  static void camunda8Properties(
-      final DynamicPropertyRegistry registry) {
-
-    registry
-        .add(
-            "vanillabp.adapters.c8.rest-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(8080));
-    registry
-        .add(
-            "vanillabp.adapters.c8.grpc-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(26500));
-
-  }
+public class Camunda8AdHocSubProcessIT extends SpringBootTestOnTheSharedCluster {
 
   @Autowired
   private AdHocDockerWorkflowService workflowService;

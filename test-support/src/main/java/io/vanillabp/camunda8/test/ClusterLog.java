@@ -17,17 +17,18 @@ import org.testcontainers.containers.output.OutputFrame;
  * What the Camunda 8 containers of a test module printed, written into a file below
  * {@code target}.
  * <p>
- * Every integration test class brings a cluster of its own, and a red build otherwise
- * leaves nothing of any of them: the container is removed with the run and the runner's
- * disk with it, so a test which timed out waiting for a notification and a cluster which
- * never handed the job out look the same afterwards. The file is what a build uploads next
- * to the test reports when it fails, and its name carries {@code application} because that
- * is the shape of file such an upload collects.
+ * A red build otherwise leaves nothing of the cluster it ran against: the container is
+ * removed with the run and the runner's disk with it, so a test which timed out waiting for
+ * a notification and a cluster which never handed the job out look the same afterwards. The
+ * file is what a build uploads next to the test reports when it fails, and its name carries
+ * {@code application} because that is the shape of file such an upload collects.
  * <p>
  * All containers of one module append to the SAME file, and every line names the container
- * which wrote it and the time it did. That pair is what relates a line to the test which was
- * running - the containers are created while their classes are loaded, so there is no test
- * name to ask for at that point.
+ * which wrote it and the time it did. The time is what relates a line to the test which was
+ * running, and it has to be: a container asked for by {@code ClusterUnderTest.sharedCluster()}
+ * serves every class of its module, so its name says which cluster wrote the line and never
+ * which test was waiting for it. The test report of the same run carries the clock of the
+ * same machine.
  * <p>
  * The path is relative, so every module writes its own file: a build starts each module in
  * its own directory.

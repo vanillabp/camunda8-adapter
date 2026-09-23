@@ -23,13 +23,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.zeebe.model.bpmn.Bpmn;
@@ -38,9 +32,9 @@ import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.client.Camunda8JobLease;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
+import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
 import io.vanillabp.camunda8.test.ClusterLog;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import io.vanillabp.integration.adapter.spi.WorkflowScope;
 import io.vanillabp.integration.spi.PhaseOperation;
@@ -70,16 +64,10 @@ import io.vanillabp.spi.process.TaskNotFoundException;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
-// closed when the class is done: every IT here has a context of its own (its own
-// container), Spring would keep them all until the JVM exits, and a context outliving
-// its cluster keeps its job workers polling an address nobody answers - which is what
-// made the later classes of this module run into their timeouts
-@DirtiesContext
-public class Camunda8TaskProcessingIT {
+public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
 
   private static final Logger LOG = LoggerFactory.getLogger(Camunda8TaskProcessingIT.class);
 
@@ -123,26 +111,6 @@ public class Camunda8TaskProcessingIT {
    * job arrives. Once one does, the tag and the exclusion in the 'line-8.10' profile go together.
    */
   private static final String USER_TASK_LISTENER_JOBS = "user-task-listener-jobs";
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
-
-  @DynamicPropertySource
-  static void camunda8Properties(
-      final DynamicPropertyRegistry registry) {
-
-    registry.add("vanillabp.adapters.c8.rest-address",
-        () -> "http://"
-            + CAMUNDA.getHost()
-            + ":"
-            + CAMUNDA.getMappedPort(8080));
-    registry.add("vanillabp.adapters.c8.grpc-address",
-        () -> "http://"
-            + CAMUNDA.getHost()
-            + ":"
-            + CAMUNDA.getMappedPort(26500));
-
-  }
 
   @Autowired
   private TaskDockerWorkflowService workflowService;

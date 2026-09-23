@@ -11,17 +11,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import io.vanillabp.integration.adapter.spi.WorkflowScope;
 import io.vanillabp.integration.spi.AggregatePersistenceAware;
@@ -49,16 +43,10 @@ import io.vanillabp.spi.process.ProcessService;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
-// closed when the class is done: every IT here has a context of its own (its own
-// container), Spring would keep them all until the JVM exits, and a context outliving
-// its cluster keeps its job workers polling an address nobody answers - which is what
-// made the later classes of this module run into their timeouts
-@DirtiesContext
-public class Camunda8DeploymentAndStartIT {
+public class Camunda8DeploymentAndStartIT extends SpringBootTestOnTheSharedCluster {
 
   /**
    * What a probe is asked about.
@@ -69,27 +57,6 @@ public class Camunda8DeploymentAndStartIT {
   private static final String JOB_TYPE = "test-job";
 
   private static final String COUNT_OUTBOX_ENTRIES = "select count(*) from VANILLABP_PHASE_TWO_OUTBOX";
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
-
-
-  @DynamicPropertySource
-  static void camunda8Properties(
-      final DynamicPropertyRegistry registry) {
-
-    registry.add("vanillabp.adapters.c8.rest-address",
-        () -> "http://"
-            + CAMUNDA.getHost()
-            + ":"
-            + CAMUNDA.getMappedPort(8080));
-    registry.add("vanillabp.adapters.c8.grpc-address",
-        () -> "http://"
-            + CAMUNDA.getHost()
-            + ":"
-            + CAMUNDA.getMappedPort(26500));
-
-  }
 
   @Autowired
   private ProcessService<DockerAggregate> processService;
@@ -134,7 +101,6 @@ public class Camunda8DeploymentAndStartIT {
     DockerWorkflowService.ACTIVATED_AGGREGATE_IDS.clear();
 
   }
-
 
   private long countOutboxEntries() {
 

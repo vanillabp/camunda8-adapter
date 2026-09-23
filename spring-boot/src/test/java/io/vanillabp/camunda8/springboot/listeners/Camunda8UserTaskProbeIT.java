@@ -12,17 +12,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8Errors;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.service.TaskEvent;
 
@@ -64,7 +58,6 @@ import io.vanillabp.spi.service.TaskEvent;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
 @Tag("user-task-listener-jobs")
 @SpringBootTest(
     classes = ListenerTestApplication.class,
@@ -76,32 +69,7 @@ import io.vanillabp.spi.service.TaskEvent;
         // and that redelivery is the wake-up the check rides in on
         "vanillabp.adapters.c8.async-task-lock-renewal=PT3S"
     })
-@DirtiesContext
-public class Camunda8UserTaskProbeIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster("user-task-probe");
-
-  @DynamicPropertySource
-  static void camunda8Properties(
-      final DynamicPropertyRegistry registry) {
-
-    registry
-        .add(
-            "vanillabp.adapters.c8.rest-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(8080));
-    registry
-        .add(
-            "vanillabp.adapters.c8.grpc-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(26500));
-
-  }
+public class Camunda8UserTaskProbeIT extends SpringBootTestOnTheSharedCluster {
 
   @Autowired
   private UserTaskProbeDockerWorkflowService workflowService;

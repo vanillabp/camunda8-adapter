@@ -571,8 +571,9 @@
         <camunda8.line>8.8</camunda8.line>
         <camunda8.version>${camunda8.version.line-8.8}</camunda8.version>
         <!-- the cluster of this line keeps its secondary storage in an Elasticsearch, so
-             its tests pay for a second container per class. Moving it onto the embedded
-             database the newer lines use would change what this line is tested against,
+             its tests pay for a second container beside every cluster they start. Moving it
+             onto the embedded database the newer lines use would change what this line is
+             tested against,
              which is the one thing a previous-GA line may not do -->
         <camunda8.cluster.secondary-storage>elasticsearch</camunda8.cluster.secondary-storage>
       </properties>

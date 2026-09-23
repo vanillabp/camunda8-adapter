@@ -47,6 +47,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * no other traffic of this repository has ever been proven on that transport, and the
  * regression it would work around is fixed upstream. The README says the same in prose.
  * <p>
+ * The cluster is this class's own, while the other tests of this module share one. The
+ * shared one leaves gRPC without an identity, which is the very gap described above, so
+ * this test needs a cluster configured differently rather than a cluster to itself.
+ * <p>
  * The class is skipped when Docker is unavailable
  * ({@code @Testcontainers(disabledWithoutDocker = true)}).
  */

@@ -42,6 +42,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * warned at startup - whether a cluster wants credentials is only learnable by asking it
  * - so a client of that kind is built against the same running cluster and the guiding
  * message it produces is asserted.
+ * <p>
+ * The cluster is this class's own, while the other tests of this module share one. A shared
+ * cluster with authentication switched on for everybody would be a different module under
+ * test: every other class would have to carry credentials, and the one thing this class is
+ * about would be what all of them do.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -49,9 +54,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
-// closed when the class is done: every IT here has a context of its own (its own
-// container), Spring would keep them all until the JVM exits, and a context outliving
-// its cluster keeps its job workers polling an address nobody answers
+// closed when the class is done: this context has a cluster of its own, Spring would keep
+// the context until the JVM exits, and a context outliving its cluster keeps its job
+// workers polling an address nobody answers
 @DirtiesContext
 public class Camunda8AuthenticationIT {
 

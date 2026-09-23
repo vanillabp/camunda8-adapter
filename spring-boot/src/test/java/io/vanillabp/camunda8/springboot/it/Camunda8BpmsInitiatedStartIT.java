@@ -30,12 +30,17 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <p>
  * The class is skipped when Docker is unavailable.
  * <p>
- * Every IT class of this module brings a Camunda 8 container of its own, and a fresh
- * cluster hands out the same job keys again. Those keys are what VanillaBP remembers a
- * delivery by, so the test configuration gives every class a DATABASE of its
- * own (<code>spring.datasource.generate-unique-name</code>) - a shared one let the
- * records of an earlier class answer this class' task with "processed before", and the
- * handler never ran while the workflow completed.
+ * The cluster is this class's own, while the other tests of this module share one. The
+ * timer of this model is <code>R1/PT1S</code>: it fires ONCE, a second after the model was
+ * deployed, and a cluster which already holds that model creates no new timer for the next
+ * deployment of it. On the shared cluster the start would therefore have happened in
+ * whichever class deployed first, and this test would wait for a start it had already
+ * missed. So it needs a cluster which has never seen its model.
+ * <p>
+ * The test configuration gives every class a DATABASE of its own
+ * (<code>spring.datasource.generate-unique-name</code>). VanillaBP remembers a delivery by
+ * the job key, and a shared database let the records of an earlier class answer this class'
+ * task with "processed before", so the handler never ran while the workflow completed.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -43,34 +48,21 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
-// closed when the class is done: every IT here has a context of its own (its own
-// container), Spring would keep them all until the JVM exits, and a context outliving
-// its cluster keeps its job workers polling an address nobody answers - which is what
-// made the later classes of this module run into their timeouts
+// closed when the class is done: this context has a cluster of its own, Spring would keep
+// the context until the JVM exits, and a context outliving its cluster keeps its job
+// workers polling an address nobody answers
 @DirtiesContext
 public class Camunda8BpmsInitiatedStartIT {
 
   @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
+  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster("timer-start");
 
   @DynamicPropertySource
-  static void camunda8Properties(
+  static void theAddressesOfTheClusterOfThisClass(
       final DynamicPropertyRegistry registry) {
 
-    registry
-        .add(
-            "vanillabp.adapters.c8.rest-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(8080));
-    registry
-        .add(
-            "vanillabp.adapters.c8.grpc-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(26500));
+    registry.add("vanillabp.adapters.c8.rest-address", () -> ClusterUnderTest.restAddress(CAMUNDA));
+    registry.add("vanillabp.adapters.c8.grpc-address", () -> ClusterUnderTest.grpcAddress(CAMUNDA));
 
   }
 

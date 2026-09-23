@@ -12,16 +12,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.camunda8.wiring.Camunda8JobHandler;
 import io.vanillabp.integration.adapter.migration.processservice.DeliveryRecords;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -43,7 +37,6 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = {
@@ -53,28 +46,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
         // and by then the task is already older than it may be
         "vanillabp.delivery.max-task-age=PT1S", "vanillabp.adapters.c8.async-task-max-age-action=incident"
     })
-@DirtiesContext
-public class Camunda8AsyncTaskAgeIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
-
-  @DynamicPropertySource
-  static void camunda8Properties(
-      final DynamicPropertyRegistry registry) {
-
-    registry.add("vanillabp.adapters.c8.rest-address",
-        () -> "http://"
-            + CAMUNDA.getHost()
-            + ":"
-            + CAMUNDA.getMappedPort(8080));
-    registry.add("vanillabp.adapters.c8.grpc-address",
-        () -> "http://"
-            + CAMUNDA.getHost()
-            + ":"
-            + CAMUNDA.getMappedPort(26500));
-
-  }
+public class Camunda8AsyncTaskAgeIT extends SpringBootTestOnTheSharedCluster {
 
   @Autowired
   private TaskDockerAggregateRepository repository;

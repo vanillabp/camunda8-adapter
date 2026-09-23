@@ -54,6 +54,13 @@ which quietly turns a full run into a small one. Give them the Docker they need 
 green build as an answer about behaviour. `test-coverage-report/coverage-gate` is the last module of
 the reactor and fails below 85 percent of covered instructions per platform, while the rule is 90.
 
+One cluster serves a whole module. A new integration test of `spring-boot` extends
+`TestOnTheSharedCluster`, or `SpringBootTestOnTheSharedCluster` where it boots its application with
+`@SpringBootTest`, and gets the addresses of that one container plus a cluster which runs nothing:
+the base class cancels what the class before it left behind. Write `@Container` only where the test
+needs a cluster of its own, one configured differently or one which has never seen its model, and
+say in the class why.
+
 Deploying is all modules or none. The POMs a build publishes belong together, and `-pl` would
 send half of them: a parent in its new form next to module POMs from before it, each half valid
 on its own, so nobody sees it until a user resolves the artifact and Maven says "The POM is
