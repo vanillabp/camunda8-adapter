@@ -8,19 +8,21 @@ import java.util.function.Supplier;
 
 import javax.sql.DataSource;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.integration.adapter.migration.processservice.DeliveryRecords;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
+import io.vanillabp.integration.test.utils.delivery.TaskDeliveryLogReader;
+import io.vanillabp.integration.test.utils.delivery.TaskDeliveryLogReader.Delivery;
 
 /**
  * A REDELIVERY of a task VanillaBP already processed, against a real Camunda 8
@@ -74,6 +76,19 @@ public class Camunda8InboundIdempotencyIT extends SpringBootTestOnTheSharedClust
 
   @Autowired
   private Camunda8ClientFactoryRegistry clientFactoryRegistry;
+
+  /**
+   * What this class asks about the delivery log. The reader belongs to the platform, so
+   * this class names neither the table nor its columns.
+   */
+  private TaskDeliveryLogReader deliveryLog;
+
+  @BeforeEach
+  public void takeTheDeliveryLog() {
+
+    deliveryLog = TaskDeliveryLogReader.of(dataSource);
+
+  }
 
   private void awaitUntil(
       final Supplier<Boolean> condition,
@@ -145,20 +160,14 @@ public class Camunda8InboundIdempotencyIT extends SpringBootTestOnTheSharedClust
           "the asynchronous task to be invoked once");
 
       // the delivery was recorded in the handler's transaction, with the outcome the
-      // adapter reports again on every redelivery. The record is looked up by task, not
-      // by aggregate alone: every integration test class of this repository shares the
-      // in-memory database, and their aggregate IDs start at 1 just like ours
-      // awaited, not asserted right away: the counter above is incremented INSIDE the
-      // handler, while the record is written after it returned and becomes visible with
-      // the commit - reading it immediately is a race the test lost on a CI runner
+      // adapter reports again on every redelivery. Awaited, not asserted right away: the
+      // counter above is incremented INSIDE the handler, while the record is written
+      // after it returned and becomes visible with the commit - reading it immediately is
+      // a race the test lost on a CI runner
       awaitUntil(
-          () -> new JdbcTemplate(dataSource)
-              .queryForList(
-                  "SELECT OUTCOME FROM VANILLABP_TASK_DELIVERY WHERE AGGREGATE_ID = ? AND TASK_DEFINITION = ?",
-                  String.class,
-                  String.valueOf(aggregateId),
-                  "asyncTask")
-              .contains("COMPLETION_PENDING"),
+          () -> asyncTaskDeliveriesOf(aggregateId)
+              .stream()
+              .anyMatch(record -> "COMPLETION_PENDING".equals(record.outcome())),
           30000,
           "the delivery of the asynchronous task to be recorded as pending completion");
 
@@ -217,15 +226,7 @@ public class Camunda8InboundIdempotencyIT extends SpringBootTestOnTheSharedClust
     final var elements = new java.util.concurrent.atomic.AtomicReference<List<String>>(List.of());
     awaitUntil(
         () -> {
-          elements
-              .set(
-                  new JdbcTemplate(dataSource)
-                      .queryForList(
-                          "SELECT BPMN_ELEMENT_ID FROM VANILLABP_TASK_DELIVERY WHERE WORKFLOW_ID = ? "
-                              + "AND TASK_DEFINITION = ?",
-                          String.class,
-                          String.valueOf(processInstance.getProcessInstanceKey()),
-                          "asyncTask"));
+          elements.set(asyncTaskElementsOfWorkflow(processInstance.getProcessInstanceKey()));
           return !elements.get().isEmpty();
         },
         60000,
@@ -235,6 +236,45 @@ public class Camunda8InboundIdempotencyIT extends SpringBootTestOnTheSharedClust
         List.of("AP_task"),
         elements.get(),
         "the element id a modeller wrote, which is not the job type the task definition holds");
+
+  }
+
+  /**
+   * What the log wrote down about the asynchronous task of one workflow aggregate. Read by
+   * aggregate AND by task definition: every integration test class of this repository
+   * shares the in-memory database, and their aggregate IDs start at 1 just like ours.
+   *
+   * @param aggregateId The workflow aggregate this test started
+   * @return Those records, empty while the log holds none
+   */
+  private List<Delivery> asyncTaskDeliveriesOf(
+      final Long aggregateId) {
+
+    return deliveryLog
+        .deliveries()
+        .stream()
+        .filter(record -> String.valueOf(aggregateId).equals(record.aggregateId()))
+        .filter(record -> "asyncTask".equals(record.taskDefinition()))
+        .toList();
+
+  }
+
+  /**
+   * The elements the log names for the asynchronous task of one workflow.
+   *
+   * @param processInstanceKey The cluster's own key of the running instance
+   * @return Those element ids, empty while the log holds no record of that task
+   */
+  private List<String> asyncTaskElementsOfWorkflow(
+      final long processInstanceKey) {
+
+    return deliveryLog
+        .deliveries()
+        .stream()
+        .filter(record -> String.valueOf(processInstanceKey).equals(record.workflowId()))
+        .filter(record -> "asyncTask".equals(record.taskDefinition()))
+        .map(Delivery::bpmnElementId)
+        .toList();
 
   }
 
