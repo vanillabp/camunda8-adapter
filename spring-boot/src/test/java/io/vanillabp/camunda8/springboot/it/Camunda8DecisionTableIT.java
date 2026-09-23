@@ -7,15 +7,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -32,7 +26,6 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
 // the order is part of the test: a broadcast reaches EVERY workflow of the module which
 // waits at that moment, and the broadcast test repeats its signal until both of its
 // instances continued. Whatever is still in flight from that loop would continue the
@@ -42,36 +35,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
-// closed when the class is done: every IT here has a context of its own (its own
-// container), Spring would keep them all until the JVM exits, and a context outliving
-// its cluster keeps its job workers polling an address nobody answers - which is what
-// made the later classes of this module run into their timeouts
-@DirtiesContext
-public class Camunda8DecisionTableIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
-
-  @DynamicPropertySource
-  static void camunda8Properties(
-      final DynamicPropertyRegistry registry) {
-
-    registry
-        .add(
-            "vanillabp.adapters.c8.rest-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(8080));
-    registry
-        .add(
-            "vanillabp.adapters.c8.grpc-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(26500));
-
-  }
+public class Camunda8DecisionTableIT extends SpringBootTestOnTheSharedCluster {
 
   @Autowired
   private DecisionDockerWorkflowService workflowService;
@@ -81,7 +45,6 @@ public class Camunda8DecisionTableIT {
 
   @Autowired
   private TransactionTemplate transactionTemplate;
-
 
   @Test
   @DisplayName("both rules of the module's decision table decide a workflow of that module")

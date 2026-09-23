@@ -18,14 +18,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
 import io.vanillabp.camunda8.client.Camunda8JobLease;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.TestOnTheSharedCluster;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -54,36 +51,14 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
-public class Camunda8ShutdownDrainIT {
+public class Camunda8ShutdownDrainIT extends TestOnTheSharedCluster {
 
   /**
    * The retries a Camunda 8 job starts with, as the cluster hands it out.
    */
   private static final int RETRIES_OF_A_FRESH_JOB = 3;
 
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
-
   private ConfigurableApplicationContext application;
-
-  private static String restAddress() {
-
-    return "http://"
-        + CAMUNDA.getHost()
-        + ":"
-        + CAMUNDA.getMappedPort(8080);
-
-  }
-
-  private static String grpcAddress() {
-
-    return "http://"
-        + CAMUNDA.getHost()
-        + ":"
-        + CAMUNDA.getMappedPort(26500);
-
-  }
 
   @BeforeEach
   public void bootTheApplication() {

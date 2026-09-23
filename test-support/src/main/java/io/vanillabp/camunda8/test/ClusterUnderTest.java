@@ -37,9 +37,15 @@ import org.testcontainers.utility.DockerImageName;
  * storage lives is the second value the same properties file carries, see
  * {@code camunda8.cluster.secondary-storage} of the parent POM, and it belongs to the
  * release line as much as the image does: a line whose cluster can keep the storage in a
- * database of its own process starts one container per test class, an older line starts an
- * Elasticsearch beside it. A test class sees neither, it asks for a cluster and gets one -
- * see decision 22 in the repository's DECISIONS.md.
+ * database of its own process starts one container, an older line starts an Elasticsearch
+ * beside it. A test class sees neither, it asks for a cluster and gets one - see decision 22
+ * in the repository's DECISIONS.md.
+ * <p>
+ * How many clusters a run starts is the second thing a test does not decide alone.
+ * {@link #cluster()} hands out a container of its own, which a class declares as a
+ * {@code @Container} field and Testcontainers stops again when the class is done;
+ * {@link #sharedCluster()} hands every class of a module the same one. The second is what a
+ * module takes unless a test needs a cluster nobody else may touch.
  * <p>
  * <b>Why this is a published artifact.</b> Four modules carried a copy of this class and of
  * {@link ClusterLog}, and a fifth one grew in the Business Cockpit's Camunda 8 extension.
@@ -97,6 +103,65 @@ public final class ClusterUnderTest {
   public static GenericContainer<?> cluster() {
 
     return cluster("cluster");
+
+  }
+
+  /**
+   * The one cluster a whole test module shares: started when the first class asks for it
+   * and kept running until the JVM of the module's tests ends.
+   * <p>
+   * It is deliberately NOT a {@code @Container} field of any class. Testcontainers stops
+   * what a class declared once that class is done, which is what a cluster per class is
+   * made of, and a module of thirty classes then pays thirty startups. Here the container
+   * is started once, outside that lifecycle, and Ryuk
+   * removes it when the JVM which started it is gone - the same reaper which removes a
+   * container left behind by a test that crashed. A build adds a step which force-removes
+   * what is left, because a container living for a whole module lives long enough to be
+   * worth a belt.
+   * <p>
+   * What a test pays for the sharing is that the cluster REMEMBERS: the definitions of
+   * every class which booted before it are still deployed, and instances of theirs may
+   * still be running. Two things make that bearable in this repository. All classes of one
+   * module deploy the same files, so the cluster holds one set of definitions rather than
+   * one per class, and a class starts by cancelling whatever is still running. A test which
+   * needs a cluster nobody has deployed anything into keeps one of its own instead.
+   *
+   * @return The module's cluster, already started
+   */
+  public static synchronized GenericContainer<?> sharedCluster() {
+
+    if (shared == null) {
+      shared = cluster("shared");
+      shared.start();
+    }
+    return shared;
+
+  }
+
+  /**
+   * @see #sharedCluster()
+   */
+  private static GenericContainer<?> shared;
+
+  /**
+   * @param cluster A started cluster
+   * @return Where its REST API answers, e.g. {@code http://localhost:32770}
+   */
+  public static String restAddress(
+      final GenericContainer<?> cluster) {
+
+    return "http://%s:%d".formatted(cluster.getHost(), cluster.getMappedPort(8080));
+
+  }
+
+  /**
+   * @param cluster A started cluster
+   * @return Where its gRPC gateway answers, e.g. {@code http://localhost:32771}
+   */
+  public static String grpcAddress(
+      final GenericContainer<?> cluster) {
+
+    return "http://%s:%d".formatted(cluster.getHost(), cluster.getMappedPort(26500));
 
   }
 
@@ -375,9 +440,9 @@ public final class ClusterUnderTest {
   /**
    * The database the cluster keeps its secondary storage in where the release line has one:
    * an H2 in the memory of the cluster's own JVM, whose driver the image ships. It outlives
-   * every connection ({@code DB_CLOSE_DELAY=-1}) and dies with the container, which is what
-   * a test class wants - the cluster of the next class starts empty without anybody deleting
-   * anything.
+   * every connection ({@code DB_CLOSE_DELAY=-1}) and dies with the container, so a cluster
+   * which is started for one class leaves nothing behind for the next one, and a cluster
+   * shared by a module lives exactly as long as what it remembers.
    */
   private static final String H2_URL = "jdbc:h2:mem:camunda;DB_CLOSE_DELAY=-1";
 

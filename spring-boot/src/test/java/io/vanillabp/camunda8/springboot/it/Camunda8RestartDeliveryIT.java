@@ -18,11 +18,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.TestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -54,8 +51,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
-public class Camunda8RestartDeliveryIT {
+public class Camunda8RestartDeliveryIT extends TestOnTheSharedCluster {
 
   /**
    * The lock of the job under test. A job swallowed by a parked activation request comes
@@ -77,28 +73,7 @@ public class Camunda8RestartDeliveryIT {
    */
   private static final Duration DELIVERED_IN_SECONDS = Duration.ofSeconds(8);
 
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
-
   private ConfigurableApplicationContext application;
-
-  private static String restAddress() {
-
-    return "http://"
-        + CAMUNDA.getHost()
-        + ":"
-        + CAMUNDA.getMappedPort(8080);
-
-  }
-
-  private static String grpcAddress() {
-
-    return "http://"
-        + CAMUNDA.getHost()
-        + ":"
-        + CAMUNDA.getMappedPort(26500);
-
-  }
 
   private ConfigurableApplicationContext boot() {
 

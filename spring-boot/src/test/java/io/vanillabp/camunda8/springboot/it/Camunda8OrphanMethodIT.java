@@ -7,11 +7,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.TestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -29,11 +26,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * would pass on a cluster that never saw the model at all.
  */
 @ExtendWith(SuppressOutputExtension.class)
-@Testcontainers(disabledWithoutDocker = true)
-public class Camunda8OrphanMethodIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
+public class Camunda8OrphanMethodIT extends TestOnTheSharedCluster {
 
   @Test
   @DisplayName("A method matching no task ends the boot, naming the method and the fix")
@@ -45,12 +38,10 @@ public class Camunda8OrphanMethodIT {
             .run(
                 "--spring.config.name=camunda8-it",
                 "--spring.profiles.active=orphan-method",
-                "--vanillabp.adapters.c8.rest-address=http://%s:%d".formatted(
-                    CAMUNDA.getHost(),
-                    CAMUNDA.getMappedPort(8080)),
-                "--vanillabp.adapters.c8.grpc-address=http://%s:%d".formatted(
-                    CAMUNDA.getHost(),
-                    CAMUNDA.getMappedPort(26500)),
+                "--vanillabp.adapters.c8.rest-address="
+                    + restAddress(),
+                "--vanillabp.adapters.c8.grpc-address="
+                    + grpcAddress(),
                 "--vanillabp.workflow-modules.test-app.adapters.c8.resources-location=classpath*:orphan-method")
             .close());
 

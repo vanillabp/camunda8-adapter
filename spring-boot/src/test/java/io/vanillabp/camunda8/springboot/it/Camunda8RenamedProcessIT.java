@@ -17,12 +17,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.TestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -74,12 +71,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-public class Camunda8RenamedProcessIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
+public class Camunda8RenamedProcessIT extends TestOnTheSharedCluster {
 
   /**
    * The workflow started by the first application, read by the second one from the same
@@ -263,17 +256,16 @@ public class Camunda8RenamedProcessIT {
     return CamundaClient
         .newClientBuilder()
         .preferRestOverGrpc(true)
-        .restAddress(URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(8080))))
-        .grpcAddress(URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(26500))))
+        .restAddress(URI.create(restAddress()))
+        .grpcAddress(URI.create(grpcAddress()))
         .build();
 
   }
 
   /**
    * Waits for something the cluster and the job workers have to bring about. Generous on
-   * purpose: in a full build this class shares its machine with the other clusters of this
-   * module, and a deadline close to what a quiet machine needs fails while nothing is
-   * wrong.
+   * purpose: in a full build this class shares its machine with everything else the module
+   * runs, and a deadline close to what a quiet machine needs fails while nothing is wrong.
    */
   private static void awaitUntil(
       final java.util.function.BooleanSupplier condition,
@@ -309,13 +301,11 @@ public class Camunda8RenamedProcessIT {
     boot.add("--spring.datasource.generate-unique-name=false");
     boot.add("--spring.jpa.hibernate.ddl-auto=update");
     boot
-        .add("--vanillabp.adapters.c8.rest-address=http://%s:%d".formatted(
-            CAMUNDA.getHost(),
-            CAMUNDA.getMappedPort(8080)));
+        .add("--vanillabp.adapters.c8.rest-address="
+            + restAddress());
     boot
-        .add("--vanillabp.adapters.c8.grpc-address=http://%s:%d".formatted(
-            CAMUNDA.getHost(),
-            CAMUNDA.getMappedPort(26500)));
+        .add("--vanillabp.adapters.c8.grpc-address="
+            + grpcAddress());
     boot.add("--vanillabp.adapters.c8.workflow-visibility-timeout=PT60S");
     // prefixed identifiers, which is what makes this test worth a cluster: a task
     // definition then carries the BPMN process id it was deployed with, so the jobs of the

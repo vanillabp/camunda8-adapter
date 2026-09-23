@@ -9,17 +9,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -38,48 +32,18 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * prefix by hand: the test deploys the model directly through the client, bypassing
  * VanillaBP's pipeline (the adapter runs with name-clash-avoidance 'use-prefix' here).
  * <p>
- * An own in-memory database keeps this test apart from the other Camunda 8 ITs: Spring
- * caches test contexts, so several of them live in parallel - and an outbox they SHARE
- * would let a foreign context start this test's workflow on its own cluster.
+ * An own in-memory database keeps this test apart from the other Camunda 8 ITs: an outbox
+ * they SHARE would let another class's application start this test's workflow, and on the
+ * cluster all of them use it would be served like any other.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = {
         "spring.config.name=camunda8-it", "spring.datasource.url=jdbc:h2:mem:c8-versions-it;DB_CLOSE_DELAY=-1"
     })
-// closed when the class is done: every IT here has a context of its own (its own
-// container), Spring would keep them all until the JVM exits, and a context outliving
-// its cluster keeps its job workers polling an address nobody answers - which is what
-// made the later classes of this module run into their timeouts
-@DirtiesContext
-public class Camunda8ProcessVersionIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
-
-  @DynamicPropertySource
-  static void camunda8Properties(
-      final DynamicPropertyRegistry registry) {
-
-    registry
-        .add(
-            "vanillabp.adapters.c8.rest-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(8080));
-    registry
-        .add(
-            "vanillabp.adapters.c8.grpc-address",
-            () -> "http://"
-                + CAMUNDA.getHost()
-                + ":"
-                + CAMUNDA.getMappedPort(26500));
-
-  }
+public class Camunda8ProcessVersionIT extends SpringBootTestOnTheSharedCluster {
 
   @Autowired
   private VersionedDockerWorkflowService workflowService;

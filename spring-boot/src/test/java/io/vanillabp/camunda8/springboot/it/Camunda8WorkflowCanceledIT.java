@@ -11,16 +11,10 @@ import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.camunda8.wiring.Camunda8CancelListeners;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 import io.vanillabp.spi.service.WorkflowEnd;
@@ -49,12 +43,10 @@ import io.vanillabp.spi.service.WorkflowEnd;
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
 @EnabledIf("theLineReportsACancelation")
-@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
     classes = DockerTestApplication.class,
     properties = "spring.config.name=camunda8-it")
-@DirtiesContext
-public class Camunda8WorkflowCanceledIT {
+public class Camunda8WorkflowCanceledIT extends SpringBootTestOnTheSharedCluster {
 
   /**
    * Whether the release line this build belongs to reports the cancelation of an instance at
@@ -66,26 +58,6 @@ public class Camunda8WorkflowCanceledIT {
   static boolean theLineReportsACancelation() {
 
     return Camunda8CancelListeners.theProcessCanReportItsCancellation();
-
-  }
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
-
-  @DynamicPropertySource
-  static void camunda8Properties(
-      final DynamicPropertyRegistry registry) {
-
-    registry.add("vanillabp.adapters.c8.rest-address",
-        () -> "http://"
-            + CAMUNDA.getHost()
-            + ":"
-            + CAMUNDA.getMappedPort(8080));
-    registry.add("vanillabp.adapters.c8.grpc-address",
-        () -> "http://"
-            + CAMUNDA.getHost()
-            + ":"
-            + CAMUNDA.getMappedPort(26500));
 
   }
 

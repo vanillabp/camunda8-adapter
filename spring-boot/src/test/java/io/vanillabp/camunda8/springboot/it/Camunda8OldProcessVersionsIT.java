@@ -16,14 +16,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.search.enums.ProcessDefinitionState;
 import io.camunda.client.api.search.response.ProcessDefinition;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.TestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -42,12 +39,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * so without a state in the search the check would go on reporting it forever.
  */
 @ExtendWith(SuppressOutputExtension.class)
-@Testcontainers(disabledWithoutDocker = true)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-public class Camunda8OldProcessVersionsIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
+public class Camunda8OldProcessVersionsIT extends TestOnTheSharedCluster {
 
   @Test
   @Order(1)
@@ -160,8 +153,8 @@ public class Camunda8OldProcessVersionsIT {
     return CamundaClient
         .newClientBuilder()
         .preferRestOverGrpc(true)
-        .restAddress(URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(8080))))
-        .grpcAddress(URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(26500))))
+        .restAddress(URI.create(restAddress()))
+        .grpcAddress(URI.create(grpcAddress()))
         .build();
 
   }
@@ -262,13 +255,11 @@ public class Camunda8OldProcessVersionsIT {
     final var boot = new ArrayList<String>();
     boot.add("--spring.config.name=camunda8-it");
     boot
-        .add("--vanillabp.adapters.c8.rest-address=http://%s:%d".formatted(
-            CAMUNDA.getHost(),
-            CAMUNDA.getMappedPort(8080)));
+        .add("--vanillabp.adapters.c8.rest-address="
+            + restAddress());
     boot
-        .add("--vanillabp.adapters.c8.grpc-address=http://%s:%d".formatted(
-            CAMUNDA.getHost(),
-            CAMUNDA.getMappedPort(26500)));
+        .add("--vanillabp.adapters.c8.grpc-address="
+            + grpcAddress());
     boot.add("--vanillabp.adapters.c8.workflow-visibility-timeout=PT60S");
     boot
         .add("--vanillabp.workflow-modules.test-app.adapters.c8.resources-location=classpath*:old-process-versions/%s"

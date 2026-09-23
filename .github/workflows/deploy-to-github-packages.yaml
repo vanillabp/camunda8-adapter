@@ -79,6 +79,15 @@ jobs:
             **/target/*application*.log
           retention-days: 30
           if-no-files-found: ignore
+      # Testcontainers starts a reaper, Ryuk, which removes the containers of a run once
+      # the JVM that started them is gone, and that is the mechanism. This is the belt: a
+      # cluster which serves a whole module lives as long as the module's tests, far longer
+      # than the per-class containers did, so a build which is killed rather than finished
+      # leaves a big one behind. Only what Testcontainers labelled is removed, and the step
+      # runs whatever the build did.
+      - name: Remove the containers the tests started
+        if: always()
+        run: docker ps -aq --filter label=org.testcontainers=true | xargs -r docker rm -f
       - name: Collect coverage reports
         if: "${{ github.event_name == 'push' }}"
         run: |

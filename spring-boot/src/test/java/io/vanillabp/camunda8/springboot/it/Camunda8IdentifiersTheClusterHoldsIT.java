@@ -9,12 +9,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.TestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -40,11 +37,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
-public class Camunda8IdentifiersTheClusterHoldsIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
+public class Camunda8IdentifiersTheClusterHoldsIT extends TestOnTheSharedCluster {
 
   /**
    * What another application deployed under the process id this test's workflow module uses:
@@ -148,8 +141,8 @@ public class Camunda8IdentifiersTheClusterHoldsIT {
     return CamundaClient
         .newClientBuilder()
         .preferRestOverGrpc(true)
-        .restAddress(URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(8080))))
-        .grpcAddress(URI.create("http://%s:%d".formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(26500))))
+        .restAddress(URI.create(restAddress()))
+        .grpcAddress(URI.create(grpcAddress()))
         .build();
 
   }
@@ -160,10 +153,10 @@ public class Camunda8IdentifiersTheClusterHoldsIT {
         .run(
             "--spring.config.name=camunda8-it",
             "--spring.profiles.active=name-clash",
-            "--vanillabp.adapters.c8.rest-address=http://%s:%d"
-                .formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(8080)),
-            "--vanillabp.adapters.c8.grpc-address=http://%s:%d"
-                .formatted(CAMUNDA.getHost(), CAMUNDA.getMappedPort(26500)),
+            "--vanillabp.adapters.c8.rest-address="
+                + restAddress(),
+            "--vanillabp.adapters.c8.grpc-address="
+                + grpcAddress(),
             // the mode the clash needs: nothing is prefixed and no tenant separates the two
             // deployments, which is what a cluster without multi-tenancy leaves an
             // application with

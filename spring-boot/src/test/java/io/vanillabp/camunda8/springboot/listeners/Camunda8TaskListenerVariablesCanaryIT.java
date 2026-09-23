@@ -12,14 +12,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
 import io.vanillabp.camunda8.client.Camunda8JobLease;
-import io.vanillabp.camunda8.test.ClusterUnderTest;
+import io.vanillabp.camunda8.springboot.TestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -42,12 +39,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Testcontainers(disabledWithoutDocker = true)
 @Tag("user-task-listener-jobs")
-public class Camunda8TaskListenerVariablesCanaryIT {
-
-  @Container
-  static final GenericContainer<?> CAMUNDA = ClusterUnderTest.cluster();
+public class Camunda8TaskListenerVariablesCanaryIT extends TestOnTheSharedCluster {
 
   private static final String JOB_TYPE = "theCanarysTaskListener";
 
@@ -131,14 +124,8 @@ public class Camunda8TaskListenerVariablesCanaryIT {
     return CamundaClient
         .newClientBuilder()
         .preferRestOverGrpc(true)
-        .restAddress(URI.create("http://"
-            + CAMUNDA.getHost()
-            + ":"
-            + CAMUNDA.getMappedPort(8080)))
-        .grpcAddress(URI.create("http://"
-            + CAMUNDA.getHost()
-            + ":"
-            + CAMUNDA.getMappedPort(26500)))
+        .restAddress(URI.create(restAddress()))
+        .grpcAddress(URI.create(grpcAddress()))
         .build();
 
   }
