@@ -16,10 +16,10 @@ name: Preview line issue
 # reports the line going green again as well. An issue here about that same night would be
 # the duplicate the search below prevents, one level up where the search cannot see it.
 # What the night cannot see is a pull request, and a pull request is where the break still
-# has an author: the matrix runs there when a client pin moves, so the pin which broke the
-# alpha is in front of the person who proposed it. Without this, that pull request is
-# green, the pin is merged, and the night reports the break a day later with nothing
-# pointing back at the change which caused it.
+# has an author: the matrix runs on every pull request, so the change which broke the alpha
+# is in front of the person who proposed it. Without this, that pull request is green, the
+# change is merged, and the night reports the break a day later with nothing pointing back
+# at what caused it.
 #
 # The other reading was considered and dropped: write whenever the preview line breaks,
 # and stay quiet when the night has already written its issue. That asks two workflows
@@ -37,8 +37,7 @@ name: Preview line issue
 # The issue is not written inside the matrix, because writing one needs 'issues: write',
 # and a called workflow may not ask for more than its caller was granted. The matrix is
 # called by the pull-request checks and by the release gate, so asking for that permission
-# in there would make every pull request which moves a pin red. The caller grants it, for
-# this one job.
+# in there would make every pull request red. The caller grants it, for this one job.
 #
 # Green stays green. A pull request whose GA lines are fine may not go red over this, so
 # the step below carries 'continue-on-error'. The clearest case is a pull request from a

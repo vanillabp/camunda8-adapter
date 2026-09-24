@@ -986,6 +986,10 @@ See [Multi-instance](./README.md#multi-instance).
 
 ### 31. A release waits for every current line, a pull request does not
 
+The first rule below is superseded by decision 42: a pull request runs the matrix too, so it waits
+for every line as well. The two rules this entry was written for stand, the release gate and the
+issue for a red night, and the workflows cite them here.
+
 A pull request builds the current GA line and tests it against that line's cluster. Every other line
 waits for the nightly matrix, and only a pull request which moves a client pin runs the matrix
 itself, because a build of line 8.9 never compiles the pin of line 8.8. See
@@ -1598,3 +1602,30 @@ number each of them names is the one in the model, and this entry says what that
 `Camunda8TaskProcessingIT#aLostListenerDeliveryComesBack` fails the job back the way the gateway
 does and reads it from the queue again;
 `Camunda8ShutdownHandlingTest#aListenerFailingIsReported` holds the other half.
+
+### 42. A pull request waits for every line, the same as the night does
+
+Decision 31 let a pull request build the current GA line alone and left the other lines to the
+nightly matrix. A pull request now runs the matrix, so it builds and tests every line against that
+line's cluster. `checks.yaml` calls `line-matrix.yaml` without a condition, and the check
+`line-pins-verified` reads the GA lines of it.
+
+The old rule had a cost nobody saw while the lines stayed quiet. A pull request built line 8.9 and
+was green, and in the night the same code failed three tests on two other lines. Whoever had
+written it was a day further on by then. That happened here. Waiting for the night also means
+reading the night, and a red night belongs to whoever merged the day before, which is a hand-over
+no rule can make.
+
+What paid for the old rule was the runtime, and the way we work changed under it. The gate came
+when every story was its own pull request, and every one of them would have bought the matrix.
+Stories now travel as a wave in one pull request, so the matrix runs once per wave, and the waves
+do not follow each other back to back. Measured on this repository in September 2026: a pull
+request took about twenty minutes and the full matrix takes about forty. A wave therefore waits
+about twice as long, and it buys the answer the night used to give.
+
+One duty comes with it, the one the night already had. Whoever opened the wave watches it, and a
+line which goes red is looked at while the other lines are still running.
+
+The rest of decision 31 stands. A release still runs the matrix itself before it publishes
+anything, the preview line still does not decide a pull request, and a line which breaks in the
+night still gets its issue.

@@ -310,20 +310,21 @@ Maven ranks an unknown qualifier ABOVE the release: `2.2.0-8.10-preview1 > 2.2.0
 The nightly matrix (`.github/workflows/line-matrix.yaml`) builds every live line with its
 own version string and runs its integration tests against its own cluster. The matrix is
 read out of the `line-*` profiles, so it cannot fall behind the build. A pull request runs
-the current GA line alone: the Camunda 8 integration tests are the slowest thing in the
-workspace, and every change touching the adapter would otherwise pay for every line. What a
-pull request does run for all lines is the API identity check, which needs no cluster.
+the same matrix: `checks.yaml` calls it without a condition, and the result reports as
+`line-pins-verified`. A pull request used to build the current GA line alone, and then a night
+found on `main` what the pull request of the same commit had not. See decision 42.
 
-One pull request pays for every line anyway: the one which moves a client pin. A build of
-line 8.9 never compiles the pin of 8.8, so the change nobody built is exactly the one being
-proposed. `checks.yaml` notices a pin among the lines a pull request adds or removes and calls
-the matrix, and the result reports as `line-pins-verified`, which is green without a matrix run
-when no pin moved. That check reads the GA lines of the matrix. The preview line builds there too
-and its job is on the pull request to read, but a defect of the alpha it is built against does not
-hold a pull request. The night and the release still wait for every line. Only the added and
-removed lines count: a diff carries three lines of context around every hunk, so reading all of
-it made every change near a pin buy the whole matrix. This is what a client patch merging itself
-rests on.
+That check reads the GA lines of the matrix. The preview line builds there too and its job is on
+the pull request to read, but a defect of the alpha it is built against does not hold a pull
+request. The matrix takes about forty minutes, where a pull request on its own took about twenty,
+and a wave of stories pays that once instead of once per story. Whoever opened the wave watches it
+and starts on a red line at once.
+
+`checks.yaml` still says in its log whether a pull request moves a client pin, in the job
+`pin-change`. It gates nothing any more, and it is there because a client patch which merges
+itself looks like every other pull request. Only the added and removed lines count: a diff carries
+three lines of context around every hunk, so reading all of it called every change near a pin a
+pin move.
 
 A night which goes red does not stay buried in the list of runs. `release-lines-issue.yaml` opens
 one issue per red line, labelled `release-lines` and titled after the line, and comments on that
@@ -334,7 +335,7 @@ A preview line which breaks on a pull request gets an issue as well, and a separ
 `checks.yaml` calls `preview-line-issue.yaml` after the matrix, which opens it under the label
 `preview-line` and a title naming the line, and writes a comment instead while such an issue is
 open. The pull request stays green, so the break would otherwise turn up in the night after the
-pin was merged, with nothing pointing back at the change which caused it. Nothing closes that
+change was merged, with nothing pointing back at what caused it. Nothing closes that
 issue either: a later pull request builds another branch and says nothing about this break.
 
 ### Release and CI plumbing

@@ -18,8 +18,8 @@ name: Client API changes
 # What selects a pull request is the pin itself and not the 'camunda8-line-pin' label
 # Renovate adds. The label exists in this repository only: the cockpit adapter has
 # io.camunda switched off in its Renovate configuration and raises its pins by hand, so
-# there is no label there to key on. Reading the property is also what checks.yaml does to
-# decide whether the line matrix runs, so the two cannot disagree. A pull request which
+# there is no label there to key on. checks.yaml reads the same property when it says in its
+# log whether a pull request moves a pin, so the two cannot disagree. A pull request which
 # moves no pin ends in the first step.
 "on":
   workflow_call:
