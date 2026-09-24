@@ -1068,9 +1068,11 @@ through its own listener, as `CREATED`, and a second report would be the same mo
 `completing` listener does get `CANCELED`, and that is meant: it waits for the task to finish, and the
 answer is that it never will.
 
-The cancel listener carries `retries="0"`. The cluster holds the element while the job runs, so a
+The cancel listener carries no retry loop. The cluster holds the element while the job runs, so a
 retry loop would hold the cancellation with it, and with no attempt left the first failure raises the
-incident an operator can act on. It costs one method and no other, which is what the listener per
+incident an operator can act on. What the model says and what this adapter passes at a failure are
+two numbers since story 507, see decision 41: the model carries one attempt so a delivery the
+gateway lost comes back, while a failed notification is still failed with none left. It costs one method and no other, which is what the listener per
 method buys.
 
 What can be written depends on the element and on the release line. A Camunda-managed user task
@@ -1190,9 +1192,10 @@ failed with one attempt less and a backoff, the cluster hands the job out again,
 failure raises the incident. Measured: the cluster raises `EXECUTION_LISTENER_NO_RETRIES` on the
 process element with our message and the job key, the instance reads `ACTIVE` while the incident
 stands, and update retries plus resolve incident hands the same job out again until the instance
-reaches `TERMINATED`. That is deliberately not the `retries="0"` of a task listener: nothing else
+reaches `TERMINATED`. That is deliberately not the way a task listener is failed: nothing else
 is waiting behind this listener, and a notification which failed once on a database which was busy
-deserves the second attempt.
+deserves the second attempt. A task listener is failed with no retry left whatever its model says,
+which decision 41 tells apart from the number the model carries.
 
 `Camunda8CancelListeners` is per release line for the same reason it was under decision 32: the
 writing half names `ZeebeExecutionListenerEventType.cancel` and the reading half
@@ -1564,3 +1567,34 @@ the artifact. The publish workflow deploys the whole reactor, so `CONTRIBUTING.m
 for the case a person runs the deploy by hand.
 
 `Camunda8PublishedPomTest` reads the addresses and the absence back out of the published POM.
+
+### 41. Two numbers answer two questions: the one in the model and the one at the failure
+
+A listener job of this adapter carries two retry numbers, and until story 507 both were zero, so
+nobody had to tell them apart. They answer different questions.
+
+**The number in the model** is what the gateway hands back when it could not deliver an activated
+job. The gateway fails such a job with the retries it had, which is meant to make it available
+again at once. With zero there is nothing to hand back: the job dies, the cluster raises an
+incident, and a Camunda-managed user task stays in `CREATING` forever. Measured on line 8.9 in the
+nightly run 35958279261, with `Failed to send 1 activated jobs ... to client` in the cluster log
+and the user task never arriving. So `creating` and `canceling` listeners are written with one
+attempt left, `Camunda8TaskWiring#ONE_ATTEMPT_LEFT_FOR_A_DELIVERY_THE_GATEWAY_LOST`.
+
+**The number at the failure** is what this adapter passes when a notification really failed. It
+stays at none, whatever the model says: `Camunda8UserTaskListenerHandler` fails such a job with
+`Camunda8ListenerJobs.Failure.NO_RETRIES_LEFT`, so the first failure raises the incident an
+operator acts on, as before. Nothing waits behind a task listener except the task itself, and a
+retry loop there would hold the element while a handler which just failed runs again.
+
+What changed with 507 is therefore the answer to the first question only. A lost delivery comes
+back, a failed notification does not, and the two numbers say so separately.
+
+Decision 32 and decision 34 were written while both numbers were zero and read as if there were
+only one. Their reasoning holds: the cancel listener still has no retry loop, and the process-level
+cancel listener still keeps the retries of the end listener, which are the model's default. The
+number each of them names is the one in the model, and this entry says what that number does.
+
+`Camunda8TaskProcessingIT#aLostListenerDeliveryComesBack` fails the job back the way the gateway
+does and reads it from the queue again;
+`Camunda8ShutdownHandlingTest#aListenerFailingIsReported` holds the other half.
