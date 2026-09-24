@@ -902,12 +902,10 @@ public class C8E2eIntrospectionController {
    * fetched it, while a job which is gone reached somebody.
    * <p>
    * A job in state <code>FAILED</code> raises a second question: who sent the fail
-   * command. The retries and the error message answer it. This adapter writes a warning
-   * first and sends a one-line message, with zero retries for a user-task listener,
-   * which it writes into the model with <code>retries="0"</code>. The Camunda client
-   * fails a job whose handler threw with one retry LESS than the job had and a whole
-   * stack trace as the message, and it fails a job its worker had no slot for with the
-   * retries unchanged and a message saying so.
+   * command. The error message answers it. This adapter writes a warning first and sends
+   * a one-line message. The Camunda client fails a job whose handler threw with a whole
+   * stack trace as the message and one retry LESS than the job had, and it fails a job
+   * its worker had no slot for with the retries unchanged and a message saying so.
    *
    * @param processInstanceKey The instance
    * @return One line per job: its key, type, state, remaining retries, lock deadline,

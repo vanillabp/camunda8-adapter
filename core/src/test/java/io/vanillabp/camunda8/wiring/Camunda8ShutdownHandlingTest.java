@@ -196,11 +196,14 @@ public class Camunda8ShutdownHandlingTest {
   }
 
   @Test
-  @DisplayName("A listener failing outside a shutdown raises an incident")
+  @DisplayName("A listener failing outside a shutdown raises an incident, whatever the model left it")
   public void aListenerFailingIsReported() {
 
     listenerHandler(failingListenerInvoker()).handle(jobClient, listenerJob());
 
+    // the model gives such a listener one attempt, so that a delivery the gateway lost
+    // comes back. A notification which really failed gets none of it: the handler asks for
+    // zero retries and the first failure is the incident
     verify(jobClient.newFailCommand(4711L), times(1)).retries(0);
 
   }

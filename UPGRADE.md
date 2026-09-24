@@ -129,6 +129,24 @@ boot would be the wrong answer. Of the two numbers only the first is certain: th
 from the model this boot deploys, while the open tasks are a search, and a cluster which is not up
 yet costs you that count.
 
+### Your user-task models get one new process version
+
+VanillaBP writes the lifecycle listeners of a Camunda-managed user task into the model it deploys.
+Version 1 gave them `retries="0"`, 2.0 gives them `retries="1"`, so the file your first boot after
+the upgrade deploys differs from the one the cluster holds and the cluster gives that process a new
+version. Nothing of yours has to change for it, and your `@WorkflowTask` methods keep serving the same
+tasks.
+
+The retry is not a second attempt for a notification which failed. A failed notification is still
+reported with no retries left, so the first failure raises the incident as before. It is what the
+gateway hands back when it could not deliver the job to the worker it activated it for, and a job
+without a retry dies of such a lost delivery: the cluster writes an incident and the user task
+stands in `CREATING`, where no command reaches it any more.
+
+Workflows you brought with you stay on the version they were started on, and their user tasks keep
+the listeners version 1 deployed. A lost delivery of one of those still ends that way until the
+workflow is over, and there is nothing to do about it other than letting them finish.
+
 ### A task id is decimal, and version 1's hexadecimal ids are data to migrate
 
 Version 1 could hand out a task id in hexadecimal, through `task-id-as-hex-string`, which was off

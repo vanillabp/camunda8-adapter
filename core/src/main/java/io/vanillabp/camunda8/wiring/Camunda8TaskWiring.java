@@ -141,9 +141,10 @@ public final class Camunda8TaskWiring {
 
   /**
    * The V1-compatible job-type prefix of user-task listeners: the listener type is
-   * this prefix plus the user task's external form reference. MUST NOT change -
-   * upgrading a V1 application has to produce a byte-identical BPMN so the
-   * deployment does not create a new process version.
+   * this prefix plus the user task's external form reference. MUST NOT change. It is the
+   * name a worker subscribes to, and a version-1 application brings workflows whose user
+   * tasks carry listener jobs of the old name: a prefix of our own would leave those jobs
+   * to nobody.
    */
   public static final String TASKDEFINITION_USERTASK_ZEEBE = "io.vanillabp.userTask:";
 
@@ -737,7 +738,7 @@ public final class Camunda8TaskWiring {
    * {@link #readUserTasksOf} reports them, AND the V1-compatible lifecycle task listeners
    * written into the model: per user task a <code>creating</code> listener as the FIRST and
    * a <code>canceling</code> listener as the LAST listener (custom modeller-defined
-   * listeners stay in between), both with <code>retries="0"</code> and the type
+   * listeners stay in between), both with <code>retries="1"</code> and the type
    * {@link #TASKDEFINITION_USERTASK_ZEEBE} + external form reference.
    * <p>
    * This is the deployment path and it CHANGES the model. A second call adds no second set
@@ -811,6 +812,25 @@ public final class Camunda8TaskWiring {
   }
 
   /**
+   * What the lifecycle listeners of a user task are modelled with.
+   * <p>
+   * Version 1 wrote <code>retries="0"</code> here, and that number is not only what a failed
+   * notification has left. A gateway which cannot hand an activated batch to the request it
+   * was activated for fails the job back to the broker WITH THE RETRIES IT HAD, so a job
+   * modelled without one has nothing to be failed back with: the lost delivery becomes an
+   * incident and the user task stands in <code>CREATING</code> for good. One retry is what
+   * makes that job activatable again, which is the recovery this adapter documents for every
+   * other job.
+   * <p>
+   * It does not give a failed notification a second attempt. The handler fails such a job
+   * with no retries left whatever the model says, so the incident an operator acts on is
+   * raised by the first failure as before - see
+   * {@link Camunda8UserTaskListenerHandler} and
+   * {@code Camunda8ShutdownHandlingTest#aListenerFailingIsReported}.
+   */
+  private static final String ONE_ATTEMPT_LEFT_FOR_A_DELIVERY_THE_GATEWAY_LOST = "1";
+
+  /**
    * V1 listener order per element: VanillaBP <code>creating</code> FIRST, any
    * custom listeners in between, VanillaBP <code>canceling</code> LAST. Listeners
    * already carrying the VanillaBP prefix are not duplicated (re-wiring an
@@ -842,13 +862,13 @@ public final class Camunda8TaskWiring {
     final var createListener = task.getModelInstance().newInstance(ZeebeTaskListener.class);
     createListener.setEventType(ZeebeTaskListenerEventType.creating);
     createListener.setType(listenerJobType);
-    createListener.setRetries("0");
+    createListener.setRetries(ONE_ATTEMPT_LEFT_FOR_A_DELIVERY_THE_GATEWAY_LOST);
     taskListeners.insertElementAfter(createListener, null); // first listener
 
     final var cancelListener = task.getModelInstance().newInstance(ZeebeTaskListener.class);
     cancelListener.setEventType(ZeebeTaskListenerEventType.canceling);
     cancelListener.setType(listenerJobType);
-    cancelListener.setRetries("0");
+    cancelListener.setRetries(ONE_ATTEMPT_LEFT_FOR_A_DELIVERY_THE_GATEWAY_LOST);
     if (isNew) {
       taskListeners.insertElementAfter(cancelListener, createListener);
     } else {

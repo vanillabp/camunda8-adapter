@@ -36,7 +36,7 @@ import lombok.extern.slf4j.Slf4j;
  * application may have sent the moment it heard about the task.</li>
  * </ol>
  * <p>
- * <b>What a listener modelled with <code>retries="0"</code> may expect during a shutdown.</b>
+ * <b>What a listener whose failure leaves no retries may expect during a shutdown.</b>
  * With no retries left, failing the job IS the incident - there is no next attempt for an
  * operator to wait for. That is the right answer to a defect and the wrong answer to a
  * restart, because nobody abandoned that work: the application was asked to stop. So a
@@ -51,8 +51,9 @@ import lombok.extern.slf4j.Slf4j;
  * stack trace into the incident, and not one of the rules above applies to it, the shutdown
  * rule least of all. So a handler keeps the work in front of the call to what cannot throw,
  * which today is reading the job and renaming what it carries. What such a failure leaves
- * on the job is a retry count one below the job's own, so a negative one for a user-task
- * listener, and that number is how a red run tells it apart from a job this class failed.
+ * in the incident is the whole stack trace, and that is how a red run tells it apart from a
+ * job this class failed, whose incident carries the one sentence
+ * {@link Camunda8Errors#incidentMessage} builds.
  * <p>
  * Public because an extension wires listeners into the same models and serves them from the
  * same cluster. Its listener jobs are the adapter's listener jobs in every respect a
@@ -88,8 +89,8 @@ public final class Camunda8ListenerJobs {
    * How a failed listener job is reported to the cluster.
    *
    * @param retriesLeft The retries the fail command leaves. Zero means the cluster raises
-   *          an incident right away, which is what a listener modelled with
-   *          <code>retries="0"</code> asks for
+   *          an incident right away, which is what a listener asks for whose failure may
+   *          not be attempted a second time
    * @param retryBackoff How long the cluster waits before handing the job out again, or
    *          <code>null</code> for no backoff - there is nothing to delay where no attempt
    *          is left
