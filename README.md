@@ -320,6 +320,11 @@ request. The matrix takes about forty minutes, where a pull request on its own t
 and a wave of stories pays that once instead of once per story. Whoever opened the wave watches it
 and starts on a red line at once.
 
+In front of the matrix stands `orphaned-javadoc-check`, which runs
+`bin/check-orphaned-javadoc.sh` over the sources. Javadoc keeps the last block before an element
+and drops every earlier one without a word, and no build says so. The check answers in seconds, so
+nobody waits out the matrix to hear about a comment.
+
 `checks.yaml` still says in its log whether a pull request moves a client pin, in the job
 `pin-change`. It gates nothing any more, and it is there because a client patch which merges
 itself looks like every other pull request. Only the added and removed lines count: a diff carries
@@ -335,8 +340,8 @@ A preview line which breaks on a pull request gets an issue as well, and a separ
 `checks.yaml` calls `preview-line-issue.yaml` after the matrix, which opens it under the label
 `preview-line` and a title naming the line, and writes a comment instead while such an issue is
 open. The pull request stays green, so the break would otherwise turn up in the night after the
-change was merged, with nothing pointing back at what caused it. Nothing closes that
-issue either: a later pull request builds another branch and says nothing about this break.
+change was merged, with nothing pointing back at what caused it. Nothing closes that issue either:
+a later pull request builds another branch and says nothing about this break.
 
 ### Release and CI plumbing
 

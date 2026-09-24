@@ -22,6 +22,21 @@ env:
   USER_NAME: "${{ secrets.VANILLABP_USER_NAME }}"
   USER_TOKEN: "${{ secrets.VANILLABP_USER_TOKEN }}"
 jobs:
+  # Javadoc keeps the last block before an element and drops every earlier one without a
+  # word, so a comment somebody wrote and keeps up to date appears nowhere. Neither the
+  # compiler nor javadoc says anything about it, not even with failOnWarnings, which is why
+  # there is a script for it.
+  #
+  # It stands in front of the line matrix below, because it answers in seconds and the
+  # matrix takes about forty minutes. Nobody should wait that long to hear about a comment.
+  orphaned-javadoc-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: No javadoc block stands in front of another one
+        # through 'bash', so the check does not rest on the file mode of a script
+        run: bash bin/check-orphaned-javadoc.sh
+
   # The ground rule of the release lines: a user must never read the version suffix of an
   # artifact to find out which methods exist. This job keeps that true, and it needs no
   # cluster, so it runs on every pull request while the integration tests of the other
@@ -245,6 +260,7 @@ jobs:
   # once per wave of stories rather than once per story. See decision 42 in the repository's
   # DECISIONS.md.
   lines:
+    needs: orphaned-javadoc-check
     uses: ./.github/workflows/line-matrix.yaml
     secrets: inherit
 
@@ -274,7 +290,8 @@ jobs:
               echo "Every GA line built." ;;
             "")
               echo "The matrix did not get far enough to say which lines built, so this" >&2
-              echo "pull request has no answer at all. Read the jobs above." >&2
+              echo "pull request has no answer at all. Read the jobs above: a check in" >&2
+              echo "front of the matrix may have stopped it before it started." >&2
               exit 1 ;;
             *)
               echo "These lines did not build: ${BROKEN}" >&2
