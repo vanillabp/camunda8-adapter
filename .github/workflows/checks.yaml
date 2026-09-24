@@ -220,8 +220,20 @@ jobs:
       - id: diff
         name: Does this pull request move a client pin
         run: |
-          if git diff "origin/${{ github.base_ref }}...HEAD" -- pom.xml \
-            | grep -q '^[+-].*camunda8\.version\.line-'; then
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "pins=true" >> "$GITHUB_OUTPUT"
+            echo "A run started by hand has no base branch and therefore no diff to read,"
+            echo "so it builds every line instead of guessing that no pin moved."
+            exit 0
+          fi
+          git diff "origin/${{ github.base_ref }}...HEAD" -- pom.xml \
+            > "${RUNNER_TEMP}/pin.diff"
+          # the diff is a file and not a pipe on purpose: a failed 'git diff' has to fail
+          # this step, and in a pipe its exit code is lost behind the one of grep. It was
+          # a pipe, and then a diff which could not be read answered 'no pin moved', which
+          # is the answer that skips the matrix
+          if grep -q '^[+-].*camunda8\.version\.line-' "${RUNNER_TEMP}/pin.diff"; then
             echo "pins=true" >> "$GITHUB_OUTPUT"
             echo "A client pin moves, so every line is built."
           else
@@ -255,6 +267,12 @@ jobs:
           BROKEN: "${{ needs.lines.outputs.broken-ga-lines }}"
         run: |
           echo "pins: ${{ needs.pin-change.outputs.pins }}, lines: ${{ needs.lines.result }}"
+          # A job which did not finish hands over an empty output, and an empty output is
+          # not the answer 'no pin moved'. Reading it as one passed a pull request whose
+          # pin nobody had built, so a run which cannot answer the question stops here.
+          [ "${{ needs.pin-change.result }}" = "success" ] \
+            || { echo "This run cannot say whether a pin moved. Read the job 'pin-change'." >&2
+                 exit 1; }
           [ "${{ needs.pin-change.outputs.pins }}" = "true" ] \
             || { echo "No pin moved."; exit 0; }
           case "$BROKEN" in
