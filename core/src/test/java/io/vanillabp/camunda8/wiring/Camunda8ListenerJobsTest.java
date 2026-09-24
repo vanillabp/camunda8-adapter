@@ -29,7 +29,7 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <p>
  * The promises of {@link Camunda8ListenerJobs} are the reason it is public, so each of them
  * has a test: the completion, the failure with the retries the caller chose, and the one a
- * listener with <code>retries="0"</code> depends on - a job cut off by a shutdown is not
+ * listener whose failure leaves no retries depends on - a job cut off by a shutdown is not
  * failed at all, because failing it with no attempt left IS the incident.
  */
 @ExtendWith(SuppressOutputExtension.class)

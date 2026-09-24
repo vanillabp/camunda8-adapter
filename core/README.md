@@ -257,9 +257,9 @@ costs a rollback, is decision 36 in the repository's `DECISIONS.md`.
 
 `Camunda8ListenerJobs.completeOrFail` runs a listener job the way this adapter runs its own -
 registered with the drain, both answers through `Camunda8CommandRetry`, and a failure during a
-shutdown left to its lock rather than reported. That last part is what a listener modelled with
-`retries="0"` depends on: with no attempt left, failing the job IS the incident, and a restart
-is not something anybody did wrong.
+shutdown left to its lock rather than reported. That last part is what a listener whose failure
+leaves no retries depends on: with no attempt left, failing the job IS the incident, and a
+restart is not something anybody did wrong.
 
 `Camunda8ClientFactory.drainOf` is the drain of one workflow module of one adapter id, and it is
 the one an extension's listener has to take part in. A handler which is not in it is a handler

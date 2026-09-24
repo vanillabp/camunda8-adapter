@@ -84,13 +84,19 @@ public class Camunda8UserTaskWiringTest {
     // VanillaBP creating FIRST
     assertEquals(ZeebeTaskListenerEventType.creating, listeners.get(0).getEventType());
     assertEquals("io.vanillabp.userTask:approve", listeners.get(0).getType());
-    assertEquals("0", listeners.get(0).getRetries());
+    assertEquals(
+        "1",
+        listeners.get(0).getRetries(),
+        "one attempt is what a gateway can hand back when it lost the delivery");
     // custom listener stays in between
     assertEquals("custom-listener", listeners.get(1).getType());
     // VanillaBP canceling LAST
     assertEquals(ZeebeTaskListenerEventType.canceling, listeners.get(2).getEventType());
     assertEquals("io.vanillabp.userTask:approve", listeners.get(2).getType());
-    assertEquals("0", listeners.get(2).getRetries());
+    assertEquals(
+        "1",
+        listeners.get(2).getRetries(),
+        "one attempt is what a gateway can hand back when it lost the delivery");
 
   }
 

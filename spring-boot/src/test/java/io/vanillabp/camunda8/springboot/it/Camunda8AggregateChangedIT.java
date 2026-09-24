@@ -93,17 +93,27 @@ public class Camunda8AggregateChangedIT extends SpringBootTestOnTheSharedCluster
 
   }
 
+  /**
+   * The workflow of the given aggregate, as the cluster knows it.
+   * <p>
+   * The aggregate id alone does not name it. Every class of this module has a database of its
+   * own, so their aggregate ids all start at 1, and the cluster they share holds what the
+   * classes before this one left. So the search is bound to a process this class owns, and
+   * the caller says which of its two it means.
+   *
+   * @param bpmnProcessId The process as the CLUSTER knows it, prefixed by the workflow module
+   * @param aggregateId The aggregate whose workflow is looked for
+   * @return The process instance key, or <code>null</code> while the search does not know it
+   */
   private Long processInstanceKeyOf(
+      final String bpmnProcessId,
       final Long aggregateId) {
 
     final var found = client()
         .newProcessInstanceSearchRequest()
-        // variable values are stored as JSON: a String value is searched WITH its quotes.
-        // The state belongs to the question: every class of this module has a database of
-        // its own, so their aggregate ids all start at 1, and the cluster they share still
-        // holds the instances of the classes before this one. What is asked for here is the
-        // instance which is still running, and that is this test's
+        // variable values are stored as JSON: a String value is searched WITH its quotes
         .filter(filter -> filter
+            .processDefinitionId(bpmnProcessId)
             .variables(Map.of("id", "\"%s\"".formatted(aggregateId)))
             .state(ProcessInstanceState.ACTIVE))
         .send()
@@ -114,6 +124,18 @@ public class Camunda8AggregateChangedIT extends SpringBootTestOnTheSharedCluster
         : found.getFirst().getProcessInstanceKey();
 
   }
+
+  /**
+   * The process of the test which pushes at the workflow's own scope, as the cluster knows
+   * it.
+   */
+  private static final String THE_PUSH_PROCESS = "test-app__AggregateChangedProcess";
+
+  /**
+   * The process of the test which pushes into the scope of one iteration, as the cluster
+   * knows it.
+   */
+  private static final String THE_MULTI_INSTANCE_PUSH_PROCESS = "test-app__AggregateChangedMultiInstanceProcess";
 
   /**
    * The element instance of the task itself - the scope a push must NOT write into.
@@ -149,8 +171,10 @@ public class Camunda8AggregateChangedIT extends SpringBootTestOnTheSharedCluster
     assertNotNull(aggregateId);
 
     awaitUntil(() -> taskIdsOf(aggregateId) != null, "the workflow to park at its asynchronous task");
-    awaitUntil(() -> processInstanceKeyOf(aggregateId) != null, "the query API to know the instance");
-    final var processInstanceKey = processInstanceKeyOf(aggregateId);
+    awaitUntil(
+        () -> processInstanceKeyOf(THE_PUSH_PROCESS, aggregateId) != null,
+        "the query API to know the instance");
+    final var processInstanceKey = processInstanceKeyOf(THE_PUSH_PROCESS, aggregateId);
 
     transactionTemplate
         .executeWithoutResult(status -> workflowService.pushGlobally(aggregateId, "pushed-globally"));
@@ -182,7 +206,7 @@ public class Camunda8AggregateChangedIT extends SpringBootTestOnTheSharedCluster
     // process service starts the primary process only
     client()
         .newCreateInstanceCommand()
-        .bpmnProcessId("test-app__AggregateChangedMultiInstanceProcess")
+        .bpmnProcessId(THE_MULTI_INSTANCE_PUSH_PROCESS)
         .latestVersion()
         // one call: the client's variable() replaces what a previous call set
         .variables(Map.of("id", String.valueOf(aggregateId), "note", "before"))
@@ -197,8 +221,10 @@ public class Camunda8AggregateChangedIT extends SpringBootTestOnTheSharedCluster
         "both iterations of the multi-instance subprocess to park");
 
     final var taskIds = taskIdsOf(aggregateId).split(",");
-    awaitUntil(() -> processInstanceKeyOf(aggregateId) != null, "the query API to know the instance");
-    final var processInstanceKey = processInstanceKeyOf(aggregateId);
+    awaitUntil(
+        () -> processInstanceKeyOf(THE_MULTI_INSTANCE_PUSH_PROCESS, aggregateId) != null,
+        "the query API to know the instance");
+    final var processInstanceKey = processInstanceKeyOf(THE_MULTI_INSTANCE_PUSH_PROCESS, aggregateId);
 
     transactionTemplate
         .executeWithoutResult(status -> workflowService.pushInto(aggregateId, "pushed-locally", taskIds[0]));

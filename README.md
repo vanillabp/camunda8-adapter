@@ -1297,13 +1297,16 @@ EXTERNAL form reference - the reference IS the task definition (V1 convention).
 During `wireBpmn` the adapter adds the V1-COMPATIBLE lifecycle task listeners to
 the BPMN model: per user task `creating` (→ `@TaskEvent CREATED`) and `canceling`
 (→ CANCELED), type `io.vanillabp.userTask:<external form reference>`,
-`retries="0"`; the VanillaBP `creating` listener is inserted as the FIRST and the
+`retries="1"`; the VanillaBP `creating` listener is inserted as the FIRST and the
 `canceling` listener as the LAST listener (modeller-defined ones stay in
-between). Upgrading a V1 application produces a byte-identical BPMN - no new
-process version. Listener jobs are consumed like normal jobs (one worker per
+between). Version 1 wrote the same listeners with `retries="0"`, so the models an
+upgraded application deploys differ in that one attribute and the cluster gives
+them a new process version, see
+[the retry a lost listener delivery needs](#the-retry-a-lost-listener-delivery-needs).
+Listener jobs are consumed like normal jobs (one worker per
 listener job type), ALWAYS completed, and deliver the USER-TASK KEY as `@TaskId`;
-a failing notification fails the listener job (retries 0 → incident). The
-notification handler is OPTIONAL. `completeUserTask` sends `CompleteUserTask` by
+a failing notification fails the listener job with no retries left, so the first
+failure is the incident. The notification handler is OPTIONAL. `completeUserTask` sends `CompleteUserTask` by
 the user-task key after the commit (phase one re-checks existence pre-commit via
 an empty `UpdateUserTask` carrying only an audit `action` - also the awareness
 probe; note: modeller-defined `updating` listeners would fire on probes).
@@ -2753,6 +2756,9 @@ in the measurement. One line of the gateway says so: `Failed to send 1 activated
 to client, because: Failed to send activated jobs to client`. Whichever worker of that type polls
 next receives the job.
 
+That sentence only holds for a job which HAS a retry, which is why the user-task listeners carry
+one, see [the retry a lost listener delivery needs](#the-retry-a-lost-listener-delivery-needs).
+
 **The gateway does not notice.** Over REST the response is written when the request ends, so a
 connection which died while the request was parked is found too late for the reactivation above.
 The batch counts as delivered, the job keeps its lock, and it comes back when the lock runs out:
@@ -2780,6 +2786,30 @@ which keeps them apart on every line, so a blocked handler no longer stops a wor
 for work. What it does stop is a worker asking while every execution slot is busy, which is
 deliberate and visible in the slot gauges. The observation above happened on 8.9 and with free
 slots, so it was neither.
+
+### The retry a lost listener delivery needs
+
+The lifecycle listeners VanillaBP writes into a user task are modelled with `retries="1"`.
+Version 1 wrote `retries="0"` there and 2.0 did too, until a nightly run showed what that costs.
+
+The number is not the one a failed notification has left. The handler fails such a job with no
+retries whatever the model says, so a notification which really failed still raises the incident an
+operator acts on, and it raises it at the first attempt. The modelled number is what the GATEWAY
+hands back when it could not deliver the activated batch, as the section before this one describes.
+A job modelled without a retry has nothing to be handed back: it dies of the lost delivery, the
+cluster writes an incident carrying `Failed to send activated jobs to client`, and the task stands in
+`CREATING`, where every command against it is refused. That was measured on the 8.9 line on
+2026-09-24, on the `creating` listener of a user task nobody listens to.
+
+So the two numbers answer two different questions, and only the modelled one belongs to the
+delivery. `Camunda8UserTaskWiringTest` holds what the model carries,
+`Camunda8ShutdownHandlingTest#aListenerFailingIsReported` that a failed notification still has
+nothing left, and `Camunda8TaskProcessingIT#aLostListenerDeliveryComesBack` that a job failed back
+the way the gateway fails it is activatable again instead of ending in an incident.
+
+What it costs an upgrading application is one new process version per model with a Camunda-managed
+user task, because the deployed file differs in that attribute. Workflows which are already running
+stay on the version they were started on.
 
 ## What an operator gets to see
 

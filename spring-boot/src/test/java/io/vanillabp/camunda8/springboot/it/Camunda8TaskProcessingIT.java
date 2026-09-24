@@ -10,7 +10,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Assertions;
@@ -26,7 +26,9 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import io.camunda.client.CamundaClient;
+import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.zeebe.model.bpmn.Bpmn;
+import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8Errors;
@@ -35,6 +37,7 @@ import io.vanillabp.camunda8.processservice.Camunda8ProcessService;
 import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
 import io.vanillabp.camunda8.test.ClusterLog;
+import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import io.vanillabp.integration.adapter.spi.WorkflowScope;
 import io.vanillabp.integration.spi.PhaseOperation;
@@ -371,12 +374,12 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
    * the job is different for each of them:
    * <ul>
    * <li>this adapter, in {@code Camunda8ListenerJobs.completeOrFail}: a warning naming the
-   * job stands in the log right before it, the error message is one line of the shape
-   * <code>type: message</code>, and the retries are zero, because a user-task listener is
-   * written into the model with <code>retries="0"</code>;</li>
+   * job stands in the log right before it, and the error message is one line of the shape
+   * <code>type: message</code>;</li>
    * <li>the Camunda client, for anything thrown out of a job handler before that method
-   * takes over: the retries are one BELOW what the job had, so minus one for such a
-   * listener, and the error message is a whole stack trace;</li>
+   * takes over: the error message is a whole stack trace. The retries do not tell the two
+   * apart any more, because a user-task listener is written into the model with one and
+   * both of them leave zero;</li>
    * <li>the Camunda client again, when the worker had no execution slot for the job: the
    * retries are unchanged and the error message says that the worker had no capacity and
    * returned the job. That one needs <code>stream-enabled</code>, which no test here
@@ -1144,6 +1147,85 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
   }
 
   /**
+   * The BPMN process whose user-task listener job this test answers itself. It lies outside the
+   * resources location of the test application, so no workflow module deploys it and no worker
+   * subscribes to its listener job type.
+   */
+  private static final String LOST_DELIVERY_PROCESS = "LostDeliveryProcess";
+
+  @Test
+  @Tag(USER_TASK_LISTENER_JOBS)
+  @DisplayName("A listener delivery the gateway lost comes back instead of raising an incident")
+  public void aLostListenerDeliveryComesBack() throws Exception {
+
+    final BpmnModelInstance model;
+    try (final var file = getClass().getResourceAsStream("/lost-delivery/lost-delivery.bpmn")) {
+      model = Bpmn.readModelFromStream(file);
+    }
+    // the adapter writes the lifecycle listeners into the file, so what is deployed here is
+    // the model a deployment really produces rather than one written to pass this test
+    final var userTasks = Camunda8TaskWiring
+        .userTasksOf(model, LOST_DELIVERY_PROCESS, "test-app", "lost-delivery.bpmn");
+    final var listenerJobType = userTasks.getFirst().listenerJobType();
+
+    workflowServiceClient()
+        .newDeployResourceCommand()
+        .addProcessModel(model, "lost-delivery.bpmn")
+        .send()
+        .join();
+    final var instanceKey = workflowServiceClient()
+        .newCreateInstanceCommand()
+        .bpmnProcessId(LOST_DELIVERY_PROCESS)
+        .latestVersion()
+        .send()
+        .join()
+        .getProcessInstanceKey();
+
+    try {
+      final var lost = activateOneJob(listenerJobType, Duration.ofSeconds(30));
+      assertEquals(1, lost.getRetries(), "the deployed listener carries one attempt");
+
+      // what a gateway does with a batch it could not hand to the request it activated it
+      // for: it fails the job back with the retries the job had and asks for no backoff.
+      // With none the job would die here and the user task would stand in CREATING
+      Camunda8JobLease
+          .withToken(
+              workflowServiceClient()
+                  .newFailCommand(lost.getKey())
+                  .retries(lost.getRetries()),
+              Camunda8JobLease.tokenOf(lost))
+          .errorMessage("Failed to send activated jobs to client")
+          .send()
+          .join();
+
+      final var offeredAgain = activateOneJob(listenerJobType, Duration.ofSeconds(30));
+      assertEquals(lost.getKey(), offeredAgain.getKey(), "the same listener job was offered again");
+
+      // and it still gates the task: answering it is what ends the state CREATING
+      Camunda8JobLease
+          .withToken(
+              workflowServiceClient().newCompleteCommand(offeredAgain.getKey()),
+              Camunda8JobLease.tokenOf(offeredAgain))
+          .send()
+          .join();
+      awaitUntil(
+          () -> !userTasksOf(instanceKey).isEmpty(),
+          60000,
+          "the user task of the recovered listener job to be created at the cluster");
+      assertEquals(
+          List.of(),
+          incidentsOf(instanceKey),
+          "a delivery which was lost on the way leaves the instance healthy");
+    } finally {
+      workflowServiceClient()
+          .newCancelInstanceCommand(instanceKey)
+          .send()
+          .join();
+    }
+
+  }
+
+  /**
    * The user tasks the cluster holds for an instance.
    *
    * @param processInstanceKey The instance
@@ -1664,7 +1746,24 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
       final String jobType,
       final Duration lock) throws Exception {
 
-    final var activated = new AtomicLong(0L);
+    return activateOneJob(jobType, lock).getKey();
+
+  }
+
+  /**
+   * Activates one job of the given type and answers the job itself, waiting for the cluster
+   * to offer one at all. A caller which needs more of the job than its key - what it carries,
+   * how many attempts it has left - reads it from here.
+   *
+   * @param jobType The job type to ask for
+   * @param lock How long the activation locks the job
+   * @return The job the cluster handed out
+   */
+  private ActivatedJob activateOneJob(
+      final String jobType,
+      final Duration lock) throws Exception {
+
+    final var activated = new AtomicReference<ActivatedJob>();
     awaitUntil(
         () -> {
           // 'job-lease: use' is configured here, and a leased job is never handed to an
@@ -1682,7 +1781,7 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
           if (jobs.isEmpty()) {
             return Boolean.FALSE;
           }
-          activated.set(jobs.getFirst().getKey());
+          activated.set(jobs.getFirst());
           return Boolean.TRUE;
         },
         60000,

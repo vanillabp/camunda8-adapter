@@ -31,14 +31,22 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * Listener jobs GATE the task lifecycle and are therefore ALWAYS completed -
  * including deliveries without a handler. A failing notification fails the
- * listener job; with the V1-compatible <code>retries="0"</code> this raises an
- * incident for the operator (notification defects must not be silently lost) - unless the
+ * listener job with no retries left, whatever the model says, so the first failure raises
+ * the incident for the operator (notification defects must not be silently lost) - unless the
  * workflow module is SHUTTING DOWN, where the job is left to its lock instead:
  * a notification cut off by a restart is not a notification defect, and an incident would
  * be raised for something nobody did wrong. Both commands this handler sends back are
  * repeated where the cluster rejected them for backpressure, which matters here
  * more than anywhere else: with no retries left, a rejected failure would be an incident
  * the cluster's load produced.
+ * <p>
+ * The model carries one retry all the same, and the two are not the same number. The
+ * modelled one is what a gateway gives back when it could not hand the activated batch to
+ * the request it was activated for, and a job with none left dies of that lost delivery
+ * instead of coming back
+ * ({@code Camunda8TaskWiring#ONE_ATTEMPT_LEFT_FOR_A_DELIVERY_THE_GATEWAY_LOST}). The one
+ * this handler sends is what a notification which really failed has left, and that is
+ * none.
  * <p>
  * <b>The listener completion carries NO variables</b> (see decision 1 in the
  * repository's DECISIONS.md), and on these jobs it could not carry any: the cluster answers a
@@ -185,8 +193,8 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
             KIND,
             taskDefinition,
             bpmnProcessId,
-            // the V1-compatible listeners are modelled with retries="0", so a failure IS
-            // the incident and there is no next attempt a backoff could delay
+            // a notification which failed has no attempt left, whatever the model says: the
+            // failure IS the incident and there is no next attempt a backoff could delay
             () -> Camunda8ListenerJobs.Failure.NO_RETRIES_LEFT,
             () -> {
               if (event == null) {
