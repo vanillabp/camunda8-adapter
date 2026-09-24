@@ -251,13 +251,16 @@ public class Camunda8DeclaredProcessWorkersTest {
     };
     final var scoping = TestScoping.of(mode);
     final var clientFactory = new Camunda8ClientFactory("c8", configuration);
-    final var service = new Camunda8DeploymentService(
+    final var service = DeploymentServiceUnderTest.of(
         "c8", clientFactory, TestCollaborators
-            .of(core, scoping), (
-                module,
-                process,
-                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofHours(1), adapterId -> configuration, scoping);
+            .of(core, scoping),
+        (
+            module,
+            process,
+            task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofHours(1),
+        adapterId -> configuration, scoping);
     return new Adapter(service, clientFactory);
 
   }

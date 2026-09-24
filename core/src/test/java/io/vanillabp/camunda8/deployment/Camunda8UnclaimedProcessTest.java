@@ -225,13 +225,16 @@ public class Camunda8UnclaimedProcessTest {
     };
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setRestAddress("http://localhost:65535");
-    return new Camunda8DeploymentService(
+    return DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
-            .of(invoker, workflowEndedInvoker), (
-                m,
-                p,
-                t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofHours(1), adapterId -> configuration);
+            .of(invoker, workflowEndedInvoker),
+        (
+            m,
+            p,
+            t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofHours(1),
+        adapterId -> configuration);
 
   }
 

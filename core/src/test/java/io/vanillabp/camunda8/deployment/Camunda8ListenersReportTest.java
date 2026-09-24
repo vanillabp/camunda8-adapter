@@ -436,13 +436,16 @@ public class Camunda8ListenersReportTest {
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setRestAddress("http://localhost:65535");
     final var scoping = TestScoping.of(mode);
-    final var service = new Camunda8DeploymentService(
+    final var service = DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
-            .of(core, scoping), (
-                workflowModuleId,
-                bpmnProcessId,
-                taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofHours(1), adapterId -> configuration, scoping);
+            .of(core, scoping),
+        (
+            workflowModuleId,
+            bpmnProcessId,
+            taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofHours(1),
+        adapterId -> configuration, scoping);
     service.setAllowListenersResolver(allowListenersResolver);
     return service;
 

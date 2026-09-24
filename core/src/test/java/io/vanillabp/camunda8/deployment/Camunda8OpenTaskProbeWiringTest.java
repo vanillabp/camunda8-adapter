@@ -137,13 +137,16 @@ public class Camunda8OpenTaskProbeWiringTest {
       }
 
     };
-    return new Camunda8DeploymentService(
+    return DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
-            .of(core), (
-                module,
-                process,
-                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofHours(1), adapterId -> configuration, null)
+            .of(core),
+        (
+            module,
+            process,
+            task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofHours(1),
+        adapterId -> configuration, null)
         .theKindOfTaskARecordNames(MODULE, context);
 
   }

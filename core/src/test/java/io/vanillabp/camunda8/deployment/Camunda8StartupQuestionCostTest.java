@@ -374,13 +374,16 @@ public class Camunda8StartupQuestionCostTest {
     // module would be deployed to, which is configuration: this adapter instance has no
     // connection and therefore no client at all, so a question which went to the cluster
     // would fail here instead of being counted
-    final var deploymentService = new Camunda8DeploymentService(
+    final var deploymentService = DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
-            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
-                workflowModuleId,
-                bpmnProcessId,
-                taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofDays(14), null, TestScoping.of(NameClashAvoidance.BY_ADAPTER));
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()),
+        (
+            workflowModuleId,
+            bpmnProcessId,
+            taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofDays(14),
+        null, TestScoping.of(NameClashAvoidance.BY_ADAPTER));
 
     IntStream
         .rangeClosed(1, 50)

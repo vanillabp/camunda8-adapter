@@ -133,13 +133,16 @@ public class Camunda8MultiInstanceItemsTest {
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setRestAddress("http://localhost:65535");
     final var scoping = TestScoping.of(NameClashAvoidance.BY_ADAPTER);
-    final var service = new Camunda8DeploymentService(
+    final var service = DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
-            .of(new ACoreWantingTheItemOf(wanted), scoping), (
-                workflowModuleId,
-                bpmnProcessId,
-                taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofHours(1), adapterId -> configuration, scoping);
+            .of(new ACoreWantingTheItemOf(wanted), scoping),
+        (
+            workflowModuleId,
+            bpmnProcessId,
+            taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofHours(1),
+        adapterId -> configuration, scoping);
     final var context = service.prepareBpmn(MODULE, null, FILE, PROCESS, model);
     service.wireBpmn(MODULE, FILE, PROCESS, model, context);
 

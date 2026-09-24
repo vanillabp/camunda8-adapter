@@ -207,12 +207,14 @@ public class Camunda8FetchVariablesTest {
       }
 
     };
-    final var deploymentService = new Camunda8DeploymentService(
+    final var deploymentService = DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
-            .of(invoker), (
-                m,
-                p,
-                t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration.ofHours(1));
+            .of(invoker),
+        (
+            m,
+            p,
+            t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration.ofHours(1));
     deploymentService.setFetchVariablesResolver(fetchVariables);
     return deploymentService;
 

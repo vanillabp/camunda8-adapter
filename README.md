@@ -2953,6 +2953,10 @@ producing a `jacoco.exec` against the two aggregates, so a module added to the b
 added to its report cannot stay unnoticed. Both are `CoverageGateTest`, and the conventions
 every test class of this repository follows are `TestClassConventionsTest`.
 
+`TestClassConventionsTest` also reads the main sources of this repository, for a guiding
+message whose sentence fell apart: a run of spaces between two words, or two words a line
+continuation glued into one.
+
 The gate reports what it measured on every run, green ones included, which is the one place in
 VanillaBP where a passing test prints. The angle brackets stand for the numbers of the run:
 
@@ -2960,6 +2964,10 @@ VanillaBP where a passing test prints. The angle brackets stand for the numbers 
 coverage gate | Spring Boot: <percent> % instructions (<missed> of <total> missed) | at the rule of 90 %
 coverage gate | Quarkus: <percent> % instructions (<missed> of <total> missed) | <gap> points below the rule of 90 %, build breaks below 85 %
 ```
+
+A build which stops at `package` never reaches the phase which writes the reports. The gate then
+prints a line per platform saying that the coverage was not checked, and those two tests are
+reported as skipped, instead of failing over a file the run could not have written.
 
 Every release line is judged by that one number. Line 8.10 is the reason it is not the rule itself:
 that line excludes the tests of an open cluster bug it cannot pass, which costs it about a point and

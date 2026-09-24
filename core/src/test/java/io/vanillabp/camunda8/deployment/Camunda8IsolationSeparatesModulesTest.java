@@ -72,13 +72,16 @@ public class Camunda8IsolationSeparatesModulesTest {
 
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setTenantId(tenantOfTheAdapter);
-    final var service = new Camunda8DeploymentService(
+    final var service = DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
-            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
-                workflowModuleId,
-                bpmnProcessId,
-                taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofDays(14), null, TestScoping.of(modes));
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()),
+        (
+            workflowModuleId,
+            bpmnProcessId,
+            taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofDays(14),
+        null, TestScoping.of(modes));
     service
         .setConfiguredTenants(
             workflowModuleId -> Camunda8ConfiguredTenant

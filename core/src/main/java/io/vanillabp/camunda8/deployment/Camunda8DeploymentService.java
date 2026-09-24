@@ -415,82 +415,9 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private Function<String, Camunda8ConfiguredTenant> configuredTenants;
 
   /**
-   * Builds the service without the configuration resolver and without the name-clash
-   * avoidance, which is what a test needs. Two adapter ids of this type are not checked
-   * for distinctness then.
-   *
-   * @param adapterId The configured adapter id this service deploys for
-   * @param clientFactory The clients of that adapter id
-   * @param collaborators What the platform integration hands every adapter
-   * @param jobTimeoutResolver Answers how long a job of a task stays locked
-   * @param asyncTaskLockRenewal How far a probe pushes the lock of a job it looks at
-   */
-  public Camunda8DeploymentService(
-      final String adapterId,
-      final Camunda8ClientFactory clientFactory,
-      final AdapterCollaborators collaborators,
-      final Camunda8JobTimeoutResolver jobTimeoutResolver,
-      final Duration asyncTaskLockRenewal) {
-
-    this(adapterId, clientFactory, collaborators, jobTimeoutResolver, asyncTaskLockRenewal, null, null);
-
-  }
-
-  /**
-   * Builds the service without the name-clash avoidance, which is what a test of a single
-   * adapter id needs.
-   *
-   * @param adapterId The configured adapter id this service deploys for
-   * @param clientFactory The clients of that adapter id
-   * @param collaborators What the platform integration hands every adapter
-   * @param jobTimeoutResolver Answers how long a job of a task stays locked
-   * @param asyncTaskLockRenewal How far a probe pushes the lock of a job it looks at
-   * @param configurations The adapter section per adapter id, or <code>null</code> to leave two ids of
-   *          this type unchecked for distinctness
-   */
-  public Camunda8DeploymentService(
-      final String adapterId,
-      final Camunda8ClientFactory clientFactory,
-      final AdapterCollaborators collaborators,
-      final Camunda8JobTimeoutResolver jobTimeoutResolver,
-      final Duration asyncTaskLockRenewal,
-      final Function<String, Camunda8AdapterConfiguration> configurations) {
-
-    this(adapterId, clientFactory, collaborators, jobTimeoutResolver, asyncTaskLockRenewal, configurations, null);
-
-  }
-
-  /**
-   * Builds the service without the retry-backoff resolver, so every failed job waits the
-   * backoff the cluster itself decides on.
-   *
-   * @param adapterId The configured adapter id this service deploys for
-   * @param clientFactory The clients of that adapter id
-   * @param collaborators What the platform integration hands every adapter
-   * @param jobTimeoutResolver Answers how long a job of a task stays locked
-   * @param asyncTaskLockRenewal How far a probe pushes the lock of a job it looks at
-   * @param configurations The adapter section per adapter id, or <code>null</code> to leave two ids of
-   *          this type unchecked for distinctness
-   * @param scoping How identifiers are kept apart where two adapter ids share a cluster, or
-   *          <code>null</code> for none
-   */
-  public Camunda8DeploymentService(
-      final String adapterId,
-      final Camunda8ClientFactory clientFactory,
-      final AdapterCollaborators collaborators,
-      final Camunda8JobTimeoutResolver jobTimeoutResolver,
-      final Duration asyncTaskLockRenewal,
-      final Function<String, Camunda8AdapterConfiguration> configurations,
-      final NameClashAvoidanceSupport scoping) {
-
-    this(adapterId, clientFactory, collaborators, jobTimeoutResolver, asyncTaskLockRenewal, configurations, scoping, null);
-
-  }
-
-  /**
-   * Builds the service of one adapter id with everything it can be given. The platform bean
-   * of Spring Boot or Quarkus uses this one; the shorter ones above fill the tail with
-   * <code>null</code>.
+   * Builds the service of one adapter id. The platform bean of Spring Boot or Quarkus calls
+   * it with everything the application configured. The last three arguments may be
+   * <code>null</code>, and each one says here what that means.
    *
    * @param adapterId The configured adapter id this service deploys for
    * @param clientFactory The clients of that adapter id

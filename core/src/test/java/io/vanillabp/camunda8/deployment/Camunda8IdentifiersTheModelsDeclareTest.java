@@ -122,13 +122,16 @@ public class Camunda8IdentifiersTheModelsDeclareTest {
     final var configuration = new Camunda8AdapterConfiguration();
     // an address nothing listens on: not one question of this test reaches a cluster
     configuration.setRestAddress("http://localhost:65535");
-    final var service = new Camunda8DeploymentService(
+    final var service = DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
-            .of(new Camunda8DeploymentServiceTest.NoOpInvoker(), scoping), (
-                workflowModuleId,
-                bpmnProcessId,
-                taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofHours(1), adapterId -> configuration, scoping);
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker(), scoping),
+        (
+            workflowModuleId,
+            bpmnProcessId,
+            taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofHours(1),
+        adapterId -> configuration, scoping);
     service
         .setAllowConnectorsResolver((
             workflowModuleId,

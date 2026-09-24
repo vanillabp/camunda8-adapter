@@ -177,12 +177,14 @@ public class Camunda8ConcurrentTokensOfHeldVersionsTest {
       }
 
     };
-    final var deploymentService = new Camunda8DeploymentService(
+    final var deploymentService = DeploymentServiceUnderTest.of(
         "c8", clientFactory, TestCollaborators
-            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
-                workflowModuleId,
-                bpmnProcessId,
-                taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration.ofDays(14));
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()),
+        (
+            workflowModuleId,
+            bpmnProcessId,
+            taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration.ofDays(14));
     return deploymentService.processVersionCatalogOf(MODULE, PROCESS);
 
   }
