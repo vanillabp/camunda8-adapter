@@ -2953,6 +2953,10 @@ producing a `jacoco.exec` against the two aggregates, so a module added to the b
 added to its report cannot stay unnoticed. Both are `CoverageGateTest`, and the conventions
 every test class of this repository follows are `TestClassConventionsTest`.
 
+`TestClassConventionsTest` also reads the main sources of this repository, for a guiding
+message whose sentence fell apart: a run of spaces between two words, or two words a line
+continuation glued into one.
+
 The gate reports what it measured on every run, green ones included, which is the one place in
 VanillaBP where a passing test prints. The angle brackets stand for the numbers of the run:
 
