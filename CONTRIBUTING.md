@@ -57,6 +57,17 @@ and `@return the value` is the same gap in a longer form. The modules which publ
 `smoke-test`, `election-integration-test` and the two Quarkus test modules - do not run the goal at
 all.
 
+One thing the javadoc plugin cannot see is what Lombok generates, because it reads the source and
+Lombok writes bytecode. So a published comment names a property in words rather than linking a
+getter which is not in the file, and a published class which takes its constructor from Lombok
+writes that constructor out, because the documentation otherwise shows a parameterless one which
+does not exist.
+
+Two javadoc blocks in a row are the gap neither tool sees. Javadoc keeps the last block before an
+element and drops the earlier ones without a word, so a comment somebody wrote and kept up to date
+appears nowhere. `bin/check-orphaned-javadoc.sh` finds that shape. A block it reports describes
+something, usually the element next door, so hang it back there rather than delete it.
+
 The per-line source trees make this a check per line. Each line carries its own
 `Camunda8BusinessId`, `Camunda8JobLease` and `Camunda8CancelListeners`, and a build sees the tree of
 the line it selects, so a comment written on one line says nothing about the other two. Build all
