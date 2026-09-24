@@ -93,12 +93,15 @@ public class Camunda8DeploymentServiceTest {
   private Camunda8DeploymentService newDeploymentService() {
 
     // an unconfigured factory: getClient() would throw if ever called
-    return new Camunda8DeploymentService("c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
-        .of(new NoOpInvoker()), (
+    return DeploymentServiceUnderTest.of("c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()),
+        TestCollaborators
+            .of(new NoOpInvoker()),
+        (
             m2,
             p2,
-            t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                .ofDays(14));
+            t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofDays(14));
 
   }
 
@@ -245,15 +248,17 @@ public class Camunda8DeploymentServiceTest {
   @DisplayName("a listener worker's lock follows the configured job-timeout of its workflow")
   public void listenerLockFollowsTheConfiguredJobTimeout() {
 
-    final var deploymentService = new Camunda8DeploymentService(
+    final var deploymentService = DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
-            .of(new NoOpInvoker()), (
-                workflowModuleId,
-                bpmnProcessId,
-                taskDefinition) -> "Process".equals(bpmnProcessId)
-                    ? Duration.ofMinutes(2)
-                    : Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                        .ofDays(14));
+            .of(new NoOpInvoker()),
+        (
+            workflowModuleId,
+            bpmnProcessId,
+            taskDefinition) -> "Process".equals(bpmnProcessId)
+                ? Duration.ofMinutes(2)
+                : Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofDays(14));
 
     assertEquals(
         Duration.ofMinutes(2),
@@ -266,14 +271,16 @@ public class Camunda8DeploymentServiceTest {
   @DisplayName("one listener job type with conflicting locks fails naming both processes")
   public void conflictingListenerLocksFailGuiding() {
 
-    final var deploymentService = new Camunda8DeploymentService(
+    final var deploymentService = DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
-            .of(new NoOpInvoker()), (
-                workflowModuleId,
-                bpmnProcessId,
-                taskDefinition) -> "Fast".equals(bpmnProcessId)
-                    ? Duration.ofSeconds(30)
-                    : Duration.ofMinutes(10), Duration.ofDays(14));
+            .of(new NoOpInvoker()),
+        (
+            workflowModuleId,
+            bpmnProcessId,
+            taskDefinition) -> "Fast".equals(bpmnProcessId)
+                ? Duration.ofSeconds(30)
+                : Duration.ofMinutes(10),
+        Duration.ofDays(14));
 
     final var exception = assertThrows(
         IllegalStateException.class,
@@ -304,12 +311,14 @@ public class Camunda8DeploymentServiceTest {
     configuration.setRestAddress("http://localhost:1");
     try (final var clientFactory = new Camunda8ClientFactory("c8", configuration)) {
 
-      final var deploymentService = new Camunda8DeploymentService(
+      final var deploymentService = DeploymentServiceUnderTest.of(
           "c8", clientFactory, TestCollaborators
-              .of(new NoOpInvoker()), (
-                  workflowModuleId,
-                  bpmnProcessId,
-                  taskDefinition) -> locks.next(), Duration.ofDays(14));
+              .of(new NoOpInvoker()),
+          (
+              workflowModuleId,
+              bpmnProcessId,
+              taskDefinition) -> locks.next(),
+          Duration.ofDays(14));
       final var context = new Camunda8ProcessingContext("c8", "m", new Camunda8MultiInstance.Registry());
       context
           .getTasksToWire()
@@ -346,13 +355,15 @@ public class Camunda8DeploymentServiceTest {
 
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setStreamTimeout(Duration.ofMinutes(30));
-    final var deploymentService = new Camunda8DeploymentService(
+    final var deploymentService = DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
-            .of(new NoOpInvoker()), (
-                m,
-                p,
-                t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofDays(14));
+            .of(new NoOpInvoker()),
+        (
+            m,
+            p,
+            t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofDays(14));
     final var builder = Mockito
         .mock(JobWorkerBuilderStep1.JobWorkerBuilderStep3.class);
     Mockito
@@ -618,12 +629,14 @@ public class Camunda8DeploymentServiceTest {
     public void aBusinessRuleTaskFindsItsRenamedDecision() {
 
       final var scoping = scopingWith(NameClashAvoidance.USE_PREFIX);
-      final var service = new Camunda8DeploymentService(
+      final var service = DeploymentServiceUnderTest.of(
           "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
-              .of(new NoOpInvoker()), (
-                  m,
-                  p,
-                  t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration.ofDays(14), null, scoping);
+              .of(new NoOpInvoker()),
+          (
+              m,
+              p,
+              t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+          Duration.ofDays(14), null, scoping);
 
       final var model = Bpmn
           .createExecutableProcess("Rating")
@@ -658,12 +671,14 @@ public class Camunda8DeploymentServiceTest {
     public void byAdapterLeavesTheDecisionAlone() {
 
       final var scoping = scopingWith(NameClashAvoidance.BY_ADAPTER);
-      final var service = new Camunda8DeploymentService(
+      final var service = DeploymentServiceUnderTest.of(
           "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
-              .of(new NoOpInvoker()), (
-                  m,
-                  p,
-                  t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration.ofDays(14), null, scoping);
+              .of(new NoOpInvoker()),
+          (
+              m,
+              p,
+              t) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+          Duration.ofDays(14), null, scoping);
 
       final var model = Bpmn
           .createExecutableProcess("Rating")
@@ -723,13 +738,16 @@ public class Camunda8DeploymentServiceTest {
     private BpmnModelInstance modelOf(
         final NameClashAvoidance mode) {
 
-      final var service = new Camunda8DeploymentService(
+      final var service = DeploymentServiceUnderTest.of(
           "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
-              .of(new NoOpInvoker()), (
-                  m2,
-                  p2,
-                  t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                      .ofDays(14), null, scopingWith(mode));
+              .of(new NoOpInvoker()),
+          (
+              m2,
+              p2,
+              t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+          Duration
+              .ofDays(14),
+          null, scopingWith(mode));
       final var model = Bpmn
           .createExecutableProcess("RiskAssessment")
           .startEvent()
@@ -789,14 +807,17 @@ public class Camunda8DeploymentServiceTest {
     @DisplayName("a multi-process file is prefixed ONCE, although prepareBpmn is called per process")
     public void multiProcessFileIsScopedOnlyOnce() {
 
-      final var service = new Camunda8DeploymentService(
+      final var service = DeploymentServiceUnderTest.of(
           "c8", new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration()), TestCollaborators
-              .of(new NoOpInvoker()), (
-                  m2,
-                  p2,
-                  t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                      .ofDays(
-                          14), null, scopingWith(NameClashAvoidance.USE_PREFIX));
+              .of(new NoOpInvoker()),
+          (
+              m2,
+              p2,
+              t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+          Duration
+              .ofDays(
+                  14),
+          null, scopingWith(NameClashAvoidance.USE_PREFIX));
       final var model = Bpmn
           .readModelFromStream(new ByteArrayInputStream(TWO_EXECUTABLE_PROCESSES.getBytes(UTF_8)));
 
@@ -829,13 +850,16 @@ public class Camunda8DeploymentServiceTest {
     private Camunda8DeploymentService serviceOfAdapterId(
         final String adapterId) {
 
-      return new Camunda8DeploymentService(
+      return DeploymentServiceUnderTest.of(
           adapterId, new Camunda8ClientFactory(adapterId, new Camunda8AdapterConfiguration()), TestCollaborators
-              .of(new NoOpInvoker()), (
-                  m2,
-                  p2,
-                  t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                      .ofDays(14), null, null);
+              .of(new NoOpInvoker()),
+          (
+              m2,
+              p2,
+              t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+          Duration
+              .ofDays(14),
+          null, null);
 
     }
 
@@ -916,13 +940,16 @@ public class Camunda8DeploymentServiceTest {
 
       final var configuration = new Camunda8AdapterConfiguration();
       configuration.setAcceptUnscopedIdentifiers(true);
-      final var service = new Camunda8DeploymentService(
+      final var service = DeploymentServiceUnderTest.of(
           "myengine", new Camunda8ClientFactory("myengine", configuration), TestCollaborators
-              .of(new NoOpInvoker()), (
-                  m2,
-                  p2,
-                  t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                      .ofDays(14), null, null);
+              .of(new NoOpInvoker()),
+          (
+              m2,
+              p2,
+              t2) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+          Duration
+              .ofDays(14),
+          null, null);
 
       assertEquals(
           List.of(),

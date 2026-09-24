@@ -227,12 +227,14 @@ public class Camunda8IdentifiersOfHeldVersionsTest {
 
     };
     final var scoping = TestScoping.of(NameClashAvoidance.USE_PREFIX);
-    final var deploymentService = new Camunda8DeploymentService(
+    final var deploymentService = DeploymentServiceUnderTest.of(
         "c8", clientFactory, TestCollaborators.of(new Camunda8DeploymentServiceTest.NoOpInvoker(), scoping), (
             workflowModuleId,
             bpmnProcessId,
-            taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                .ofDays(14), adapterId -> configuration, scoping);
+            taskDefinition) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofDays(14),
+        adapterId -> configuration, scoping);
     return deploymentService.processVersionCatalogOf(MODULE, PROCESS);
 
   }

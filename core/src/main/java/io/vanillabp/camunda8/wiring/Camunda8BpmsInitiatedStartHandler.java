@@ -78,61 +78,8 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
   private final Camunda8RetryBackoffResolver retryBackoffResolver;
 
   /**
-   * Builds the handler without a drain and without a retry-backoff resolver, which is what a
-   * test needs.
-   *
-   * @param adapterId The adapter id this handler belongs to
-   * @param workflowModuleId The workflow module the start event belongs to
-   * @param bpmnProcessId The PLAIN BPMN process id the start event belongs to
-   * @param startEventId The BPMN element id of the start event
-   * @param kind What fires the start event: a timer, a signal or a condition
-   * @param signalName The signal name where the kind is a signal, <code>null</code> otherwise
-   * @param bpmsInitiatedStartInvoker What the platform calls when the cluster starts a workflow
-   */
-  public Camunda8BpmsInitiatedStartHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final String startEventId,
-      final BpmsStartTrigger.Kind kind,
-      final String signalName,
-      final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker) {
-
-    this(adapterId, workflowModuleId, bpmnProcessId, startEventId, kind, signalName, bpmsInitiatedStartInvoker, null);
-
-  }
-
-  /**
-   * Builds the handler without a retry-backoff resolver, so a failed job waits the backoff the
-   * cluster itself decides on.
-   *
-   * @param adapterId The adapter id this handler belongs to
-   * @param workflowModuleId The workflow module the start event belongs to
-   * @param bpmnProcessId The PLAIN BPMN process id the start event belongs to
-   * @param startEventId The BPMN element id of the start event
-   * @param kind What fires the start event: a timer, a signal or a condition
-   * @param signalName The signal name where the kind is a signal, <code>null</code> otherwise
-   * @param bpmsInitiatedStartInvoker What the platform calls when the cluster starts a workflow
-   * @param drain Where the running handler is counted, or <code>null</code> for a drain of its own
-   */
-  public Camunda8BpmsInitiatedStartHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final String startEventId,
-      final BpmsStartTrigger.Kind kind,
-      final String signalName,
-      final BpmsInitiatedStartInvoker bpmsInitiatedStartInvoker,
-      final Camunda8Drain drain) {
-
-    this(
-        adapterId, workflowModuleId, bpmnProcessId, startEventId, kind, signalName, bpmsInitiatedStartInvoker, drain, null);
-
-  }
-
-  /**
-   * Builds the handler of one start event with everything it can be given. The deployment
-   * service uses this one; the shorter ones above fill the tail with <code>null</code>.
+   * Builds the handler of one start event. The deployment service calls it. The drain and the
+   * retry-backoff resolver may be <code>null</code>, and each one says here what that means.
    *
    * @param adapterId The adapter id this handler belongs to
    * @param workflowModuleId The workflow module the start event belongs to

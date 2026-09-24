@@ -84,52 +84,8 @@ public class Camunda8WorkflowEndedHandler implements JobHandler {
   private final Camunda8RetryBackoffResolver retryBackoffResolver;
 
   /**
-   * Builds the handler without a drain and without a retry-backoff resolver, which is what a
-   * test needs.
-   *
-   * @param adapterId The adapter id this handler belongs to
-   * @param workflowModuleId The workflow module the process belongs to
-   * @param bpmnProcessId The PLAIN BPMN process id whose end is reported
-   * @param aggregateIdVariable The process variable carrying the workflow aggregate's id
-   * @param workflowEndedInvoker What the platform calls when a workflow of that process ended
-   */
-  public Camunda8WorkflowEndedHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final String aggregateIdVariable,
-      final WorkflowEndedInvoker workflowEndedInvoker) {
-
-    this(adapterId, workflowModuleId, bpmnProcessId, aggregateIdVariable, workflowEndedInvoker, null);
-
-  }
-
-  /**
-   * Builds the handler without a retry-backoff resolver, so a failed job waits the backoff the
-   * cluster itself decides on.
-   *
-   * @param adapterId The adapter id this handler belongs to
-   * @param workflowModuleId The workflow module the process belongs to
-   * @param bpmnProcessId The PLAIN BPMN process id whose end is reported
-   * @param aggregateIdVariable The process variable carrying the workflow aggregate's id
-   * @param workflowEndedInvoker What the platform calls when a workflow of that process ended
-   * @param drain Where the running handler is counted, or <code>null</code> for a drain of its own
-   */
-  public Camunda8WorkflowEndedHandler(
-      final String adapterId,
-      final String workflowModuleId,
-      final String bpmnProcessId,
-      final String aggregateIdVariable,
-      final WorkflowEndedInvoker workflowEndedInvoker,
-      final Camunda8Drain drain) {
-
-    this(adapterId, workflowModuleId, bpmnProcessId, aggregateIdVariable, workflowEndedInvoker, drain, null);
-
-  }
-
-  /**
-   * Builds the handler of one process with everything it can be given. The deployment service
-   * uses this one; the shorter ones above fill the tail with <code>null</code>.
+   * Builds the handler of one process. The deployment service calls it. The drain and the
+   * retry-backoff resolver may be <code>null</code>, and each one says here what that means.
    *
    * @param adapterId The adapter id this handler belongs to
    * @param workflowModuleId The workflow module the process belongs to

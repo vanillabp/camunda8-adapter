@@ -57,13 +57,16 @@ public class Camunda8ShutdownDrainTest {
 
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setShutdownGrace(grace);
-    return new Camunda8DeploymentService(
+    return DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
-            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
-                module,
-                process,
-                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofHours(1), adapterId -> configuration);
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()),
+        (
+            module,
+            process,
+            task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofHours(1),
+        adapterId -> configuration);
 
   }
 
@@ -76,13 +79,16 @@ public class Camunda8ShutdownDrainTest {
     final var configuration = new Camunda8AdapterConfiguration();
     configuration.setShutdownGrace(GRACE);
     configuration.setRestAddress("http://localhost:65535");
-    return new Camunda8DeploymentService(
+    return DeploymentServiceUnderTest.of(
         "c8", new Camunda8ClientFactory("c8", configuration), TestCollaborators
-            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
-                module,
-                process,
-                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofHours(1), adapterId -> configuration);
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()),
+        (
+            module,
+            process,
+            task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofHours(1),
+        adapterId -> configuration);
 
   }
 
@@ -285,13 +291,16 @@ public class Camunda8ShutdownDrainTest {
     configuration.setShutdownGrace(GRACE);
     configuration.setRestAddress("http://localhost:65535");
     final var clientFactory = new Camunda8ClientFactory("c8", configuration);
-    final var service = new Camunda8DeploymentService(
+    final var service = DeploymentServiceUnderTest.of(
         "c8", clientFactory, TestCollaborators
-            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
-                module,
-                process,
-                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofHours(1), adapterId -> configuration);
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()),
+        (
+            module,
+            process,
+            task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofHours(1),
+        adapterId -> configuration);
     final var context = new Camunda8ProcessingContext("c8", "test-module", new Camunda8MultiInstance.Registry());
     service.startWorkflowProcessing("test-module", context);
     // a platform whose shutdown never reaches the adapter: the module is open, and the
@@ -325,13 +334,16 @@ public class Camunda8ShutdownDrainTest {
     configuration.setShutdownGrace(GRACE);
     configuration.setRestAddress("http://localhost:65535");
     final var clientFactory = new Camunda8ClientFactory("c8", configuration);
-    final var service = new Camunda8DeploymentService(
+    final var service = DeploymentServiceUnderTest.of(
         "c8", clientFactory, TestCollaborators
-            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()), (
-                module,
-                process,
-                task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT, Duration
-                    .ofHours(1), adapterId -> configuration);
+            .of(new Camunda8DeploymentServiceTest.NoOpInvoker()),
+        (
+            module,
+            process,
+            task) -> Camunda8JobTimeoutResolver.DEFAULT_JOB_TIMEOUT,
+        Duration
+            .ofHours(1),
+        adapterId -> configuration);
     final var context = new Camunda8ProcessingContext("c8", "test-module", new Camunda8MultiInstance.Registry());
     service.startWorkflowProcessing("test-module", context);
     service.stopWorkflowProcessing("test-module", context);
