@@ -2961,6 +2961,10 @@ coverage gate | Spring Boot: <percent> % instructions (<missed> of <total> misse
 coverage gate | Quarkus: <percent> % instructions (<missed> of <total> missed) | <gap> points below the rule of 90 %, build breaks below 85 %
 ```
 
+A build which stops at `package` never reaches the phase which writes the reports. The gate then
+prints a line per platform saying that the coverage was not checked, and those two tests are
+reported as skipped, instead of failing over a file the run could not have written.
+
 Every release line is judged by that one number. Line 8.10 is the reason it is not the rule itself:
 that line excludes the tests of an open cluster bug it cannot pass, which costs it about a point and
 a quarter on either platform, and a gate standing at 90 turned the nightly matrix red over coverage
