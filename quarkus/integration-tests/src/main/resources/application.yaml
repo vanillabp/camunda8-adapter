@@ -22,6 +22,10 @@ vanillabp:
     - c8
   workflow-modules:
     c8-e2e:
+      declared-task-params:
+        - approved
+        - results
+        - secret
       adapters:
         c8:
           resources-location: classpath:c8-e2e/processes
@@ -30,8 +34,12 @@ vanillabp:
       workflows:
         AggregateChangedProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'
         TimerStartProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'
         ConnectorProcess:
           adapters:
             c8:

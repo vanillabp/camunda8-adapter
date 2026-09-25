@@ -22,6 +22,8 @@ vanillabp:
       workflows:
         ConnectorProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'
           adapters:
             c8:
               allow-connectors: true

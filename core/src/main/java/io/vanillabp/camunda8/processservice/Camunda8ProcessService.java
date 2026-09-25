@@ -369,6 +369,23 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
+   * What Camunda 8 does with that type, so the startup check can say what happens to a value
+   * which travels between the application and this BPMS.
+   *
+   * @param valueType The declared type of the value
+   * @param direction Which way the value travels
+   * @return The verdict of this adapter
+   */
+  @Override
+  public io.vanillabp.integration.adapter.spi.values.ValueTypeVerdict whatThisBpmsDoesWith(
+      final Class<?> valueType,
+      final io.vanillabp.integration.adapter.spi.values.ValueDirection direction) {
+
+    return Camunda8ValueTypes.verdictFor(valueType, direction);
+
+  }
+
+  /**
    * The process variables written whenever this adapter talks to the cluster on
    * behalf of a workflow: the aggregate's shared attributes PLUS - always, no
    * matter what the sync model says - the technical variable carrying the

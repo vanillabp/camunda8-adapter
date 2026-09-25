@@ -404,6 +404,18 @@ public class C8E2eWorkflowService {
 
   }
 
+  /**
+   * Reads what the cluster holds, whatever type that is: the three parameters are
+   * declared as <code>Object</code> because the point of this task is the cluster's
+   * view of the variables, not a type the application expects. The test application
+   * therefore declares the three names in its <code>application.yaml</code>, at the
+   * workflow module, because this one workflow service serves every process of it.
+   *
+   * @param aggregate The workflow aggregate
+   * @param approved What the cluster holds for the approval
+   * @param results What the cluster holds for the results
+   * @param secret What the cluster holds for the secret
+   */
   @WorkflowTask
   public void syncApproved(
       final C8E2eAggregate aggregate,

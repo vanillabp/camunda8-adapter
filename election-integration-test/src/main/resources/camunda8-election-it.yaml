@@ -25,6 +25,8 @@ vanillabp:
       workflows:
         ElectionProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'
   outbox:
     poll-interval: PT0.5S
     attempt-frequency: PT0.5S
