@@ -976,6 +976,18 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // "completed" says this BPMS is the one which held the workflow. Filtering here
     // made every read of an ended workflow fail and turned an operation arriving too
     // late into a lookup failure.
+    //
+    // A workflow somebody cancelled is reported as ACTIVE until it has really ended,
+    // and that can be much longer than the search needs. The engine answers 404 to a
+    // second cancellation within milliseconds, but an instance holding a Camunda-managed
+    // user task only terminates once the canceling listener job of that task is
+    // answered. Measured against a cluster of the 8.9 line on 2026-09-25: with that job
+    // answered at once the search stopped reporting the instance after 0,8 to 1,0
+    // seconds, and with nobody answering it the instance was still reported 130 seconds
+    // later and ended half a second after a worker finally took the job. ACTIVE is the
+    // right answer for all of that time - the instance is there, and an operation sent
+    // to it is taken. What is NOT an answer is the engine's 404, which is why nothing
+    // here reads one.
     try {
       final var found = clientFactory
           .getClient()
