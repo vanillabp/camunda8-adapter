@@ -8,7 +8,7 @@ vanillabp:
   adapters:
     c8:
       type: camunda8
-      request-timeout: PT2S
+      request-timeout: PT5S
       job-lease: use
       name-clash-avoidance: use-prefix
   prioritized-adapters:

@@ -363,18 +363,22 @@ public abstract class TestOnTheSharedCluster {
    * lock expires.
    * <p>
    * It is the <code>request-timeout</code> the applications of this module run with, and the
-   * yaml files of this module set it to the same two seconds. The client's own default is ten,
+   * yaml files of this module set it to the same five seconds. The client's own default is ten,
    * and that is what this module used to pay twice per class: once here, and once more in the
    * drain of the class before, which cannot report its workers closed until their parked
    * requests come back. Measured on 2026-09-25 with the default: 281,9 seconds of waiting here
    * across twenty-nine classes, in a module which took 985 seconds.
    * <p>
-   * Two seconds is above the second below which the adapter calls the value unusable, and far
-   * above what this module's commands need - its deployment of nineteen files took under a
-   * second. A class which gives its applications a longer window says so with
+   * Five seconds is above the second below which the adapter calls the value unusable, and
+   * above what this module's commands need on a developer machine, where its deployment of
+   * nineteen files took under a second. Two seconds were tried first and the build runner
+   * missed them: on 2026-09-25 the deployment of that same module answered with
+   * <code>SocketTimeoutException: 2000 MILLISECONDS</code> on line 8.8, in a job which passes
+   * with five. A runner is slower than the machine a measurement is taken on, and this value
+   * has to hold for both. A class which gives its applications a longer window says so with
    * {@link #aRequestOfThisClassCanBeParkedFor(Duration)}.
    */
-  private static final Duration WHAT_THIS_MODULE_CONFIGURES = Duration.ofSeconds(2);
+  private static final Duration WHAT_THIS_MODULE_CONFIGURES = Duration.ofSeconds(5);
 
   /**
    * Whether a class of this module has run in this fork already. The first one talks to a
