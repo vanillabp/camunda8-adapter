@@ -314,11 +314,16 @@ the same matrix: `checks.yaml` calls it without a condition, and the result repo
 `line-pins-verified`. A pull request used to build the current GA line alone, and then a night
 found on `main` what the pull request of the same commit had not. See decision 42.
 
-That check reads the GA lines of the matrix. The preview line builds there too and its job is on
-the pull request to read, but a defect of the alpha it is built against does not hold a pull
-request. The matrix takes about forty minutes, where a pull request on its own took about twenty,
-and a wave of stories pays that once instead of once per story. Whoever opened the wave watches it
-and starts on a red line at once.
+That check reads the GA lines of the matrix, and so does `lines-verified` inside it. The preview
+line builds there like every other line and its job is red where it broke, but it decides neither
+name: a defect of the alpha cluster it pins must not stop somebody who needs a fix on a released
+line. What it gets instead is an issue of its own, and the job summary of the matrix names the
+lines which decided the run. A release still waits for every line, the preview one included. See
+decision 42.
+
+The matrix takes about forty minutes, where a pull request on its own took about twenty, and a wave
+of stories pays that once instead of once per story. Whoever opened the wave watches it and starts
+on a red line at once.
 
 In front of the matrix stands `orphaned-javadoc-check`, which runs
 `bin/check-orphaned-javadoc.sh` over the sources. Javadoc keeps the last block before an element

@@ -3,9 +3,11 @@ name: Release lines
 # gets a GitHub issue, opened by release-lines-issue.yaml, and a release waits for every
 # current line of this matrix. Both are decision 31 in the repository's DECISIONS.md.
 #
-# A pull request is the one caller which waits for less than that. It reads the output
-# 'broken-ga-lines', which leaves the preview line out. The job 'ga-lines' at the bottom
-# says why.
+# The preview line is built here like every other line, and it decides nothing: neither
+# 'lines-verified' below nor the pull request which called this. A cluster defect of an alpha
+# must not stop a fix for a released line, and that is decision 42 in the repository's
+# DECISIONS.md. A release waits for it all the same, because the gate of a release is the call
+# of this whole workflow, and a red line fails that call whichever line it is.
 "on":
   schedule:
     # Early enough to be green or red before anybody starts working. GitHub queues a
@@ -142,26 +144,47 @@ jobs:
           path: "${{ runner.temp }}/line-result/${{ matrix.line }}"
 
   # One name that never changes, so branch protection and the release workflow have something to
-  # require while the matrix grows and shrinks with the lines. It needs every line, the preview
-  # line included: that is the release gate of decision 31 in the repository's
-  # DECISIONS.md, and the night reads it too.
+  # require while the matrix grows and shrinks with the lines.
+  #
+  # It is decided by the GA lines. The preview line is built and its job is red where it broke,
+  # and a red one is in the summary of 'ga-lines' below and in an issue of its own, so nothing
+  # about it is hidden. It does not decide this name: an alpha is rewritten under us, and a
+  # defect of the cluster it pins must not stop somebody who needs a fix on a released line. See
+  # decision 42 in the repository's DECISIONS.md.
+  #
+  # A release waits for more than this name, the preview line included. Its gate is the call of
+  # this whole workflow, and a red line fails that call, which is decision 31 in the repository's
+  # DECISIONS.md.
+  #
+  # It reads what 'ga-lines' counted rather than the result of the matrix, because the result of
+  # the matrix cannot tell a red GA line from a red alpha. That reading answers the other half
+  # too: a line which never ran and a line which was cancelled leave no result, and no result is
+  # not a line which built.
   lines-verified:
     if: always()
-    needs: line
+    needs: [line, ga-lines]
     runs-on: ubuntu-latest
     steps:
-      - name: Every line built
+      - name: Every GA line built
+        env:
+          BROKEN: "${{ needs.ga-lines.outputs.broken }}"
         run: |
-          echo "lines: ${{ needs.line.result }}"
-          [ "${{ needs.line.result }}" = "success" ]
+          echo "the matrix says ${{ needs.line.result }}, and the GA lines of it say ${BROKEN:-nothing}"
+          case "$BROKEN" in
+            none)
+              echo "Every GA line built." ;;
+            "")
+              echo "No line was read, so this run says nothing about any GA line. Read the" >&2
+              echo "job 'ga-lines' above." >&2
+              exit 1 ;;
+            *)
+              echo "These GA lines did not build: ${BROKEN}" >&2
+              exit 1 ;;
+          esac
 
-  # The same matrix, read without the preview line, for a caller which needs that answer.
-  # A pull request is the one caller which does: the preview line is built against an
-  # alpha which is rewritten under us, and a defect of that alpha may cost a night, it
-  # may not cost a pull request. The preview line still builds here, its job is on the
-  # pull request to read, and a red one still gets its issue in the night. All of that is
-  # decision 31 in the repository's DECISIONS.md, and 'lines-verified' above keeps the
-  # release waiting for every line.
+  # The same matrix, counted line by line, without the preview line. That is the answer
+  # 'lines-verified' is decided by and the answer a pull request reads, and this job also writes
+  # the table which says which lines decided the run and which one was only reported.
   #
   # This job reports what it found, it does not fail on it. A failed job hands no output
   # to the caller, so failing here would leave the caller with an empty answer instead of
@@ -187,6 +210,12 @@ jobs:
           set -euo pipefail
           broken=""
           counted=0
+          {
+            echo "### The release lines of this run"
+            echo
+            echo "| line | result | decides this run |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
           for line in $(echo "${LINES:-[]}" | jq -r '.[]'); do
             counted=$((counted + 1))
             # a line whose job was cancelled before it could write anything counts as a
@@ -194,11 +223,22 @@ jobs:
             result=nothing
             [ ! -f "line-results/${line}" ] || result="$(cat "line-results/${line}")"
             preview="$(bin/line-preview.sh "$line")"
-            echo "line ${line}: ${result}, preview line: ${preview}"
+            decides=yes
+            [ "$preview" != "true" ] || decides="no, preview line: reported only"
+            echo "line ${line}: ${result}, decides this run: ${decides}"
+            echo "| ${line} | ${result} | ${decides} |" >> "$GITHUB_STEP_SUMMARY"
             [ "$result" != "success" ] || continue
             [ "$preview" != "true" ] || continue
             broken="${broken}${broken:+ }${line}"
           done
+          {
+            echo
+            echo "The lines marked yes decide \`lines-verified\` and the pull request which"
+            echo "called this. A preview line is built against an alpha which is rewritten"
+            echo "under us, so a defect of that alpha does not stop a fix for a released line."
+            echo "A red preview line gets an issue of its own, and a release still waits for"
+            echo "every line."
+          } >> "$GITHUB_STEP_SUMMARY"
           if [ "$counted" -eq 0 ]; then
             echo "No line was collected, so this run says nothing about any line." >&2
             exit 1
