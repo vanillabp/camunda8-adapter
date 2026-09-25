@@ -26,3 +26,5 @@ vanillabp:
       workflows:
         NativeProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'

@@ -21,16 +21,22 @@ vanillabp:
       workflows:
         ListenerProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'
           adapters:
             c8:
               allow-listeners: true
         UserTaskProbeProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'
           adapters:
             c8:
               allow-listeners: true
         UserTaskStillCreatingProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'
   outbox:
     poll-interval: PT0.5S
     attempt-frequency: PT0.5S

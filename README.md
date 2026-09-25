@@ -2851,6 +2851,21 @@ probe, and `Camunda8HealthBootTest` with
 `Camunda8AdapterDiscoveryTest#anAdapterWithoutAConnectionIsNotUnhealthy` the booted
 application's side of it.
 
+## What this adapter says about a value type
+
+The platform refuses to start a workflow whose values may not arrive as what they were, and it asks
+every adapter of that workflow what its BPMS does with a type
+(`MigratableProcessService#whatThisBpmsDoesWith`). `Camunda8ValueTypes` is this adapter's answer.
+
+A Camunda 8 variable is a JSON value. The broker knows a text, a boolean, a number, a list and an
+object, so the Java types a JSON value carries there and back are the texts, the boolean and the
+numbers. An enum arrives as its name, which is a text.
+
+The costly case is the decimal. The broker holds a number and not the way it was written, so
+`120.50` comes back as `120.5` (measured while story 241 was implemented). That is reported as
+changed in both directions. Everything else is answered with "cannot say", which never ends a
+startup: an application whose cluster is unreachable while it boots still has to boot.
+
 ## Camunda 8 client
 
 The adapter uses the plain Java client `io.camunda:camunda-client-java`, pinned per

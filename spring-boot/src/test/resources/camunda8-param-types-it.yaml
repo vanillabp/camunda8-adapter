@@ -20,6 +20,8 @@ vanillabp:
       workflows:
         ParamTypesProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'
           adapters:
             c8:
               retry-backoff: PT1S

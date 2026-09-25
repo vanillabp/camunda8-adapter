@@ -30,8 +30,12 @@ vanillabp:
       workflows:
         AggregateChangedProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'
         TimerStartProcess:
           allow-full-sync-with-bpms: true
+          declared-aggregate-values:
+            - '*'
         ConnectorProcess:
           adapters:
             c8:
