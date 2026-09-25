@@ -3,6 +3,7 @@ package io.vanillabp.camunda8.observability;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.DoubleSupplier;
 import java.util.function.IntSupplier;
 
 import io.camunda.client.api.worker.JobWorkerMetrics;
@@ -53,6 +54,17 @@ public class MicrometerCamunda8Metrics implements Camunda8Metrics, MeterBinder {
                                 IntSupplier waiting) {
   }
 
+  /**
+   * What the handlers of one adapter instance do to their slots, kept for the same reason
+   * the slots are.
+   */
+  private final Map<String, RunningExecutions> runningExecutions = new LinkedHashMap<>();
+
+  private record RunningExecutions(
+                                   DoubleSupplier oldestSeconds,
+                                   IntSupplier overdue) {
+  }
+
   @Override
   public void bindTo(
       final MeterRegistry meterRegistry) {
@@ -64,6 +76,11 @@ public class MicrometerCamunda8Metrics implements Camunda8Metrics, MeterBinder {
       executionSlots.forEach((
           adapterId,
           slots) -> registerSlotGauges(meterRegistry, adapterId, slots));
+    }
+    synchronized (runningExecutions) {
+      runningExecutions.forEach((
+          adapterId,
+          running) -> registerRunningExecutionGauges(meterRegistry, adapterId, running));
     }
 
   }
@@ -111,6 +128,46 @@ public class MicrometerCamunda8Metrics implements Camunda8Metrics, MeterBinder {
     if (meterRegistry != null) {
       registerSlotGauges(meterRegistry, adapterId, slots);
     }
+
+  }
+
+  @Override
+  public void registerRunningExecutions(
+      final String adapterId,
+      final DoubleSupplier oldestSeconds,
+      final IntSupplier overdue) {
+
+    final var running = new RunningExecutions(oldestSeconds, overdue);
+    synchronized (runningExecutions) {
+      runningExecutions.put(adapterId, running);
+    }
+    final var meterRegistry = registry;
+    if (meterRegistry != null) {
+      registerRunningExecutionGauges(meterRegistry, adapterId, running);
+    }
+
+  }
+
+  private static void registerRunningExecutionGauges(
+      final MeterRegistry meterRegistry,
+      final String adapterId,
+      final RunningExecutions running) {
+
+    final var tags = Tags.of(TAG_ADAPTER, adapterId);
+    if (running.oldestSeconds() != null) {
+      Gauge
+          .builder(EXECUTION_OLDEST_SECONDS, running.oldestSeconds(), DoubleSupplier::getAsDouble)
+          .tags(tags)
+          .description("How long the oldest running handler of this adapter has been running")
+          .baseUnit("seconds")
+          .register(meterRegistry);
+    }
+    gauge(
+        meterRegistry,
+        EXECUTION_OVERDUE,
+        "How many handlers ran longer than the job timeout of their task and lost the lock of their job",
+        tags,
+        running.overdue());
 
   }
 
