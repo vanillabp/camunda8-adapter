@@ -27,6 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.search.enums.UserTaskState;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
@@ -1111,6 +1112,7 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
   }
 
   @Test
+  @Tag(USER_TASK_LISTENER_JOBS)
   @DisplayName("User-task edge cases: silent task, awareness, gone-task tolerance")
   public void userTaskEdgeCases() throws Exception {
 
@@ -1149,11 +1151,17 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
     // notification, so the process is parked at the user task. Nothing inside the
     // application can say that - no handler of this test ever ran for it - so the
     // cluster is asked, which is what the pause this test used to end with only hoped
-    // for
+    // for.
+    // The state is what is waited for, not the mere existence of the task. A task whose
+    // creating listener job was never delivered stands in CREATING, and the search
+    // answers with it just the same, so a test which only asked whether the search names
+    // it passed in exactly the case it was written for
     awaitUntil(
-        () -> !userTasksOf(silentInstanceKey).isEmpty(),
+        () -> userTaskStatesOf(silentInstanceKey).equals(List.of(UserTaskState.CREATED)),
         60000,
-        "the user task without a handler to be created at the cluster");
+        "the user task without a handler to be created at the cluster",
+        () -> "the cluster reports "
+            + userTaskStatesOf(silentInstanceKey));
     assertEquals(
         List.of(),
         incidentsOf(silentInstanceKey),
@@ -1224,9 +1232,11 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
           .send()
           .join();
       awaitUntil(
-          () -> !userTasksOf(instanceKey).isEmpty(),
+          () -> userTaskStatesOf(instanceKey).equals(List.of(UserTaskState.CREATED)),
           60000,
-          "the user task of the recovered listener job to be created at the cluster");
+          "the user task of the recovered listener job to be created at the cluster",
+          () -> "the cluster reports "
+              + userTaskStatesOf(instanceKey));
       assertEquals(
           List.of(),
           incidentsOf(instanceKey),
@@ -1241,12 +1251,17 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
   }
 
   /**
-   * The user tasks the cluster holds for an instance.
+   * What the cluster says about the user tasks of an instance.
+   * <p>
+   * The state is the answer and the mere presence of a task is not. A user task whose
+   * {@code creating} listener job was never handed to a worker stands in
+   * {@link UserTaskState#CREATING}, and the search names it there as readily as it names a
+   * task which has arrived.
    *
    * @param processInstanceKey The instance
-   * @return The user-task keys
+   * @return The state of each user task of that instance
    */
-  private List<Long> userTasksOf(
+  private List<UserTaskState> userTaskStatesOf(
       final Long processInstanceKey) {
 
     return workflowServiceClient()
@@ -1256,7 +1271,7 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
         .join()
         .items()
         .stream()
-        .map(userTask -> userTask.getUserTaskKey())
+        .map(userTask -> userTask.getState())
         .toList();
 
   }
