@@ -17,8 +17,8 @@ concurrency:
   group: checks-${{ github.ref }}
   cancel-in-progress: true
 env:
-  # The VanillaBP artifacts are 2.0.0-SNAPSHOT and live in GitHub Packages until the
-  # release. Reading them needs a token, see github-packages-settings.xml.
+  # The VanillaBP artifacts are snapshots and live in GitHub Packages until the release.
+  # Reading them needs a token, see github-packages-settings.xml.
   USER_NAME: "${{ secrets.VANILLABP_USER_NAME }}"
   USER_TOKEN: "${{ secrets.VANILLABP_USER_TOKEN }}"
 jobs:
