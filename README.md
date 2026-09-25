@@ -2071,21 +2071,37 @@ hold both halves, `Camunda8WorkflowLifecycleTest#sendSignalContinuesTheWaitingWo
 Quarkus one. The second broadcast is an assumption: it is the absence of a deduplication rather
 than a behaviour, and a cluster dropping the repeated broadcast would disprove it.
 
-### Workflows the cluster starts itself, and the end of a workflow
+### The start of a workflow, and the end of a workflow
 
-A process with a timer or signal start event runs without anybody calling `startWorkflow`.
-While deploying, the adapter adds an execution listener to that start event with event type
-`end`: the cluster rejects `start` listeners on start events, and an `end` listener still
-gates the transition, so nothing of the process runs before the listener job is completed.
-The listener job builds the workflow aggregate and completes with the aggregate-ID variable
-plus the shared values, the same variables a start through `ProcessService` would write. The
-aggregate's ID is the PROCESS INSTANCE KEY rather than the timer's scheduled time, which the
-cluster does not report to the listener; the instance key survives a retried listener job, so
-a redelivery finds the aggregate instead of building a second one.
+While deploying, the adapter adds an execution listener to EVERY start event a process
+itself holds, with event type `end`: the cluster rejects `start` listeners on start events,
+and an `end` listener still gates the transition, so nothing of the process runs before the
+listener job is completed. The listener job reports the start, and the core decides what
+that start is.
 
-An event subprocess is left out of this, although its start event can carry a timer or a
-signal too. It fires inside a workflow which is already running and already has its
-aggregate, so nothing is started there and no method has to build anything. Only the start
+A workflow is named by its workflow aggregate, and Camunda 8 keeps that name in the process
+variable called after the aggregate's id attribute - the same variable a start through
+`ProcessService` writes and every task of the workflow reads. The listener job fetches every
+variable, so the core sees the name if the workflow has one: then the workflow is already
+ours and nothing is built. Where there is no name, somebody started the workflow past
+VanillaBP, the application's `@WorkflowStartedByBpms` method builds the aggregate and names
+it, and the job completion writes that name into the instance. Where the variable holds a
+name no workflow aggregate carries, the start is refused, because VanillaBP names a workflow
+and nobody else. The reasoning and the choice of the variable's name are
+`DECISIONS.pending/653.md`.
+
+The kind of the start event decides none of it, which is also what makes a redelivered
+listener job harmless: the first attempt wrote the name into the instance, so the second one
+finds the workflow instead of building a second aggregate.
+
+What the listener costs the model is one `zeebe:executionListeners` element per start event,
+measured by `Camunda8StartListenerCostTest`, and what it costs a started workflow is one job:
+create, activate, complete. A workflow the application started pays for that round trip and
+for one load of its workflow aggregate, which its first task would read a moment later
+anyway.
+
+An event subprocess is left out of this. Its start event fires inside a workflow which is
+already running and already has its aggregate, so nothing is started there. Only the start
 events the process itself holds count. `Camunda8EventSubprocessStartsNoWorkflowTest` holds
 what the core is told and which start event the model reaches the cluster with a listener
 on, and `Camunda8EventSubprocessIT` runs a model whose event subprocess takes a waiting
