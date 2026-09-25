@@ -101,8 +101,8 @@ public class Camunda8WorkflowLifecycleTest {
   private static final long QUERY_TIMEOUT_MS = 240_000;
 
   /**
-   * The tag which keeps a test off the preview line. Put it on a test which waits for a
-   * {@code creating} or a {@code canceling} task-listener job. Nothing else earns it.
+   * The tag which keeps a test off the preview line. Put it on a test which creates a
+   * Camunda-managed user task. Nothing else earns it.
    * <p>
    * Those two events are the ones the 8.10 alpha cannot hand out. Their jobs carry no user task
    * action in the headers, because the engine writes that header only where the command carried
@@ -115,6 +115,13 @@ public class Camunda8WorkflowLifecycleTest {
    * The two tests here wait for the CREATED notification, which rides on a {@code creating} job.
    * Everything else of that line passes, so the profile drops this tag rather than let known
    * timeouts hide whatever else might break. The Spring Boot suite tags for the same reason.
+   * <p>
+   * Waiting for the job is only half of what earns the tag. The other half is what the task
+   * leaves behind: on that alpha it stands in {@code CREATING} and never moves, cancelling its
+   * instance leaves it in {@code CANCELING} instead, and its listener job stays activatable, so
+   * every later activation of that job type loses its batch too. A class keeping a cluster of
+   * its own bounds the damage to that class, it does not avoid it. See decision 43 in the
+   * repository's DECISIONS.md.
    * <p>
    * Camunda closed the issue on 2026-09-01 and 8.10.0-alpha5 is from 2026-08-31, so that alpha is
    * a day too old for the fix. A newer alpha is worth a measurement before it is believed: deploy

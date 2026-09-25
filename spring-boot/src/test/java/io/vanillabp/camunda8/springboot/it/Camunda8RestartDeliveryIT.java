@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestReporter;
@@ -60,12 +61,30 @@ public class Camunda8RestartDeliveryIT extends TestOnTheSharedCluster {
   private static final Duration JOB_TIMEOUT = Duration.ofSeconds(20);
 
   /**
-   * How long the second application waits before it starts. It has to stay below the
-   * client's {@code request-timeout} of ten seconds, because that is how long an
-   * activation request of the closed application can outlive it. The blueprint which
-   * found this took 7,4 seconds.
+   * How long an activation request of the closed application can outlive it. The module
+   * lowers {@code request-timeout} for its other classes to make them faster, and this class
+   * is the one which needs the client's own value: the window has to be wide enough for
+   * {@link #GAP} to sit inside it, or the test would pass on a drain which does nothing.
+   */
+  private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
+
+  /**
+   * How long the second application waits before it starts. It has to stay below
+   * {@link #REQUEST_TIMEOUT}, because that is how long an activation request of the closed
+   * application can outlive it. The blueprint which found this took 7,4 seconds.
    */
   private static final Duration GAP = Duration.ofSeconds(5);
+
+  /**
+   * Tells the class after this one that a request of this one can be parked for the client's
+   * whole window rather than the short one the module configures.
+   */
+  @BeforeAll
+  static void aRequestOfThisClassIsParkedForTheClientsOwnWindow() {
+
+    aRequestOfThisClassCanBeParkedFor(REQUEST_TIMEOUT);
+
+  }
 
   /**
    * What the first job may take before the test calls it a delivery which waited for the
@@ -85,6 +104,8 @@ public class Camunda8RestartDeliveryIT extends TestOnTheSharedCluster {
                 + restAddress(),
             "--vanillabp.adapters.c8.grpc-address="
                 + grpcAddress(),
+            "--vanillabp.adapters.c8.request-timeout="
+                + REQUEST_TIMEOUT,
             "--vanillabp.workflow-modules.test-app.workflows.RestartProcess.adapters.c8.job-timeout="
                 + JOB_TIMEOUT);
 

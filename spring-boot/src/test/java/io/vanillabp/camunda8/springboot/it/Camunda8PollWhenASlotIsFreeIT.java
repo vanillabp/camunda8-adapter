@@ -38,10 +38,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * Two settings make the measurement say what it should. The block lasts long enough to
  * outlive an activation request which was already parked at the cluster when the slot
  * filled - such a request is answered whenever a job appears, and no gate on this side
- * reaches it. And <code>request-timeout</code> is two seconds rather than the default ten,
- * so that parked request is over before the workflow of the second worker is started. What
- * is measured is therefore the rule itself: a worker which has to ask again waits for a
- * slot.
+ * reaches it. And <code>request-timeout</code> is two seconds, so that parked request is
+ * over before the workflow of the second worker is started. The module configures the same
+ * two seconds, and this class says it again where it is read as a premise rather than as a
+ * setting somebody may change. What is measured is therefore the rule itself: a worker which
+ * has to ask again waits for a slot.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput

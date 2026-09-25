@@ -111,15 +111,24 @@ alpha is a day too old for the fix. Whether a newer one carries it is a question
 pin moves, and the cheapest answer is a measurement: deploy a user task with a `creating`
 listener, start an instance and see whether the job arrives.
 
-The tests which wait for such a job are excluded on that line, by the tag
-`user-task-listener-jobs` in the `line-8.10` profile, and nowhere else. The tag says exactly
-that and nothing wider: a test which waits for a `creating` or a `canceling` listener job. A test
-of a listener on another event runs on the preview line like every other test. Leaving the
-waiting tests in kept the line red as a whole, and a line which is always red says nothing about
-the day something else breaks in it. What the exclusion costs is written where the tag is
-declared and where the profile excludes it, and both say to remove the two together once a
-cluster of this line hands out a `creating` job. Until then the preview line stays unpublishable
-for the same reason as before, tests or no tests.
+The tests which create a Camunda-managed user task are excluded on that line, by the tag
+`user-task-listener-jobs` in the `line-8.10` profile, and nowhere else. A test of a listener on
+another event runs on the preview line like every other test. Leaving the waiting tests in kept
+the line red as a whole, and a line which is always red says nothing about the day something else
+breaks in it. What the exclusion costs is written where the tag is declared and where the profile
+excludes it, and both say to remove the two together once a cluster of this line hands out a
+`creating` job. Until then the preview line stays unpublishable for the same reason as before,
+tests or no tests.
+
+The tag covers more than the waiting, and the reason is what such a task leaves behind. Measured
+against `camunda/camunda:8.10.0-alpha5` on 2026-09-25: the task stands in `CREATING`, cancelling
+its instance is answered and 24 milliseconds later the engine answers `404` to a second
+cancellation, while the task moves to `CANCELING` and stays there. Eight minutes later it had not
+moved, and deleting the process definition did not move it either. Its listener job stays
+activatable all that time, so every later activation of that job type loses its batch too. In the
+run of 2026-09-25 one such task cost twenty-six lost activations and took an unrelated test down
+with it. A test which needs a user task on that line therefore brings a cluster of its own, which
+is thrown away with the class.
 
 The gap is REST's. The same cluster hands the same jobs out over gRPC: measured on 2026-09-19
 against `8.10.0-alpha5`, a `creating` job arrived in 342 ms and a `canceling` job in 107 ms on

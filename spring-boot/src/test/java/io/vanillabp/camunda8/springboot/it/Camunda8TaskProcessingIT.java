@@ -27,6 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
+import io.camunda.client.api.search.enums.UserTaskState;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
@@ -92,21 +93,36 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
       .of("test-module", "TestProcess");
 
   /**
-   * The tag which takes a test out of the preview line. It belongs on a test which waits for a
-   * {@code creating} or a {@code canceling} task-listener job, and on no other test. The REST
-   * gateway of the 8.10 alpha drops the whole activate-jobs batch when it meets a job of those
-   * two events: the engine writes the user task action into the job headers only where the
-   * command carried one, creation and cancelation carry none, and the gateway's response mapper
-   * demands the action anyway and throws a NullPointerException. That is camunda/camunda#58193.
+   * The tag which takes a test out of the preview line. It belongs on a test which creates a
+   * Camunda-managed user task on the shared cluster, and on no other test. The REST gateway of
+   * the 8.10 alpha drops the whole activate-jobs batch when it meets a {@code creating} or a
+   * {@code canceling} task-listener job: the engine writes the user task action into the job
+   * headers only where the command carried one, creation and cancelation carry none, and the
+   * gateway's response mapper demands the action anyway and throws a NullPointerException. That
+   * is camunda/camunda#58193.
+   * <p>
+   * Waiting for such a job is the obvious half of it, and the tag used to say only that. The
+   * other half is what the task LEAVES. Measured against {@code camunda/camunda:8.10.0-alpha5}
+   * on 2026-09-25: a user task whose {@code creating} job was dropped stands in
+   * {@code CREATING}; cancelling its instance is answered, and 24 ms later the engine answers
+   * {@code 404} to a second cancellation while the task moves to {@code CANCELING} and stays
+   * there - eight minutes later it had not moved, and deleting the process definition did not
+   * move it either. Its listener job stays activatable the whole time, so every later
+   * activation of that job type loses its batch. One such task therefore breaks the workers of
+   * every class after it, which is why the tag covers a test which creates one even when the
+   * test never waits for a listener job. See decision 43 in the repository's DECISIONS.md.
+   * <p>
+   * A test which needs a user task on that line brings a cluster of its own, the way
+   * {@code Camunda8GrpcTransportIT} does. Then the container is thrown away with the class and
+   * the defect goes with it.
    * <p>
    * The other listener events are untouched. An {@code assigning} job triggered by an assign
    * command, an {@code updating} job and a {@code completing} job carry the action, and their
    * workers get them on the alpha in the usual milliseconds, so a test of those events stays on
    * the preview line like every other test.
    * <p>
-   * The three tests here carrying the tag all wait for a {@code creating} job. Everything else of
-   * that line passes, so its profile excludes the tag instead of letting known timeouts hide
-   * whatever else might break.
+   * Everything else of that line passes, so its profile excludes the tag instead of letting
+   * known timeouts hide whatever else might break.
    * <p>
    * The issue was closed on 2026-09-01 and 8.10.0-alpha5 was published on 2026-08-31, so that
    * alpha is older than the fix. When the pin moves to a newer alpha, measure rather than assume:
@@ -1096,6 +1112,7 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
   }
 
   @Test
+  @Tag(USER_TASK_LISTENER_JOBS)
   @DisplayName("User-task edge cases: silent task, awareness, gone-task tolerance")
   public void userTaskEdgeCases() throws Exception {
 
@@ -1134,11 +1151,17 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
     // notification, so the process is parked at the user task. Nothing inside the
     // application can say that - no handler of this test ever ran for it - so the
     // cluster is asked, which is what the pause this test used to end with only hoped
-    // for
+    // for.
+    // The state is what is waited for, not the mere existence of the task. A task whose
+    // creating listener job was never delivered stands in CREATING, and the search
+    // answers with it just the same, so a test which only asked whether the search names
+    // it passed in exactly the case it was written for
     awaitUntil(
-        () -> !userTasksOf(silentInstanceKey).isEmpty(),
+        () -> userTaskStatesOf(silentInstanceKey).equals(List.of(UserTaskState.CREATED)),
         60000,
-        "the user task without a handler to be created at the cluster");
+        "the user task without a handler to be created at the cluster",
+        () -> "the cluster reports "
+            + userTaskStatesOf(silentInstanceKey));
     assertEquals(
         List.of(),
         incidentsOf(silentInstanceKey),
@@ -1209,9 +1232,11 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
           .send()
           .join();
       awaitUntil(
-          () -> !userTasksOf(instanceKey).isEmpty(),
+          () -> userTaskStatesOf(instanceKey).equals(List.of(UserTaskState.CREATED)),
           60000,
-          "the user task of the recovered listener job to be created at the cluster");
+          "the user task of the recovered listener job to be created at the cluster",
+          () -> "the cluster reports "
+              + userTaskStatesOf(instanceKey));
       assertEquals(
           List.of(),
           incidentsOf(instanceKey),
@@ -1226,12 +1251,17 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
   }
 
   /**
-   * The user tasks the cluster holds for an instance.
+   * What the cluster says about the user tasks of an instance.
+   * <p>
+   * The state is the answer and the mere presence of a task is not. A user task whose
+   * {@code creating} listener job was never handed to a worker stands in
+   * {@link UserTaskState#CREATING}, and the search names it there as readily as it names a
+   * task which has arrived.
    *
    * @param processInstanceKey The instance
-   * @return The user-task keys
+   * @return The state of each user task of that instance
    */
-  private List<Long> userTasksOf(
+  private List<UserTaskState> userTaskStatesOf(
       final Long processInstanceKey) {
 
     return workflowServiceClient()
@@ -1241,7 +1271,7 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
         .join()
         .items()
         .stream()
-        .map(userTask -> userTask.getUserTaskKey())
+        .map(userTask -> userTask.getState())
         .toList();
 
   }
