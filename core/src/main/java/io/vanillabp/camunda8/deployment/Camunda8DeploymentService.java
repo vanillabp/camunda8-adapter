@@ -583,7 +583,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             signalName -> plainIdentifier(workflowModuleId, signalName))
         .stream()
         .map(startEvent -> new BpmsInitiatedStartSpec(
-            startEvent.startEventId(), startEvent.kind(), startEvent.signalName(), null))
+            startEvent.startEventId(), startEvent.kind(), startEvent.signalName()))
         .toList();
 
   }
@@ -1210,7 +1210,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               bpmsInitiatedStarts
                   .stream()
                   .map(startEvent -> new BpmsInitiatedStartSpec(
-                      startEvent.startEventId(), startEvent.kind(), startEvent.signalName(), null))
+                      startEvent.startEventId(), startEvent.kind(), startEvent.signalName()))
                   .toList());
       context.getBpmsInitiatedStartsToWire().addAll(bpmsInitiatedStarts);
     }

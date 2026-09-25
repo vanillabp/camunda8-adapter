@@ -113,9 +113,9 @@ public class Camunda8StartEventsOfHeldVersionsTest {
     assertEquals(
         List
             .of(
-                new BpmsInitiatedStartSpec("DailyTimer", BpmsStartTrigger.Kind.TIMER, null, null),
+                BpmsInitiatedStartSpec.of("DailyTimer", BpmsStartTrigger.Kind.TIMER),
                 new BpmsInitiatedStartSpec(
-                    "ApprovalRequested", BpmsStartTrigger.Kind.SIGNAL, "approval-requested", null)),
+                    "ApprovalRequested", BpmsStartTrigger.Kind.SIGNAL, "approval-requested")),
         List.copyOf(catalog.startEventsOfVersion(MODULE, OLD_ID, "2")),
         "the timer and the signal the old model still starts on, the signal by its plain name");
 

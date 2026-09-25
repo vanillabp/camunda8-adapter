@@ -23,7 +23,7 @@ import org.testcontainers.containers.GenericContainer;
 import io.quarkus.test.QuarkusProdModeTest;
 import io.restassured.RestAssured;
 import io.vanillabp.camunda8.test.ClusterUnderTest;
-import io.vanillabp.integration.test.utils.FreePortUtil;
+import io.vanillabp.integration.test.utils.OneFreePortPerJvm;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
@@ -98,7 +98,7 @@ public class Camunda8RestartDeliveryTest {
     CAMUNDA.start();
   }
 
-  private static final int HTTP_PORT = FreePortUtil.getFreePort();
+  private static final int HTTP_PORT = OneFreePortPerJvm.getPort();
 
   @RegisterExtension
   static final QuarkusProdModeTest prodModeTest = new QuarkusProdModeTest()
