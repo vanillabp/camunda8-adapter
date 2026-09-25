@@ -18,6 +18,10 @@ vanillabp:
     - c8
   workflow-modules:
     test-app:
+      declared-task-params:
+        - approved
+        - results
+        - secret
       adapters:
         c8:
           resources-location: classpath*:it

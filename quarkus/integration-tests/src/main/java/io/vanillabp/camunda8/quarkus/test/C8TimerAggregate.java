@@ -8,8 +8,9 @@ import lombok.Setter;
 
 /**
  * The workflow aggregate of the workflow the CLUSTER starts on its own. Its
- * id is a String assigned by VanillaBP - nobody starts this workflow through the
- * {@code ProcessService}, so no application code could assign one.
+ * id is a String, so the <code>&#64;WorkflowStartedByBpms</code> method can write the
+ * trigger time into it - nobody starts this workflow through the
+ * {@code ProcessService}, so there is no other moment at which it gets a name.
  */
 @Entity
 @Table(name = "C8_E2E_TIMER_AGGREGATE")

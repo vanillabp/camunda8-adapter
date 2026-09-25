@@ -25,6 +25,10 @@ vanillabp:
           adapters:
             c8:
               retry-backoff: PT1S
+          tasks:
+            totalToBigDecimal:
+              declared-task-params:
+                - total
   outbox:
     poll-interval: PT0.5S
     attempt-frequency: PT0.5S

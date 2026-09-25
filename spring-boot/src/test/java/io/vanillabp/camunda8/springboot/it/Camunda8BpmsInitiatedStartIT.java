@@ -24,9 +24,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 /**
  * End-to-end test of a workflow the CLUSTER starts on its own against a
  * real Camunda 8: a timer start event fires, the start execution listener VanillaBP
- * injected into the model activates a job, the core builds the workflow aggregate and
- * the job completion writes its ID into the instance - which is how the service task
- * behind the start event finds the aggregate again.
+ * injected into the model activates a job, the application's
+ * <code>&#64;WorkflowStartedByBpms</code> method builds the workflow aggregate and the
+ * job completion writes its ID into the instance - which is how the service task behind
+ * the start event finds the aggregate again.
  * <p>
  * The class is skipped when Docker is unavailable.
  * <p>
@@ -99,12 +100,12 @@ public class Camunda8BpmsInitiatedStartIT {
     assertEquals(1, aggregates.size(), "one workflow, one aggregate");
     final var aggregate = aggregates.getFirst();
 
-    // the cluster's own identity of the start is the aggregate's ID: the process
-    // instance key, which survives a retried listener job
+    // the application named the workflow, and it named it after the trigger time: the
+    // aggregate of a start the cluster fired has no other moment at which it gets a name
     assertNotNull(aggregate.getId());
     assertTrue(
-        aggregate.getId().matches("\\d+"),
-        "the aggregate's ID is the process instance key: "
+        aggregate.getId().endsWith("Z"),
+        "the aggregate's ID is the trigger time: "
             + aggregate.getId());
 
     // the service task behind the start event ran against exactly that aggregate,
