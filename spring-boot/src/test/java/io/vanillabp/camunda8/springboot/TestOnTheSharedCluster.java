@@ -119,6 +119,7 @@ public abstract class TestOnTheSharedCluster {
         .map(Class::getSimpleName)
         .orElse("the class before");
     waitOutAnActivationRequestOfTheClassBefore(startedAt);
+    aParkedRequestOfTheClassBeforeLivesAtMost = WHAT_THIS_MODULE_CONFIGURES;
 
   }
 
@@ -361,10 +362,19 @@ public abstract class TestOnTheSharedCluster {
    * a job created while it is parked is activated into it and answered by nobody until its
    * lock expires.
    * <p>
-   * Ten seconds is the client's default for <code>request-timeout</code>, and this module
-   * lowers it in one class and raises it nowhere. A class which raises it raises this with it.
+   * It is the <code>request-timeout</code> the applications of this module run with, and the
+   * yaml files of this module set it to the same two seconds. The client's own default is ten,
+   * and that is what this module used to pay twice per class: once here, and once more in the
+   * drain of the class before, which cannot report its workers closed until their parked
+   * requests come back. Measured on 2026-09-25 with the default: 281,9 seconds of waiting here
+   * across twenty-nine classes, in a module which took 985 seconds.
+   * <p>
+   * Two seconds is above the second below which the adapter calls the value unusable, and far
+   * above what this module's commands need - its deployment of nineteen files took under a
+   * second. A class which gives its applications a longer window says so with
+   * {@link #aRequestOfThisClassCanBeParkedFor(Duration)}.
    */
-  private static final Duration A_PARKED_REQUEST_LIVES_AT_MOST = Duration.ofSeconds(10);
+  private static final Duration WHAT_THIS_MODULE_CONFIGURES = Duration.ofSeconds(2);
 
   /**
    * Whether a class of this module has run in this fork already. The first one talks to a
@@ -397,11 +407,36 @@ public abstract class TestOnTheSharedCluster {
       aClassHasRunBefore = true;
       return;
     }
-    final var left = A_PARKED_REQUEST_LIVES_AT_MOST
+    final var left = aParkedRequestOfTheClassBeforeLivesAtMost
         .minusNanos(System.nanoTime() - theCleanupStartedAt);
     if (left.isPositive()) {
       Thread.sleep(left.toMillis());
     }
+
+  }
+
+  /**
+   * How long a request of the class before can still be parked. It is what that class
+   * configured, which is the module's value unless the class said otherwise.
+   *
+   * @see #aRequestOfThisClassCanBeParkedFor(Duration)
+   */
+  private static Duration aParkedRequestOfTheClassBeforeLivesAtMost = WHAT_THIS_MODULE_CONFIGURES;
+
+  /**
+   * Says that a request of THIS class can be parked longer than the module configures, so the
+   * class after it waits that window out instead of the short one.
+   * <p>
+   * A class calls it from a {@code @BeforeAll} of its own, which JUnit runs after the one
+   * above. The window is read at the start of the next class and set back to the module's
+   * value there, so it is never carried further than one class.
+   *
+   * @param window The <code>request-timeout</code> this class gives its applications
+   */
+  protected static void aRequestOfThisClassCanBeParkedFor(
+      final Duration window) {
+
+    aParkedRequestOfTheClassBeforeLivesAtMost = window;
 
   }
 
