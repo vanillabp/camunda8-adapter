@@ -342,6 +342,18 @@
                  and every module would report the miss -->
             <detectJavaApiLink>false</detectJavaApiLink>
             <detectOfflineLinks>false</detectOfflineLinks>
+            <!-- javadoc stops after 100 warnings per module, and the line it prints
+                 reads like the end of the list. Whoever counts warnings to see how much
+                 work a module still holds counts too few. The number below is high enough
+                 that no module reaches it. The VanillaBP release parent sets the same
+                 option. This repository does not inherit that parent, because it moves to
+                 the Camunda Community Hub and keeps a build of its own.
+                 The run is incremental too: a module whose sources did not move since the
+                 last run is skipped and reports nothing. Delete 'target/reports/apidocs'
+                 before counting, or a clean count only says that nobody recompiled. -->
+            <additionalOptions>
+              <additionalOption>-Xmaxwarns 100000</additionalOption>
+            </additionalOptions>
           </configuration>
           <executions>
             <execution>
