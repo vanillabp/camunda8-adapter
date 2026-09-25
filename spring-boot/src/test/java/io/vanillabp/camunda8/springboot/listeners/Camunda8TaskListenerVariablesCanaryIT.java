@@ -9,7 +9,6 @@ import java.time.Duration;
 import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -39,7 +38,6 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Tag("user-task-listener-jobs")
 public class Camunda8TaskListenerVariablesCanaryIT extends TestOnTheSharedCluster {
 
   private static final String JOB_TYPE = "theCanarysTaskListener";
@@ -92,10 +90,15 @@ public class Camunda8TaskListenerVariablesCanaryIT extends TestOnTheSharedCluste
 
       final var job = awaitTheListenerJob(client);
 
+      // the token of this activation rides on both completions below. A leased job whose answer
+      // carries no token is refused for THAT reason from 8.10.0-rc1 on, which would leave this
+      // canary green without the cluster ever being asked about the payload
+      final var leaseToken = Camunda8JobLease.tokenOf(job);
+
       assertThrows(
           Exception.class,
-          () -> client
-              .newCompleteCommand(job.getKey())
+          () -> Camunda8JobLease
+              .withToken(client.newCompleteCommand(job.getKey()), leaseToken)
               .variables(Map.of("whatTheListenerWrote", "something"))
               .send()
               .join(),
@@ -110,8 +113,8 @@ public class Camunda8TaskListenerVariablesCanaryIT extends TestOnTheSharedCluste
       // the same job, completed the way the adapter completes it: the refusal above was about
       // the payload and about nothing else - a job which had expired or was gone would fail here
       // too and would leave the canary green for the wrong reason
-      client
-          .newCompleteCommand(job.getKey())
+      Camunda8JobLease
+          .withToken(client.newCompleteCommand(job.getKey()), leaseToken)
           .send()
           .join();
 

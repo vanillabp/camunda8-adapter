@@ -83,7 +83,7 @@ public final class Camunda8JobLease {
   public static String tokenOf(
       final ActivatedJob job) {
 
-    return job.getLeaseToken();
+    return job.getJobLeaseToken();
 
   }
 
@@ -101,7 +101,7 @@ public final class Camunda8JobLease {
 
     return token == null
         ? command
-        : command.withLeaseToken(token);
+        : command.withJobLeaseToken(token);
 
   }
 
@@ -119,7 +119,7 @@ public final class Camunda8JobLease {
 
     return token == null
         ? command
-        : command.withLeaseToken(token);
+        : command.withJobLeaseToken(token);
 
   }
 
@@ -137,7 +137,7 @@ public final class Camunda8JobLease {
 
     return token == null
         ? command
-        : command.withLeaseToken(token);
+        : command.withJobLeaseToken(token);
 
   }
 

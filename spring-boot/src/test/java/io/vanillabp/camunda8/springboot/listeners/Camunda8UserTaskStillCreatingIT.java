@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,16 +40,15 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * task is there". The unit test of the same defect is
  * {@code Camunda8UserTaskStillCreatingTest}.
  * <p>
- * Tagged {@code user-task-listener-jobs}: the notification arrives on a user-task listener
- * job, and the REST gateway of the 8.10 alpha drops the batch those arrive in (see the
- * {@code line-8.10} profile of the parent POM).
+ * The notification arrives on a user-task listener job. The REST gateway of the 8.10 alphas
+ * dropped the batch those arrive in, which kept this class off the preview line for a while;
+ * {@code 8.10.0-rc1} hands the job out, so it runs on every line again.
  * <p>
  * The class is skipped when Docker is unavailable
  * ({@code @Testcontainers(disabledWithoutDocker = true)}).
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Tag("user-task-listener-jobs")
 @SpringBootTest(
     classes = ListenerTestApplication.class,
     properties = "spring.config.name=camunda8-listeners-it")
