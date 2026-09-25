@@ -67,13 +67,11 @@ import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
  * for the first deployment of its version and for no later one. Both declare a
  * {@code @Container} field, the way every class here did before.
  * <p>
- * One rule holds for the preview line only, and the cleanup below checks it: no test on this
- * cluster may create a Camunda-managed user task there. On that line such a task can never be
- * ended. Its <code>creating</code> listener job is never handed out, a cancellation leaves it
- * in <code>CANCELING</code>, and the listener job of that task stays activatable and takes
- * down every later activation of the same job type. A test which needs a user task on that
- * line brings a cluster of its own, the way {@code Camunda8GrpcTransportIT} does. See
- * decision 43 in the repository's DECISIONS.md.
+ * A user task left between two of its states is what the cleanup below watches hardest for,
+ * and it is worth knowing why. Such a task holds a listener job which stays activatable, and
+ * the first worker of that job type in the next class is served it. The 8.10 alphas could not
+ * end such a task at all, which is why the preview line once excluded every test creating one;
+ * {@code 8.10.0-rc1} hands the jobs out and the exclusions are gone.
  */
 @Testcontainers(disabledWithoutDocker = true)
 public abstract class TestOnTheSharedCluster {
@@ -288,10 +286,9 @@ public abstract class TestOnTheSharedCluster {
     if (!waitingForAListenerJob.isEmpty()) {
       return ("%d user task(s) which %s left are still waiting for a listener job %s after this "
           + "class answered them, so the first worker of that job type in this class would be "
-          + "served one of those jobs: %s%nOn the preview line this is what the tag "
-          + "'user-task-listener-jobs' is for: a test which creates a Camunda-managed user task "
-          + "there leaves one which can never be ended, and it either carries that tag or brings "
-          + "a cluster of its own.")
+          + "served one of those jobs: %s%nA task which does not move after its listener job was "
+          + "answered is a cluster which cannot hand that job out. Read the cluster's log before "
+          + "looking for the cause in this repository.")
           .formatted(
               waitingForAListenerJob.size(),
               classWhichRanBefore,
