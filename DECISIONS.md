@@ -1648,3 +1648,57 @@ The rest of decision 31 stands. A release still runs the matrix itself before it
 anything, and a line which breaks in the night still gets its issue. The release gate is the call
 of the whole matrix and not the name `lines-verified`, so the release keeps waiting for the preview
 line.
+
+### 43. On the preview line no test creates a Camunda-managed user task on a shared cluster
+
+The REST gateway of `8.10.0-alpha5` loses a whole activate-jobs batch when it meets a `creating`
+or a `canceling` task-listener job, which is `camunda/camunda#58193`. What that costs was read as
+a timeout in the test which waited for the job, and the tag `user-task-listener-jobs` was written
+for exactly those tests. The tag now covers every test which creates a Camunda-managed user task
+on a shared cluster, because the waiting is the smaller half.
+
+Measured against `camunda/camunda:8.10.0-alpha5` on 2026-09-25, with one user task and no
+application:
+
+- the activation over REST answered `503` after 30,7 seconds and the gateway logged the
+  `NullPointerException`;
+- cancelling the instance was accepted, and 24 milliseconds later the engine answered `404` to a
+  second cancellation;
+- the user task moved to `CANCELING` and stayed there. Eight minutes later it had not moved, and
+  deleting the process definition did not move it either;
+- its listener job stayed activatable the whole time, so every further activation of that job type
+  lost its batch as well.
+
+So such a task cannot be ended on that line. It cannot be completed, because the job which gates it
+is never handed out, and it cannot be cancelled away, because the cancellation waits for a second
+job which is never handed out either. The engine's `404` makes the cleanup of the next class
+believe the instance is gone while it is not.
+
+A cluster per class was the other candidate and it is not the answer. The Business Cockpit's
+Camunda 8 tests take one cluster per class and met the same defect five times in their run
+`36084108673`, fed by instances of the class itself. A cluster of its own bounds how long the
+damage lasts, it does not prevent it. Our shared cluster widens the reach - twenty-six lost
+activations in run `36099613510`, from the first user task to the end of the build, and
+`Camunda8RestartDeliveryIT` red - but it is not what causes it.
+
+What the tag costs on that line is a handful of tests which prove nothing there anyway, because
+every one of them needs a job the line does not hand out. A test which really needs a user task on
+that line brings a cluster of its own, which Testcontainers throws away with the class;
+`Camunda8GrpcTransportIT` does that already, for a different reason.
+
+Two things enforce it. `TestOnTheSharedCluster` ends what an earlier class left instead of
+stopping at the engine's `404`: it answers the listener jobs a cancellation waits for, and it
+fails the class with a sentence naming the class before when a user task is still between two
+states afterwards. And every test which creates such a task carries the tag, which the `line-8.10`
+profile excludes in both Surefire and Failsafe.
+
+The same measurement explains a number decision 35 never claimed. On line 8.9 an instance without
+a user task left the search 0,43 to 0,77 seconds after the cancellation, one with a user task 0,81
+to 1,03 seconds, as long as the `canceling` listener job was answered at once. With that job left
+unanswered the instance was still reported as running 130 seconds later, and it ended 0,5 seconds
+after a worker finally took the job. The minute somebody once measured was an instance still
+alive, not a search behind the engine, and `Camunda8ProcessService#awarenessOfWorkflow` reporting
+`ACTIVE` for it was right.
+
+When a cluster of this line hands out a `creating` job, the tag, this rule and the exclusions in
+the `line-8.10` profile go together.

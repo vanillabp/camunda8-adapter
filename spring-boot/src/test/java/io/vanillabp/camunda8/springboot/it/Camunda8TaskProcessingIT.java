@@ -92,21 +92,36 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
       .of("test-module", "TestProcess");
 
   /**
-   * The tag which takes a test out of the preview line. It belongs on a test which waits for a
-   * {@code creating} or a {@code canceling} task-listener job, and on no other test. The REST
-   * gateway of the 8.10 alpha drops the whole activate-jobs batch when it meets a job of those
-   * two events: the engine writes the user task action into the job headers only where the
-   * command carried one, creation and cancelation carry none, and the gateway's response mapper
-   * demands the action anyway and throws a NullPointerException. That is camunda/camunda#58193.
+   * The tag which takes a test out of the preview line. It belongs on a test which creates a
+   * Camunda-managed user task on the shared cluster, and on no other test. The REST gateway of
+   * the 8.10 alpha drops the whole activate-jobs batch when it meets a {@code creating} or a
+   * {@code canceling} task-listener job: the engine writes the user task action into the job
+   * headers only where the command carried one, creation and cancelation carry none, and the
+   * gateway's response mapper demands the action anyway and throws a NullPointerException. That
+   * is camunda/camunda#58193.
+   * <p>
+   * Waiting for such a job is the obvious half of it, and the tag used to say only that. The
+   * other half is what the task LEAVES. Measured against {@code camunda/camunda:8.10.0-alpha5}
+   * on 2026-09-25: a user task whose {@code creating} job was dropped stands in
+   * {@code CREATING}; cancelling its instance is answered, and 24 ms later the engine answers
+   * {@code 404} to a second cancellation while the task moves to {@code CANCELING} and stays
+   * there - eight minutes later it had not moved, and deleting the process definition did not
+   * move it either. Its listener job stays activatable the whole time, so every later
+   * activation of that job type loses its batch. One such task therefore breaks the workers of
+   * every class after it, which is why the tag covers a test which creates one even when the
+   * test never waits for a listener job. See decision 43 in the repository's DECISIONS.md.
+   * <p>
+   * A test which needs a user task on that line brings a cluster of its own, the way
+   * {@code Camunda8GrpcTransportIT} does. Then the container is thrown away with the class and
+   * the defect goes with it.
    * <p>
    * The other listener events are untouched. An {@code assigning} job triggered by an assign
    * command, an {@code updating} job and a {@code completing} job carry the action, and their
    * workers get them on the alpha in the usual milliseconds, so a test of those events stays on
    * the preview line like every other test.
    * <p>
-   * The three tests here carrying the tag all wait for a {@code creating} job. Everything else of
-   * that line passes, so its profile excludes the tag instead of letting known timeouts hide
-   * whatever else might break.
+   * Everything else of that line passes, so its profile excludes the tag instead of letting
+   * known timeouts hide whatever else might break.
    * <p>
    * The issue was closed on 2026-09-01 and 8.10.0-alpha5 was published on 2026-08-31, so that
    * alpha is older than the fix. When the pin moves to a newer alpha, measure rather than assume:

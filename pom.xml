@@ -628,10 +628,14 @@
                   command, an 'updating' job and a 'completing' job do carry the action and reach
                   their worker here as fast as on the GA lines, so a test of those events belongs
                   on this line like any other.
-                  The tagged tests all wait for a 'creating' job. They would sit in their deadline
-                  and turn the line red as a whole, which hides whatever else this line might
-                  break, and a matrix which is always red stops being read. So they are excluded
-                  here, by tag, and the rest of the line keeps saying something.
+                  The tag covers every test which creates a Camunda-managed user task on the
+                  shared cluster, not only the ones which wait for a listener job. Such a task
+                  cannot be ended on this line: its 'creating' job is never handed out, a
+                  cancellation leaves it in CANCELING for good, and its listener job stays
+                  activatable, so every later activation of that job type loses its batch as
+                  well. One of them broke twenty-six activations and one unrelated test in the
+                  run of 2026-09-25. A test which needs a user task here brings a cluster of its
+                  own instead, and decision 43 of DECISIONS.md is where that is written down.
                   The bug is camunda/camunda#58193: the engine writes the action header only where
                   the command carried an action, creation and cancelation carry none, and the
                   gateway's response mapper demands one anyway and dies with a
@@ -654,8 +658,8 @@
                   'creating' listener job, and the dropped activate-jobs batch never delivers it.
                   Excluding the tag in failsafe alone left this line red once it got as far as
                   this module, which is the point where the exclusion was supposed to start paying
-                  off. The tag means the same here as above: a 'creating' or a 'canceling' job and
-                  nothing wider.
+                  off. The tag means the same here as above: a test which creates a
+                  Camunda-managed user task.
                 -->
                 <excludedGroups>user-task-listener-jobs</excludedGroups>
               </configuration>
