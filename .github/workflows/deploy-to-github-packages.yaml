@@ -4,9 +4,9 @@ name: Publish to GitHub Packages
 # result like every other one - it did not while this workflow only listened to pushes
 # and ignored renovate/**, and a required check nobody produces waits forever.
 #
-# Publishing from main alone is the second half of it: every branch used to overwrite
-# the shared 2.0.0-SNAPSHOT in the registry, so whoever pushed last decided what the
-# other repositories compiled against.
+# Publishing from main alone is the second half of it: there is one snapshot version per
+# module, so every branch used to overwrite what main had published in the registry, and
+# whoever pushed last decided what the other repositories compiled against.
 "on":
   pull_request:
   push:
