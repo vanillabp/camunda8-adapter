@@ -157,9 +157,13 @@ bin/check-decision-numbers.sh
 
 Two workflows answer a pull request. *Publish to GitHub Packages* builds and tests the current GA
 line and publishes nothing from a branch. *Checks* runs what needs no cluster, the API identity of
-the lines among it, and it calls the nightly matrix where a pull request moves a client pin, because
-a line nobody built is exactly the one being proposed. A red check is a finding about your change.
-Read the log and fix what it says rather than pushing again to see whether it goes away.
+the lines among it, and it calls the matrix which builds every release line against that line's
+cluster. The matrix takes about forty minutes, so watch it while it runs and start on a red line at
+once. A red preview line does not block your pull request, and the job summary of the matrix says
+which lines did decide it. In front of it stands `orphaned-javadoc-check`, which runs `bin/check-orphaned-javadoc.sh`
+and answers in seconds, because a comment which javadoc drops is not worth forty minutes of
+waiting. A red check is a finding about your change. Read the log and fix what it says rather than
+pushing again to see whether it goes away.
 
 ## License
 

@@ -5,10 +5,10 @@ name: Checks
 permissions:
   contents: read
 concurrency:
-  # One run of the checks per pull request, and the newest run wins. A pull request which
-  # moves a pin starts the whole line matrix here, which is the most expensive thing this
-  # repository runs, and the run of a commit which has been pushed over answers a question
-  # nobody will ask again.
+  # One run of the checks per pull request, and the newest run wins. Every pull request
+  # starts the whole line matrix here, which is the most expensive thing this repository
+  # runs, and the run of a commit which has been pushed over answers a question nobody
+  # will ask again.
   #
   # Cancelling is right here and wrong for the publish group of
   # deploy-to-github-packages.yaml. A publish which was stopped halfway cannot be
@@ -22,6 +22,21 @@ env:
   USER_NAME: "${{ secrets.VANILLABP_USER_NAME }}"
   USER_TOKEN: "${{ secrets.VANILLABP_USER_TOKEN }}"
 jobs:
+  # Javadoc keeps the last block before an element and drops every earlier one without a
+  # word, so a comment somebody wrote and keeps up to date appears nowhere. Neither the
+  # compiler nor javadoc says anything about it, not even with failOnWarnings, which is why
+  # there is a script for it.
+  #
+  # It stands in front of the line matrix below, because it answers in seconds and the
+  # matrix takes about forty minutes. Nobody should wait that long to hear about a comment.
+  orphaned-javadoc-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: No javadoc block stands in front of another one
+        # through 'bash', so the check does not rest on the file mode of a script
+        run: bash bin/check-orphaned-javadoc.sh
+
   # The ground rule of the release lines: a user must never read the version suffix of an
   # artifact to find out which methods exist. This job keeps that true, and it needs no
   # cluster, so it runs on every pull request while the integration tests of the other
@@ -198,17 +213,14 @@ jobs:
       - name: A consumer of one line is never offered another
         run: node renovate/verify-line-gating.js
 
-  # A pull request builds the current GA line alone, which is enough for a story: the other
-  # lines are proven by the nightly matrix. It is not enough for a pin: the pin of line 8.8
-  # is not compiled by a build of line 8.9, so an update of it would be merged unbuilt and
-  # show up in the night. When a pull request touches one of the pins, the whole matrix runs
-  # here, and that is what makes an automerged client patch honest.
+  # Every pull request builds every line, so this job gates nothing any more. It stays
+  # because a moved pin is worth a sentence in the run: a client patch which merges itself
+  # looks like every other pull request, and this says which one it was. See decision 42 in
+  # the repository's DECISIONS.md.
   #
-  # Only the ADDED and REMOVED lines carry that decision. A diff carries three lines of
-  # context around every hunk, so reading the whole diff made every change near a pin a pin
-  # move: a property added to the line-8.8 profile below its pin pulled 8.8 and 8.10 into a
-  # pull request which moved nothing, and the preview line stood in the way of a story for
-  # half an hour. The +++/--- file headers never carry the pattern, so the anchor is enough.
+  # Only the ADDED and REMOVED lines carry that answer. A diff carries three lines of
+  # context around every hunk, so reading the whole diff called every change near a pin a
+  # pin move. The +++/--- file headers never carry the pattern, so the anchor is enough.
   pin-change:
     runs-on: ubuntu-latest
     outputs:
@@ -220,8 +232,20 @@ jobs:
       - id: diff
         name: Does this pull request move a client pin
         run: |
-          if git diff "origin/${{ github.base_ref }}...HEAD" -- pom.xml \
-            | grep -q '^[+-].*camunda8\.version\.line-'; then
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "pins=true" >> "$GITHUB_OUTPUT"
+            echo "A run started by hand has no base branch and therefore no diff to read,"
+            echo "so it builds every line instead of guessing that no pin moved."
+            exit 0
+          fi
+          git diff "origin/${{ github.base_ref }}...HEAD" -- pom.xml \
+            > "${RUNNER_TEMP}/pin.diff"
+          # the diff is a file and not a pipe on purpose: a failed 'git diff' has to fail
+          # this step, and in a pipe its exit code is lost behind the one of grep. It was
+          # a pipe, and then a diff which could not be read answered 'no pin moved', which
+          # is the answer that skips the matrix
+          if grep -q '^[+-].*camunda8\.version\.line-' "${RUNNER_TEMP}/pin.diff"; then
             echo "pins=true" >> "$GITHUB_OUTPUT"
             echo "A client pin moves, so every line is built."
           else
@@ -229,14 +253,20 @@ jobs:
             echo "No client pin moves, so the nightly matrix keeps the other lines."
           fi
 
+  # A pull request used to build the current GA line alone and leave the rest to the night.
+  # The night then found what the pull request had not, and the same commit was green in the
+  # morning of one day and red in the night of the same. The matrix now runs here for every
+  # pull request. It costs about forty minutes instead of about twenty, and it costs that
+  # once per wave of stories rather than once per story. See decision 42 in the repository's
+  # DECISIONS.md.
   lines:
-    needs: pin-change
-    if: needs.pin-change.outputs.pins == 'true'
+    needs: orphaned-javadoc-check
     uses: ./.github/workflows/line-matrix.yaml
     secrets: inherit
 
-  # One name that reports on every pull request, whether the matrix ran or not, so branch
-  # protection can require it without blocking the pull requests which do not need it.
+  # One name for branch protection to require. The name is older than the rule above: it was
+  # given while a moved pin was what bought the matrix. It stays, because branch protection
+  # stores the name, and a renamed check is one nobody requires any more.
   #
   # It reads the GA lines of the matrix and not the matrix as a whole. The preview line
   # builds there like every other line and its job is on this pull request to read, but
@@ -247,25 +277,24 @@ jobs:
   # repository's DECISIONS.md.
   line-pins-verified:
     if: always()
-    needs: [pin-change, lines]
+    needs: lines
     runs-on: ubuntu-latest
     steps:
-      - name: The lines a moved pin affects were built
+      - name: Every GA line built
         env:
           BROKEN: "${{ needs.lines.outputs.broken-ga-lines }}"
         run: |
-          echo "pins: ${{ needs.pin-change.outputs.pins }}, lines: ${{ needs.lines.result }}"
-          [ "${{ needs.pin-change.outputs.pins }}" = "true" ] \
-            || { echo "No pin moved."; exit 0; }
+          echo "lines: ${{ needs.lines.result }}"
           case "$BROKEN" in
             none)
-              echo "Every GA line built with the moved pin." ;;
+              echo "Every GA line built." ;;
             "")
               echo "The matrix did not get far enough to say which lines built, so this" >&2
-              echo "pull request has no answer about its pin. Read the jobs above." >&2
+              echo "pull request has no answer at all. Read the jobs above: a check in" >&2
+              echo "front of the matrix may have stopped it before it started." >&2
               exit 1 ;;
             *)
-              echo "These lines did not build with the moved pin: ${BROKEN}" >&2
+              echo "These lines did not build: ${BROKEN}" >&2
               exit 1 ;;
           esac
 
@@ -278,8 +307,8 @@ jobs:
   # called by the release gate too, and a called workflow may not ask for more than its
   # caller was granted, so the permission has to sit on the caller.
   preview-line-issue:
-    if: always() && needs.pin-change.outputs.pins == 'true'
-    needs: [pin-change, lines]
+    if: always()
+    needs: lines
     permissions:
       contents: read
       # the jobs of this run, which is where the lines of the matrix report
