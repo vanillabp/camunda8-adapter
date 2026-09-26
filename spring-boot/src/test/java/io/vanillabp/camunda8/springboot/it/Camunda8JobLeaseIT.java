@@ -1,10 +1,10 @@
 package io.vanillabp.camunda8.springboot.it;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -19,8 +19,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
-import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8JobLease;
 import io.vanillabp.camunda8.springboot.SpringBootTestOnTheSharedCluster;
 import io.vanillabp.integration.test.utils.CapturedOutput;
@@ -51,6 +51,18 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <p>
  * It runs on the 8.10 line and nowhere else, because no earlier client can ask for a lease.
  * The pull-request checks build the GA lines, so what proves this is the nightly matrix.
+ * <p>
+ * <b>The handler runs more than once here, and the test may not count the runs.</b> The lock of
+ * this job has to expire, otherwise the test could not take the activation over. From
+ * {@code 8.10.0-rc1} on the client asks for work again while a job of that worker is still in a
+ * handler, which is the fix of SUPPORT-34723, so the expired job comes straight back to the
+ * worker which is holding it, once per free execution slot. Measured on 2026-09-25 against
+ * {@code camunda/camunda:8.10.0-rc1}: the blocked handler was entered four times with the same
+ * job, the four being this module's execution slots. Holding the slots down to one does not help
+ * and breaks the test instead: the client answers its own requests on the executor this adapter
+ * hands it, so the one slot the blocked handler occupies also stops the activation below from
+ * ever completing. What the test reads is therefore the refusal and the absence of a failure,
+ * which is what it is about, and not how often the cluster offered the job.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -87,8 +99,6 @@ public class Camunda8JobLeaseIT extends SpringBootTestOnTheSharedCluster {
   @Autowired
   private TransactionTemplate transactionTemplate;
 
-  @Autowired
-  private Camunda8ClientFactoryRegistry clientFactoryRegistry;
 
   @Test
   @DisplayName("An answer from a superseded activation is refused, and the job stays with the newer one")
@@ -99,6 +109,8 @@ public class Camunda8JobLeaseIT extends SpringBootTestOnTheSharedCluster {
     LeaseDockerWorkflowService.entered = new CountDownLatch(1);
     LeaseDockerWorkflowService.mayAnswer = new CountDownLatch(1);
 
+    final var secondPod = aClientOfItsOwn();
+
     final var aggregateId = transactionTemplate
         .execute(status -> workflowService.startWorkflow(new LeaseDockerAggregate()).getId());
 
@@ -108,7 +120,7 @@ public class Camunda8JobLeaseIT extends SpringBootTestOnTheSharedCluster {
 
     // the lock of that job is ten seconds, so it is over by the time this asks, and what
     // comes back is what a second pod would get: the same job with a token of its own
-    final var takenOver = awaitTheJobAgain();
+    final var takenOver = awaitTheJobAgain(secondPod);
     assertNotNull(
         Camunda8JobLease.tokenOf(takenOver),
         "the activation which holds the job now carries a token");
@@ -122,7 +134,9 @@ public class Camunda8JobLeaseIT extends SpringBootTestOnTheSharedCluster {
             + takenOver.getKey()
             + " came too late");
 
-    assertEquals(1, LeaseDockerWorkflowService.RUNS.get(), "the handler ran once in this test");
+    assertTrue(
+        LeaseDockerWorkflowService.RUNS.get() >= 1,
+        "the handler ran, and how often is the cluster's business once the lock expired");
     // a failure would have counted the job's retries down and could have raised an
     // incident over work which was done and is fine. Read over the whole class this
     // would also speak for every other test of it, so it reads this test alone
@@ -133,10 +147,7 @@ public class Camunda8JobLeaseIT extends SpringBootTestOnTheSharedCluster {
     // and the activation which holds the job answers, which is what the workflow goes on with
     Camunda8JobLease
         .withToken(
-            clientFactoryRegistry
-                .getFactory("c8")
-                .getClient()
-                .newCompleteCommand(takenOver.getKey()),
+            secondPod.newCompleteCommand(takenOver.getKey()),
             Camunda8JobLease.tokenOf(takenOver))
         .send()
         .join();
@@ -146,27 +157,57 @@ public class Camunda8JobLeaseIT extends SpringBootTestOnTheSharedCluster {
         120000,
         "the workflow to end, which only the accepted answer carries it to");
 
+    secondPod.close();
+
   }
 
   /**
-   * The job of the slow task, activated once more with a lease, which is what supersedes
-   * the token the handler is holding.
+   * The client the second activation is sent with, built like an application which is not
+   * this one.
+   * <p>
+   * It may not be the adapter's own, and that is the whole reason this method exists. The
+   * adapter hands its client an executor whose handling half is as wide as
+   * <code>worker-threads</code>, and the client answers its own requests on it. This test
+   * blocks a handler on purpose, and from {@code 8.10.0-rc1} on the cluster hands the expired
+   * job straight back to the same worker, once per free slot, so every slot ends up holding a
+   * blocked run of it. A request sent with the adapter's client then has nobody left to
+   * complete it and dies of its socket timeout, whatever that timeout is: measured on
+   * 2026-09-25, 3000 ms with a window of two seconds and 6000 ms with the module's five.
+   * A client of its own has an executor of its own and is not affected.
+   *
+   * @return A client of this test's own, closed by the test
    */
-  private ActivatedJob awaitTheJobAgain() throws Exception {
+  private CamundaClient aClientOfItsOwn() {
+
+    return CamundaClient
+        .newClientBuilder()
+        .preferRestOverGrpc(true)
+        .restAddress(URI.create(restAddress()))
+        .grpcAddress(URI.create(grpcAddress()))
+        .build();
+
+  }
+
+  /**
+   * Asks for the job the way a second pod would, until the cluster hands it out.
+   *
+   * @param secondPod The client of this test, which is not the adapter's
+   * @return The activation which now holds the job
+   * @throws Exception Where the wait is interrupted
+   */
+  private ActivatedJob awaitTheJobAgain(
+      final CamundaClient secondPod) throws Exception {
 
     final var deadline = System.currentTimeMillis() + 120000;
     while (System.currentTimeMillis() < deadline) {
       final List<ActivatedJob> jobs = Camunda8JobLease
           .leaseTheActivation(
-              clientFactoryRegistry
-                  .getFactory("c8")
-                  .getClient()
+              secondPod
                   .newActivateJobsCommand()
                   .jobType(JOB_TYPE)
                   .maxJobsToActivate(1)
                   .timeout(Duration.ofMinutes(5))
                   .workerName("lease-verification"))
-          .requestTimeout(Duration.ofSeconds(2))
           .send()
           .join()
           .getJobs();

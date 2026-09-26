@@ -1,5 +1,6 @@
 package io.vanillabp.camunda8.observability;
 
+import java.util.function.DoubleSupplier;
 import java.util.function.IntSupplier;
 
 import io.camunda.client.api.worker.JobWorkerMetrics;
@@ -65,6 +66,19 @@ public interface Camunda8Metrics {
   String JOBS_WAITING = "vanillabp.camunda8.jobs.waiting";
 
   /**
+   * How long the oldest handler of this adapter instance has been running, in seconds. It
+   * rises without coming down where a handler never returns.
+   */
+  String EXECUTION_OLDEST_SECONDS = "vanillabp.camunda8.execution.oldest.seconds";
+
+  /**
+   * How many handlers have been running longer than the job timeout of their own task.
+   * Each of them has lost the lock of the job it works on, and the slot it holds is a slot
+   * no worker can ask for work with.
+   */
+  String EXECUTION_OVERDUE = "vanillabp.camunda8.execution.overdue";
+
+  /**
    * The tag naming the adapter instance a measurement belongs to. Every meter here carries it,
    * because an application may run more than one Camunda 8 adapter at once.
    */
@@ -106,6 +120,24 @@ public interface Camunda8Metrics {
       final IntSupplier configured,
       final IntSupplier inUse,
       final IntSupplier waiting) {
+
+  }
+
+  /**
+   * Registers what the handlers of one adapter instance are doing to their slots: how old
+   * the oldest running one is and how many of them lost the lock of their job. Together
+   * with the slots in use this is what an operator alerts on, because all slots in use
+   * next to an overdue handler is an adapter which has stopped asking the cluster for
+   * work. Called once per adapter instance.
+   *
+   * @param adapterId The adapter instance
+   * @param oldestSeconds How long the oldest running handler has been running
+   * @param overdue How many handlers ran longer than the job timeout of their task
+   */
+  default void registerRunningExecutions(
+      final String adapterId,
+      final DoubleSupplier oldestSeconds,
+      final IntSupplier overdue) {
 
   }
 

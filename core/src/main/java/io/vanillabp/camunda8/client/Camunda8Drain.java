@@ -101,19 +101,57 @@ public class Camunda8Drain {
 
   /**
    * A delivery whose handler is running right now.
+   * <p>
+   * The workflow module and the thread are here for the watch which looks for a slot
+   * nobody gives back. The module completes what a job timeout is resolved from, and the
+   * thread is what a stack trace of an overdue handler is taken from. The entry is
+   * removed when the handler returns, so nothing holds a thread alive for longer than the
+   * handler itself.
    *
    * @param jobKey The job key the cluster handed out
    * @param kind What kind of worker delivered it (for the message)
    * @param name The task definition respectively the job type, as the application knows it
    * @param bpmnProcessId The BPMN process, as the application knows it
+   * @param workflowModuleId The workflow module the delivery belongs to
    * @param since When the handler entered
+   * @param thread The thread the handler runs on
    */
   public record InFlightJob(
                             long jobKey,
                             String kind,
                             String name,
                             String bpmnProcessId,
-                            Instant since) {
+                            String workflowModuleId,
+                            Instant since,
+                            Thread thread) {
+
+    /**
+     * How long the handler has been inside its slot.
+     *
+     * @param now The moment to measure against
+     * @return The time since the handler entered, never negative
+     */
+    public Duration runningFor(
+        final Instant now) {
+
+      final var running = Duration.between(since, now);
+      return running.isNegative()
+          ? Duration.ZERO
+          : running;
+
+    }
+
+  }
+
+  /**
+   * The workflow module this drain belongs to.
+   *
+   * @return The workflow module id
+   */
+  public String getWorkflowModuleId() {
+
+    return workflowModuleId;
+
   }
 
   /**
@@ -154,7 +192,11 @@ public class Camunda8Drain {
       final String name,
       final String bpmnProcessId) {
 
-    inFlight.put(jobKey, new InFlightJob(jobKey, kind, name, bpmnProcessId, Instant.now()));
+    inFlight
+        .put(
+            jobKey,
+            new InFlightJob(
+                jobKey, kind, name, bpmnProcessId, workflowModuleId, Instant.now(), Thread.currentThread()));
 
   }
 

@@ -32,7 +32,7 @@
     },
     {
       "customType": "regex",
-      "description": "The pin of the preview line, which follows the alphas of the next minor.",
+      "description": "The pin of the preview line, which follows the pre-releases of the next minor.",
       "managerFilePatterns": ["/^pom\\.xml$/"],
       "matchStrings": [
         "<camunda8\\.version\\.line-8\\.10>(?<currentValue>[^<]+)</camunda8\\.version\\.line-8\\.10>"
@@ -111,9 +111,9 @@
       ]
     },
     {
-      "description": "The preview line follows Camunda's alphas but not their release candidates: an -rc is a step on the way to an alpha, not something to build a published line on.",
+      "description": "The preview line follows Camunda's pre-releases of the next minor, which are its alphas and then its release candidates. What it does not follow is a candidate OF AN ALPHA (8.10.0-alpha5-rc2): that is a step on the way to an alpha and not something to build a published line on.",
       "matchDepNames": ["camunda-client-java (line 8.10 preview)"],
-      "allowedVersions": "!/-rc\\d+$/"
+      "allowedVersions": "!/-alpha\\d+-rc\\d+$/"
     }
   ]
 }

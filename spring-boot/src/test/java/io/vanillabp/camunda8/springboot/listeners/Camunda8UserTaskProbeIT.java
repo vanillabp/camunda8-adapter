@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.fail;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,17 +47,16 @@ import io.vanillabp.spi.service.TaskEvent;
  * The wake-up is the redelivery of the asynchronous task's job, whose lock this class sets to
  * three seconds.
  * <p>
- * Tagged {@code user-task-listener-jobs}: every user task here is delivered through its
- * <code>creating</code> listener job, and the REST gateway of the 8.10 alpha drops the batch
- * those arrive in (see the {@code line-8.10} profile of the parent POM). Without the CREATED
- * notification there is no delivery record to probe, so the scenario cannot exist there at all.
+ * Every user task here is delivered through its <code>creating</code> listener job. The REST
+ * gateway of the 8.10 alphas dropped the batch those arrive in, and without the CREATED
+ * notification there is no delivery record to probe, so this class was kept off the preview
+ * line. {@code 8.10.0-rc1} hands the job out and it runs there again.
  * <p>
  * The class is skipped when Docker is unavailable
  * ({@code @Testcontainers(disabledWithoutDocker = true)}).
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
-@Tag("user-task-listener-jobs")
 @SpringBootTest(
     classes = ListenerTestApplication.class,
     properties = {

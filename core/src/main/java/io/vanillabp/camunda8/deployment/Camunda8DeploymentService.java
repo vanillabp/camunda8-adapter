@@ -261,12 +261,14 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   /**
    * Publishes how many handlers this adapter instance may run, how many of them run right
-   * now and how many jobs wait for a slot.
+   * now and how many jobs wait for a slot, plus how old the oldest running handler is and
+   * how many handlers lost the lock of their job.
    * <p>
-   * All three come from the adapter's own executor, which both execution models now build,
-   * so the picture of a stalled application is the same whichever one is configured. An
-   * adapter which booted without a connection has no client and therefore no executor; there
-   * only the configured number is published.
+   * The first three come from the adapter's own executor, which both execution models now
+   * build, so the picture of a stalled application is the same whichever one is configured.
+   * The last two come from the slot watch, which reads what the workflow modules have in
+   * flight. An adapter which booted without a connection has neither; there only the
+   * configured number is published.
    */
   private void registerExecutionSlots() {
 
@@ -282,6 +284,16 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             executor == null
                 ? null
                 : executor::getWaiting);
+    final var slotWatch = clientFactory.getSlotWatch();
+    metrics
+        .registerRunningExecutions(
+            adapterId,
+            slotWatch == null
+                ? null
+                : slotWatch::getOldestRunningSeconds,
+            slotWatch == null
+                ? null
+                : slotWatch::getOverdueExecutions);
 
   }
 
