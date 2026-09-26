@@ -95,51 +95,38 @@ such a change through unread. That is `.github/workflows/client-api-changes.yaml
 `bin/client-api-changes.sh`, and `Camunda8UnknownClientEnumsTest` holds what the adapter does
 with a literal it has never seen.
 
-The preview line is not publishable at the moment. The REST gateway of `8.10.0-alpha5` drops a
-whole activate-jobs batch when it meets a task-listener job whose event carries no user task
-action in its headers, and the two events without one are `creating` and `canceling`. Every
-Camunda-managed user task this adapter deploys carries a `creating` listener, so on that alpha
-the application never hears that the task exists. The bug is `camunda/camunda#58193`: the engine
-writes the action header only where the command carried an action, creation and cancelation
-carry none, and the gateway's response mapper demands one anyway and throws a
-`NullPointerException`, which loses the whole batch and not just the one job.
+The preview line runs against `8.10.0-rc1`, and that pin is what makes it usable again. Up
+to `8.10.0-alpha5` the REST gateway of that line dropped a whole activate-jobs batch when it
+met a task-listener job whose event carried no user task action in its headers, and the two
+events without one are `creating` and `canceling`. Every Camunda-managed user task this
+adapter deploys carries a `creating` listener, so on that alpha the application never heard
+that the task existed. The bug is `camunda/camunda#58193`: the engine writes the action header
+only where the command carried an action, creation and cancelation carry none, and the
+gateway's response mapper demanded one anyway and threw a `NullPointerException`, which lost
+the whole batch and not just the one job.
 
-The gap is that narrow. An `assigning` job triggered by an assign command, an `updating` job and
-a `completing` job carry the action, and they reach their worker on the alpha as fast as on the
-GA lines. Camunda closed the issue on 2026-09-01 and `8.10.0-alpha5` is from 2026-08-31, so that
-alpha is a day too old for the fix. Whether a newer one carries it is a question for the day the
-pin moves, and the cheapest answer is a measurement: deploy a user task with a `creating`
-listener, start an instance and see whether the job arrives.
+Camunda closed the issue on 2026-09-01, a day after `8.10.0-alpha5` was built, and the fix is
+in the candidate. Measured against `camunda/camunda:8.10.0-rc1` on 2026-09-25: a user task with
+a `creating` listener hands its job out, `Camunda8UserTaskStillCreatingIT` and
+`Camunda8UserTaskProbeIT` pass, and the tests which create such a task run on this line again.
+The exclusions the alpha needed are gone from the `line-8.10` profile, and so is the tag which
+carried them.
 
-The tests which create a Camunda-managed user task are excluded on that line, by the tag
-`user-task-listener-jobs` in the `line-8.10` profile, and nowhere else. A test of a listener on
-another event runs on the preview line like every other test. Leaving the waiting tests in kept
-the line red as a whole, and a line which is always red says nothing about the day something else
-breaks in it. What the exclusion costs is written where the tag is declared and where the profile
-excludes it, and both say to remove the two together once a cluster of this line hands out a
-`creating` job. Until then the preview line stays unpublishable for the same reason as before,
-tests or no tests.
+The second defect this pin was moved for is SUPPORT-34723, the worker which stopped asking for
+work after its first empty poll while a job of it was still in a handler. Camunda's fix is
+`#59633` and it is in the candidate as well, and our own run met it from the other side: with four
+execution slots and one handler blocked, the cluster handed the same job back to the same
+worker as soon as its lock ran out, four times over. That has a consequence worth knowing. The
+adapter hands the client an executor as wide as `worker-threads` and the client answers its own
+requests on it, so a handler which occupies every slot also stops the client from completing a
+request of that same application. `Camunda8JobLeaseIT` blocks a handler on purpose and now
+sends its second activation with a client of its own for that reason.
 
-The tag covers more than the waiting, and the reason is what such a task leaves behind. Measured
-against `camunda/camunda:8.10.0-alpha5` on 2026-09-25: the task stands in `CREATING`, cancelling
-its instance is answered and 24 milliseconds later the engine answers `404` to a second
-cancellation, while the task moves to `CANCELING` and stays there. Eight minutes later it had not
-moved, and deleting the process definition did not move it either. Its listener job stays
-activatable all that time, so every later activation of that job type loses its batch too. In the
-run of 2026-09-25 one such task cost twenty-six lost activations and took an unrelated test down
-with it. A test which needs a user task on that line therefore brings a cluster of its own, which
-is thrown away with the class.
-
-The gap is REST's. The same cluster hands the same jobs out over gRPC: measured on 2026-09-19
-against `8.10.0-alpha5`, a `creating` job arrived in 342 ms and a `canceling` job in 107 ms on
-that transport, while REST dropped both batches. So an installation which wants the preview
-line before the fix reaches an alpha could set `prefer-rest-over-grpc: false` and get its user
-tasks back. We do not recommend it and the default stays REST. The switch is per adapter
-instance and not per job type, so the whole adapter would speak gRPC, and no other traffic of
-this repository has ever been tested that way - the one thing that is now proven is that a job
-arrives at all, which is `Camunda8GrpcTransportIT`. Weigh an untested transport against
-somebody else's regression which is already fixed upstream, and the waiting is usually the
-cheaper of the two.
+Two things changed with the candidate which an alpha bump never asked for. The client renamed
+the lease API to `getJobLeaseToken()` and `withJobLeaseToken(...)`, which is the delta source
+of this line and nothing else. And the cluster now refuses the answer to a leased job which
+carries no token, with `409 INVALID_STATE`; the adapter always sent one, a test which used the
+raw client did not.
 
 Snapshots have no suffix yet. Until the first release they are `2.0.0-SNAPSHOT` of the
 current GA line, which is what a build without a profile produces.
@@ -270,7 +257,7 @@ platform and line:
 |------|----------------|-----------------|-------------------|----------------|-----------------|
 | 8.8  | 4.31.1         | 4.31.1          | 4.35.1            | 4.35.0         | 4.31.1          |
 | 8.9  | 4.33.6         | 4.33.6          | 4.35.1            | 4.35.0         | 4.33.6          |
-| 8.10 | 4.36.0         | 4.36.0          | **4.35.1**        | **4.35.0**     | 4.36.0          |
+| 8.10 | 4.36.2         | 4.36.2          | **4.35.1**        | **4.35.0**     | 4.36.2          |
 
 Spring Boot manages `protobuf-java` from 4.1 on and Quarkus manages it in every version, and
 an imported BOM wins over anything the adapter brings. So on the two GA lines an application
@@ -278,7 +265,7 @@ runs a protobuf newer than its client asks for, which protobuf allows. On the pr
 both platforms hand it an older one, and that is the failure this pin exists to avoid: the
 application dies with `Detected incompatible Protobuf Gencode/Runtime versions` on the first
 command that touches the protocol. Measured by loading the gateway protocol class of client
-`8.10.0-alpha5` against runtime `4.35.1` and `4.35.0`.
+`8.10.0-rc1` against runtime `4.35.1` and `4.35.0`.
 
 An application on the preview line therefore pins `protobuf-java` to the gencode of that
 line's client itself, in its own `dependencyManagement`, above the platform BOM. Nothing this
@@ -2082,6 +2069,14 @@ plus the shared values, the same variables a start through `ProcessService` woul
 aggregate's ID is the PROCESS INSTANCE KEY rather than the timer's scheduled time, which the
 cluster does not report to the listener; the instance key survives a retried listener job, so
 a redelivery finds the aggregate instead of building a second one.
+
+An event subprocess is left out of this, although its start event can carry a timer or a
+signal too. It fires inside a workflow which is already running and already has its
+aggregate, so nothing is started there and no method has to build anything. Only the start
+events the process itself holds count. `Camunda8EventSubprocessStartsNoWorkflowTest` holds
+what the core is told and which start event the model reaches the cluster with a listener
+on, and `Camunda8EventSubprocessIT` runs a model whose event subprocess takes a waiting
+workflow over.
 
 Where a workflow service declares a `@WorkflowEnded` method, the adapter adds an `end`
 execution listener to the PROCESS element and opens a worker for it. The job is activated

@@ -107,6 +107,35 @@ public class MicrometerCamunda8MetricsTest {
   }
 
   @Test
+  @DisplayName("The age of the oldest handler and the overdue ones are gauges too")
+  public void whatTheHandlersDoToTheirSlotsIsGauged() {
+
+    final var oldest = new AtomicInteger(3);
+    final var overdue = new AtomicInteger(0);
+    final var metrics = new MicrometerCamunda8Metrics();
+
+    metrics.registerRunningExecutions("c8", oldest::get, overdue::get);
+
+    final var registry = new SimpleMeterRegistry();
+    metrics.bindTo(registry);
+
+    assertEquals(3.0, registry.get(Camunda8Metrics.EXECUTION_OLDEST_SECONDS).gauge().value());
+    assertEquals(0.0, registry.get(Camunda8Metrics.EXECUTION_OVERDUE).gauge().value());
+
+    oldest.set(900);
+    overdue.set(4);
+    assertEquals(
+        900.0,
+        registry.get(Camunda8Metrics.EXECUTION_OLDEST_SECONDS).gauge().value(),
+        "an age which only rises is a slot nobody gives back");
+    assertEquals(
+        4.0,
+        registry.get(Camunda8Metrics.EXECUTION_OVERDUE).gauge().value(),
+        "and every one of them lost the lock of its job");
+
+  }
+
+  @Test
   @DisplayName("An adapter which built no client reports the bound and guesses nothing else")
   public void withoutAnExecutorOnlyTheBoundIsReported() {
 
@@ -125,6 +154,16 @@ public class MicrometerCamunda8MetricsTest {
         MeterNotFoundException.class,
         () -> registry.get(Camunda8Metrics.JOBS_WAITING).gauge());
 
+    metrics.registerRunningExecutions("c8", null, null);
+
+    assertThrows(
+        MeterNotFoundException.class,
+        () -> registry.get(Camunda8Metrics.EXECUTION_OLDEST_SECONDS).gauge(),
+        "without a client there is nothing in flight to age either");
+    assertThrows(
+        MeterNotFoundException.class,
+        () -> registry.get(Camunda8Metrics.EXECUTION_OVERDUE).gauge());
+
   }
 
   @Test
@@ -137,6 +176,7 @@ public class MicrometerCamunda8MetricsTest {
           worker.jobActivated(3);
           worker.jobHandled(3);
           Camunda8Metrics.NONE.registerExecutionSlots("c8", () -> 4, () -> 0, () -> 0);
+          Camunda8Metrics.NONE.registerRunningExecutions("c8", () -> 0d, () -> 0);
         });
 
   }

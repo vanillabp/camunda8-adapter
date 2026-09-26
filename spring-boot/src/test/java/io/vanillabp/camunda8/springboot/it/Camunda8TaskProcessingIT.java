@@ -15,7 +15,6 @@ import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -91,45 +90,6 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
    */
   private static final WorkflowScope SCOPE = WorkflowScope
       .of("test-module", "TestProcess");
-
-  /**
-   * The tag which takes a test out of the preview line. It belongs on a test which creates a
-   * Camunda-managed user task on the shared cluster, and on no other test. The REST gateway of
-   * the 8.10 alpha drops the whole activate-jobs batch when it meets a {@code creating} or a
-   * {@code canceling} task-listener job: the engine writes the user task action into the job
-   * headers only where the command carried one, creation and cancelation carry none, and the
-   * gateway's response mapper demands the action anyway and throws a NullPointerException. That
-   * is camunda/camunda#58193.
-   * <p>
-   * Waiting for such a job is the obvious half of it, and the tag used to say only that. The
-   * other half is what the task LEAVES. Measured against {@code camunda/camunda:8.10.0-alpha5}
-   * on 2026-09-25: a user task whose {@code creating} job was dropped stands in
-   * {@code CREATING}; cancelling its instance is answered, and 24 ms later the engine answers
-   * {@code 404} to a second cancellation while the task moves to {@code CANCELING} and stays
-   * there - eight minutes later it had not moved, and deleting the process definition did not
-   * move it either. Its listener job stays activatable the whole time, so every later
-   * activation of that job type loses its batch. One such task therefore breaks the workers of
-   * every class after it, which is why the tag covers a test which creates one even when the
-   * test never waits for a listener job. See decision 43 in the repository's DECISIONS.md.
-   * <p>
-   * A test which needs a user task on that line brings a cluster of its own, the way
-   * {@code Camunda8GrpcTransportIT} does. Then the container is thrown away with the class and
-   * the defect goes with it.
-   * <p>
-   * The other listener events are untouched. An {@code assigning} job triggered by an assign
-   * command, an {@code updating} job and a {@code completing} job carry the action, and their
-   * workers get them on the alpha in the usual milliseconds, so a test of those events stays on
-   * the preview line like every other test.
-   * <p>
-   * Everything else of that line passes, so its profile excludes the tag instead of letting
-   * known timeouts hide whatever else might break.
-   * <p>
-   * The issue was closed on 2026-09-01 and 8.10.0-alpha5 was published on 2026-08-31, so that
-   * alpha is older than the fix. When the pin moves to a newer alpha, measure rather than assume:
-   * deploy a user task with a {@code creating} listener, start an instance and see whether the
-   * job arrives. Once one does, the tag and the exclusion in the 'line-8.10' profile go together.
-   */
-  private static final String USER_TASK_LISTENER_JOBS = "user-task-listener-jobs";
 
   @Autowired
   private TaskDockerWorkflowService workflowService;
@@ -1001,7 +961,6 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
 
   }
 
-  @Tag(USER_TASK_LISTENER_JOBS)
   @Test
   @DisplayName("User task: CREATED via listener job, completeUserTask ends the process")
   public void userTaskCreatedAndCompleted() throws Exception {
@@ -1044,7 +1003,6 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
 
   }
 
-  @Tag(USER_TASK_LISTENER_JOBS)
   @Test
   @DisplayName("Canceling the instance delivers CANCELED through the canceling listener")
   public void userTaskCanceledOnInstanceCancellation() throws Exception {
@@ -1078,7 +1036,6 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
 
   }
 
-  @Tag(USER_TASK_LISTENER_JOBS)
   @Test
   @DisplayName("cancelUserTask is unsupported on Camunda 8.8 - the guiding error explains it")
   public void cancelUserTaskUnsupportedGuiding() throws Exception {
@@ -1112,7 +1069,6 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
   }
 
   @Test
-  @Tag(USER_TASK_LISTENER_JOBS)
   @DisplayName("User-task edge cases: silent task, awareness, gone-task tolerance")
   public void userTaskEdgeCases() throws Exception {
 
@@ -1177,7 +1133,6 @@ public class Camunda8TaskProcessingIT extends SpringBootTestOnTheSharedCluster {
   private static final String LOST_DELIVERY_PROCESS = "LostDeliveryProcess";
 
   @Test
-  @Tag(USER_TASK_LISTENER_JOBS)
   @DisplayName("A listener delivery the gateway lost comes back instead of raising an incident")
   public void aLostListenerDeliveryComesBack() throws Exception {
 

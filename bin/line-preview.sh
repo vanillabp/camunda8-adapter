@@ -22,8 +22,8 @@
 # Usage:  bin/line-preview.sh <line> [pom]
 #
 # The 'client-api-changes-selftest' job of .github/workflows/checks.yaml holds it against a
-# preview profile, a GA profile, a line which is not in the POM and a value which is
-# neither true nor false.
+# preview profile, a GA profile, a profile written on one line, a POM with no line profiles
+# at all, a line which is not in the POM and a value which is neither true nor false.
 #
 set -euo pipefail
 
@@ -40,12 +40,56 @@ if [ ! -f "$pom" ]; then
   exit 2
 fi
 
-# The profile of this line, from its id to the end of that profile. Profiles do not nest,
-# so the first closing tag after the id closes this one, whatever it holds in between.
-anchor="${line//./\\.}"
-block="$(sed -n "/<id>line-${anchor}<\/id>/,/<\/profile>/p" "$pom")"
+# The whole profile which carries this line's id, however the POM is wrapped.
+#
+# A line range of the shape /<id>line-X<\/id>/,/<\/profile>/ looks like the obvious reading
+# and is wrong for a profile written on one line: a range looks for its end in the line
+# AFTER its start, so such a profile runs on into the next one and the answer comes out of
+# THAT profile's properties. Nothing goes red over it, which is how a GA line was read as
+# the preview line and stopped deciding anything.
+#
+# So the profiles are cut apart first, one opening and one closing tag per line, and then
+# the profile which holds the id is kept whole. '<profiles>' and '</profiles>' are left
+# alone by that, because neither of them contains the tag being cut on.
+profiles_one_per_line() {
+  awk '{
+    gsub(/<profile>/, "\n<profile>\n")
+    gsub(/<\/profile>/, "\n</profile>\n")
+    print
+  }' "$1"
+}
+
+status=0
+block="$(profiles_one_per_line "$pom" | awk -v anchor="<id>line-${line}</id>" '
+  $0 == "<profile>" { inside = 1; profile = ""; next }
+  $0 == "</profile>" {
+    if (inside && (index(profile, anchor) > 0)) {
+      matches++
+      printf "%s", profile
+    }
+    inside = 0
+    next
+  }
+  inside { profile = profile $0 "\n" }
+  END { if (matches > 1) exit 3 }
+')" || status=$?
+
+if [ "$status" -eq 3 ]; then
+  echo "${pom} has more than one profile carrying the id 'line-${line}'." >&2
+  echo "Which of them decides is nothing this reading may pick. Leave one." >&2
+  exit 2
+fi
+if [ "$status" -ne 0 ]; then
+  echo "${pom} could not be read for line ${line} (reading ended with ${status})." >&2
+  exit 2
+fi
 
 if [ -z "$block" ]; then
+  if grep -q "<id>line-${line//./\\.}</id>" "$pom"; then
+    echo "${pom} names a profile 'line-${line}', but the reading never reached the end of" >&2
+    echo "that profile. A <profile> whose closing tag is missing looks like this." >&2
+    exit 2
+  fi
   echo "${pom} has no profile 'line-${line}'. The lines it defines are:" >&2
   sed -n 's|.*<id>line-\([0-9][^<]*\)</id>.*|  \1|p' "$pom" >&2
   echo "A line without a profile cannot be told apart from the preview line. The lines" >&2
@@ -69,8 +113,8 @@ case "$value" in
     ;;
   *)
     echo "Line ${line} sets camunda8.line.preview to '${value}' in ${pom}." >&2
-    echo "That is neither true nor false. Two profiles for one line look like this too." >&2
-    echo "Either way nobody here may pick an answer." >&2
+    echo "That is neither true nor false, and a profile stating it twice reads like this" >&2
+    echo "too. Either way nobody here may pick an answer." >&2
     exit 2
     ;;
 esac

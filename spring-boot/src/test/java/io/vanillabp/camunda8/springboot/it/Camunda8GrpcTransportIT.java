@@ -39,9 +39,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * camunda/camunda#58193 is, and {@code creating} is one of the two events that hits. Over gRPC
  * it arrives, measured on 2026-09-19 at 342 ms against {@code camunda/camunda:8.10.0-alpha5}.
  * <p>
- * So this class is NOT tagged {@code user-task-listener-jobs}, although it waits for a
- * {@code creating} job. That tag exists for tests which would sit in their deadline on the
- * preview line, and the whole point here is that this path does not.
+ * That is history since {@code 8.10.0-rc1}, which hands a {@code creating} job out over REST
+ * as well. What this class still proves is the transport itself, which is why it stayed.
  * <p>
  * Nothing is recommended by it. The switch is per adapter instance rather than per job type,
  * no other traffic of this repository has ever been proven on that transport, and the

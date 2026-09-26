@@ -58,7 +58,7 @@ public class Camunda8JobLeaseTest {
   public void theTokenComesFromTheJob() {
 
     final var job = mock(ActivatedJob.class);
-    org.mockito.Mockito.when(job.getLeaseToken()).thenReturn(TOKEN);
+    org.mockito.Mockito.when(job.getJobLeaseToken()).thenReturn(TOKEN);
 
     assertEquals(TOKEN, Camunda8JobLease.tokenOf(job));
 
@@ -73,7 +73,7 @@ public class Camunda8JobLeaseTest {
 
     final var completion = mock(CompleteJobCommandStep1.class, RETURNS_SELF);
     assertSame(completion, Camunda8JobLease.withToken(completion, null));
-    verify(completion, org.mockito.Mockito.never()).withLeaseToken(org.mockito.ArgumentMatchers.any());
+    verify(completion, org.mockito.Mockito.never()).withJobLeaseToken(org.mockito.ArgumentMatchers.any());
 
   }
 
@@ -83,15 +83,15 @@ public class Camunda8JobLeaseTest {
 
     final var completion = mock(CompleteJobCommandStep1.class, RETURNS_SELF);
     Camunda8JobLease.withToken(completion, TOKEN);
-    verify(completion).withLeaseToken(TOKEN);
+    verify(completion).withJobLeaseToken(TOKEN);
 
     final var failure = mock(FailJobCommandStep1.FailJobCommandStep2.class, RETURNS_SELF);
     Camunda8JobLease.withToken(failure, TOKEN);
-    verify(failure).withLeaseToken(TOKEN);
+    verify(failure).withJobLeaseToken(TOKEN);
 
     final var bpmnError = mock(ThrowErrorCommandStep1.ThrowErrorCommandStep2.class, RETURNS_SELF);
     Camunda8JobLease.withToken(bpmnError, TOKEN);
-    verify(bpmnError).withLeaseToken(TOKEN);
+    verify(bpmnError).withJobLeaseToken(TOKEN);
 
   }
 
