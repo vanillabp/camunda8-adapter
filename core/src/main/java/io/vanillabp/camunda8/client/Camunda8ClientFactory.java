@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.client;
 
 import java.net.URI;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -284,6 +285,51 @@ public class Camunda8ClientFactory implements AutoCloseable {
     // 'numJobWorkerExecutionThreads' is deliberately not set: it sizes the pool the
     // client would build for itself, and there is none once it is handed one
     Camunda8JobExecutors.install(builder, executor);
+    startWatchingTheSlots();
+
+  }
+
+  /**
+   * Watches whether the execution slots of this adapter id are all held by handlers which
+   * are not coming back. <code>null</code> for an adapter which booted without a
+   * connection, where there is no executor to watch either.
+   */
+  @Getter
+  private Camunda8SlotWatch slotWatch;
+
+  private void startWatchingTheSlots() {
+
+    // a factory which builds its client a second time builds a second executor, and the
+    // watch of the first one would keep a thread and read an executor nothing uses
+    if (slotWatch != null) {
+      slotWatch.close();
+    }
+    slotWatch = new Camunda8SlotWatch(
+        adapterId, Camunda8AdapterConfiguration
+            .propertyKey(adapterId, executionModel.virtual()
+                ? "worker-threads-bound"
+                : "worker-threads"), executionModel::slots, () -> executor.getBound() - executor
+                    .getFreeSlots(), this::getRunningExecutions, job -> jobTimeoutResolver
+                        .jobTimeoutFor(job.workflowModuleId(), job.bpmnProcessId(), job.name()));
+    slotWatch.start();
+
+  }
+
+  /**
+   * What every workflow module of this adapter id has inside a handler right now. The
+   * drains hold it per module, and the slots are shared by all of them, so the watch of
+   * the slots reads them together.
+   *
+   * @return The deliveries whose handler is running, across all workflow modules
+   */
+  public Collection<Camunda8Drain.InFlightJob> getRunningExecutions() {
+
+    return drains
+        .values()
+        .stream()
+        .map(Camunda8Drain::getInFlight)
+        .flatMap(Collection::stream)
+        .toList();
 
   }
 
@@ -636,6 +682,10 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
     closeWorkersOfModulesWhichDidNotStop();
     closed = true;
+    if (slotWatch != null) {
+      slotWatch.close();
+      slotWatch = null;
+    }
     if (client != null) {
       log.info("Closing Camunda 8 client of adapter '{}'", adapterId);
       client.close();

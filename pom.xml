@@ -121,13 +121,13 @@
     <camunda8.version>${camunda8.version.line-8.9}</camunda8.version>
     <camunda8.version.line-8.8>8.8.39</camunda8.version.line-8.8>
     <camunda8.version.line-8.9>8.9.21</camunda8.version.line-8.9>
-    <camunda8.version.line-8.10>8.10.0-alpha5</camunda8.version.line-8.10>
+    <camunda8.version.line-8.10>8.10.0-rc1</camunda8.version.line-8.10>
     <!-- optional: the adapter's own meters are published where the application brings
          Micrometer (see MicrometerCamunda8Metrics). Pinned to the OLDER of both
          platforms, like the platform integration does it (Quarkus 3.37.1 manages 1.16.6,
          Spring Boot 4.1.0 manages 1.17.0) -->
     <micrometer.version>1.17.1</micrometer.version>
-    <protobuf.version>4.36.0</protobuf.version>
+    <protobuf.version>4.36.2</protobuf.version>
     <!-- the cluster the integration tests run against follows the pinned client: the
          client a build was compiled against IS the minimum cluster version of that
          build, so testing anything newer would prove nothing about it -->
@@ -602,71 +602,18 @@
       </properties>
     </profile>
     <profile>
-      <!-- preview: built against the alpha of the next minor and published as a
-           pre-release, so a feature only the new cluster can do is deliverable before
-           that cluster is GA -->
+      <!-- preview: built against a pre-release of the next minor, first its alphas and
+           then its release candidates, and published as a pre-release itself, so a feature
+           only the new cluster can do is deliverable before that cluster is GA -->
       <id>line-8.10</id>
       <properties>
         <camunda8.line>8.10</camunda8.line>
         <camunda8.version>${camunda8.version.line-8.10}</camunda8.version>
         <!-- read by the client-api-changes workflow, which turns what a client bump added
-             into a red check on the GA lines and into a comment here: an alpha changes its
-             classes all the time and must not hold up a pull request of the GA lines -->
+             into a red check on the GA lines and into a comment here: a pre-release changes
+             its classes all the time and must not hold up a pull request of the GA lines -->
         <camunda8.line.preview>true</camunda8.line.preview>
       </properties>
-      <build>
-        <pluginManagement>
-          <plugins>
-            <plugin>
-              <groupId>org.apache.maven.plugins</groupId>
-              <artifactId>maven-failsafe-plugin</artifactId>
-              <configuration>
-                <!--
-                  The REST gateway of this line drops a whole activate-jobs batch when it meets a
-                  task-listener job whose event carries no user task action in its headers. Those
-                  events are 'creating' and 'canceling'. An 'assigning' job triggered by an assign
-                  command, an 'updating' job and a 'completing' job do carry the action and reach
-                  their worker here as fast as on the GA lines, so a test of those events belongs
-                  on this line like any other.
-                  The tag covers every test which creates a Camunda-managed user task on the
-                  shared cluster, not only the ones which wait for a listener job. Such a task
-                  cannot be ended on this line: its 'creating' job is never handed out, a
-                  cancellation leaves it in CANCELING for good, and its listener job stays
-                  activatable, so every later activation of that job type loses its batch as
-                  well. One of them broke twenty-six activations and one unrelated test in the
-                  run of 2026-09-25. A test which needs a user task here brings a cluster of its
-                  own instead, and decision 43 of DECISIONS.md is where that is written down.
-                  The bug is camunda/camunda#58193: the engine writes the action header only where
-                  the command carried an action, creation and cancelation carry none, and the
-                  gateway's response mapper demands one anyway and dies with a
-                  NullPointerException. The issue was closed on 2026-09-01 and 8.10.0-alpha5 was
-                  published on 2026-08-31, so that alpha is older than the fix. When the pin moves
-                  to a newer alpha, measure rather than assume: deploy a user task with a
-                  'creating' listener, start an instance and see whether the job arrives. Once one
-                  does, this exclusion and the tag go together.
-                -->
-                <excludedGroups>user-task-listener-jobs</excludedGroups>
-              </configuration>
-            </plugin>
-            <plugin>
-              <groupId>org.apache.maven.plugins</groupId>
-              <artifactId>maven-surefire-plugin</artifactId>
-              <configuration>
-                <!--
-                  The same bug, in the suite which runs its end-to-end tests through surefire: the
-                  Quarkus tests wait for a user task's CREATED notification, which rides on a
-                  'creating' listener job, and the dropped activate-jobs batch never delivers it.
-                  Excluding the tag in failsafe alone left this line red once it got as far as
-                  this module, which is the point where the exclusion was supposed to start paying
-                  off. The tag means the same here as above: a test which creates a
-                  Camunda-managed user task.
-                -->
-                <excludedGroups>user-task-listener-jobs</excludedGroups>
-              </configuration>
-            </plugin>
-          </plugins>
-        </pluginManagement>
-      </build>
     </profile>
   </profiles>
 </project>

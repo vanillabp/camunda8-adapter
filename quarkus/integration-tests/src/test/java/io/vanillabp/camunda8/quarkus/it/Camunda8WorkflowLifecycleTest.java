@@ -15,7 +15,6 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -99,36 +98,6 @@ public class Camunda8WorkflowLifecycleTest {
    * through it arrives after the cluster already acted.
    */
   private static final long QUERY_TIMEOUT_MS = 240_000;
-
-  /**
-   * The tag which keeps a test off the preview line. Put it on a test which creates a
-   * Camunda-managed user task. Nothing else earns it.
-   * <p>
-   * Those two events are the ones the 8.10 alpha cannot hand out. Their jobs carry no user task
-   * action in the headers, because the engine writes that header only where the command carried
-   * an action, and the REST gateway's response mapper asks for it all the same. It throws a
-   * NullPointerException, and the whole activate-jobs batch goes with it. That is
-   * camunda/camunda#58193. A job of {@code assigning} triggered by an assign command, of
-   * {@code updating} or of {@code completing} does carry the action and arrives in
-   * milliseconds, so a test of one of those runs on the preview line like any other.
-   * <p>
-   * The two tests here wait for the CREATED notification, which rides on a {@code creating} job.
-   * Everything else of that line passes, so the profile drops this tag rather than let known
-   * timeouts hide whatever else might break. The Spring Boot suite tags for the same reason.
-   * <p>
-   * Waiting for the job is only half of what earns the tag. The other half is what the task
-   * leaves behind: on that alpha it stands in {@code CREATING} and never moves, cancelling its
-   * instance leaves it in {@code CANCELING} instead, and its listener job stays activatable, so
-   * every later activation of that job type loses its batch too. A class keeping a cluster of
-   * its own bounds the damage to that class, it does not avoid it. See decision 43 in the
-   * repository's DECISIONS.md.
-   * <p>
-   * Camunda closed the issue on 2026-09-01 and 8.10.0-alpha5 is from 2026-08-31, so that alpha is
-   * a day too old for the fix. A newer alpha is worth a measurement before it is believed: deploy
-   * a user task with a {@code creating} listener, start an instance and watch for the job. The
-   * day one turns up, the tag and the exclusion in the 'line-8.10' profile both go.
-   */
-  private static final String USER_TASK_LISTENER_JOBS = "user-task-listener-jobs";
 
   // --- the cluster under test ---
 
@@ -956,8 +925,6 @@ public class Camunda8WorkflowLifecycleTest {
   }
 
   // --- user tasks ---
-
-  @Tag(USER_TASK_LISTENER_JOBS)
   @Test
   @DisplayName("A user task notifies on creation and completeUserTask resumes the workflow")
   public void userTaskNotificationAndCompletion() throws Exception {
@@ -994,7 +961,6 @@ public class Camunda8WorkflowLifecycleTest {
 
   }
 
-  @Tag(USER_TASK_LISTENER_JOBS)
   @Test
   @DisplayName("Canceling the workflow delivers CANCELED through the canceling task listener")
   public void userTaskCanceledWhenTheWorkflowIsCanceled() throws Exception {

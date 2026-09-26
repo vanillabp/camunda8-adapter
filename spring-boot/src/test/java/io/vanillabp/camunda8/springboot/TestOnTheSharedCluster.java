@@ -67,13 +67,11 @@ import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
  * for the first deployment of its version and for no later one. Both declare a
  * {@code @Container} field, the way every class here did before.
  * <p>
- * One rule holds for the preview line only, and the cleanup below checks it: no test on this
- * cluster may create a Camunda-managed user task there. On that line such a task can never be
- * ended. Its <code>creating</code> listener job is never handed out, a cancellation leaves it
- * in <code>CANCELING</code>, and the listener job of that task stays activatable and takes
- * down every later activation of the same job type. A test which needs a user task on that
- * line brings a cluster of its own, the way {@code Camunda8GrpcTransportIT} does. See
- * decision 43 in the repository's DECISIONS.md.
+ * A user task left between two of its states is what the cleanup below watches hardest for,
+ * and it is worth knowing why. Such a task holds a listener job which stays activatable, and
+ * the first worker of that job type in the next class is served it. The 8.10 alphas could not
+ * end such a task at all, which is why the preview line once excluded every test creating one;
+ * {@code 8.10.0-rc1} hands the jobs out and the exclusions are gone.
  */
 @Testcontainers(disabledWithoutDocker = true)
 public abstract class TestOnTheSharedCluster {
@@ -139,16 +137,20 @@ public abstract class TestOnTheSharedCluster {
   /**
    * Ends what an earlier class left running, until the cluster holds none of it any more.
    * <p>
-   * Two things have to be true afterwards, and they end at different moments. The engine must
-   * hold no workflow of the class before: one it does not hold can hand no job to a worker of
-   * this class, and it says so with a <code>404</code> to the cancellation. And no user task
-   * may be left between two of its states, because such a task holds a listener job which is
-   * activatable, and the next worker of that job type would be served it.
+   * Two things have to be true afterwards, and they end at different moments. No workflow of
+   * the class before may take a cancellation any more, and no user task may be left between
+   * two of its states, because such a task holds a listener job which is activatable and the
+   * next worker of that job type would be served it.
    * <p>
-   * The second one is also what a cancellation waits for. An instance carrying a
-   * Camunda-managed user task terminates once the <code>canceling</code> listener job of that
-   * task is answered, and while no application runs nobody answers it. So this answers those
-   * jobs itself.
+   * The two are checked TOGETHER, and that is the point of the loop rather than a nicety. An
+   * instance carrying a Camunda-managed user task terminates only once the
+   * <code>canceling</code> listener job of that task is answered, and while no application
+   * runs nobody answers it. The engine answers <code>404</code> to a second cancellation of
+   * such an instance long before it is over, so the refusal alone would let this class start
+   * while the instance before it still hands out jobs. Measured on 2026-09-25 against
+   * <code>8.10.0-alpha5</code> and <code>8.9.21</code>: 130 seconds after the cancellation the
+   * instance was still alive, and it ended 0.52 seconds after a worker took the job. So this
+   * answers those jobs itself and keeps looking until the search is empty as well.
    * <p>
    * A child of a call activity is not cancelled: the engine refuses to cancel one, and
    * cancelling its parent ends it anyway, so it goes with the parent.
@@ -284,18 +286,17 @@ public abstract class TestOnTheSharedCluster {
     if (!waitingForAListenerJob.isEmpty()) {
       return ("%d user task(s) which %s left are still waiting for a listener job %s after this "
           + "class answered them, so the first worker of that job type in this class would be "
-          + "served one of those jobs: %s%nOn the preview line this is what the tag "
-          + "'user-task-listener-jobs' is for: a test which creates a Camunda-managed user task "
-          + "there leaves one which can never be ended, and it either carries that tag or brings "
-          + "a cluster of its own.")
+          + "served one of those jobs: %s%nA task which does not move after its listener job was "
+          + "answered is a cluster which cannot hand that job out. Read the cluster's log before "
+          + "looking for the cause in this repository.")
           .formatted(
               waitingForAListenerJob.size(),
               classWhichRanBefore,
               THE_ENGINE_LETS_GO_WITHIN,
               whichTasksAreLeft(waitingForAListenerJob));
     }
-    return ("The engine still holds %d workflow(s) of %s %s after this class cancelled them, so "
-        + "the workers of this one would be served their jobs: %s")
+    return ("The engine still takes a cancellation for %d workflow(s) of %s %s after this class "
+        + "cancelled them, so the workers of this one would be served their jobs: %s")
         .formatted(
             stillHeldByTheEngine,
             classWhichRanBefore,
@@ -513,17 +514,19 @@ public abstract class TestOnTheSharedCluster {
   }
 
   /**
-   * Cancels one workflow and says whether the engine still had it.
+   * Cancels one workflow and says whether the engine took the command.
    * <p>
-   * A workflow which ended before this command is exactly what the caller wanted, and the
-   * engine says so with a <code>404</code>. Every other refusal is kept for the message a
-   * caller writes where it gives up, because a cancellation refused for some other reason is
-   * what a red run has to be able to read.
+   * A <code>404</code> means the engine will take no cancellation for this key, which is
+   * either a workflow that is over or one which is already terminating. It is not proof that
+   * the workflow is over, so the caller reads it together with the user tasks which are still
+   * between two states. Every other refusal is kept for the message a caller writes where it
+   * gives up, because a cancellation refused for some other reason is what a red run has to be
+   * able to read.
    *
    * @param client The client of the test
    * @param workflow The workflow to cancel
    * @param refusals What the engine answered, per instance
-   * @return Whether the engine still held this workflow
+   * @return Whether the engine took this cancellation
    */
   private static boolean cancel(
       final CamundaClient client,
