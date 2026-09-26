@@ -2070,6 +2070,14 @@ aggregate's ID is the PROCESS INSTANCE KEY rather than the timer's scheduled tim
 cluster does not report to the listener; the instance key survives a retried listener job, so
 a redelivery finds the aggregate instead of building a second one.
 
+An event subprocess is left out of this, although its start event can carry a timer or a
+signal too. It fires inside a workflow which is already running and already has its
+aggregate, so nothing is started there and no method has to build anything. Only the start
+events the process itself holds count. `Camunda8EventSubprocessStartsNoWorkflowTest` holds
+what the core is told and which start event the model reaches the cluster with a listener
+on, and `Camunda8EventSubprocessIT` runs a model whose event subprocess takes a waiting
+workflow over.
+
 Where a workflow service declares a `@WorkflowEnded` method, the adapter adds an `end`
 execution listener to the PROCESS element and opens a worker for it. The job is activated
 after the last element completed, and its completion lets the instance disappear.

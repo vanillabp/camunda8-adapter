@@ -424,6 +424,9 @@ public final class Camunda8TaskWiring {
    * through {@code ProcessService#startWorkflowByMessage}, which carries the
    * aggregate. Camunda 8 has no conditional events at all; the kind is part of the
    * model here so an unsupported model fails at the cluster, not silently.
+   * <p>
+   * Only the start events the process itself holds are read. An event subprocess starts
+   * no workflow, which {@link #startsTheWorkflow(StartEvent)} says more about.
    *
    * @param model The BPMN model, already scoped by <code>prepareBpmn</code>
    * @param bpmnProcessId The SCOPED BPMN process id
@@ -473,6 +476,7 @@ public final class Camunda8TaskWiring {
         .getModelElementsByType(StartEvent.class)
         .stream()
         .filter(startEvent -> bpmnProcessId.equals(owningProcessId(startEvent)))
+        .filter(Camunda8TaskWiring::startsTheWorkflow)
         .forEach(startEvent -> {
           final var definitions = startEvent.getEventDefinitions();
           final var timer = definitions
@@ -1145,6 +1149,27 @@ public final class Camunda8TaskWiring {
         .getChildElementsByType(StartEvent.class)
         .stream()
         .anyMatch(startEvent -> !startEvent.isInterrupting());
+
+  }
+
+  /**
+   * Whether the start event starts the WORKFLOW, which is true of the start events the
+   * process itself holds and of no other.
+   * <p>
+   * A start event of an event subprocess fires while the workflow already runs and
+   * already has its aggregate, so it starts no workflow. Counting it as one would refuse
+   * every such model at startup, because an application has to serve each start of a
+   * workflow with a <code>&#64;WorkflowStartedByBpms</code> method, and the execution
+   * listener injected into it would ask the application for a second aggregate of a
+   * workflow which already owns one.
+   *
+   * @param startEvent The start event as the BPMN model carries it
+   * @return Whether the process itself holds it
+   */
+  private static boolean startsTheWorkflow(
+      final StartEvent startEvent) {
+
+    return startEvent.getParentElement() instanceof Process;
 
   }
 
