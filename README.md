@@ -128,25 +128,23 @@ of this line and nothing else. And the cluster now refuses the answer to a lease
 carries no token, with `409 INVALID_STATE`; the adapter always sent one, a test which used the
 raw client did not.
 
-A third defect is open on this line, and this one is ours to report. An application which
-opens many job workers does not get its jobs at once any more: a job created for it waits out
-one whole `request-timeout` and is served by the next activation request rather than by the
-one already parked. An application of the Spring Boot test module opens 115 workers, and
-`Camunda8RestartDeliveryIT`, which boots an application and starts a workflow right after,
-measured this on 2026-09-26 at a `request-timeout` of ten seconds: 10412 ms against
-`camunda/camunda:8.10.0-rc1`, 224 ms against that same cluster with the `8.9.21` client, and
-183 ms on `8.9.21` throughout. So it is the client of the candidate and not its cluster. What
-decides is how many workers the application holds: with the 92 workers this module
-opened before the start-event listener of story 653 the candidate answers in 184 ms, and
-widening the execution slots from four to 64 only got the 115-worker case to 7260 ms, so the
-adapter has no lever of its own.
+One more thing showed up on this line first, and it is not a defect of the line. The adapter
+opens one worker per process and kind, and every one of them holds a REST activation request
+open. The Camunda client caps its connection pool at 100 by default, the same number in the
+`8.8`, `8.9` and `8.10` clients. An application with more workers than that does not get them
+all served: the surplus workers take turns, and whatever one of them is waiting for arrives a
+whole `request-timeout` late. The preview line reaches the cap first because it deploys a
+cancel listener per process, which the GA lines have not: the Spring Boot test module opens 85
+workers on 8.9 and 115 on 8.10.
 
-The two tests which measure that delivery, `Camunda8RestartDeliveryIT` and
-`Camunda8VirtualThreadsIT.handlersRunOnVirtualThreads`, carry the tag
-`delivery-with-many-workers` and the `line-8.10` profile excludes it, for Surefire and for
-Failsafe. Nothing changes on 8.8, on 8.9 or in a plain build. What the exclusion hides is
-written in both places, the tag in `TestOnTheSharedCluster` and the profile in the root POM,
-and the two go away together once a candidate delivers the way `8.9.21` does.
+Measured on 2026-09-26 with `Camunda8RestartDeliveryIT` at 115 workers on
+`camunda/camunda:8.10.0-rc1`: 10412 ms with the client's 100 connections and 215 ms with 256.
+The same line with the 92 workers the module opened before the start-event listener of story
+653 answers in 184 ms, and 8.10 held to the 85 workers of the GA lines drains cleanly. So the
+number of workers against the size of the pool is what decides, not the version of the client.
+The test module therefore configures `max-http-connections`, and an application which grows
+past a hundred workers has to do the same. Sizing or checking that pool for the developer is
+adapter work which has not been done yet.
 
 Snapshots have no suffix yet. Until the first release they are `2.0.0-SNAPSHOT` of the
 current GA line, which is what a build without a profile produces.
