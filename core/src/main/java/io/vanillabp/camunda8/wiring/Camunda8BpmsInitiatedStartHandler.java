@@ -1,5 +1,7 @@
 package io.vanillabp.camunda8.wiring;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import io.camunda.client.api.response.ActivatedJob;
@@ -209,7 +211,12 @@ public class Camunda8BpmsInitiatedStartHandler implements JobHandler {
 
     // whatever the model set before the start event completed - an input mapping of
     // the start event, or the payload a broadcast signal carried
-    final Map<String, Object> variables = Map.copyOf(job.getVariablesAsMap());
+    //
+    // not Map.copyOf: the cluster holds a variable set to null as a value like any other,
+    // and Map.copyOf throws on it. The native image test met exactly that and the start
+    // died with a NullPointerException nobody could read.
+    final Map<String, Object> variables = Collections
+        .unmodifiableMap(new LinkedHashMap<>(job.getVariablesAsMap()));
 
     return new BpmsInitiatedStartContext() {
 
