@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestReporter;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -158,6 +159,7 @@ public class Camunda8RestartDeliveryIT extends TestOnTheSharedCluster {
 
   }
 
+  @Tag(DELIVERY_WITH_MANY_WORKERS)
   @Test
   @DisplayName("A workflow started right after a restart gets its first job in milliseconds")
   public void aWorkflowStartedAfterARestartIsServedRightAway(

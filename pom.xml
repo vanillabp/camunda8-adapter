@@ -80,9 +80,9 @@
          point where somebody has to look and not the goal to aim at. It is never raised to whatever a
          suite happens to reach, and never lowered to make a build pass. Every release line
          is judged by this one number, and line 8.10 is why it is not the rule itself: that
-         line excludes the tests of a cluster bug it cannot pass (see the line-8.10 profile),
-         which costs it about a point and a quarter on either platform, and a gate set to 90
-         turned that into a red matrix every night over coverage nobody was able to write. -->
+         line excludes two tests its own pre-release client cannot pass, so nobody on it can
+         write that coverage (see the line-8.10 profile, which names what is excluded and what
+         was measured), and a gate set to 90 turned that into a red matrix every night. -->
     <coverage.threshold.spring-boot>85</coverage.threshold.spring-boot>
     <coverage.threshold.quarkus>85</coverage.threshold.quarkus>
     <!-- the rule, as a number the gate can print: it reports every run against both, so
@@ -614,6 +614,42 @@
              its classes all the time and must not hold up a pull request of the GA lines -->
         <camunda8.line.preview>true</camunda8.line.preview>
       </properties>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <!--
+              A job does not reach its worker fast enough on this line, and the client of the
+              candidate is the half at fault. An application of the Spring Boot module opens 115
+              workers; a job created for it then waits out one whole request-timeout and is served
+              by the next activation request rather than by the one already parked. Measured on
+              2026-09-26 with Camunda8RestartDeliveryIT, which boots an application and starts a
+              workflow right after, at a request-timeout of ten seconds: 10412 ms against
+              camunda/camunda:8.10.0-rc1, 224 ms against that same cluster with the 8.9.21 client,
+              and 183 ms on 8.9.21 throughout. With the 92 workers the module opened before story
+              653 the candidate needs 184 ms, so the number of workers is what decides, and
+              widening the execution slots from four to 64 only got it to 7260 ms.
+              The two tests which measure that delivery carry the tag below and are excluded here,
+              so the rest of the line keeps saying something instead of being red as a whole.
+              Nothing at Camunda carries this yet. Remove the exclusion and the tag together once
+              a candidate delivers the way 8.9.21 does. See TestOnTheSharedCluster for the tag.
+            -->
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-surefire-plugin</artifactId>
+              <configuration>
+                <excludedGroups>delivery-with-many-workers</excludedGroups>
+              </configuration>
+            </plugin>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-failsafe-plugin</artifactId>
+              <configuration>
+                <excludedGroups>delivery-with-many-workers</excludedGroups>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
     </profile>
   </profiles>
 </project>

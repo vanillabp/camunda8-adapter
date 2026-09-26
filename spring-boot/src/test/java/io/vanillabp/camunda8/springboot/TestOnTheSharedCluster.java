@@ -71,10 +71,32 @@ import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
  * and it is worth knowing why. Such a task holds a listener job which stays activatable, and
  * the first worker of that job type in the next class is served it. The 8.10 alphas could not
  * end such a task at all, which is why the preview line once excluded every test creating one;
- * {@code 8.10.0-rc1} hands the jobs out and the exclusions are gone.
+ * {@code 8.10.0-rc1} hands the jobs out and those exclusions are gone. The one exclusion that
+ * line still carries is {@link #DELIVERY_WITH_MANY_WORKERS}, about something else entirely.
  */
 @Testcontainers(disabledWithoutDocker = true)
 public abstract class TestOnTheSharedCluster {
+
+  /**
+   * Carried by the two tests whose result depends on a job reaching its worker at once, and
+   * excluded on the preview line, whose client keeps such a job waiting.
+   * <p>
+   * An application of this module opens 115 workers. On that client a job created for such an
+   * application waits out one whole <code>request-timeout</code> and is served by the next
+   * activation request instead of by the one already parked. Measured here on 2026-09-26 with
+   * {@code Camunda8RestartDeliveryIT}, which boots an application and starts a workflow right
+   * after, at a <code>request-timeout</code> of ten seconds: 10412 ms on the candidate, 184 ms
+   * on the candidate with the 92 workers this module opened before story 653, 224 ms with the
+   * {@code 8.9.21} client against the very same candidate CLUSTER, and 183 ms on {@code 8.9.21}
+   * throughout. So the cluster of the candidate is fine and its client is not, and what decides
+   * is how many workers the application holds. Widening the execution slots from
+   * four to 64 brought it to 7260 ms, so the adapter has no lever of its own here.
+   * <p>
+   * Nothing at Camunda carries this yet; it is a finding of this repository and it wants
+   * reporting the way SUPPORT-34723 was. Remove the tag and the {@code excludedGroups} of the
+   * {@code line-8.10} profile together, once a candidate delivers like {@code 8.9.21} does.
+   */
+  protected static final String DELIVERY_WITH_MANY_WORKERS = "delivery-with-many-workers";
 
   /**
    * @return Where the shared cluster answers REST requests

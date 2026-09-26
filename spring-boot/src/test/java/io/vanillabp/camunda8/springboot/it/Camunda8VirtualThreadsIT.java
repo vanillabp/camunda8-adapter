@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +85,7 @@ public class Camunda8VirtualThreadsIT extends SpringBootTestOnTheSharedCluster {
 
   }
 
+  @Tag(DELIVERY_WITH_MANY_WORKERS)
   @Test
   @DisplayName("a handler runs on a virtual thread, and blocking one does not delay another worker")
   public void handlersRunOnVirtualThreads() throws Exception {
