@@ -6,9 +6,19 @@ answers the open question of story 643. Nothing of the adapter changed for it: t
 the promise kept.
 
 Stephan reported on 2026-09-28 the case those decisions do not allow - a user task the Business
-Cockpit shows as active while a check about it answers `404`. His application runs VanillaBP 1. The
-measurement below asked every question about the same open task, on all three release lines, and the
-case is real. It belongs to version 1 and to the question version 1 asked.
+Cockpit shows as active while a check about it answers `404`. The measurement below asked every
+question about the same open task, on all three release lines, and it found the promise kept: a task
+which is simply open never makes the probe say `404`.
+
+**On 2026-10-01 Stephan named the cause of his own case, and it is neither row of the table below.**
+His code called `completeTask` with the key of a user task instead of `completeUserTask`. The key was
+therefore read as a JOB key, no job of that key exists, and the answer was `404`. Nothing about the
+index, the cluster or version 1 is needed to explain it.
+
+That makes his case the plainest instance of what this entry says rather than a counter-example to
+it: a `404` is about the key the command was handed, read as the kind of thing THAT command asks
+about. The two rows below stay in the entry because they are measured and because an application
+really can meet them, but they are not what happened to him.
 
 ## The entry
 
@@ -49,12 +59,16 @@ case is real. It belongs to version 1 and to the question version 1 asked.
 > condition is held by the adapter, and it is said in the javadoc of `Camunda8UserTaskProbe` so that
 > nobody rebuilding the question outside VanillaBP reads more out of a `404` than it says.
 >
-> What version 1 did differently, for the record, because this is the entry somebody looking for
-> Stephan's case will find: its existence check for a user task was a `UserTaskGet`, so it read the
-> index and met the first row of the table above; it served both shapes of user task, so it met the
-> second one as well; and its Business Cockpit wrote its record from the listener job, which is why
-> the cockpit shows a task the index does not have yet. `UPGRADE.md` says it where an application
-> coming from version 1 will look.
+> What version 1 did differently, for the record: its existence check for a user task was a
+> `UserTaskGet`, so it read the index and met the first row of the table above; it served both shapes
+> of user task, so it met the second one as well; and its Business Cockpit wrote its record from the
+> listener job, which is why the cockpit shows a task the index does not have yet. `UPGRADE.md` says
+> it where an application coming from version 1 will look.
+>
+> The same `404` has a simpler cause, and it is the one which actually came up: a user-task key
+> handed to `completeTask`, which asks about a JOB, instead of to `completeUserTask`. No job carries
+> that key, so the answer is `404`, and it says exactly what it always says. Whoever reads a `404`
+> checks first which command asked and which kind of key it asks about.
 
 ## What decisions 35 and 38 are owed
 
@@ -79,5 +93,6 @@ Decision 38, in "What an answer means", after "`404` is gone":
 
 A version-1 application end to end. What is measured above is what version 1's commands ask and what
 the cluster answers them, against the clusters of the three lines VanillaBP 2 serves; version 1's own
-code was read, not run. Stephan's cluster version and the shape of his user task are what decide
-which of the two rows above he has, and only he can say.
+code was read, not run. Which of the two rows a version-1 application meets depends on its cluster
+version and on the shape of its user task. For the case which prompted this story that question is
+closed: it was neither row, it was the wrong command, and Stephan said so on 2026-10-01.
