@@ -108,21 +108,19 @@ nobody notices until a user resolves the artifact and Maven says "The POM is inv
 dependencies (if any) will not be available". A local build repairs that, but a registry keeps it. The publish workflow always deploys the whole reactor, so this is a mistake
 only a person can make.
 
-## Snapshots on Maven Central and in GitHub Packages
+## Snapshots on Maven Central
 
 If you clone only this repository, Maven takes `spi-for-java` and `adapter-platform-integration`
 from the snapshot repository of Maven Central, `https://central.sonatype.com/repository/maven-snapshots/`.
-Every push to `main` of those two repositories publishes a snapshot there. The root `pom.xml` names
-that repository. Reading it needs no login and no token.
+Every push to `main` of those two repositories publishes a snapshot there. The parent
+`io.vanillabp:release-parent` names that repository. Reading it needs no login and no token.
 
-The snapshots of this adapter stay in GitHub Packages, because the namespace
-`org.camunda.community.vanillabp` belongs to the Camunda Community Hub. Every push to `main`
-publishes one to `https://maven.pkg.github.com/camunda-community-hub/vanillabp-camunda8-adapter`.
-Reading it takes a personal access token (classic) with `read:packages` and a few entries in your
-`~/.m2/settings.xml`. [Using the published
-snapshots](https://github.com/vanillabp/development-workspace#using-the-published-snapshots) shows
-both. The old URL `https://maven.pkg.github.com/vanillabp/camunda8-adapter` still answers, but with
-an old snapshot which no longer changes.
+The snapshots of this adapter go to the same repository, one per release line, under the groupId
+`io.vanillabp`: `2.0.0-8.8-SNAPSHOT`, `2.0.0-8.9-SNAPSHOT` and `2.0.0-8.10-SNAPSHOT`. Every push
+to `main` publishes them. The old snapshots in the GitHub Packages registries
+`https://maven.pkg.github.com/camunda-community-hub/vanillabp-camunda8-adapter` and
+`https://maven.pkg.github.com/vanillabp/camunda8-adapter` carry the old groupId
+`org.camunda.community.vanillabp` and no longer change.
 
 ## What a POM hands an application
 
@@ -189,7 +187,7 @@ After you have corrected a number, `bin/check-decision-citations.sh` says whethe
 a decision still points at an entry of `DECISIONS.md`. The *Checks* workflow runs it on every pull
 request.
 
-Two workflows run on a pull request. *Publish to GitHub Packages* builds and tests the current GA
+Two workflows run on a pull request. *Build and publish snapshots* builds and tests the current GA
 line. From a branch it publishes nothing. *Checks* runs everything which needs no cluster, the API
 identity of the lines included. It also calls the matrix, which builds every release line against
 that line's cluster. The matrix takes about forty minutes. So watch it while it runs, and start on a
@@ -205,13 +203,6 @@ snapshots it needs can be read without a login. It cannot publish anything, beca
 no secrets of this repository. [What the build of a pull request can
 do](https://github.com/vanillabp/development-workspace#what-the-build-of-a-pull-request-can-do) says
 more.
-
-This repository lives in the Camunda Community Hub. The Hub asks every contributor to sign its
-[contributor license agreement](https://cla-assistant.io/camunda-community-hub/community). On your
-first pull request here, the check `license/cla` asks you to sign it. [The license agreement of the
-Camunda Community
-Hub](https://github.com/vanillabp/development-workspace#the-license-agreement-of-the-camunda-community-hub)
-says how.
 
 `main` has a ruleset. It requires eight green checks before a merge:
 

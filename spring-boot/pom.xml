@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>org.camunda.community.vanillabp</groupId>
+    <groupId>io.vanillabp</groupId>
     <artifactId>camunda8-adapter-parent</artifactId>
     <version>${revision}</version>
   </parent>
@@ -14,7 +14,7 @@
 
   <dependencies>
     <dependency>
-      <groupId>org.camunda.community.vanillabp</groupId>
+      <groupId>io.vanillabp</groupId>
       <artifactId>camunda8-adapter</artifactId>
       <version>${project.version}</version>
     </dependency>
@@ -65,7 +65,7 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.camunda.community.vanillabp</groupId>
+      <groupId>io.vanillabp</groupId>
       <artifactId>camunda8-adapter-test-support</artifactId>
       <scope>test</scope>
     </dependency>

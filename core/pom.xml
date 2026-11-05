@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>org.camunda.community.vanillabp</groupId>
+    <groupId>io.vanillabp</groupId>
     <artifactId>camunda8-adapter-parent</artifactId>
     <version>${revision}</version>
   </parent>
@@ -52,7 +52,7 @@
          adapter has to promise, and the Business Cockpit's adapter asks the same of its
          own artifacts. The module holds that one class and needs nothing but the JDK -->
     <dependency>
-      <groupId>org.camunda.community.vanillabp</groupId>
+      <groupId>io.vanillabp</groupId>
       <artifactId>camunda8-adapter-published-pom</artifactId>
       <scope>test</scope>
     </dependency>

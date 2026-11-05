@@ -1,208 +1,204 @@
-name: Release to Maven Central
-# How this adapter releases. Somebody publishes a GitHub Release and lets GitHub create the
-# tag with it, for example '2.0.0'. The tag names the release, and every live line gets its
-# own version from it: '2.0.0-8.8', '2.0.0-8.9' and '2.0.0-8.10'. Each line goes to
-# Camunda's Artifactory first and to Maven Central second, through the profiles of
-# community-hub-release-parent and with the org secrets of the Camunda Community Hub.
+name: Release
+# Publishes to Maven Central through the profiles 'release' and 'central-portal' of
+# io.vanillabp:release-parent, once per live release line and all from the SAME commit, so a
+# fix exists on every line the moment it is committed. The version is not written into the
+# POM: it is '${revision}', given per line as '<version>-<line>', for example '2.0.0-8.8',
+# '2.0.0-8.9' and '2.0.0-8.10'. See README.md, section "Release lines".
 #
-# Other hub extensions release with community-action-maven-release, and the Camunda 7
-# adapter does too. That action cannot carry these lines. It writes the tag into the POM as
-# the version, so one Release could only publish one line. After publishing it commits a
-# next development version and force-pushes the tag, which one run per line would do once
-# per line, on the same branch, and there is no next version to compute under ${revision}
-# anyway. So this workflow calls the same parent profiles the action calls, once per line.
+# The workflow is the one of the Business Cockpit's Camunda 8 adapter, which releases its
+# lines the same way. Somebody dispatches it by hand with the version. With the input 'train'
+# it uploads nothing: every line keeps its bundle as an Actions artifact, one slot per line,
+# and release-train.yaml in vanillabp/maven-release-parent uploads the bundles of all
+# repositories of the train as one deployment. A dry run of that workflow is the rehearsal.
 #
-# The order of jobs is decision 31 in the repository's DECISIONS.md. The first job runs
-# the whole line matrix against the commit which is released, every job which builds or
-# signs or publishes comes after it, and no input skips it. A line which is red stops the
-# release before anything is published, and the job 'gate' names that line.
-#
-# Started by hand, the workflow is a rehearsal and publishes nothing. It runs the same gate
-# and the same Maven calls with the same profiles, the signing included, but the
-# Artifactory deploy writes into a directory and the Central deploy only builds its
-# bundle. Both are kept as an artifact of the run.
+# The order of jobs is decision 31 in the repository's DECISIONS.md. The first job runs the
+# whole line matrix against the commit which is released, every job which builds or signs or
+# publishes comes after it, and no input skips it. A line which is red stops the release
+# before anything is published, and the job 'ga-lines-verified' names that line.
 "on":
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
-      version:
-        description: The version a release would have, without a line. Nothing is
-          published in a rehearsal, so any version is safe here.
+      release_version:
+        description: "Version to release, without the line suffix (e.g. 2.0.0)"
         required: true
-        default: 0.0.0
+      train:
+        description: "Release train, e.g. 2.0. Empty: this release uploads to Maven Central itself. Set: the bundle of every line is kept for release-train.yaml in maven-release-parent. Release the repositories of a train in the order of their dependencies: each release reads the bundles of the releases before it."
+        required: false
+        default: ""
+concurrency:
+  # One release of this repository at a time. Two releases at once would deploy the same
+  # coordinates to Maven Central and write the same tag, and a release which was stopped
+  # halfway leaves some lines on Central and the rest nowhere. The publish of snapshots
+  # keeps its own group: it writes snapshots, never a fixed version.
+  group: camunda8-adapter-release
+  cancel-in-progress: false
 permissions:
   contents: read
-concurrency:
-  # two releases at once would publish the same lines twice, and a release which was
-  # stopped halfway is worse than one which waits
-  group: release
-  cancel-in-progress: false
 jobs:
   # Decision 31: the gate. The matrix builds and tests every line against its own cluster,
-  # the preview line included. A red line fails this call, whichever line it is.
+  # the preview line included, against the snapshots it resolves at this moment.
   lines:
     uses: ./.github/workflows/line-matrix.yaml
     secrets: inherit
 
-  # Builds nothing, so it does not have to wait for the gate. A tag which is no version
+  # Builds nothing, so it does not have to wait for the gate. A version which is no version
   # should fail in a minute, not after forty.
   version:
     runs-on: ubuntu-latest
-    outputs:
-      version: "${{ steps.read.outputs.version }}"
-      rehearsal: "${{ steps.read.outputs.rehearsal }}"
     steps:
-      - id: read
-        name: The version this release publishes
+      - name: The version this release publishes
         env:
-          TAG: "${{ github.event.release.tag_name }}"
-          INPUT: "${{ inputs.version }}"
+          VERSION: "${{ inputs.release_version }}"
         run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "release" ]; then
-            version="$TAG"
-            rehearsal=false
-          else
-            version="$INPUT"
-            rehearsal=true
-          fi
-          # A line is appended to the version, so the tag must not carry one itself. A
-          # preview line appends '-alpha<n>' after its line, which is not a tag either.
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "'${version}' is no version of the form 2.0.0. The tag of a release names" >&2
-            echo "the version without a line, and every line appends its own." >&2
+          # A line is appended to the version, so the input must not carry one itself.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "'${VERSION}' is no version of the form 2.0.0. Every line appends its own." >&2
             exit 1
           fi
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "rehearsal=${rehearsal}" >> "$GITHUB_OUTPUT"
-          echo "Version ${version}, rehearsal: ${rehearsal}"
+          echo "Version ${VERSION}"
 
-  # Says which line stopped the release, so nobody has to open the matrix to find out. It
-  # runs whatever the gate did, and it is red unless the gate was green.
-  gate:
+  # The gate itself. It runs whatever the matrix did, and it says which lines were red, so
+  # nobody has to open the matrix to find out. The answer of the matrix about the GA lines
+  # is its output 'broken-ga-lines', and an empty one means the matrix never got far enough
+  # to say.
+  #
+  # Decision 31 asks for more than the GA lines: a release waits for every current line, a
+  # preview line included. So this job is red as well when the matrix as a whole is not
+  # green. The Business Cockpit's Camunda 8 adapter asks the GA lines alone. Story 2081 is
+  # where this adapter decides how a preview line is treated, and there is no preview line
+  # today, so both readings wait for the same lines now.
+  ga-lines-verified:
     if: always()
     needs: lines
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
+    steps:
+      - name: Every line is green
+        env:
+          BROKEN: "${{ needs.lines.outputs.broken-ga-lines }}"
+          RESULT: "${{ needs.lines.result }}"
+        run: |
+          echo "The matrix says ${RESULT}, and the GA lines which did not build are: ${BROKEN:-unknown}"
+          case "$BROKEN" in
+            none) ;;
+            "")
+              echo "The matrix did not get far enough to say which lines built, so nothing" >&2
+              echo "here says this release is safe. Read the jobs of the matrix above." >&2
+              exit 1 ;;
+            *)
+              echo "::error title=Release stopped::GA lines which did not build: ${BROKEN}"
+              echo "A release publishes to Maven Central and cannot be taken back, so it" >&2
+              echo "waits until they are green." >&2
+              exit 1 ;;
+          esac
+          if [ "$RESULT" != "success" ]; then
+            echo "::error title=Release stopped::Every GA line built, but the matrix is ${RESULT}."
+            echo "A release waits for every current line, the preview line included" >&2
+            echo "(decision 31). Read the jobs 'lines / line (...)' above." >&2
+            exit 1
+          fi
+          echo "Every line built and tested green, so this release may go out."
+
+  # The live lines are not maintained here: they are the line-* profiles of the parent POM,
+  # read the same way as in line-matrix.yaml. So the release cannot fall behind the build.
+  #
+  # Every line is released, a preview line included, as in the Business Cockpit's Camunda 8
+  # adapter. Story 2081 says a preview line is never released. When it is built, the list
+  # below leaves out every line for which 'bin/line-preview.sh <line>' prints 'true'.
+  discover:
+    needs: [version, ga-lines-verified]
+    runs-on: ubuntu-latest
     outputs:
-      lines: "${{ steps.lines.outputs.lines }}"
+      lines: "${{ steps.list.outputs.lines }}"
     steps:
       - uses: actions/checkout@v7
-      - name: Every line built
-        env:
-          GH_TOKEN: "${{ github.token }}"
-          GATE: "${{ needs.lines.result }}"
-        run: |
-          set -euo pipefail
-          if [ "$GATE" = "success" ]; then
-            echo "Every line built, so the release goes on."
-            exit 0
-          fi
-          # The jobs of a called workflow are jobs of this run, named after the calling job:
-          # 'lines / line (8.9)'.
-          red=$(gh api --paginate \
-              "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" \
-              --jq '.jobs[] | select(.name | startswith("lines / line (")) | select(.conclusion != "success") | .name' \
-            | sed -n 's|.*line (\(.*\)).*|\1|p' | paste -sd ' ' -)
-          echo "The release stops here, nothing was published." >&2
-          echo "The gate says ${GATE}. Lines which did not build: ${red:-none of them, read the job 'lines / discover'}" >&2
-          echo "::error title=Release stopped::Lines which did not build: ${red:-unknown}"
-          exit 1
-      # the same list the matrix built, read the same way, so there is one list and not two
-      - id: lines
-        name: The lines to publish
+      - id: list
+        name: Collect the release lines
         run: |
           list=$(sed -n 's|.*<id>line-\([0-9][^<]*\)</id>.*|\1|p' pom.xml \
             | jq -R -s -c 'split("\n")[:-1]')
           echo "lines=${list}" >> "$GITHUB_OUTPUT"
-          echo "Publishing lines: ${list}"
+          echo "Releasing lines: ${list}"
 
   # One line after the other, and the first one that cannot publish stops the rest. A
   # version on Maven Central cannot be published a second time, so a line which fails after
   # another one went out leaves a hole nobody can fill with the same version. Stopping at
-  # once keeps that hole as small as it can be.
-  publish:
-    needs: [version, gate]
+  # once keeps that hole as small as it can be. In a train nothing goes out here, and each
+  # line is one slot of the train.
+  line:
+    needs: discover
     runs-on: ubuntu-latest
     permissions:
       contents: read
     strategy:
-      fail-fast: true
       max-parallel: 1
+      fail-fast: true
       matrix:
-        line: "${{ fromJSON(needs.gate.outputs.lines) }}"
-    env:
-      VERSION: "${{ needs.version.outputs.version }}-${{ matrix.line }}"
-      MAVEN_GPG_PASSPHRASE: "${{ secrets.MAVEN_CENTRAL_GPG_SIGNING_KEY_PASSPHRASE }}"
+        line: "${{ fromJSON(needs.discover.outputs.lines) }}"
     steps:
       - uses: actions/checkout@v7
+      # Maven 3.10 writes 'maven-metadata-local.xml' and '_remote.repositories' into the
+      # staging directory of central-publishing-maven-plugin, and the Central Portal refuses
+      # the bundle: "Bundle has content that does NOT have a .pom file". The runner image
+      # ships 3.10 now, so the release brings its own 3.9. Remove this step once a plugin
+      # version stages a clean bundle under Maven 3.10.
+      - name: Use Maven 3.9
+        run: |
+          curl -fsSL https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz \
+            | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/apache-maven-3.9.16/bin" >> "$GITHUB_PATH"
       - uses: actions/setup-java@v6
         with:
           # the JDK the matrix tested with
           java-version: 25.0.5+8.0.LTS
           distribution: temurin
           cache: maven
-          gpg-private-key: "${{ secrets.MAVEN_CENTRAL_GPG_SIGNING_KEY_SEC }}"
+          server-id: vanillabp-central
+          server-username-env-var: MAVEN_USERNAME
+          server-password-env-var: MAVEN_PASSWORD
+          gpg-private-key: "${{ secrets.MAVEN_GPG_PRIVATE_KEY }}"
           gpg-passphrase-env-var: MAVEN_GPG_PASSPHRASE
-      # Maven 3.10 writes 'maven-metadata-local.xml' and '_remote.repositories' into the
-      # staging directory of central-publishing-maven-plugin, and the Central Portal refuses
-      # the bundle: "Bundle has content that does NOT have a .pom file". Measured on
-      # 2026-10-09 with the plugin version of the hub parent, 0.8.0, as well. The runner
-      # image ships 3.10 now, so the release brings its own 3.9. Remove this step once a
-      # plugin version stages a clean bundle under Maven 3.10.
-      - name: Use Maven 3.9
+      # A release train builds the bundle of each release and keeps it as an Actions
+      # artifact. The bundles of the train which are already there go into the local Maven
+      # repository, so this build finds the versions which are not on Maven Central yet, the
+      # platform's for example. See the README of maven-release-parent.
+      - name: Read the bundles of the release train
+        if: inputs.train != ''
+        env:
+          TRAIN: "${{ inputs.train }}"
+          LINE: "${{ matrix.line }}"
+          # reads the Actions artifacts of the other repositories, which GITHUB_TOKEN cannot
+          GH_TOKEN: "${{ secrets.VANILLABP_USER_TOKEN }}"
         run: |
-          curl -fsSL https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz \
-            | tar xz -C "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/apache-maven-3.9.16/bin" >> "$GITHUB_PATH"
-      # Two Maven calls and not one. Both profiles bring their own plugin into the deploy
-      # phase, and inside one call their order is not promised. A version in Artifactory can
-      # be deleted, a version on Maven Central cannot, so Central comes second and only
-      # after Artifactory took the line. The hub's action keeps the same order.
-      #
-      # 'clean', because classes compiled against another client are binary compatible with
-      # nothing. The tests ran in the gate, against this commit.
-      #
-      # Artifactory is the release repository the hub parent names in its
-      # distributionManagement, 'camunda-nexus', and the deploy plugin takes the line there.
-      # The parent's profile 'camunda-repository' is left out on purpose. It adds the nexus
-      # staging plugin, which deploys every module of the reactor, the test modules and the
-      # coverage reports included, because it does not read 'maven.deploy.skip'. Measured on
-      # 2026-10-05: 15 modules gathered for upload, against the 7 the deploy plugin
-      # publishes. And it runs next to the deploy plugin, not instead of it, so every
-      # published file would have been sent twice.
-      - name: "Artifactory first, line ${{ matrix.line }}"
+          # the shared part of a release train lives once, in maven-release-parent
+          curl -fsSL -o "$RUNNER_TEMP/release-train.sh" \
+            https://raw.githubusercontent.com/vanillabp/maven-release-parent/main/.github/scripts/release-train.sh
+          bash "$RUNNER_TEMP/release-train.sh" prepare "$TRAIN" "$LINE"
+      # 'clean', because classes compiled against one Camunda client are binary compatible
+      # with no other one, so a stale target/ from the previous line fails at runtime rather
+      # than at compile time. The tests ran in the gate, against this commit. Failsafe does
+      # not read '-DskipTests', hence '-DskipITs' as well.
+      - name: "Release line ${{ matrix.line }}"
+        # The publish of a snapshot builds the same modules without tests in a few minutes.
+        # This one also signs and builds the javadoc jars. The lines release one at a time,
+        # so a line which hangs holds every line after it.
+        timeout-minutes: 60
+        run: mvn --batch-mode --no-transfer-progress -DskipTests -DskipITs
+          -Pline-${{ matrix.line }},release,central-portal
+          -Drevision=${{ inputs.release_version }}-${{ matrix.line }}
+          $TRAIN_ARGS clean deploy
         env:
-          NEXUS_USR: "${{ secrets.NEXUS_USR }}"
-          NEXUS_PSW: "${{ secrets.NEXUS_PSW }}"
-          # a rehearsal deploys into a directory of the runner
-          REHEARSAL: "${{ needs.version.outputs.rehearsal == 'true' && format('-DaltDeploymentRepository=rehearsal::file://{0}/rehearsal', runner.temp) || '' }}"
-        run: mvn -s "$GITHUB_WORKSPACE/.github/workflows/release-settings.xml"
-          --batch-mode --no-transfer-progress -DskipTests -DskipITs
-          -Pcommunity-action-maven-release
-          -Pline-${{ matrix.line }} -Drevision=${VERSION} ${REHEARSAL}
-          clean deploy
-      - name: "Maven Central second, line ${{ matrix.line }}"
-        env:
-          CENTRAL_USR: "${{ secrets.COMMUNITY_HUB_MAVEN_CENTRAL_CP_USR }}"
-          CENTRAL_PSW: "${{ secrets.COMMUNITY_HUB_MAVEN_CENTRAL_CP_PSW }}"
-          # a rehearsal builds the bundle in target/central-publishing and uploads nothing
-          REHEARSAL: "${{ needs.version.outputs.rehearsal == 'true' && '-Dskip.central.release=true' || '' }}"
-        run: mvn -s "$GITHUB_WORKSPACE/.github/workflows/release-settings.xml"
-          --batch-mode --no-transfer-progress -DskipTests -DskipITs
-          -Pcommunity-action-maven-release,central-sonatype-publish
-          -Pline-${{ matrix.line }} -Drevision=${VERSION} -DautoReleaseAfterClose=true
-          ${REHEARSAL} deploy
+          # builds the bundle and does not upload it
+          TRAIN_ARGS: "${{ inputs.train != '' && '-Dcentral.skip.upload=true' || '' }}"
+          # maven-gpg-plugin 3.2 reads the passphrase from this variable
+          MAVEN_GPG_PASSPHRASE: "${{ secrets.MAVEN_GPG_PASSPHRASE }}"
+          MAVEN_USERNAME: "${{ secrets.MAVEN_CENTRAL_PORTAL_TOKEN_USER }}"
+          MAVEN_PASSWORD: "${{ secrets.MAVEN_CENTRAL_PORTAL_TOKEN_PW }}"
       # What went out, with the version every POM carries. A POM which still says
-      # '${revision}' is refused by the Central Portal, and this is where it would show. In a
-      # rehearsal it also holds the two halves against each other: Central has to get the
-      # same files the deploy plugin gave Artifactory, no test module and no report more.
+      # '${revision}' is refused by the Central Portal, and this is where it would show,
+      # before a train carries it.
       - name: "What line ${{ matrix.line }} published"
         env:
-          REHEARSAL: "${{ needs.version.outputs.rehearsal }}"
+          VERSION: "${{ inputs.release_version }}-${{ matrix.line }}"
         run: |
           set -euo pipefail
           bundle=target/central-publishing/central-bundle.zip
@@ -213,20 +209,56 @@ jobs:
               exit 1
             fi
           fi
-          if [ "$REHEARSAL" = "true" ]; then
-            diff \
-              <(find "${RUNNER_TEMP}/rehearsal" -name '*.jar' -o -name '*.pom' | sed 's|.*/||' | sort) \
-              <(unzip -l "$bundle" | awk '{print $4}' | grep -E '\.(pom|jar)$' | sed 's|.*/||' | sort) \
-              || { echo "Artifactory and Central would not get the same files." >&2; exit 1; }
-          fi
           echo "Line ${{ matrix.line }} as ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
-      - name: Keep what a rehearsal staged
-        if: "${{ needs.version.outputs.rehearsal == 'true' }}"
+      - name: Pack the bundle for the release train
+        if: inputs.train != ''
+        env:
+          TRAIN: "${{ inputs.train }}"
+          LINE: "${{ matrix.line }}"
+          VERSION: "${{ inputs.release_version }}-${{ matrix.line }}"
+        run: bash "$RUNNER_TEMP/release-train.sh" pack "$TRAIN" "$LINE" "$VERSION"
+      - name: Keep the bundle for the release train
+        if: inputs.train != ''
         uses: actions/upload-artifact@v7
         with:
-          name: rehearsal-${{ matrix.line }}
-          path: |
-            ${{ runner.temp }}/rehearsal/**
-            target/central-publishing/**
+          # one name per repository and line: a new build of the same line replaces the old
+          # one, and release-train.yaml takes the newest
+          name: "release-train-${{ inputs.train }}-${{ github.event.repository.name }}-${{ matrix.line }}"
+          path: "${{ runner.temp }}/release-train/"
           retention-days: 30
           if-no-files-found: error
+          overwrite: true
+
+  tag:
+    needs: line
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Tag the commit every line was built from
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          if [ -n "$TRAIN" ] && git rev-parse -q --verify "refs/tags/$VERSION" > /dev/null; then
+            # nothing of a train is on Maven Central before release-train.yaml uploads it, so
+            # a fix released under the same version may move the tag
+            echo "::warning::Tag $VERSION exists already. The release train '$TRAIN' moves it to this build."
+            git tag -f -a "$VERSION" -m "Release $VERSION, all lines"
+            git push --force origin "refs/tags/$VERSION"
+          else
+            git tag -a "$VERSION" -m "Release $VERSION, all lines"
+            git push origin "$VERSION"
+          fi
+        env:
+          TRAIN: "${{ inputs.train }}"
+          VERSION: "${{ inputs.release_version }}"
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: "${{ inputs.release_version }}"
+          name: "v${{ inputs.release_version }}"
+          generate_release_notes: true
+          draft: true
