@@ -34,6 +34,11 @@ concurrency:
   cancel-in-progress: false
 permissions:
   contents: read
+env:
+  # release-versions.sh of maven-release-parent at a fixed commit, so a later change of the
+  # script cannot break the release of an older commit. A new version of the script comes
+  # with a pull request which moves this commit.
+  RELEASE_VERSIONS_SH: "https://raw.githubusercontent.com/vanillabp/maven-release-parent/a0a3e691fc99cc80e7a6b87a35b7f7b94a9f6b47/.github/scripts/release-versions.sh"
 jobs:
   # Decision 31: the gate. The matrix builds and tests every line against its own cluster,
   # the preview line included, against the snapshots it resolves at this moment.
@@ -56,6 +61,17 @@ jobs:
             exit 1
           fi
           echo "Version ${VERSION}"
+      - uses: actions/checkout@v7
+      # A version on Maven Central never changes. Below that line nobody can use the version
+      # of any line yet, so the job 'tag' may move the tag when a release of the same version
+      # runs again.
+      - name: Refuse a version which Maven Central has already
+        env:
+          VERSION: "${{ inputs.release_version }}"
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/release-versions.sh" "$RELEASE_VERSIONS_SH"
+          lines=$(sed -n 's|.*<id>line-\([0-9][^<]*\)</id>.*|\1|p' pom.xml)
+          bash "$RUNNER_TEMP/release-versions.sh" unpublished $(for line in $lines; do echo "$VERSION-$line"; done)
 
   # The gate itself. It runs whatever the matrix did, and it says which lines were red, so
   # nobody has to open the matrix to find out. The answer of the matrix about the GA lines
@@ -173,6 +189,29 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/release-train.sh" \
             https://raw.githubusercontent.com/vanillabp/maven-release-parent/main/.github/scripts/release-train.sh
           bash "$RUNNER_TEMP/release-train.sh" prepare "$TRAIN" "$LINE"
+      # main depends on SNAPSHOTs of spi-for-java and the platform until those are on Maven
+      # Central. Every line gets their released versions here, from the bundles of the train
+      # or from Maven Central. If one is in neither place, the release stops before anything
+      # leaves this build, and the message names the repository to release first. The line
+      # decides the Camunda version only, so every line gets the same versions. The job 'tag'
+      # puts them into the commit it tags.
+      - name: Use the released versions of VanillaBP
+        env:
+          TRAIN: "${{ inputs.train }}"
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/release-versions.sh" "$RELEASE_VERSIONS_SH"
+          bash "$RUNNER_TEMP/release-versions.sh" raise "$TRAIN"
+          mkdir -p "$RUNNER_TEMP/release-versions"
+          git diff > "$RUNNER_TEMP/release-versions/raised.patch"
+          cp "$RUNNER_TEMP/raised-versions.txt" "$RUNNER_TEMP/release-versions/" 2>/dev/null || true
+      - name: Keep the released versions for the tag
+        uses: actions/upload-artifact@v7
+        with:
+          # the same for every line, so the line which comes last may replace it
+          name: release-versions
+          path: "${{ runner.temp }}/release-versions/"
+          retention-days: 7
+          overwrite: true
       # 'clean', because classes compiled against one Camunda client are binary compatible
       # with no other one, so a stale target/ from the previous line fails at runtime rather
       # than at compile time. The tests ran in the gate, against this commit. Failsafe does
@@ -238,14 +277,26 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: The released versions the lines were built with
+        uses: actions/download-artifact@v8
+        with:
+          name: release-versions
+          path: "${{ runner.temp }}/release-versions"
       - name: Tag the commit every line was built from
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
-          if [ -n "$TRAIN" ] && git rev-parse -q --verify "refs/tags/$VERSION" > /dev/null; then
-            # nothing of a train is on Maven Central before release-train.yaml uploads it, so
-            # a fix released under the same version may move the tag
-            echo "::warning::Tag $VERSION exists already. The release train '$TRAIN' moves it to this build."
+          # The lines were built with the released versions of VanillaBP, so the tag points at
+          # a commit which has them. That commit is on no branch, and main keeps its SNAPSHOTs.
+          if [ -s "$RUNNER_TEMP/release-versions/raised.patch" ]; then
+            git apply "$RUNNER_TEMP/release-versions/raised.patch"
+            { echo "Prepare release v$VERSION"; echo; cat "$RUNNER_TEMP/release-versions/raised-versions.txt"; } \
+              | git commit -a -F -
+          fi
+          if git rev-parse -q --verify "refs/tags/$VERSION" > /dev/null; then
+            # Maven Central has no line of this version, checked before the build, so a
+            # release of the same version which runs again may move the tag
+            echo "::warning::Tag $VERSION exists already. This release moves it to this build."
             git tag -f -a "$VERSION" -m "Release $VERSION, all lines"
             git push --force origin "refs/tags/$VERSION"
           else
