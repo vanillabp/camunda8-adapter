@@ -29,7 +29,7 @@ import lombok.extern.slf4j.Slf4j;
  * instance. Both go to the query API, which runs behind the engine. A suspension of a moment ago
  * may still read <code>ACTIVE</code>, and a task created a moment ago may not be found yet. Then
  * the answer is "not suspended", and the refusal is read the way it was read before. That window
- * is accepted, see {@code DECISIONS.pending/2070.md}.
+ * is accepted, see decision 94 in the repository's DECISIONS.md.
  * <p>
  * A cluster of the lines 8.8 and 8.9 cannot suspend. On those lines nothing is asked.
  * <p>
