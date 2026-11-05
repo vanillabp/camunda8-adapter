@@ -1093,7 +1093,7 @@ the resume instead.
 
 A job which a worker held when the workflow was suspended comes back when its lock ends, not at the
 resume. If the lock ended during the suspension, it comes back right at the resume. Measured against
-`camunda/camunda:8.10.7` on 2026-11-01, see `DECISIONS.pending/2070.md`. For an asynchronous task
+`camunda/camunda:8.10.7` on 2026-11-01, see [decision 94](./DECISIONS.md#94-a-refusal-about-a-task-is-read-as-a-suspension-only-after-the-state-of-its-instance-says-so). For an asynchronous task
 that costs nothing: the application answers it through the outbox, which completes the job by its key
 after the resume. A synchronous handler whose completion the cluster refused waits for the rest of its
 `job-timeout`. Then the delivery log answers the job with the recorded outcome. The adapter cannot

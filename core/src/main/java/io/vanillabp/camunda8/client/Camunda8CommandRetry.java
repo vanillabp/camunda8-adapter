@@ -69,7 +69,7 @@ import lombok.extern.slf4j.Slf4j;
  * done about it while it lasts: a failure and a change of the lock are refused as well. So the
  * command is dropped the same way. The cluster hands the job out again when its lock ends, if
  * the workflow is resumed by then, or right at the resume, if the lock ended while the workflow
- * was suspended. See {@code DECISIONS.pending/2070.md}.
+ * was suspended. See decision 94 in the repository's DECISIONS.md.
  * <p>
  * <b>A job which is gone.</b> {@link #sendUnlessTheJobIsGone} is the same retry for a caller
  * whose command may arrive after the cluster moved on. It takes the <code>404</code> as a late

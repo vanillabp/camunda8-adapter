@@ -3982,7 +3982,7 @@ run is synchronous, isolated and has no outbox. This entry says what this adapte
   one call would be reported twice.
 - The worker of a synchronous task does not report. It gets a `409` from its own completion and does not
   ask why, because that would cost two searches per refused completion (`Camunda8CommandRetry`, and the
-  addendum to decision 36 in `DECISIONS.pending/2070.md`).
+  addendum to decision 36 in decision 94).
 - The lines 8.8 and 8.9 never ask about a suspension, so they never report one.
 - A report which fails is logged, and the adapter throws what it would have thrown anyway.
 
@@ -3990,3 +3990,141 @@ run is synchronous, isolated and has no outbox. This entry says what this adapte
 phase-two attempt, none for an active workflow or the probe, and a failing report.
 
 **Where it is cited.** javadoc of `Camunda8SuspendedWorkflow`, the wiki page `A-suspended-workflow`.
+
+### 94. A refusal about a task is read as a suspension only after the state of its instance says so
+
+Proposed by story 2070. It adds to decision 16 and decision 36, and it changes neither of them.
+
+**Why.** A cluster of the 8.10 line can suspend a process instance. While it is suspended, the cluster
+refuses every command about one of its jobs or user tasks with HTTP `409` and the title
+`INVALID_STATE`, on gRPC with `FAILED_PRECONDITION`. That includes the two commands of the phase-one
+check, `UpdateJobTimeout` and the empty `UpdateUserTask`. Measured against `camunda/camunda:8.10.7` on
+2026-11-01. Before this entry the adapter read that answer in two wrong ways:
+
+- The check of a service task let the raw `ProblemException` out. The transaction rolled back, which is
+  right, but the message did not say why.
+- The check of a user task read the `409` as a task which is still being created, and let the
+  transaction commit. Phase two then met the same `409` on every attempt, until the outbox blocked the
+  entry.
+
+The awareness probe of a service task read the `409` as an outage and answered `BPMS_UNAVAILABLE`.
+
+The code does not say "suspended". The cluster gives the same code for a user task in `CREATING`, for a
+job another activation holds and for a task the cluster is ending. Its words do say "suspended", but
+decision 16 does not let the adapter read words.
+
+**What holds.**
+
+- After such a `409`, and only then, the adapter asks for the state of the instance. A job is found by
+  the job search, a user task by `GET /user-tasks/{key}`. Then `GET /process-instances/{key}` gives the
+  state. `SUSPENDED` is a value of the cluster, so decision 16 holds. A call on an active workflow costs
+  nothing extra. `Camunda8SuspendedWorkflow` holds the question, `Camunda8Suspension` is the part per
+  release line.
+- **Phase one** throws `io.vanillabp.spi.process.WorkflowSuspendedException`, with the refusal of the
+  cluster as its cause. The caller's transaction rolls back. This covers `completeTask`, `cancelTask`
+  and `completeUserTask`. `cancelUserTask` is refused on every line anyway.
+- **The probe** of a service task answers `ACTIVE` for a task of a suspended workflow. The cluster holds
+  the task. So the election elects this adapter, and the check of phase one tells the caller why it
+  cannot answer now.
+- **Phase two** throws `PhaseTwoRetryLater` with a window of 30 seconds. The refused command changed
+  nothing, so the next attempt may look like a first one, which is what the outbox expects of this
+  answer. The entry waits as long as the workflow is suspended. A suspension is ended by a person, not by
+  time, so each answer names a deadline behind its own window. That keeps
+  `vanillabp.outbox.wait-for-visibility-at-most` from blocking an entry of a workflow which is suspended
+  over a weekend. A workflow canceled while it is suspended ends the wait too: the next attempt finds
+  the task gone.
+- **The lines 8.8 and 8.9** ask nothing. Their clusters cannot suspend, and their clients know no such
+  state. An application of such a line against an 8.10 cluster behaves as before this entry.
+- **The window of the search.** The query API showed the suspension 129 to 530 ms after the command,
+  and the resume 216 to 438 ms after it. A check in that window reads `ACTIVE` and keeps the old reading.
+  For a user task that means: the transaction commits, and phase two waits for the resume. This window
+  is accepted.
+
+**Addendum to decision 36.** A `409` of a job command can mean a suspended workflow as well as another
+activation. The worker still stops on it without failing the job, because a failure is refused too. Its
+log line now names both readings. It does not ask which one it was. That would cost two searches per
+refusal, and nothing that follows would change.
+
+**A job a worker held when the workflow was suspended.** Measured against `camunda/camunda:8.10.7` on
+2026-11-01, with one instance per case:
+
+|                                  Case                                  |                             What the cluster did                             |
+|------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| Lock of 60 s, suspended for 4 s, nobody answers after the resume       | handed the job out again 57.1 s after the resume, 1.6 s after its lock ended |
+| Lock of 15 s, which ran out during a suspension of 30 s                | handed the job out again 30 ms after the resume                              |
+| Completion with the key of the first activation right after the resume | accepted                                                                     |
+| `UpdateJobTimeout` of 1 ms right after the resume                      | accepted, the job was handed out again 2.0 s after the resume                |
+| Completion, failure and `UpdateJobTimeout` while suspended             | refused, `409` on REST, `INVALID_STATE` on gRPC                              |
+| The job in the job search while suspended and after the resume         | unchanged: `CREATED`, no deadline, no worker                                 |
+
+So a job comes back when its lock ends, and not at the resume, unless the lock ended during the
+suspension. The documentation of Camunda says "re-activated on resume", which these runs did not show.
+
+What it means here:
+
+- An asynchronous task waits with its lock at `async-task-lock-renewal`, one hour by default. That does
+  NOT make it wait an hour after the resume. Its answer comes from the application, through the outbox,
+  and the outbox completes the job by its key. The third row shows that this is accepted after the
+  resume. So the answer is at most one window, 30 seconds, late.
+- A synchronous handler whose completion was refused waits for the rest of its lock, `job-timeout`, five
+  minutes by default. Then the job comes back, and the delivery log answers it with the outcome it
+  recorded, without running the handler again.
+- **Giving the lock back when the cluster refuses is not possible.** While the workflow is suspended,
+  `UpdateJobTimeout` and a failure are refused as well (fifth row). After the resume it would work
+  (fourth row), but the adapter is not told about the resume. It would have to ask the state of the
+  instance of every refused job until it changes. The proposal is not to do that: the delay is bounded
+  by `job-timeout`, which an application keeps short anyway, because it is the time a crashed handler
+  needs to be redelivered.
+
+**Tests.** `Camunda8SuspendedWorkflowTest` (8.10 line) holds every branch with a mocked client.
+`Camunda8SuspendedWorkflowIT` (8.10 line, Spring Boot) suspends a real instance: a completion of a task
+and of a user task rolls back with the SPI exception and goes through after the resume, and phase two
+of a completion waits and then goes through. The probe of the measurement table is kept outside the
+repository.
+
+### 95. The adapter publishes as `io.vanillabp`, its snapshots go to Maven Central, and its lines ride in the release train
+
+Proposed by story 2084. It replaces the paragraph of decision 31 which names the trigger of the
+release workflow and the rehearsal, and the sentence of decision 80 which keeps the snapshots in
+GitHub Packages. The gate of decision 31 and the snapshot per line of decision 80 stay as they are.
+
+**Why `io.vanillabp`.** Decision 56 of the Camunda 7 adapter gives the reason, and it holds here
+in the same way. The namespace `org.camunda.community` and the credentials to publish under it
+belong to the Camunda Community Hub. A repository in the vanillabp organisation cannot use them.
+`io.vanillabp` belongs to vanillabp, and the release train uploads with the token of that
+organisation. Under the old groupId Maven Central holds version 1 only, 1.0.0 to 1.10.0. Version 2
+changes the artifact names anyway (`camunda8-spring-boot-adapter` becomes
+`camunda8-adapter-spring-boot`), so moving the groupId now costs a user nothing extra. After 2.0 it
+would break every user. There are no relocation POMs: nothing of version 2 was ever published under
+the old groupId.
+
+**What holds.**
+
+- The parent is `io.vanillabp:release-parent`, the groupId of every artifact is `io.vanillabp`, and
+  the artifactIds and the `line-*` profiles stay as they were. The POM names
+  `https://github.com/vanillabp/camunda8-adapter` as its address. `Camunda8PublishedPomTest` reads
+  that address back out of the published POM.
+- A push to `main` publishes `2.0.0-<line>-SNAPSHOT` for every line to the snapshot repository of
+  Maven Central, through the profile `central-portal` of the parent. Reading it needs no login.
+  Nothing goes to GitHub Packages any more. The workflow keeps its file name,
+  `deploy-to-github-packages.yaml`, because other workflows and the documents name it.
+- A release is dispatched by hand with the version, and `.github/workflows/deploy.yaml` is the
+  release workflow of the Business Cockpit's Camunda 8 adapter. It runs the line matrix first,
+  then builds one line after the other through the profiles `release` and `central-portal`, then
+  tags the commit and drafts a GitHub release. With the input `train` it uploads nothing and keeps
+  one bundle per line, one slot of the train each. `release-train.yaml` in
+  `vanillabp/maven-release-parent` uploads them together with the other repositories of the train.
+  A dry run of that workflow replaces the rehearsal the old workflow had.
+- The gate still waits for every current line, the preview line included, as decision 31 says. The
+  job is called `ga-lines-verified` like in the Business Cockpit's Camunda 8 adapter. It is red when
+  a GA line is red, and also when the matrix as a whole is not green.
+- Every line is released, a preview line included, like in the Business Cockpit's Camunda 8
+  adapter. Story 2081 says a preview line is never released. It changes the job `discover` of
+  `deploy.yaml`, which then leaves out every line for which `bin/line-preview.sh` prints `true`.
+  There is no preview line today, so nothing differs until 8.11 has a pre-release.
+
+**What is left for later.** The wiki stays in the repository of the Camunda Community Hub until
+story 2086 moves it, because `vanillabp/camunda8-adapter` has no wiki yet. So every wiki link, the
+message in `Camunda8Connectors` and `WIKI:` in `wiki-line-table.yaml` still point there. Version 1
+stays on `maintenance/1.x` in the Camunda Community Hub and releases from there under the old
+groupId.
