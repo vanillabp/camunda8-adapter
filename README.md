@@ -1061,6 +1061,48 @@ the engine, so a task which started to end a moment ago can still slip through. 
 of such a task with `409`. Measured on 8.10 on 2026-10-28: without the change both transactions
 committed.
 
+### A task of a suspended workflow
+
+A cluster of the 8.10 line can suspend a process instance, over REST and in Operate. While the
+instance is suspended, the cluster refuses every command about its jobs and user tasks with the same
+`409` (`INVALID_STATE`, on gRPC `FAILED_PRECONDITION`). That includes both commands of the phase-one
+check. The code is the one a user task in `CREATING` gets, so the code alone does not say why. After
+such a `409`, and only then, the adapter asks for the state of the instance: the job search or
+`newUserTaskGetRequest` names the instance, `newProcessInstanceGetRequest` gives its state. An
+answer on an active workflow costs nothing extra.
+
+- Phase one throws `io.vanillabp.spi.process.WorkflowSuspendedException`, with the refusal of the
+  cluster as its cause. The caller's transaction rolls back, and the task stays open. This holds for
+  `completeTask`, `cancelTask` and `completeUserTask`.
+- The awareness probe of a service task answers `ACTIVE`, because the cluster holds the task. Without
+  that, the election would read the `409` as an outage.
+- Phase two asks the outbox to wait (`PhaseTwoRetryLater`, 30 seconds). The wait uses no attempt and
+  lasts as long as the workflow is suspended. Each answer names a deadline just behind its own window,
+  so `vanillabp.outbox.wait-for-visibility-at-most` does not block an entry while its workflow is
+  suspended. After the resume, the answer is at most one window late.
+- The lines 8.8 and 8.9 ask nothing (`Camunda8Suspension` per line), because their clusters cannot
+  suspend.
+
+The query API runs behind the engine. It showed the suspension 129 to 530 ms after the command. A check
+in that moment reads `ACTIVE` and behaves as before. A user task then commits, and phase two waits for
+the resume instead.
+
+A job which a worker held when the workflow was suspended comes back when its lock ends, not at the
+resume. If the lock ended during the suspension, it comes back right at the resume. Measured against
+`camunda/camunda:8.10.7` on 2026-11-01, see `DECISIONS.pending/2070.md`. For an asynchronous task
+that costs nothing: the application answers it through the outbox, which completes the job by its key
+after the resume. A synchronous handler whose completion the cluster refused waits for the rest of its
+`job-timeout`. Then the delivery log answers the job with the recorded outcome. The adapter cannot
+give the lock back earlier: while the workflow is suspended, the cluster refuses the change of the
+lock as well, and the adapter is not told about the resume.
+
+A workflow started by a call activity is not suspended with its caller, and its tasks can be answered
+as usual.
+
+`Camunda8SuspendedWorkflowTest` holds every branch without a cluster. `Camunda8SuspendedWorkflowIT`
+suspends a real instance on the 8.10 line: a task and a user task are refused with the SPI exception
+and go through after the resume, and phase two of a completion waits and then goes through.
+
 ### The delivery identity is a job key, so it belongs to one cluster
 
 `Camunda8JobHandler` reports the job key as the delivery id, and the core remembers a processed
@@ -1124,19 +1166,32 @@ cluster).
 ### How long the cluster keeps a message
 
 `message-time-to-live` decides it. Before, the client default applied. Now the value resolves
-per adapter, workflow module, workflow and MESSAGE. That is the same most-specific-wins
-machinery `job-timeout` uses, with a message as the most specific level instead of a task:
+per workflow module, workflow and MESSAGE, and the most specific value wins. The key names no
+adapter, because it means the same on every BPMS. The platform resolves it for every adapter
+(`MigrationAdapterProperties#messageTimeToLive`), so the Camunda 7 family reads the same levels:
 
 ```
-vanillabp.workflow-modules.<workflow-module-id>.workflows.<bpmn-process-id>.messages.<message-name>.adapters.<adapter-id>.message-time-to-live
+vanillabp.workflow-modules.<workflow-module-id>.message-time-to-live
+vanillabp.workflow-modules.<workflow-module-id>.workflows.<bpmn-process-id>.message-time-to-live
+vanillabp.workflow-modules.<workflow-module-id>.workflows.<bpmn-process-id>.messages.<message-name>.message-time-to-live
 ```
+
+There is no key for the whole application and none below `adapters.<adapter-id>`. The platform
+ends the startup for such a line and names the three keys. So VanillaBP never sets the default of
+the client. Zero or less ends the startup as well, because the cluster would drop every such
+message the moment it arrives. This adapter checks every value written for a workflow module it
+serves, the ones whose prioritized adapters name it
+(`Camunda8AdapterConfiguration#refuseNonPositiveMessageTimesToLive`,
+`MessageTimeToLiveOfTheServedModulesTest`). Zero in a module only the Camunda 7 family serves
+means "do not wait" there and stays allowed.
 
 The number does two jobs which pull in opposite directions. It BUFFERS a message published
 before its subscription exists, which wants it large. And it is the window in which a message id
 DEDUPLICATES, which wants it small. One application may have a catch event whose message
 legitimately repeats every minute, and another one whose message is published long before the
 workflow reaches it. So one number for the whole application has to be wrong for one of them.
-Nothing configured means nothing set: the client's own default applies, as it always did.
+Nothing configured means nothing set: the client's own default of one hour applies, as it always
+did (`Camunda8ClientFactoryTest#everyPropertyReachesTheClient`).
 
 `<bpmn-process-id>` is the id of the process whose model waits for the message. A correlation goes through the process
 service of the process at the top, but the event which waits may sit in a called process, and
@@ -1145,7 +1200,9 @@ take a message, and a message may be published before anything waits for it. So 
 models decide: the process of the call if its own model waits for the message, otherwise the one
 other process of the workflow module whose model does. If none does, or several others do, the
 process of the call is used (`Camunda8SettingsOfACalledProcessTest`, decision 77 in the
-repository's DECISIONS.md).
+repository's DECISIONS.md). This adapter reads the models, and the platform's
+`MessageTimeToLiveResolver` applies the rule. It reads them only where the processes of the
+module would answer differently.
 
 **Shortening it does not buy a short deduplication window.** The cluster forgets an expired
 message id on a sweep of its own, not at the moment it expires. Measured against
@@ -1155,16 +1212,16 @@ seconds later and forgotten after 75
 two legitimate correlations apart is what they carry: a varying correlation id, or the
 activation.
 
-`startWorkflowByMessagePhaseTwo` deliberately reads the ADAPTER level only. That message starts
-a workflow, so its deduplication is wanted for as long as possible, and the subscription of a
-message start event exists as long as the process is deployed. A per-message override meant for
-a repeating catch event must not shorten the protection against a double-started workflow.
+`startWorkflowByMessagePhaseTwo` resolves the time-to-live like every other message: message,
+workflow, workflow module. It reads it for the process whose model has the message start event,
+which is the process the message starts (decision 77 and its addendum,
+`Camunda8SettingsOfACalledProcessTest#aStartByMessageIsResolvedLikeEveryOtherMessage`). The
+deduplication of a start lasts as long as the time-to-live of its message, so write a long one
+for a start message where a double-started workflow would hurt.
 
-The four levels resolve the way `job-timeout` does
-(`Camunda8JobTimeoutOverlayTest#messageTimeToLiveResolvesThroughAllFourLevels`, and
-`Camunda8TaskProcessingIT#messageTimeToLiveResolvesThroughAllFourLevels` against a cluster).
-That a start message reads the adapter level alone is an assumption: nothing pins it, and a
-per-message `message-time-to-live` turning up on a start message would disprove it.
+The three levels resolve with the message as the most specific one
+(`Camunda8JobTimeoutOverlayTest#messageTimeToLiveResolvesThroughItsThreeLevels`, and
+`Camunda8TaskProcessingIT#messageTimeToLiveResolvesThroughItsThreeLevels` against a cluster).
 
 ### Which phase-two failures are repeated
 
@@ -1798,9 +1855,10 @@ application.
 A user task WITHOUT `zeebe:userTask` is a user task which a job worker serves, and this adapter
 does not accept that shape. Only the shape of the element counts. Nothing asks whether some
 worker would fetch the job, because the model already says who serves the task. Refusing is the
-kind answer, and what the shape would cost shows why: the cluster hands out a job of
+kind answer, and what the shape would cost shows why: the cluster creates a job of
 `io.camunda.zeebe:userTask`, this version opens no worker on that job type, and the workflow
-stands at the element until the job's retries are used up. Nothing else catches it: `tasksOf`
+stands at the element with no incident. A job nobody fetches never loses a retry, see
+[a job nobody fetches](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration#a-job-nobody-fetches) in the wiki. Nothing else catches it: `tasksOf`
 reads service-like tasks only, and `userTasksOf` skips anything without the marker.
 `Camunda8TaskWiring#jobWorkerUserTasksOf` looks for it on purpose and splits it into the two
 shapes the message has to keep apart. One shape carries the `formKey` from which version 1 read
@@ -2246,8 +2304,8 @@ ad-hoc subprocess carrying a `zeebe:taskDefinition` of its own expects a worker 
 by round which activities to activate, by completing the job with
 `newCompleteJobCommand(key).withResult(r -> r.forAdHocSubProcess().activateElement(...))`. Neither
 the `@WorkflowTask` contract nor the adapter SPI can express that outcome, so no worker is opened,
-the workflow stops at the element and the job ends in an incident once its retries are used up.
-Nothing later in the boot sees it, because the element produces no task spec and no validation
+the workflow stops at the element. The cluster creates the job and nothing fetches it, so it
+never loses a retry and no incident is raised. Nothing later in the boot sees it, because the element produces no task spec and no validation
 misses a method.
 
 What happens next is in `refuseUnservedAdHocSubProcesses`. Where a `@WorkflowService` class
@@ -2869,10 +2927,21 @@ every process of the module, an unclaimed one included. Such a process is left o
 because `wireBpmn` does nothing for a process nobody claims. Held by
 `Camunda8UnclaimedProcessTest#anUnclaimedProcessGetsNoWorkflowEndListener`.
 
+Both listeners are written with `retries="1"`, and both handlers fail a job with no retries
+left. Building the aggregate and a `@WorkflowEnded` method may write, and nobody modelled these
+listeners, so nobody asked for a second attempt. The first failure raises the incident. The one
+retry in the model is for a delivery the gateway lost, see
+[the retry a lost listener delivery needs](#the-retry-a-lost-listener-delivery-needs). The cancel
+listener of the process on the 8.10 line gets the same. Why: the addition to
+[decision 83](./DECISIONS.md#83-a-failed-job-is-retried-only-where-the-model-asks-for-it-and-a-user-task-which-is-ending-rolls-the-completion-back).
+
 `Camunda8BpmsInitiatedStartIT#timerStartCreatesTheAggregate` drives a timer start and the end
 behind it, `Camunda8WorkflowLifecycleTest#theClusterStartsAWorkflowOnItsOwn` the same on
 Quarkus, and `Camunda8OutcomeCommandRetryTest#theStartEventListenerFollowsTheSameRule` with
-`#theWorkflowEndListenerBacksItsFailureOff` the way both listeners report a failure.
+`#theWorkflowEndListenerLeavesNoRetry` the way both listeners report a failure.
+`Camunda8RetriesOfTheProcessListenersTest` holds what the model carries, and
+`Camunda8RetriesOfTheListenersVanillaBpWritesIT` that a failing start and a failing end are
+each tried once on a real cluster, and come back once an operator gives the job a retry.
 
 ### Versions of a process
 
@@ -3772,10 +3841,14 @@ CREATED notification of a user task did not arrive within three minutes, and the
 carries the gateway line of the first shape for exactly that listener job and nothing else. Both
 measured shapes recover within seconds, so something after the reactivation kept that job from
 being fetched again, and the logs of that run do not say what. The state of the job at the
-deadline would say it. A job the cluster still reports as CREATED was there to be fetched, and
-nobody fetched it. A job which is gone reached somebody. So the wait for a listener notification
-now asks the query API for the jobs of the workflow before it gives up, and says every quarter
-minute what it is still missing.
+deadline would say part of it. A job which is gone reached somebody. A job the cluster still
+reports as CREATED may be one nobody fetched, or one a worker holds right now: the job search does
+not show an activation. Measured against `camunda/camunda:8.10.7` on 2026-11-01 by
+`Camunda8JobSearchOfAnActivatedJobCanaryIT`: half a minute after a worker took a job, the search
+still listed it as CREATED, with an empty worker, no deadline and its creation time as the last
+update. So the wait for a listener notification asks the query API for the jobs of the workflow
+before it gives up, and says every quarter minute what it is still missing. A CREATED job in that
+answer says that the job still waits for its answer, not who holds it.
 
 An adapter which cannot poll was the first suspect, and it used to be a real one on the 8.8
 line, where the client gave a single executor both jobs. The adapter now hands the client an
@@ -3788,6 +3861,8 @@ free slots, so it was neither.
 
 The lifecycle listeners VanillaBP writes into a user task are modelled with `retries="1"`.
 Version 1 wrote `retries="0"` there and 2.0 did too, until a nightly run showed what that costs.
+The listener on each start event and the end and cancel listeners of the process carry the same
+number, for the same reason. Before, they carried none, so the cluster gave them three.
 
 The modelled number is not the number of retries a failed notification has left. Whatever the
 model says, the handler fails such a job with no retries left. So a notification which really

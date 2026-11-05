@@ -90,7 +90,7 @@
     <central.publishing.excluded>none</central.publishing.excluded>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <version.java>21</version.java>
-    <jacoco.version>0.8.15</jacoco.version>
+    <jacoco.version>0.8.16</jacoco.version>
     <!-- where the build breaks, in PERCENT of covered instructions per platform,
          enforced by test-coverage-report/coverage-gate. The rule stays 90 per platform, which is
          the number the coverage badges of the README are read against. The gate stands at
@@ -144,9 +144,9 @@
          in .github/workflows/checks.yaml only says in the log that one moved. -->
     <camunda8.line>8.10</camunda8.line>
     <camunda8.version>${camunda8.version.line-8.10}</camunda8.version>
-    <camunda8.version.line-8.8>8.8.44</camunda8.version.line-8.8>
+    <camunda8.version.line-8.8>8.8.45</camunda8.version.line-8.8>
     <camunda8.version.line-8.9>8.9.27</camunda8.version.line-8.9>
-    <camunda8.version.line-8.10>8.10.6</camunda8.version.line-8.10>
+    <camunda8.version.line-8.10>8.10.7</camunda8.version.line-8.10>
     <!-- optional: the adapter's own meters are published where the application brings
          Micrometer (see MicrometerCamunda8Metrics). Pinned to the OLDER of both
          platforms, like the platform integration does it (Quarkus 3.37.1 manages 1.16.6,

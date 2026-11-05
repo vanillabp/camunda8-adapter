@@ -37,7 +37,6 @@ import io.vanillabp.camunda8.client.Camunda8RefusedStart;
 import io.vanillabp.camunda8.client.Camunda8UserTaskProbe;
 import io.vanillabp.camunda8.deployment.Camunda8ModelsTheClusterHolds;
 import io.vanillabp.camunda8.wiring.Camunda8ConfiguredTenant;
-import io.vanillabp.camunda8.wiring.Camunda8MessageTimeToLiveResolver;
 import io.vanillabp.camunda8.wiring.Camunda8MultiInstance;
 import io.vanillabp.camunda8.wiring.Camunda8Scoping;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
@@ -48,6 +47,7 @@ import io.vanillabp.integration.adapter.spi.PhaseOneRequest;
 import io.vanillabp.integration.adapter.spi.PhaseOperationHandler;
 import io.vanillabp.integration.adapter.spi.PhaseTwoRequest;
 import io.vanillabp.integration.adapter.spi.PreCommitRegistrar;
+import io.vanillabp.integration.adapter.spi.SuspendedWorkflowReporter;
 import io.vanillabp.integration.adapter.spi.WorkflowAggregateSync;
 import io.vanillabp.integration.adapter.spi.WorkflowAwareness;
 import io.vanillabp.integration.adapter.spi.WorkflowScope;
@@ -124,6 +124,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   private final WorkflowAggregateSync aggregateSync;
 
   /**
+   * Tells a refusal because the workflow is suspended from the other refusals with the same
+   * code, and says what follows from it.
+   */
+  private final Camunda8SuspendedWorkflow suspendedWorkflow;
+
+  /**
    * Builds the process service of one configured adapter id. The platform bean of Spring Boot
    * or Quarkus calls it, once per adapter id it found in the configuration.
    * <p>
@@ -145,11 +151,37 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final PreCommitRegistrar preCommitRegistrar,
       final WorkflowAggregateSync aggregateSync) {
 
+    this(adapterId, clientFactory, asyncTaskLockRenewal, preCommitRegistrar, aggregateSync, null);
+
+  }
+
+  /**
+   * Builds the process service of one configured adapter id, with the core's reporter of a
+   * suspended workflow. Both platform beans use this one.
+   *
+   * @param adapterId The configured adapter id this instance answers for
+   * @param clientFactory The clients of that adapter id
+   * @param asyncTaskLockRenewal How far a probe pushes the lock of a job it looks at
+   * @param preCommitRegistrar Where phase one hooks its check into the caller's unit of work
+   * @param aggregateSync Which aggregate attributes reach the cluster, or <code>null</code>
+   *          to send the aggregate id alone
+   * @param suspendedWorkflowReporter Where a workflow found suspended is reported, so that the
+   *          extensions hear about it. <code>null</code> reports nothing
+   */
+  public Camunda8ProcessService(
+      final String adapterId,
+      final Camunda8ClientFactory clientFactory,
+      final Duration asyncTaskLockRenewal,
+      final PreCommitRegistrar preCommitRegistrar,
+      final WorkflowAggregateSync aggregateSync,
+      final SuspendedWorkflowReporter suspendedWorkflowReporter) {
+
     this.adapterId = adapterId;
     this.clientFactory = clientFactory;
     this.asyncTaskLockRenewal = asyncTaskLockRenewal;
     this.preCommitRegistrar = preCommitRegistrar;
     this.aggregateSync = aggregateSync;
+    this.suspendedWorkflow = new Camunda8SuspendedWorkflow(adapterId, clientFactory, suspendedWorkflowReporter);
 
   }
 
@@ -293,11 +325,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   /**
    * Resolves how long the cluster keeps a message which this adapter publishes, per
-   * adapter, workflow module, workflow and message. May be <code>null</code> (tests, and a
+   * workflow module, workflow and message. May be <code>null</code> (tests, and a
    * platform written before this). Then the default of the client applies, and VanillaBP
    * sets nothing on the command.
    */
-  private Camunda8MessageTimeToLiveResolver messageTimeToLiveResolver;
+  private io.vanillabp.integration.adapter.spi.MessageTimeToLiveResolver messageTimeToLiveResolver;
 
   /**
    * The platform module injects it after construction, like the scoping next to it. It is
@@ -307,7 +339,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * @param messageTimeToLiveResolver The resolver, or <code>null</code>
    */
   public void setMessageTimeToLiveResolver(
-      final Camunda8MessageTimeToLiveResolver messageTimeToLiveResolver) {
+      final io.vanillabp.integration.adapter.spi.MessageTimeToLiveResolver messageTimeToLiveResolver) {
 
     this.messageTimeToLiveResolver = messageTimeToLiveResolver;
 
@@ -315,10 +347,12 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   /**
    * How long the cluster keeps the given message, or <code>null</code> if nothing
-   * configures it.
+   * configures it. It is read for the process whose model waits for the message, which may
+   * be a called process (see decision 77 in the repository's DECISIONS.md). The platform
+   * decides which process that is. The deployed models tell it which ones wait.
    *
    * @param workflowModuleId The workflow module
-   * @param bpmnProcessId The BPMN process
+   * @param bpmnProcessId The BPMN process the correlation names
    * @param messageName The message name as the application wrote it
    * @return The time-to-live or <code>null</code>
    */
@@ -327,9 +361,21 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final String bpmnProcessId,
       final String messageName) {
 
-    return messageTimeToLiveResolver == null
-        ? null
-        : messageTimeToLiveResolver.messageTimeToLiveFor(workflowModuleId, bpmnProcessId, messageName);
+    if (messageTimeToLiveResolver == null) {
+      return null;
+    }
+    final var deployed = clientFactory
+        .getDeployedProcesses()
+        .ofWorkflowModule(workflowModuleId);
+    return messageTimeToLiveResolver.resolveFor(
+        workflowModuleId,
+        bpmnProcessId,
+        messageName,
+        deployed
+            .stream()
+            .map(io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses.DeployedProcess::bpmnProcessId)
+            .toList(),
+        () -> processesWaitingForTheMessage(workflowModuleId, messageName, deployed));
 
   }
 
@@ -595,6 +641,18 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
             Camunda8Errors.rejection(e));
         return WorkflowAwareness.ACTIVE;
       }
+      if (suspendedWorkflow.suspendedInstanceOfTheJob(e, taskKeyOf(taskId)).isPresent()) {
+        // the cluster holds the job, and its workflow is suspended. The task is there, so the
+        // probe says so. The check of phase one then tells the caller why it cannot answer
+        // the task now
+        log.debug(
+            "Camunda8[{}]: the cluster holds task '{}' and its workflow is suspended - it refused the "
+                + "probe's UpdateJobTimeout with {}",
+            adapterId,
+            taskId,
+            Camunda8Errors.rejection(e));
+        return WorkflowAwareness.ACTIVE;
+      }
       log.warn(
           "Camunda8[{}]: could not determine awareness of task '{}' - reporting BPMS_UNAVAILABLE",
           adapterId,
@@ -620,14 +678,56 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   private void preflightCompleteTask(
       final PhaseOneRequest<A> request) {
 
-    registerPreCommitExistenceCheck(aggregateClassOf(request.aggregatePersistence()), request.taskId(), "completing");
+    registerPreCommitExistenceCheck(request, "completing");
 
   }
 
   private void preflightCancelTask(
       final PhaseOneRequest<A> request) {
 
-    registerPreCommitExistenceCheck(aggregateClassOf(request.aggregatePersistence()), request.taskId(), "canceling");
+    registerPreCommitExistenceCheck(request, "canceling");
+
+  }
+
+  /**
+   * What the extensions hear about a phase-one call whose workflow is suspended. The aggregate
+   * id is asked of the persistence only here, after the cluster refused. It is left out where
+   * the persistence cannot say it, because the caller's exception must not change.
+   */
+  private Camunda8SuspendedWorkflow.TheCall theCallOf(
+      final PhaseOneRequest<A> request) {
+
+    String workflowAggregateId = null;
+    try {
+      if (request.aggregatePersistence() != null) {
+        final var id = request
+            .aggregatePersistence()
+            .getAggregateId(request.workflowAggregate());
+        workflowAggregateId = id == null
+            ? null
+            : id.toString();
+      }
+    } catch (final RuntimeException e) {
+      log.debug("Camunda8[{}]: could not read the aggregate id of the call on task '{}'", adapterId, request.taskId(),
+          e);
+    }
+    return new Camunda8SuspendedWorkflow.TheCall(
+        request.workflowModuleId(), request.bpmnProcessId(), workflowAggregateId, request.taskId());
+
+  }
+
+  /**
+   * What the extensions hear about a phase-two entry whose workflow is suspended.
+   */
+  private Camunda8SuspendedWorkflow.TheCall theCallOf(
+      final PhaseTwoRequest<A> request) {
+
+    return new Camunda8SuspendedWorkflow.TheCall(
+        request.workflowModuleId(), request.bpmnProcessId(), request.workflowAggregateId() == null
+            ? null
+            : request
+                .workflowAggregateId()
+                .toString(), request.taskId());
 
   }
 
@@ -661,11 +761,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
    * on the side, and it never advances the process.
    */
   private void registerPreCommitExistenceCheck(
-      final Class<?> workflowAggregateClass,
-      final String taskId,
+      final PhaseOneRequest<A> request,
       final String operationDescription) {
 
-    preCommitRegistrar.beforeCommit(workflowAggregateClass, () -> {
+    final var taskId = request.taskId();
+    preCommitRegistrar.beforeCommit(aggregateClassOf(request.aggregatePersistence()), () -> {
       try {
         updateJobTimeout(taskId);
       } catch (final Exception e) {
@@ -676,6 +776,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
                   + "%s it! If this task was completed by a concurrent redelivery, retrying the "
                   + "business operation will end in the documented no-op.")
                   .formatted(taskId, operationDescription),
+              e);
+        }
+        final var suspended = suspendedWorkflow.suspendedInstanceOfTheJob(e, taskKeyOf(taskId));
+        if (suspended.isPresent()) {
+          throw suspendedWorkflow.refuseTheCall("task", theCallOf(request), suspended.getAsLong(), operationDescription,
               e);
         }
         throw e;
@@ -912,6 +1017,15 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
                   .formatted(whatThe404WasAbout(request.taskId(), "empty UpdateUserTask of this check")),
               e);
         }
+        final var suspended = suspendedWorkflow.suspendedInstanceOfTheUserTask(e, taskKeyOf(request.taskId()));
+        if (suspended.isPresent()) {
+          // a suspended workflow refuses the empty update with the same 409 as a task which is
+          // still being created. Read as the second, the transaction would commit, and the
+          // completion of phase two would wait until the workflow is resumed. The caller can
+          // still be told now, so it is
+          throw suspendedWorkflow.refuseTheCall("user task", theCallOf(request), suspended.getAsLong(), "completing",
+              e);
+        }
         if (Camunda8Errors.refusedAboutAUserTaskItHolds(e)) {
           // the same answer comes for a task the cluster is already ENDING. It is canceling
           // the task, or somebody else is completing it. The completion of phase two would
@@ -1026,7 +1140,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           request.taskId(),
           request.bpmnProcessId(),
           request.workflowModuleId());
-    } catch (final Exception e) {
+    } catch (final RuntimeException e) {
+      final var suspended = suspendedWorkflow.suspendedInstanceOfTheUserTask(e, taskKeyOf(request.taskId()));
+      if (suspended.isPresent()) {
+        throw suspendedWorkflow.waitInTheOutbox("user task", theCallOf(request), suspended.getAsLong(), "completion");
+      }
       if (!Camunda8Errors.jobAlreadyGone(e)) {
         throw e;
       }
@@ -1093,7 +1211,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           request.taskId(),
           request.bpmnProcessId(),
           request.workflowModuleId());
-    } catch (final Exception e) {
+    } catch (final RuntimeException e) {
+      final var suspended = suspendedWorkflow.suspendedInstanceOfTheJob(e, taskKeyOf(request.taskId()));
+      if (suspended.isPresent()) {
+        throw suspendedWorkflow.waitInTheOutbox("task", theCallOf(request), suspended.getAsLong(), "completion");
+      }
       if (!Camunda8Errors.jobAlreadyGone(e)) {
         throw e;
       }
@@ -1129,7 +1251,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
           request.bpmnErrorCode(),
           request.bpmnProcessId(),
           request.workflowModuleId());
-    } catch (final Exception e) {
+    } catch (final RuntimeException e) {
+      final var suspended = suspendedWorkflow.suspendedInstanceOfTheJob(e, taskKeyOf(request.taskId()));
+      if (suspended.isPresent()) {
+        throw suspendedWorkflow.waitInTheOutbox("task", theCallOf(request), suspended.getAsLong(), "cancellation");
+      }
       if (!Camunda8Errors.jobAlreadyGone(e)) {
         throw e;
       }
@@ -1963,7 +2089,7 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     }
     final var timeToLive = messageTimeToLiveFor(
         request.workflowModuleId(),
-        processWaitingForTheMessage(request.workflowModuleId(), request.bpmnProcessId(), request.messageName()),
+        request.bpmnProcessId(),
         request.messageName());
     if (timeToLive != null) {
       // per message, because the number buffers AND deduplicates, and those two want it
@@ -2013,45 +2139,30 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
   }
 
   /**
-   * The BPMN process whose model waits for a message, which is the process a time-to-live
-   * configured for that message belongs to.
-   * <p>
-   * A process service belongs to the process at the top, so the correlation names that
-   * process. But the event which waits may sit in a called process. Whoever configures the
-   * time-to-live of that message writes it under the called process
-   * (<code>workflows.&lt;called process&gt;.messages.&lt;message&gt;</code>). The cluster does
-   * not say which subscription will take a message, and it may take one which is published
-   * before anything waits. So the deployed models answer. It is the process of the call, if
-   * its own model waits for the message. Otherwise it is the one other process of the
-   * workflow module whose model does. If none does, or several others do, the process of
-   * the call stays the answer, as before. See decision 77 in the repository's DECISIONS.md.
+   * The processes of a workflow module whose deployed model waits for a message. The cluster
+   * does not say which subscription will take a message, and it may take one which is
+   * published before anything waits. So the models answer, not a subscription search.
    *
    * @param workflowModuleId The workflow module of the correlation
-   * @param bpmnProcessId The BPMN process of the call
    * @param messageName The message name as the application wrote it
-   * @return The plain id of the process the time-to-live is read for
+   * @param deployed The processes the workflow module deployed
+   * @return The plain ids of the processes whose model waits for the message
    */
-  private String processWaitingForTheMessage(
+  private List<String> processesWaitingForTheMessage(
       final String workflowModuleId,
-      final String bpmnProcessId,
-      final String messageName) {
+      final String messageName,
+      final java.util.Collection<io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses.DeployedProcess> deployed) {
 
     final var scopedMessageName = scopedIdentifier(workflowModuleId, messageName);
-    final var waiting = clientFactory
-        .getDeployedProcesses()
-        .ofWorkflowModule(workflowModuleId)
+    return deployed
         .stream()
-        .filter(deployed -> waitsForTheMessage(
-            deployed.model(),
-            scopedProcessId(workflowModuleId, deployed.bpmnProcessId()),
+        .filter(process -> waitsForTheMessage(
+            process.model(),
+            scopedProcessId(workflowModuleId, process.bpmnProcessId()),
             scopedMessageName))
         .map(io.vanillabp.camunda8.deployment.Camunda8DeployedProcesses.DeployedProcess::bpmnProcessId)
         .distinct()
         .toList();
-    if (waiting.contains(bpmnProcessId) || (waiting.size() != 1)) {
-      return bpmnProcessId;
-    }
-    return waiting.getFirst();
 
   }
 
@@ -3016,12 +3127,14 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       if (startTenantId != null) {
         startCommand = startCommand.tenantId(startTenantId);
       }
-      // the ADAPTER level only, on purpose. This message starts a workflow, so its
-      // deduplication should last as long as possible. The subscription of a message START
-      // event exists as long as the process is deployed, so the buffering half of the
-      // number does not apply here at all. An override per message, meant for a repeating
-      // catch event, must not shorten the protection against a workflow started twice
-      final var startTimeToLive = clientFactory.getConfiguration().getMessageTimeToLive();
+      // resolved like every other message: the message, then the workflow, then the
+      // workflow module. It is read for the process whose model has the message start event,
+      // which is the process this message starts (see decision 77 in the repository's
+      // DECISIONS.md and its addendum)
+      final var startTimeToLive = messageTimeToLiveFor(
+          request.workflowModuleId(),
+          request.bpmnProcessId(),
+          request.messageName());
       if (startTimeToLive != null) {
         startCommand = startCommand.timeToLive(startTimeToLive);
       }
