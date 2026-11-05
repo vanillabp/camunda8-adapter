@@ -26,6 +26,9 @@ env:
   # of its own repository, so VANILLABP_USER_TOKEN is used instead. A token
   # which cannot push turns this job red on main, which is the right noise: the page would
   # otherwise go on saying a pin nobody publishes any more.
+  # TODO story 2086: the wiki still lives in the repository of the Camunda Community Hub,
+  # because vanillabp/camunda8-adapter has no wiki yet. Point this at
+  # vanillabp/camunda8-adapter.wiki.git once story 2086 has moved the pages.
   WIKI: camunda-community-hub/vanillabp-camunda8-adapter.wiki.git
 concurrency:
   # Two pushes to the wiki at once would race for the same page, and the later run holds

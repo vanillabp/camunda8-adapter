@@ -193,7 +193,7 @@ public final class PublishedPom {
    *
    * @param repository The repository the artifacts are built from, without a trailing slash,
    *          e.g.
-   *          <code>https://github.com/camunda-community-hub/vanillabp-camunda8-adapter</code>.
+   *          <code>https://github.com/vanillabp/camunda8-adapter</code>.
    *          The scm entries are derived from it the way both Camunda 8 adapter repositories
    *          write them:
    *          <code>scm:git:&lt;repository&gt;.git</code> and

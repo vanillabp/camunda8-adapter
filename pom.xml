@@ -2,19 +2,20 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" child.project.url.inherit.append.path="false" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <!-- The release parent of the Camunda Community Hub. Its profiles are the way a hub
-       extension publishes, and they are the contract with the hub, so this repository takes
-       it rather than the VanillaBP release parent. 'relativePath' is empty because there is
-       no POM beside this one to find it in; without that, Maven looks at '../pom.xml'
-       first. -->
+  <!-- The VanillaBP release parent, like every repository of the vanillabp organisation. It
+       brings the two profiles a release to Maven Central needs, 'release' (javadoc jar and
+       GPG signature) and 'central-portal' (the central-publishing plugin), and it names the
+       snapshot repository of Maven Central, which spi-for-java, the platform and this adapter
+       publish to. 'relativePath' is empty because there is no POM beside this one to find it
+       in; without that, Maven looks at '../pom.xml' first. -->
   <parent>
-    <groupId>org.camunda.community</groupId>
-    <artifactId>community-hub-release-parent</artifactId>
-    <version>2.1.1</version>
+    <groupId>io.vanillabp</groupId>
+    <artifactId>release-parent</artifactId>
+    <version>2.0.0</version>
     <relativePath/>
   </parent>
 
-  <groupId>org.camunda.community.vanillabp</groupId>
+  <groupId>io.vanillabp</groupId>
   <artifactId>camunda8-adapter-parent</artifactId>
   <version>${revision}</version>
   <packaging>pom</packaging>
@@ -23,7 +24,7 @@
   <!-- Every artifact of this repository points at the repository itself. A child
        inherits this address and the three <scm> ones with its own name appended unless it
        is told not to, so the artifact 'camunda8-adapter' advertised
-       'https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/camunda8-adapter',
+       'https://github.com/vanillabp/camunda8-adapter/camunda8-adapter',
        which is no page. Nobody saw it while the values lived in the parent alone, and since
        the flatten mode is 'oss' every published POM carries its own resolved copy and
        prints it. The four 'inherit.append.path' attributes turn the appending off, one on
@@ -31,7 +32,7 @@
        same value for every artifact, it survives a module being renamed or moved, and a
        reader who wants the module is one click away from it. Camunda8PublishedPomTest
        reads the addresses back out of the published POM. -->
-  <url>https://github.com/camunda-community-hub/vanillabp-camunda8-adapter</url>
+  <url>https://github.com/vanillabp/camunda8-adapter</url>
 
   <licenses>
     <license>
@@ -64,29 +65,18 @@
   </modules>
 
   <scm child.scm.connection.inherit.append.path="false" child.scm.developerConnection.inherit.append.path="false" child.scm.url.inherit.append.path="false">
-    <connection>scm:git:https://github.com/camunda-community-hub/vanillabp-camunda8-adapter.git</connection>
-    <developerConnection>scm:git:https://github.com/camunda-community-hub/vanillabp-camunda8-adapter.git</developerConnection>
-    <url>https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/tree/main</url>
+    <connection>scm:git:https://github.com/vanillabp/camunda8-adapter.git</connection>
+    <developerConnection>scm:git:https://github.com/vanillabp/camunda8-adapter.git</developerConnection>
+    <url>https://github.com/vanillabp/camunda8-adapter/tree/main</url>
   </scm>
-
-  <!-- Where we deploy, which is our business and not a user's: the flatten plugin takes
-       this out of the published POM, see below. It stays here because the deploy needs
-       it. -->
-  <distributionManagement>
-    <snapshotRepository>
-      <id>github</id>
-      <name>Github Packages</name>
-      <url>https://maven.pkg.github.com/camunda-community-hub/vanillabp-camunda8-adapter</url>
-    </snapshotRepository>
-  </distributionManagement>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <!-- our snapshots go out through a plain 'mvn deploy', see the deploy plugin below.
-         A module which is not published sets this to true in its own properties. -->
+    <!-- A module which is not published sets this to true in its own properties. The
+         snapshots and the release go out through central-publishing-maven-plugin of the
+         profile 'central-portal', which does not read it, so such a module also names itself
+         in 'central.publishing.excluded', see the plugin below. -->
     <maven.deploy.skip>false</maven.deploy.skip>
-    <!-- The release to Maven Central does not read 'maven.deploy.skip'. A module which is not
-         published names itself here as well, see central-publishing-maven-plugin below. -->
     <central.publishing.excluded>none</central.publishing.excluded>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <version.java>21</version.java>
@@ -252,12 +242,12 @@
         <version>${camunda8.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.camunda.community.vanillabp</groupId>
+        <groupId>io.vanillabp</groupId>
         <artifactId>camunda8-adapter-published-pom</artifactId>
         <version>${revision}</version>
       </dependency>
       <dependency>
-        <groupId>org.camunda.community.vanillabp</groupId>
+        <groupId>io.vanillabp</groupId>
         <artifactId>camunda8-adapter-test-support</artifactId>
         <version>${revision}</version>
       </dependency>
@@ -285,55 +275,13 @@
     </dependencies>
   </dependencyManagement>
 
-  <!-- the snapshots of spi-for-java and the platform, which this adapter builds on. Nobody
-       needs a login to read them, so the build of a pull request from a fork resolves them
-       as well. io.vanillabp:release-parent names the same repository, but this repository
-       inherits the hub parent and so names it here. The snapshots of this adapter itself
-       stay in GitHub Packages, see distributionManagement above. Releases are not read from
-       here: they come from Maven Central itself. -->
-  <repositories>
-    <repository>
-      <releases>
-        <enabled>false</enabled>
-      </releases>
-      <snapshots>
-        <enabled>true</enabled>
-      </snapshots>
-      <id>central-snapshots</id>
-      <name>Maven Central snapshots</name>
-      <url>https://central.sonatype.com/repository/maven-snapshots/</url>
-    </repository>
-  </repositories>
-
   <build>
     <pluginManagement>
       <plugins>
         <plugin>
-          <!-- The hub parent turns the deploy plugin off for everybody, because a hub release
-               goes out through the profiles of that parent and not through a plain deploy.
-               Our snapshots do go out through a plain deploy, into the GitHub Packages
-               registry named in distributionManagement above, and that is what the
-               blueprints and every build downstream of them read. Without this line
-               'mvn deploy' reports success and publishes nothing. -->
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-deploy-plugin</artifactId>
-          <configuration>
-            <!-- The value, not a literal 'false': a test-only module sets
-                 'maven.deploy.skip' to true in its own properties, and a literal here would
-                 override it, because plugin configuration beats a property. Measured on
-                 2026-10-02: a literal 'false' published the four modules which say in their
-                 own properties that they are not published, 'election-integration-test',
-                 'smoke-test', 'quarkus/integration-tests' and 'quarkus/native-image-tests'.
-                 In the Camunda 7 adapter it also ended the deploy with "did not assign a main
-                 file to the project but it has attachments", on a module which compiles no
-                 main sources. The property cannot be left alone either, because the parent
-                 writes its 'true' as configuration and beats the property the same way. -->
-            <skip>${maven.deploy.skip}</skip>
-          </configuration>
-        </plugin>
-        <plugin>
-          <!-- What the profile 'central-sonatype-publish' of the hub parent runs in the deploy
-               phase instead of the deploy plugin. It gathers every module of the reactor into
+          <!-- What the profile 'central-portal' of the release parent runs in the deploy
+               phase instead of the deploy plugin, for a snapshot and for a release alike. It
+               gathers every module of the reactor into
                one bundle for the Central Portal and does not read 'maven.deploy.skip', so
                without this the test modules and the coverage reports would be published as
                well. Measured on 2026-10-05 with '-Dskip.central.release=true', which builds the
@@ -431,8 +379,8 @@
             <!-- javadoc stops after 100 warnings per module, and the line it prints
                  reads like the end of the list. Whoever counts warnings to see how much
                  work a module still holds counts too few. The number below is high enough
-                 that no module reaches it. The hub parent configures javadoc as well, but
-                 only to switch its checks off, so every option this gate needs stands here.
+                 that no module reaches it. The release parent configures the same check, but
+                 lets warnings pass, so every option this gate needs stands here.
                  The run is incremental too: a module whose sources did not move since the
                  last run is skipped and reports nothing. Delete 'target/reports/apidocs'
                  before counting, or a clean count only says that nobody recompiled. -->
@@ -462,10 +410,10 @@
       </plugin>
       <!-- the sources jar every build attaches. Without it the snapshots of this
            repository carried no sources, and an IDE showed decompiled code to everyone
-           developing against one. The hub parent pins an older source plugin and brings an
-           execution with the same id, which merges into this one, so the version stands here
-           to win over it. It is the one the VanillaBP release parent uses for the other
-           repositories, so all of them pack their sources the same way. -->
+           developing against one. The release parent binds the plugin in its profile
+           'release' alone, and a snapshot is deployed without that profile, so it is bound
+           here for every build. The version is the one the release parent manages, so all
+           VanillaBP repositories pack their sources the same way. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-source-plugin</artifactId>
@@ -503,10 +451,10 @@
           <updatePomFile>true</updatePomFile>
           <flattenMode>oss</flattenMode>
           <pomElements>
-            <!-- Where we deploy is nothing a user of the artifact can act on, and on an
-                 artifact which later sits on Maven Central it would point a reader at our
-                 GitHub Packages registry. The source POM keeps it, because the deploy
-                 reads it from there. -->
+            <!-- Where we deploy is nothing a user of the artifact can act on. The source POM
+                 names no distributionManagement today, because the profile 'central-portal'
+                 of the release parent knows where to upload, so this only keeps a later
+                 one out of the published POMs. -->
             <distributionManagement>remove</distributionManagement>
           </pomElements>
         </configuration>

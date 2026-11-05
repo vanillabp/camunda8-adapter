@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>org.camunda.community.vanillabp</groupId>
+    <groupId>io.vanillabp</groupId>
     <artifactId>camunda8-adapter-test-coverage-report</artifactId>
     <version>${revision}</version>
   </parent>
@@ -15,12 +15,12 @@
 
   <dependencies>
     <dependency>
-      <groupId>org.camunda.community.vanillabp</groupId>
+      <groupId>io.vanillabp</groupId>
       <artifactId>camunda8-adapter</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.camunda.community.vanillabp</groupId>
+      <groupId>io.vanillabp</groupId>
       <artifactId>camunda8-adapter-spring-boot</artifactId>
       <version>${project.version}</version>
     </dependency>
@@ -29,12 +29,12 @@
          own. Its execution data belongs to this report like every other
          Spring Boot test's -->
     <dependency>
-      <groupId>org.camunda.community.vanillabp</groupId>
+      <groupId>io.vanillabp</groupId>
       <artifactId>camunda8-adapter-election-integration-test</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
-      <groupId>org.camunda.community.vanillabp</groupId>
+      <groupId>io.vanillabp</groupId>
       <artifactId>camunda8-adapter-smoke-test</artifactId>
       <version>${project.version}</version>
     </dependency>

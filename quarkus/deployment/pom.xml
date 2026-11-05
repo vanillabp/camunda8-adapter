@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>org.camunda.community.vanillabp</groupId>
+    <groupId>io.vanillabp</groupId>
     <artifactId>camunda8-adapter-parent</artifactId>
     <version>${revision}</version>
     <relativePath>../../pom.xml</relativePath>
@@ -23,7 +23,7 @@
       <artifactId>vanillabp-quarkus-integration-deployment</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.camunda.community.vanillabp</groupId>
+      <groupId>io.vanillabp</groupId>
       <artifactId>camunda8-adapter-quarkus</artifactId>
       <version>${project.version}</version>
     </dependency>

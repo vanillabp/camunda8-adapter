@@ -2,9 +2,7 @@
 
 # VanillaBP adapter for Camunda 8
 
-[![](https://img.shields.io/badge/Community%20Extension-An%20open%20source%20community%20maintained%20project-FF4700)](https://github.com/camunda-community-hub/community)
 ![Compatible with: Camunda Platform 8](https://img.shields.io/badge/Compatible%20with-Camunda%20Platform%208-0072Ce)
-[![](https://img.shields.io/badge/Lifecycle-Incubating-blue)](https://github.com/Camunda-Community-Hub/community/blob/main/extension-lifecycle.md#incubating-)
 [![Apache License V.2](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 
 This is the [VanillaBP](https://www.vanillabp.io) adapter for
@@ -35,8 +33,8 @@ documentation says so and does not guess.
 
 This adapter runs on both platforms VanillaBP supports:
 
-1. **Spring Boot**<br>[![Coverage](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fcamunda-community-hub.github.io%2Fvanillabp-camunda8-adapter%2Fspring-boot-report%2Findex.html&search=Total.*%3F.([0-9]%2B)[^0-9]*%3F%25&replace=%241%25&flags=m&label=Coverage&color=green&cacheSeconds=60)](https://camunda-community-hub.github.io/vanillabp-camunda8-adapter/spring-boot-report)
-2. **Quarkus**<br>[![Coverage](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fcamunda-community-hub.github.io%2Fvanillabp-camunda8-adapter%2Fquarkus-report%2Findex.html&search=Total.*%3F.([0-9]%2B)[^0-9]*%3F%25&replace=%241%25&flags=m&label=Coverage&color=green&cacheSeconds=60)](https://camunda-community-hub.github.io/vanillabp-camunda8-adapter/quarkus-report)
+1. **Spring Boot**<br>[![Coverage](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fvanillabp.github.io%2Fcamunda8-adapter%2Fspring-boot-report%2Findex.html&search=Total.*%3F.([0-9]%2B)[^0-9]*%3F%25&replace=%241%25&flags=m&label=Coverage&color=green&cacheSeconds=60)](https://vanillabp.github.io/camunda8-adapter/spring-boot-report)
+2. **Quarkus**<br>[![Coverage](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fvanillabp.github.io%2Fcamunda8-adapter%2Fquarkus-report%2Findex.html&search=Total.*%3F.([0-9]%2B)[^0-9]*%3F%25&replace=%241%25&flags=m&label=Coverage&color=green&cacheSeconds=60)](https://vanillabp.github.io/camunda8-adapter/quarkus-report)
 
 Coverage is measured separately per platform - a platform's tests never cover the other
 platform's code. Click a badge to open the respective report.
@@ -251,7 +249,7 @@ here to inherit that in your own application:
 
 ```json
 {
-  "extends": ["github>camunda-community-hub/vanillabp-camunda8-adapter//renovate/camunda8-lines.json"]
+  "extends": ["github>vanillabp/camunda8-adapter//renovate/camunda8-lines.json"]
 }
 ```
 
@@ -341,7 +339,7 @@ published POM on every line and compares the client version in it with the clien
 compiled against.
 
 What that test knows about a published POM sits in `PublishedPom`, published as
-`org.camunda.community.vanillabp:camunda8-adapter-published-pom` from the module
+`io.vanillabp:camunda8-adapter-published-pom` from the module
 `published-pom`. The Business Cockpit's Camunda 8 adapter makes the same promise and calls the
 same assertions, so neither repository keeps a copy which could drift. The module has no
 dependencies at all, because the class only reads a file and throws an `AssertionError`. A
@@ -534,28 +532,34 @@ A release of one line consists of:
    same way: `renovate/verify-pin-automerge.js` applies them to an update with Renovate's own
    rule engine. What the dry run would add is which updates Renovate actually finds.
 
-Every push to `main` publishes one snapshot per line to the GitHub Packages registry of this
-repository, `https://maven.pkg.github.com/camunda-community-hub/vanillabp-camunda8-adapter`:
+Every push to `main` publishes one snapshot per line to the snapshot repository of Maven
+Central, `https://central.sonatype.com/repository/maven-snapshots/`, which needs no login:
 `2.0.0-8.8-SNAPSHOT`, `2.0.0-8.9-SNAPSHOT` and `2.0.0-8.10-SNAPSHOT`. The job `snapshot` of
 `deploy-to-github-packages.yaml` reads the lines from the `line-*` profiles of the parent POM,
-the same way the line matrix does, and builds each one with `-Pline-<id>
+the same way the line matrix does, and builds each one with `-Pline-<id>,central-portal
 -Drevision=2.0.0-<id>-SNAPSHOT`. It skips the tests, because the pull request and the nightly
 matrix test every line. It still compiles every line against its own pin. Nothing publishes a
 plain `2.0.0-SNAPSHOT` any more. See decision 80.
 
-A release starts the way it does for every Camunda Community Hub extension: publish a GitHub
-Release and let GitHub create the tag, for example `2.0.0`. The tag names the release and has no
-line in it. The workflow `.github/workflows/deploy.yaml` then runs the line matrix as its first
-job, as point 2 above asks. Once every line is green, it publishes one line after the other with
-the line appended to the tag, `2.0.0-8.8`, `2.0.0-8.9` and `2.0.0-8.10`. Each line goes to the
-repositories `community-hub-release-parent` names, Camunda's Artifactory first and Maven Central
-second, signed and with sources and javadoc through the parent's release profiles. A red line
-stops the release before anything is published, and the job `gate` names the line. The hub's own
-release action is not used here. It writes the tag into the POM as the one version and commits a
-next development version afterwards, and neither fits a release of several lines. Started by
-hand, the same workflow is a rehearsal: it runs the gate and the same Maven calls with the
-signing, uploads nothing, and keeps what it staged as an artifact of the run. Version 1 is
-maintained on the branch `maintenance/1.x` and releases from there with the hub's action.
+A release is started by hand: run the workflow *Release* (`.github/workflows/deploy.yaml`) with
+the version, for example `2.0.0`. The version has no line in it. The workflow runs the line
+matrix as its first job, as point 2 above asks. Once every line is green, it builds one line
+after the other with the line appended to the version, `2.0.0-8.8`, `2.0.0-8.9` and
+`2.0.0-8.10`, through the profiles `release` and `central-portal` of `io.vanillabp:release-parent`,
+signed and with sources and javadoc. A red line stops the release before anything is published,
+and the job `ga-lines-verified` names the line. Afterwards the workflow tags the commit and drafts
+a GitHub release. The workflow is the one of the Business Cockpit's Camunda 8 adapter.
+
+With the input `train`, for example `2.0`, nothing is uploaded. Every line keeps its bundle as an
+Actions artifact, one slot of the train per line, and `release-train.yaml` in
+[maven-release-parent](https://github.com/vanillabp/maven-release-parent) uploads the bundles of
+all repositories of the train as one deployment. A dry run of that workflow is the rehearsal. See
+its README for the order of the repositories.
+
+Version 1 was published as `org.camunda.community.vanillabp` from the Camunda Community Hub. It
+is maintained on the branch `maintenance/1.x` of
+[camunda-community-hub/vanillabp-camunda8-adapter](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter)
+and releases from there with the hub's action.
 
 Rotating the lines when a minor goes GA touches four places: the `line-*` profiles, the
 pin properties and the default `<revision>` of the parent POM, the boundary rule of `renovate.json`, the table above,
@@ -563,7 +567,7 @@ and the wiki.
 
 ## Dependencies
 
-All artifacts use the groupId `org.camunda.community.vanillabp`. Their version carries the
+All artifacts use the groupId `io.vanillabp`. Their version carries the
 release line, e.g. `2.1.0-8.9`. Snapshots carry it too, e.g. `2.0.0-8.10-SNAPSHOT` for the
 current GA line, see [Release lines](#release-lines).
 
@@ -574,7 +578,7 @@ required VanillaBP platform integration:
 
 ```xml
 <dependency>
-  <groupId>org.camunda.community.vanillabp</groupId>
+  <groupId>io.vanillabp</groupId>
   <artifactId>camunda8-adapter-spring-boot</artifactId>
   <version>2.0.0-8.10-SNAPSHOT</version>
 </dependency>
@@ -655,7 +659,7 @@ Both VanillaBP and the adapter are Quarkus extensions, so both must be added exp
   <version>2.0.0-SNAPSHOT</version>
 </dependency>
 <dependency>
-  <groupId>org.camunda.community.vanillabp</groupId>
+  <groupId>io.vanillabp</groupId>
   <artifactId>camunda8-adapter-quarkus</artifactId>
   <version>2.0.0-8.10-SNAPSHOT</version>
 </dependency>
@@ -3261,7 +3265,7 @@ classes of a module share, and start by ending what the class before them left r
 field and says why next to it.
 
 `ClusterUnderTest` and the log writer beside it live in the module `test-support` and are
-published as `org.camunda.community.vanillabp:camunda8-adapter-test-support`, on the same
+published as `io.vanillabp:camunda8-adapter-test-support`, on the same
 release line as everything else here, because the cluster a test needs follows the client the
 line pins. Four modules used to carry a copy of those two classes, and the copies had drifted:
 different startup timeouts, different messages, one of them without a log writer at all. The
@@ -4025,7 +4029,7 @@ What a pull request needs beyond a green build is in [`CONTRIBUTING.md`](./CONTR
 1. **Spring Boot** (core + Spring Boot integration) - into `test-coverage-report/spring-boot/report`
 2. **Quarkus** (core + Quarkus extension) - into `test-coverage-report/quarkus/report`
 
-Both are published to GitHub Pages by the *Publish to GitHub Packages* workflow on every push to
+Both are published to GitHub Pages by the *Build and publish snapshots* workflow on every push to
 the default branch. Click the [platform's badge](#documentation-and-supported-platforms) to open
 the respective report.
 

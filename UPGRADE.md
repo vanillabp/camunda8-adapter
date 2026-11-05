@@ -6,9 +6,38 @@ history is in git. These entries feed the user-facing
 [migration guide](https://github.com/vanillabp/adapter-platform-integration/wiki/Migrating-from-version-1);
 the same file exists for
 [VanillaBP itself](https://github.com/vanillabp/adapter-platform-integration/blob/main/UPGRADE.md)
-and for the [Camunda 7 adapter](https://github.com/camunda-community-hub/vanillabp-camunda7-adapter/blob/main/UPGRADE.md).
+and for the [Camunda 7 adapter](https://github.com/vanillabp/camunda7-adapter/blob/main/UPGRADE.md).
 
 ## 2.0
+
+### The groupId is `io.vanillabp`, and the artifacts have new names
+
+Visible to every consumer, because the coordinates change.
+
+Version 1 was published as `org.camunda.community.vanillabp`. Version 2 is published as
+`io.vanillabp`, like VanillaBP itself. The artifact names change as well. The Spring Boot adapter
+was `camunda8-spring-boot-adapter` and is `camunda8-adapter-spring-boot` now. The Quarkus extension
+is new. The version names the line of your cluster, see the next section.
+
+```xml
+<!-- version 1 -->
+<dependency>
+  <groupId>org.camunda.community.vanillabp</groupId>
+  <artifactId>camunda8-spring-boot-adapter</artifactId>
+  <version>1.10.0</version>
+</dependency>
+
+<!-- version 2 -->
+<dependency>
+  <groupId>io.vanillabp</groupId>
+  <artifactId>camunda8-adapter-spring-boot</artifactId>
+  <version>2.0.0-8.10</version>
+</dependency>
+```
+
+On Quarkus the artifact is `io.vanillabp:camunda8-adapter-quarkus`. Version 1 stays where it was.
+Nothing is published under the old groupId for version 2, so there is no relocation: a build which
+still names the old groupId with a version 2 number finds nothing.
 
 ### The artifact version names the Camunda 8 minor
 
@@ -26,8 +55,8 @@ used anything which only an 8.10 cluster offers. From then on, every bugfix coul
 together with a cluster upgrade. And a Camunda 8 cluster upgrade costs more in organization than in
 technology.
 
-All you have to do is add the suffix of your cluster's line to the adapter version in your POM. The
-groupId, the artifactIds and the API stay as they are. The methods are identical on every line, and
+Besides the new coordinates above, all you have to do is add the suffix of your cluster's line to
+the adapter version in your POM. The API stays as it is. The methods are identical on every line, and
 the adapter's CI checks that. So you never have to read a suffix to find out what exists. If your
 cluster cannot do something, the method is still there and fails with a message naming your line.
 
@@ -36,7 +65,7 @@ it never changes on its own, so no automatic update moves you to another cluster
 
 ```json
 {
-  "extends": ["github>camunda-community-hub/vanillabp-camunda8-adapter//renovate/camunda8-lines.json"]
+  "extends": ["github>vanillabp/camunda8-adapter//renovate/camunda8-lines.json"]
 }
 ```
 
@@ -557,7 +586,7 @@ such a listener, 1.7.0 to 1.10.0, failed its job with no retries left, also wher
 where running the method a second time is safe. Why is decision 87 in
 [`DECISIONS.md`](./DECISIONS.md).
 
-The [README section](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/blob/main/README.md#listeners-somebody-modelled)
+The [README section](https://github.com/vanillabp/camunda8-adapter/blob/main/README.md#listeners-somebody-modelled)
 and the [BPMN model](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration#the-bpmn-model-for-camunda-8)
 section of the wiki carry the details.
 
