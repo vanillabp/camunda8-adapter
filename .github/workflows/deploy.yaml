@@ -38,7 +38,7 @@ env:
   # release-versions.sh of maven-release-parent at a fixed commit, so a later change of the
   # script cannot break the release of an older commit. A new version of the script comes
   # with a pull request which moves this commit.
-  RELEASE_VERSIONS_SH: "https://raw.githubusercontent.com/vanillabp/maven-release-parent/a0a3e691fc99cc80e7a6b87a35b7f7b94a9f6b47/.github/scripts/release-versions.sh"
+  RELEASE_VERSIONS_SH: "https://raw.githubusercontent.com/vanillabp/maven-release-parent/e6c840c50e2ed95412710828df00fa194924edf6/.github/scripts/release-versions.sh"
 jobs:
   # Decision 31: the gate. The matrix builds and tests every line against its own cluster,
   # the preview line included, against the snapshots it resolves at this moment.
@@ -204,6 +204,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release-versions"
           git diff > "$RUNNER_TEMP/release-versions/raised.patch"
           cp "$RUNNER_TEMP/raised-versions.txt" "$RUNNER_TEMP/release-versions/" 2>/dev/null || true
+      # 'raise' changes io.vanillabp* only. Any other SNAPSHOT stops the release here, also one
+      # of a library from outside VanillaBP. It has to be on Maven Central first, and main has
+      # to name its released version.
+      - name: No SNAPSHOT is left
+        run: bash "$RUNNER_TEMP/release-versions.sh" no-snapshots
       - name: Keep the released versions for the tag
         uses: actions/upload-artifact@v7
         with:
