@@ -11,7 +11,7 @@ application run its workflows on a Camunda 8 cluster without the business code d
 on the Camunda API.
 
 Developers who want to **use** this adapter should refer to the
-[Wiki](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki); the VanillaBP concepts it builds
+[Wiki](https://github.com/vanillabp/camunda8-adapter/wiki); the VanillaBP concepts it builds
 on are documented in the [VanillaBP Wiki](https://github.com/vanillabp/adapter-platform-integration/wiki). This
 `README.md` is aimed at contributors.
 
@@ -869,7 +869,7 @@ one wait for every module of an adapter instance. The table of both readings is 
 down while work is in flight" below.
 
 The sum an operator needs before the start is on the wiki page
-[Sizing](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Sizing). It
+[Sizing](https://github.com/vanillabp/camunda8-adapter/wiki/Sizing). It
 puts these numbers together with the pool and the execution slots and works through an example.
 In short: count the job types of the table above across every workflow module of the adapter id,
 and give `max-http-connections` room for that many plus whatever the application's own commands
@@ -1862,7 +1862,7 @@ worker would fetch the job, because the model already says who serves the task. 
 kind answer, and what the shape would cost shows why: the cluster creates a job of
 `io.camunda.zeebe:userTask`, this version opens no worker on that job type, and the workflow
 stands at the element with no incident. A job nobody fetches never loses a retry, see
-[a job nobody fetches](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration#a-job-nobody-fetches) in the wiki. Nothing else catches it: `tasksOf`
+[a job nobody fetches](https://github.com/vanillabp/camunda8-adapter/wiki/Configuration#a-job-nobody-fetches) in the wiki. Nothing else catches it: `tasksOf`
 reads service-like tasks only, and `userTasksOf` skips anything without the marker.
 `Camunda8TaskWiring#jobWorkerUserTasksOf` looks for it on purpose and splits it into the two
 shapes the message has to keep apart. One shape carries the `formKey` from which version 1 read
@@ -3388,7 +3388,7 @@ year.
 ## Known deviations
 
 What this adapter does not deliver, mirrored in one sentence each on the wiki's
-[Deviations](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Deviations)
+[Deviations](https://github.com/vanillabp/camunda8-adapter/wiki/Deviations)
 page. The two-phase start and the at-least-once dispatch are not among them: that is what a
 remote BPMS looks like in VanillaBP, see [Behavior](#behavior).
 
@@ -3675,7 +3675,7 @@ adapter is troubled by it, because all four read the status code and not the nam
 answers `STILL_THERE`. A sender which bypasses VanillaBP gets the refusal raw; the likely one is
 a task list written on the client of the BPMS. That is what the wiki says where the key is
 documented:
-[asking about open user tasks](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration#asking-about-open-user-tasks).
+[asking about open user tasks](https://github.com/vanillabp/camunda8-adapter/wiki/Configuration#asking-about-open-user-tasks).
 `Camunda8UserTaskProbeIT` is the one place here which sends the way such a task list does, and
 it waits the window out.
 
@@ -3894,7 +3894,7 @@ The platform integration measures every task delivery and every outbox dispatch,
 logging context around both; the
 [Observability wiki page](https://github.com/vanillabp/adapter-platform-integration/wiki/Observability)
 describes all of it. What this adapter adds is documented in the
-[Configuration wiki page](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration),
+[Configuration wiki page](https://github.com/vanillabp/camunda8-adapter/wiki/Configuration),
 section "What an operator gets to see": the client's own job counters bridged into the same
 registry, the execution slots as gauges, and a health contribution which asks the cluster for
 its topology.

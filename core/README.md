@@ -2,7 +2,7 @@
 
 Contributor documentation for the platform-neutral core of the VanillaBP Camunda 8
 adapter. Documentation for users is in
-[this adapter's wiki](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki).
+[this adapter's wiki](https://github.com/vanillabp/camunda8-adapter/wiki).
 The `README.md` at the root of the repository documents the repository for contributors.
 
 The `core` module is **plain Java**, with no Spring or Quarkus dependencies. It holds the
@@ -294,7 +294,7 @@ connection back and is not in it.
 
 An extension author has to know the three calls above and cannot learn them from a signature.
 So they are also on the wiki page
-[Extending the adapter](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Extending-the-adapter),
+[Extending the adapter](https://github.com/vanillabp/camunda8-adapter/wiki/Extending-the-adapter),
 with what happens when one of them is left out. An extension author looks there. This page
 says why the calls are separate.
 

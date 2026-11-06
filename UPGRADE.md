@@ -45,7 +45,7 @@ Visible to every consumer, because the coordinates change.
 
 The adapter is published once per Camunda 8 minor version, and the minor is part of the version:
 `2.0.0-8.8`, `2.0.0-8.9` and `2.0.0-8.10`. Your cluster decides which one you take. The table in
-the [wiki](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki) says which
+the [wiki](https://github.com/vanillabp/camunda8-adapter/wiki) says which
 client and which tested cluster each line stands for.
 
 The reason: Camunda promises that a client works with clusters of its own version and newer. It
@@ -162,7 +162,7 @@ That grep finds what version 1 served, but not every element this applies to. A 
 any `formKey` is a plain BPMN user task too, and the cluster treats it exactly the same way. It
 creates a job of `io.camunda.zeebe:userTask`, which VanillaBP 2 does not fetch. So the workflow
 waits at the element, and no incident tells you. A job loses a retry only when a worker fails it,
-see [a job nobody fetches](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration#a-job-nobody-fetches) in the wiki. Measured on 2026-09-28 against
+see [a job nobody fetches](https://github.com/vanillabp/camunda8-adapter/wiki/Configuration#a-job-nobody-fetches) in the wiki. Measured on 2026-09-28 against
 `camunda/camunda:8.9.21` and `camunda/camunda:8.10.0-rc1`: the model is accepted, the job appears,
 and the cluster keeps no user-task record for such a task at all. The way out is the one above. If
 you want a search which finds both, look for `bpmn:userTask` elements whose extension elements have
@@ -587,7 +587,7 @@ where running the method a second time is safe. Why is decision 87 in
 [`DECISIONS.md`](./DECISIONS.md).
 
 The [README section](https://github.com/vanillabp/camunda8-adapter/blob/main/README.md#listeners-somebody-modelled)
-and the [BPMN model](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration#the-bpmn-model-for-camunda-8)
+and the [BPMN model](https://github.com/vanillabp/camunda8-adapter/wiki/Configuration#the-bpmn-model-for-camunda-8)
 section of the wiki carry the details.
 
 ### A handler asking for an item the model hands none over for ends the boot
@@ -837,7 +837,7 @@ cluster was the number of your application's threads which committed. So a burst
 became a burst of commands. Version 2 dispatches on four
 threads, `vanillabp.outbox.dispatch-threads`. Count them into the connection pool of the database
 your workflow aggregates live in. What the cluster side costs is on the wiki page
-[Sizing](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Sizing).
+[Sizing](https://github.com/vanillabp/camunda8-adapter/wiki/Sizing).
 
 There is no factor for how much slower or faster this is, and there cannot be one yet. A run which
 compares version 1 with version 2 needs one cluster version which both fit. Each side fits the
@@ -880,7 +880,7 @@ application has. Three things follow for an application:
   connections become free. So the workers use the pool in rounds, and every round costs a
   `request-timeout`. `PT20S` covers one round, not two. The start says so. It names the rounds,
   the grace the drain needs, and the pool size which would make it one round again. The wiki page
-  [Sizing](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Sizing) says how
+  [Sizing](https://github.com/vanillabp/camunda8-adapter/wiki/Sizing) says how
   many workers an application opens and how to size the pool.
 
 The log line the shutdown writes says how many workers were closed and whether the cluster released

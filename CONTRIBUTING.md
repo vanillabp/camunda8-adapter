@@ -6,7 +6,7 @@ remote cluster, and that makes it the adapter with the most rules: work arrives 
 cluster learns about an instance only after a delay, and a call may time out although it did not
 fail. Business code never sees any of that. An application is written against
 [`spi-for-java`](https://github.com/vanillabp/spi-for-java). The
-[wiki](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki) describes
+[wiki](https://github.com/vanillabp/camunda8-adapter/wiki) describes
 everything this adapter does for its users.
 
 Where the rules are: [`README.md`](./README.md) explains how the adapter works and why. Read it
@@ -147,7 +147,7 @@ but say what it means the first time it turns up, and write an abbreviation out 
 trips you up when you read it aloud, rewrite it.
 
 This holds for every English text here, the javadoc and comments, in the main code and in the
-tests, the commit message and the pull request included, and for the [wiki](https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki)
+tests, the commit message and the pull request included, and for the [wiki](https://github.com/vanillabp/camunda8-adapter/wiki)
 as well. Nothing a program reads is renamed for the sake of language: type and method names,
 configuration keys and artifact coordinates stay as they are, because code in other repositories
 points at them. The section [How we write](./AGENTS.md#how-we-write) in `AGENTS.md` has the same
