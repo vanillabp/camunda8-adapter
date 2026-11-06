@@ -75,6 +75,29 @@ public final class ClusterUnderTest {
   private static final String ELASTICSEARCH = "elasticsearch";
 
   /**
+   * Switches off the limit a broker puts on the requests it works on at the same time.
+   * <p>
+   * The limit starts at 100, and it follows how fast the broker answers. An application boots
+   * all its workers in the same moment, and on line 8.10 the module of the Spring Boot tests
+   * has 128 of them. Measured on 2026-11-06 on all three lines: of 130 parallel requests to a
+   * fresh cluster, 20 to 30 were answered with HTTP 503 and <code>RESOURCE_EXHAUSTED</code>.
+   * Without the limit, none of them was. The HTTP client of Camunda repeats a refused request
+   * once, a second later. So the refused workers come back together, and a command a test sent
+   * in the first moment comes back with them. A test which starts a workflow right after the
+   * boot, with the client and without the outbox, can get that second refusal. Its class then
+   * fails for a reason it has nothing to do with.
+   * <p>
+   * So no integration test sees a real refusal any more. What the adapter does with one is
+   * tested without a cluster. {@code Camunda8CommandRetryTest} and
+   * {@code Camunda8OutcomeCommandRetryTest} cover the commands a job handler sends back.
+   * {@code Camunda8ErrorsTest} covers the answer the outbox reads before it repeats a phase-two
+   * command. The test {@code Camunda8TheClusterUnderTestTakesABurstIT} shows that the key still
+   * works on the cluster of the active line. The key is the one of the broker configuration.
+   * The newer {@code CAMUNDA_PROCESSING_FLOWCONTROL_REQUEST_ENABLED} is ignored on line 8.8.
+   */
+  private static final String REQUEST_FLOW_CONTROL = "ZEEBE_BROKER_FLOWCONTROL_REQUEST_ENABLED";
+
+  /**
    * How long a container may take to report itself ready. The slowest of the modules which
    * share this needed five minutes. It is the point at which a run gives up. A cluster which
    * starts normally does not pay this delay.
@@ -217,6 +240,7 @@ public final class ClusterUnderTest {
         .withExposedPorts(8080, 26500, 9600)
         .withEnv("SPRING_PROFILES_ACTIVE", "broker")
         .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
+        .withEnv(REQUEST_FLOW_CONTROL, "false")
         .withEnv("CAMUNDA_SECURITY_AUTHENTICATION_UNPROTECTEDAPI", "true")
         .waitingFor(
             Wait
@@ -437,7 +461,8 @@ public final class ClusterUnderTest {
     final var container = new ClusterContainer(image())
         .withLogConsumer(ClusterLog.of(logName))
         .withExposedPorts(8080, 26500, 9600)
-        .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", SECONDARY_STORAGE);
+        .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", SECONDARY_STORAGE)
+        .withEnv(REQUEST_FLOW_CONTROL, "false");
     return SECONDARY_STORAGE.equals(ELASTICSEARCH)
         ? container.exportingToAnElasticsearchOfItsOwn()
         : container
