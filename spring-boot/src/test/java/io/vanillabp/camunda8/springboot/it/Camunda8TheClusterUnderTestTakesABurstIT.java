@@ -38,7 +38,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * It keeps a cluster of its own. The limit grows with every request which goes well, so a cluster
  * which has worked for half an hour could take a burst of this size even with the limit on.
  * <p>
- * The class is skipped when Docker is unavailable.
+ * The class is skipped when Docker is unavailable. See decision 96 in the repository's
+ * DECISIONS.md.
  */
 @Testcontainers(disabledWithoutDocker = true)
 @ExtendWith(SuppressOutputExtension.class)

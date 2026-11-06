@@ -94,6 +94,7 @@ public final class ClusterUnderTest {
    * command. The test {@code Camunda8TheClusterUnderTestTakesABurstIT} shows that the key still
    * works on the cluster of the active line. The key is the one of the broker configuration.
    * The newer {@code CAMUNDA_PROCESSING_FLOWCONTROL_REQUEST_ENABLED} is ignored on line 8.8.
+   * See decision 96 in the repository's DECISIONS.md.
    */
   private static final String REQUEST_FLOW_CONTROL = "ZEEBE_BROKER_FLOWCONTROL_REQUEST_ENABLED";
 
