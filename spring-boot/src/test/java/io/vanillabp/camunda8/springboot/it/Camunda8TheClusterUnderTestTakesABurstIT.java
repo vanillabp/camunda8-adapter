@@ -41,9 +41,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * The class is skipped when Docker is unavailable. See decision 96 in the repository's
  * DECISIONS.md.
  */
-@Testcontainers(disabledWithoutDocker = true)
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
+@Testcontainers(disabledWithoutDocker = true)
 public class Camunda8TheClusterUnderTestTakesABurstIT {
 
   /**
