@@ -208,6 +208,12 @@ public class Camunda8ConnectorsReportTest {
                 "vanillabp.workflow-modules.loan-approval.workflows.LoanApproval.adapters.c8.allow-connectors"),
         () -> "all three levels the key is read at: "
             + logged);
+    // the section which tells how to find such a job. The wiki moved once already, and a link
+    // into the old place reads fine in a log until somebody follows it
+    assertTrue(
+        logged.contains("https://github.com/vanillabp/camunda8-adapter/wiki/Configuration#a-job-nobody-fetches"),
+        () -> "the wiki section about a job nobody fetches: "
+            + logged);
     assertFalse(
         logged.contains("CONNECTORS ARE SWITCHED ON"),
         () -> "and nothing was handed over: "
