@@ -26,13 +26,19 @@ import lombok.extern.slf4j.Slf4j;
  * little. On REST, the transport this adapter prefers, its HTTP library repeats a 503 once,
  * one second later, and the caller gets the second answer. On gRPC nothing repeats it,
  * because the retry policy of the channel is switched off by default. See
- * {@code Camunda8ClientOnABusyClusterTest}. Measured against a single node, 19.433 of 20.000
- * gRPC commands came back rejected. Phase-two commands survive that, because the outbox
- * repeats them. The
- * command inside a job handler had nobody to repeat it. So a rejected completion of work
- * which was already committed went into the client's fail path, and the job lost one of
- * its retries. Under lasting load, that drives a job into an incident, although every
- * attempt of it succeeded.
+ * {@code Camunda8ClientOnABusyClusterTest}. Phase-two commands survive that, because the
+ * outbox repeats them. The command inside a job handler had nobody to repeat it.
+ * <p>
+ * Which of the four commands the flow control refuses differs. The broker keeps a list of
+ * commands it always takes, and the completion and the failure of a job are on it on every
+ * line. The BPMN error and the lock renewal are not, and the completion of a user task is
+ * not on 8.10. {@code Camunda8WhatABusyClusterRefusesIT} holds this per line. So for the BPMN
+ * error and the lock renewal the retry waits out a busy cluster. For the completion and the
+ * failure it waits out what still refuses them: an answer which did not come in time, a
+ * partition whose leader just changed, a broker short of disk space, and on 8.10 a
+ * partition paused for a leadership transfer. Without the retry, a refused completion of
+ * work which was already committed goes into the client's fail path, and the job loses one
+ * of its retries for nothing.
  * <p>
  * <b>What bounds it.</b> Two things, and the tighter one wins:
  * <ul>
