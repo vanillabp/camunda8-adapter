@@ -767,7 +767,11 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     final var taskId = request.taskId();
     preCommitRegistrar.beforeCommit(aggregateClassOf(request.aggregatePersistence()), () -> {
       try {
-        updateJobTimeout(taskId);
+        // a busy cluster says nothing about the task, so its refusal is waited out for a
+        // moment instead of rolling the caller's work back
+        Camunda8CommandRetry
+            .sendWhileTheClusterIsBusy(adapterId, "pre-commit check of task '%s'".formatted(taskId),
+                () -> updateJobTimeout(taskId));
       } catch (final Exception e) {
         if (Camunda8Errors.jobAlreadyGone(e)) {
           throw newTaskNotFound(
@@ -1008,7 +1012,9 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // as for service tasks, see registerPreCommitExistenceCheck
     preCommitRegistrar.beforeCommit(aggregateClassOf(request.aggregatePersistence()), () -> {
       try {
-        updateUserTask(request.taskId());
+        Camunda8CommandRetry
+            .sendWhileTheClusterIsBusy(adapterId, "pre-commit check of user task '%s'".formatted(request.taskId()),
+                () -> updateUserTask(request.taskId()));
       } catch (final Exception e) {
         if (Camunda8Errors.jobAlreadyGone(e)) {
           throw newTaskNotFound(

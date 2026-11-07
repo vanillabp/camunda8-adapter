@@ -279,7 +279,7 @@ public final class Camunda8Connectors {
       the cluster, which lists the job in state CREATED with an empty worker and no deadline. The \
       search shows a job a worker holds right now the same way, so the sign is time: the job stays \
       there far longer than its task ever takes. See \
-      https://github.com/camunda-community-hub/vanillabp-camunda8-adapter/wiki/Configuration#a-job-nobody-fetches""";
+      https://github.com/vanillabp/camunda8-adapter/wiki/Configuration#a-job-nobody-fetches""";
 
   /**
    * What an application gives up while it runs connectors, in the words of the startup

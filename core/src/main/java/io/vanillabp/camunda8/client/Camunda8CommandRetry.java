@@ -3,27 +3,32 @@ package io.vanillabp.camunda8.client;
 import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * The bounded retries which this adapter puts around a command when another attempt can
- * change the answer. There are two of them, and they wait for two different things.
+ * change the answer. There are three of them, and they wait for different things.
  * <p>
  * {@link #send} carries the command a job handler sends BACK to the cluster. That is the
  * completion, the BPMN error, the failure, and the lock renewal of an open asynchronous
  * task. It waits for a busy cluster. {@link #sendWhileTheUserTaskIsStillChanging} carries
  * a phase-two command against a Camunda-managed user task. It waits for a task which the
- * cluster has not finished creating. Both use the same number of attempts and the same
- * backoff. So the adapter tells one story about how long it waits. Everything in this
- * comment is about the first one, unless it says otherwise.
+ * cluster has not finished creating. {@link #sendWhileTheClusterIsBusy} carries the check
+ * which phase one runs right before the caller commits. It waits for a busy cluster as well,
+ * but for nothing else. All three use the same number of attempts and the same backoff. So
+ * the adapter tells one story about how long it waits. Everything in this comment is about
+ * the first one, unless it says otherwise.
  * <p>
  * <b>Why it exists.</b> A command the cluster rejects because it is busy arrives as
- * <code>RESOURCE_EXHAUSTED</code> on gRPC and as HTTP 503 on REST. Nothing in the Camunda
- * client repeats either of them. The gRPC retry policy is switched off by default. Even
- * when it is on, it is a channel setting, and it does nothing for the REST transport which
- * this adapter prefers. Measured against a single node, 19.433 of 20.000 gRPC commands came
- * back rejected. Phase-two commands survive that, because the outbox repeats them. The
+ * <code>RESOURCE_EXHAUSTED</code> on gRPC and as HTTP 503 on REST. The client helps only a
+ * little. On REST, the transport this adapter prefers, its HTTP library repeats a 503 once,
+ * one second later, and the caller gets the second answer. On gRPC nothing repeats it,
+ * because the retry policy of the channel is switched off by default. See
+ * {@code Camunda8ClientOnABusyClusterTest}. Measured against a single node, 19.433 of 20.000
+ * gRPC commands came back rejected. Phase-two commands survive that, because the outbox
+ * repeats them. The
  * command inside a job handler had nobody to repeat it. So a rejected completion of work
  * which was already committed went into the client's fail path, and the job lost one of
  * its retries. Under lasting load, that drives a job into an incident, although every
@@ -37,17 +42,20 @@ import lombok.extern.slf4j.Slf4j;
  * of it is left.</li>
  * <li><b>{@value #MAX_ATTEMPTS} attempts.</b> A handler which waits for a cluster to calm
  * down holds an execution slot (see {@link Camunda8ExecutionModel}). A slot which waits
- * delivers nothing. Five attempts spread over less than half a second are a hiccup. More
- * than that is a cluster problem which an operator has to see. A worker should not just
- * sit it out.</li>
+ * delivers nothing. On gRPC five attempts take less than half a second. On REST each attempt
+ * which meets a 503 adds the second the client waits, so five of them take about five and a
+ * half seconds and send ten requests. More than that is a cluster problem which an operator
+ * has to see. A worker should not just sit it out.</li>
  * </ul>
  * The backoff is exponential and has the shape of the client's own activation backoff
  * ({@code ExponentialBackoffBuilderImpl}): {@value #INITIAL_BACKOFF_MILLIS} ms at first,
  * factor {@value #BACKOFF_FACTOR}, a ceiling of {@value #MAX_BACKOFF_MILLIS} ms and
  * {@value #JITTER_FACTOR} jitter. So the documentation tells one story about backoff, not
  * two. With five attempts the ceiling is never reached. There are four waits, of 50, 80, 128
- * and 205 ms before jitter, so the whole sequence stays around half a second, which is the
- * point.
+ * and 205 ms before jitter, which is 463 ms in total. The check against the lock counts only
+ * these waits and not the second of the client. So on REST the last request can leave after
+ * the lock ended. The cluster then answers as it does to any late command, and the cases below
+ * take that answer.
  * <p>
  * <b>What is not retried.</b> The classification is the one the outbox already uses
  * ({@link Camunda8Errors#repeatableJobCommandFailure}). So the adapter has one opinion
@@ -286,7 +294,8 @@ public final class Camunda8CommandRetry {
    * passes in a few milliseconds.
    * <p>
    * <b>What bounds it.</b> {@value #MAX_ATTEMPTS} attempts with the backoff of
-   * {@link #send}, under half a second in total. This runs on a thread of the phase-two
+   * {@link #send}, under half a second in total. The client does not repeat a
+   * <code>409</code>, so no second of its own comes on top. This runs on a thread of the phase-two
    * dispatcher. Half a second there is a hiccup, but thirty seconds of waiting is a delay
    * somebody notices. Nothing is lost when the attempts are used up. The failure is thrown
    * again, and the outbox repeats the entry as it does today.
@@ -304,30 +313,103 @@ public final class Camunda8CommandRetry {
       final String taskId,
       final Runnable send) {
 
+    repeatWhile(
+        Camunda8Errors::refusedAboutAUserTaskItHolds,
+        adapterId,
+        "the %s of user task '%s'".formatted(command, taskId),
+        "because the task is in a transition of its own",
+        null,
+        send);
+
+  }
+
+  /**
+   * Sends a check which runs inside the caller's transaction, right before it commits. It
+   * repeats the check while the cluster says it is busy, and only then.
+   * <p>
+   * <b>Why it exists.</b> The check asks the cluster whether a task is still there, before
+   * the caller's transaction commits the work which answers it. A busy cluster refuses that
+   * question with HTTP <code>503</code> or <code>RESOURCE_EXHAUSTED</code>, measured on all
+   * three lines for the change of a job timeout. The refusal says nothing about the task.
+   * Thrown at once, it would roll back the caller's work for a reason which passes in
+   * milliseconds.
+   * <p>
+   * <b>What bounds it.</b> {@value #MAX_ATTEMPTS} attempts with the backoff of {@link #send}.
+   * The caller's transaction stays open while it waits, so nothing else is repeated: not an
+   * outage, and not a request which timed out, because each of those can cost a whole
+   * request timeout. On REST the client adds its own repetition of a <code>503</code> to
+   * every attempt, a second later, as {@link #send} explains. When the attempts are used up,
+   * the refusal is thrown as before, and the caller's transaction rolls back. The caller can
+   * repeat the call.
+   *
+   * @param adapterId The adapter instance, for the messages
+   * @param check What is being sent, named the way the log should name it (e.g.
+   *          <code>pre-commit check of task '4711'</code>)
+   * @param send The check itself
+   * @throws RuntimeException The original failure, once no further attempt is allowed
+   */
+  public static void sendWhileTheClusterIsBusy(
+      final String adapterId,
+      final String check,
+      final Runnable send) {
+
+    repeatWhile(
+        Camunda8Errors::clusterIsBusy,
+        adapterId,
+        "the "
+            + check,
+        "because the cluster is busy",
+        """
+            Camunda8[{}]: the {} was refused by a busy cluster on all {} attempts. The caller's \
+            transaction rolls back, and repeating the call is safe. A cluster answering like this \
+            needs more capacity or fewer requests pushing at it.""",
+        send);
+
+  }
+
+  /**
+   * The loop of the two retries above, which differ only in the answer they wait out.
+   *
+   * @param worthAnotherAttempt Which failure is repeated
+   * @param adapterId The adapter instance, for the messages
+   * @param what What is sent, as the log names it
+   * @param why Why another attempt is made, as the log names it
+   * @param warningWhenUsedUp What is logged at WARN once the attempts are used up, or
+   *          <code>null</code> where the caller reports it itself
+   * @param send The command itself
+   */
+  private static void repeatWhile(
+      final Predicate<RuntimeException> worthAnotherAttempt,
+      final String adapterId,
+      final String what,
+      final String why,
+      final String warningWhenUsedUp,
+      final Runnable send) {
+
     var attempt = 1;
     while (true) {
       try {
         send.run();
         if (attempt > 1) {
-          log.info(
-              "Camunda8[{}]: the {} of user task '{}' went through on attempt {}",
-              adapterId,
-              command,
-              taskId,
-              attempt);
+          log.info("Camunda8[{}]: {} went through on attempt {}", adapterId, what, attempt);
         }
         return;
       } catch (final RuntimeException e) {
-        if (!Camunda8Errors.refusedAboutAUserTaskItHolds(e) || (attempt >= MAX_ATTEMPTS)) {
+        if (!worthAnotherAttempt.test(e)) {
+          throw e;
+        }
+        if (attempt >= MAX_ATTEMPTS) {
+          if (warningWhenUsedUp != null) {
+            log.warn(warningWhenUsedUp, adapterId, what.substring("the ".length()), MAX_ATTEMPTS, e);
+          }
           throw e;
         }
         log.debug(
-            "Camunda8[{}]: the {} of user task '{}' was refused on attempt {} because the task is "
-                + "in a transition of its own - retrying in {} ms",
+            "Camunda8[{}]: {} was refused on attempt {} {} - retrying in {} ms",
             adapterId,
-            command,
-            taskId,
+            what,
             attempt,
+            why,
             backoffMillis(attempt),
             e);
         if (!sleep(nextBackoff(attempt))) {

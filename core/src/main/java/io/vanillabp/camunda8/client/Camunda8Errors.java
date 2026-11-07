@@ -425,6 +425,30 @@ public final class Camunda8Errors {
   }
 
   /**
+   * Whether the cluster refused a command because it is busy right now. REST says so with
+   * <code>503</code>, gRPC with <code>RESOURCE_EXHAUSTED</code>. Both are the answer of the
+   * broker's flow control, which refuses before it works on the command. So the command did
+   * nothing, and sending it again a moment later is safe.
+   * <p>
+   * {@link #repeatableJobCommandFailure} needs no such question, because there everything
+   * which is not permanent is worth another attempt. A caller which must not repeat an
+   * outage or a timeout asks this one.
+   *
+   * @param throwable What the command threw
+   * @return Whether the cluster said it is busy
+   */
+  public static boolean clusterIsBusy(
+      final Throwable throwable) {
+
+    return anyCauseAnswers(
+        throwable,
+        cause -> ((cause instanceof ClientHttpException http) && (http
+            .code() == 503)) || ((cause instanceof ClientStatusException status) && (status
+                .getStatusCode() == Status.Code.RESOURCE_EXHAUSTED)));
+
+  }
+
+  /**
    * Whether a repetition can change the answer to a command which a JOB HANDLER sends back
    * to the cluster. That is a completion, a BPMN error, a failure or a lock renewal. It is
    * {@link #permanentFailure} plus two cases which are permanent for a job command, but not

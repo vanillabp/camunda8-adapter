@@ -50,7 +50,8 @@ Four classes share the way back, so the rules live in one place and not in four 
   exception in front of its message.
 - `Camunda8CommandRetry` repeats a rejected command. Three things limit it: the remaining
   lock of the job (`ActivatedJob#getDeadline()`), five attempts, and the shutdown. Between
-  attempts it waits as long as the client's own activation backoff. When the limit is
+  attempts it waits as long as the client's own activation backoff. On REST the client adds
+  one repetition of a 503 per attempt, a second later. When the limit is
   reached, the outcome is the same as without the retry: the original failure is rethrown
   and the caller does what it did before.
 - `Camunda8RetryBackoffResolver` resolves `retry-backoff` over the four configuration
