@@ -90,6 +90,9 @@ public final class ClusterUnderTest {
    * So no integration test sees a real refusal any more. What the adapter does with one is
    * tested without a cluster. {@code Camunda8CommandRetryTest} and
    * {@code Camunda8OutcomeCommandRetryTest} cover the commands a job handler sends back.
+   * {@code Camunda8PreCommitCheckOnABusyClusterTest} covers the check of phase one, and
+   * {@code Camunda8ABusyClusterTakesEveryDeploymentIT} starts a cluster with the limit on
+   * and shows that the broker never refuses a deployment.
    * {@code Camunda8ErrorsTest} covers the answer the outbox reads before it repeats a phase-two
    * command. The test {@code Camunda8TheClusterUnderTestTakesABurstIT} shows that the key still
    * works on the cluster of the active line. The key is the one of the broker configuration.

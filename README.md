@@ -1006,6 +1006,18 @@ That is the adapter's business, and an application which catches the documented 
 catches both. The message names the task. The cluster's own words about the rejection go to the
 log, because that exception carries a message and no cause.
 
+A busy cluster refuses the check with HTTP `503` or `RESOURCE_EXHAUSTED`. That says nothing about
+the task, so the check waits it out: up to five attempts with the backoff of the outcome commands
+below, about half a second. It repeats nothing else, because the caller's transaction stays open
+while it waits, and an outage or a timeout could hold it for a whole request timeout per attempt.
+On REST the client adds its own repetition of a `503` to every attempt, one second later. When the
+attempts are used up, a WARN says so, the refusal is thrown and the caller's transaction rolls
+back, as before. `Camunda8PreCommitCheckOnABusyClusterTest` holds this for both kinds of task.
+
+The deployment at boot needs no such wait. The broker's flow control takes every deployment, on
+all three lines, also when it refuses everything else. `Camunda8ABusyClusterTakesEveryDeploymentIT`
+shows it against a cluster with the smallest limit, so a line which changes this turns it red.
+
 `Camunda8PreCommitCheckTest` pins both halves of the timing: phase one registers without
 contacting the cluster, and the check reaches the cluster when the hook fires. The type is
 held against a real cluster by

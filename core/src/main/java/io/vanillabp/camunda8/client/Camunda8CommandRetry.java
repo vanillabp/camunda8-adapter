@@ -3,20 +3,23 @@ package io.vanillabp.camunda8.client;
 import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * The bounded retries which this adapter puts around a command when another attempt can
- * change the answer. There are two of them, and they wait for two different things.
+ * change the answer. There are three of them, and they wait for different things.
  * <p>
  * {@link #send} carries the command a job handler sends BACK to the cluster. That is the
  * completion, the BPMN error, the failure, and the lock renewal of an open asynchronous
  * task. It waits for a busy cluster. {@link #sendWhileTheUserTaskIsStillChanging} carries
  * a phase-two command against a Camunda-managed user task. It waits for a task which the
- * cluster has not finished creating. Both use the same number of attempts and the same
- * backoff. So the adapter tells one story about how long it waits. Everything in this
- * comment is about the first one, unless it says otherwise.
+ * cluster has not finished creating. {@link #sendWhileTheClusterIsBusy} carries the check
+ * which phase one runs right before the caller commits. It waits for a busy cluster as well,
+ * but for nothing else. All three use the same number of attempts and the same backoff. So
+ * the adapter tells one story about how long it waits. Everything in this comment is about
+ * the first one, unless it says otherwise.
  * <p>
  * <b>Why it exists.</b> A command the cluster rejects because it is busy arrives as
  * <code>RESOURCE_EXHAUSTED</code> on gRPC and as HTTP 503 on REST. The client helps only a
@@ -310,30 +313,103 @@ public final class Camunda8CommandRetry {
       final String taskId,
       final Runnable send) {
 
+    repeatWhile(
+        Camunda8Errors::refusedAboutAUserTaskItHolds,
+        adapterId,
+        "the %s of user task '%s'".formatted(command, taskId),
+        "because the task is in a transition of its own",
+        null,
+        send);
+
+  }
+
+  /**
+   * Sends a check which runs inside the caller's transaction, right before it commits. It
+   * repeats the check while the cluster says it is busy, and only then.
+   * <p>
+   * <b>Why it exists.</b> The check asks the cluster whether a task is still there, before
+   * the caller's transaction commits the work which answers it. A busy cluster refuses that
+   * question with HTTP <code>503</code> or <code>RESOURCE_EXHAUSTED</code>, measured on all
+   * three lines for the change of a job timeout. The refusal says nothing about the task.
+   * Thrown at once, it would roll back the caller's work for a reason which passes in
+   * milliseconds.
+   * <p>
+   * <b>What bounds it.</b> {@value #MAX_ATTEMPTS} attempts with the backoff of {@link #send}.
+   * The caller's transaction stays open while it waits, so nothing else is repeated: not an
+   * outage, and not a request which timed out, because each of those can cost a whole
+   * request timeout. On REST the client adds its own repetition of a <code>503</code> to
+   * every attempt, a second later, as {@link #send} explains. When the attempts are used up,
+   * the refusal is thrown as before, and the caller's transaction rolls back. The caller can
+   * repeat the call.
+   *
+   * @param adapterId The adapter instance, for the messages
+   * @param check What is being sent, named the way the log should name it (e.g.
+   *          <code>pre-commit check of task '4711'</code>)
+   * @param send The check itself
+   * @throws RuntimeException The original failure, once no further attempt is allowed
+   */
+  public static void sendWhileTheClusterIsBusy(
+      final String adapterId,
+      final String check,
+      final Runnable send) {
+
+    repeatWhile(
+        Camunda8Errors::clusterIsBusy,
+        adapterId,
+        "the "
+            + check,
+        "because the cluster is busy",
+        """
+            Camunda8[{}]: the {} was refused by a busy cluster on all {} attempts. The caller's \
+            transaction rolls back, and repeating the call is safe. A cluster answering like this \
+            needs more capacity or fewer requests pushing at it.""",
+        send);
+
+  }
+
+  /**
+   * The loop of the two retries above, which differ only in the answer they wait out.
+   *
+   * @param worthAnotherAttempt Which failure is repeated
+   * @param adapterId The adapter instance, for the messages
+   * @param what What is sent, as the log names it
+   * @param why Why another attempt is made, as the log names it
+   * @param warningWhenUsedUp What is logged at WARN once the attempts are used up, or
+   *          <code>null</code> where the caller reports it itself
+   * @param send The command itself
+   */
+  private static void repeatWhile(
+      final Predicate<RuntimeException> worthAnotherAttempt,
+      final String adapterId,
+      final String what,
+      final String why,
+      final String warningWhenUsedUp,
+      final Runnable send) {
+
     var attempt = 1;
     while (true) {
       try {
         send.run();
         if (attempt > 1) {
-          log.info(
-              "Camunda8[{}]: the {} of user task '{}' went through on attempt {}",
-              adapterId,
-              command,
-              taskId,
-              attempt);
+          log.info("Camunda8[{}]: {} went through on attempt {}", adapterId, what, attempt);
         }
         return;
       } catch (final RuntimeException e) {
-        if (!Camunda8Errors.refusedAboutAUserTaskItHolds(e) || (attempt >= MAX_ATTEMPTS)) {
+        if (!worthAnotherAttempt.test(e)) {
+          throw e;
+        }
+        if (attempt >= MAX_ATTEMPTS) {
+          if (warningWhenUsedUp != null) {
+            log.warn(warningWhenUsedUp, adapterId, what.substring("the ".length()), MAX_ATTEMPTS, e);
+          }
           throw e;
         }
         log.debug(
-            "Camunda8[{}]: the {} of user task '{}' was refused on attempt {} because the task is "
-                + "in a transition of its own - retrying in {} ms",
+            "Camunda8[{}]: {} was refused on attempt {} {} - retrying in {} ms",
             adapterId,
-            command,
-            taskId,
+            what,
             attempt,
+            why,
             backoffMillis(attempt),
             e);
         if (!sleep(nextBackoff(attempt))) {
