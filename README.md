@@ -1631,9 +1631,13 @@ and the age (`Camunda8AsyncTaskAgeTest` and `Camunda8AsyncTaskAgeIT#anOverdueTas
 **The command which reports the outcome is repeated:** a cluster which cannot keep up rejects
 commands, as `RESOURCE_EXHAUSTED` on gRPC and as HTTP 503 on REST. On REST the HTTP library inside
 the client repeats a 503 once, one second later, and the caller gets the second answer. On gRPC
-nothing repeats it: the retry policy of the channel is off by default (probe P5b measured 19.433 of
-20.000 gRPC commands rejected at the caller against one node). All three lines behave the same,
-which `Camunda8ClientOnABusyClusterTest` holds on each of them. The outbox
+nothing repeats it: the retry policy of the channel is off by default. All three lines behave the
+same, which `Camunda8ClientOnABusyClusterTest` holds on each of them. Not every command is refused:
+the broker's flow control always takes the completion and the failure of a job, on every line. It
+refuses the BPMN error and the change of a job timeout, and on 8.10 also the completion of a user
+task. `Camunda8WhatABusyClusterRefusesIT` holds this per line. A completion can still be refused,
+by a broker short of disk space or by a partition paused for a leadership transfer (8.10), or it
+gets no answer in time. The outbox
 covers the phase-two commands. What was left unprotected was the command the handler itself
 sends back: a rejected completion of committed work escaped into the client's fail path and cost
 the job a retry. `Camunda8CommandRetry` now wraps the completion, the BPMN error, the fail
