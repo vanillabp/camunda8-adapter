@@ -4161,3 +4161,104 @@ tested without a cluster:
 Two paths have no retry and no test with a 503: the pre-commit check of a task (phase one) and the
 deployment at boot. There a refusal reaches the caller. This was so before this decision. It is a
 question of its own, and this decision does not answer it.
+
+### 97. Correction to decision 9: the client repeats a 503 once on REST
+
+A correction, added by story 2096 on 2026-11-07, to be appended to decision 9. The first paragraph
+says that "the client retries none of them". That holds for gRPC and not for REST. The HTTP library
+inside the client (httpclient5 5.6.5 on all three lines) repeats a `503` once, one second later,
+and the caller gets the second answer. A request timeout below one second turns that repetition
+off. Run 42223156559 logged it 69 times, and `Camunda8ClientOnABusyClusterTest` holds it on every
+line.
+
+So on REST each attempt of `Camunda8CommandRetry` which meets a `503` is two requests and one
+second of the client's wait. Five attempts send ten requests and take about five and a half seconds,
+not half a second. The check against the remaining lock counts only the adapter's own waits, so
+the client's repetition of the last attempt can leave after the lock ended. The cluster then answers
+as it answers any late command, and the cases this decision names take that answer. The rule itself
+stands. The number of attempts stays at five; whether it should be smaller on REST is an open
+question.
+
+Places which state the corrected behaviour:
+
+- `core/src/main/java/io/vanillabp/camunda8/client/Camunda8CommandRetry.java`, class javadoc
+  ("Why it exists", "What bounds it", the backoff paragraph) and the javadoc of
+  `sendWhileTheUserTaskIsStillChanging`
+- `README.md`, the paragraph "The command which reports the outcome is repeated"
+- `core/README.md`, the entry of `Camunda8CommandRetry`
+- `core/src/test/java/io/vanillabp/camunda8/client/Camunda8ClientOnABusyClusterTest.java`
+- not changed here: the wiki page `Configuration`, section "When the cluster says it is busy",
+  still says nothing in the client repeats a `503` and that the sequence stays below half a second
+
+### 98. The check of phase one waits out a busy cluster, and the deployment needs no such wait
+
+Proposed by story 2095, 2026-11-07. It answers the question which the last paragraph of decision 96
+leaves open: the pre-commit check of a task and the deployment at boot had no retry and no test with
+a `503`.
+
+**What a busy cluster refuses.** The broker's flow control refuses a command with HTTP `503` and
+the title `RESOURCE_EXHAUSTED` on REST, or with `RESOURCE_EXHAUSTED` on gRPC, before it works on
+it. It keeps a list of commands it always takes (`WhiteListedCommands` of `zeebe-logstreams`). The
+creation of a deployment is on that list on 8.8, 8.9 and 8.10, the change of a job timeout and the
+update of a user task are not. Measured on 2026-11-07 against `camunda/camunda` 8.8.46, 8.9.28
+and 8.10.7, each with a request limit of two: in bursts of 50 requests of each kind, every
+deployment answered `200`, and 299 of 300 timeout changes answered `503`.
+
+**The pre-commit check.** The check asks whether a task is still there before the caller commits.
+A `503` says nothing about the task. Thrown at once, it rolled the caller's work back for a reason
+which passes in milliseconds. So the check of a service task (`UpdateJobTimeout`) and of a user task
+(the empty `UpdateUserTask`) now run inside `Camunda8CommandRetry.sendWhileTheClusterIsBusy`: five
+attempts with the backoff of decision 9. Only the busy answer is repeated
+(`Camunda8Errors.clusterIsBusy`). An outage or a timeout is not, because the caller's transaction is
+open while the check waits, and each of those can cost a whole request timeout. When the attempts
+are used up, a WARN says so, the refusal is thrown and the caller's transaction rolls back, as
+before. The caller can repeat the call (decision 64).
+
+This is no retry of anybody's work. The check advances nothing, and a repetition only moves the
+lock of the job once more, to the same value. So the rule that a job is retried only where the model
+asks for it (decision 83) is not touched.
+
+The other answer was considered and not taken: to treat a busy answer as "cannot say" and let the
+caller commit, so the outbox repeats the operation. That keeps the transaction short, but it commits
+work for a task which may be gone, and the application would not hear of it. Version 1 rolled back
+on any refusal of the check, and so does this adapter once the attempts are used up.
+
+**The deployment.** Nothing to do: the broker takes every deployment, also from a busy cluster.
+Should a line take the command off its list, `Camunda8ABusyClusterTakesEveryDeploymentIT` turns red,
+and the deployment would then need the same wait. Decision 17 stands: a cluster which does not
+answer is waited for once, and a deployment which fails ends the boot.
+
+Places which refer to this decision:
+
+- `core/src/main/java/io/vanillabp/camunda8/processservice/Camunda8ProcessService.java`,
+  `registerPreCommitExistenceCheck` and `preflightCompleteUserTask` (the comment can cite the number
+  once it is handed out)
+- `core/src/main/java/io/vanillabp/camunda8/client/Camunda8CommandRetry.java`, class javadoc and
+  `sendWhileTheClusterIsBusy`
+- `core/src/main/java/io/vanillabp/camunda8/client/Camunda8Errors.java`, `clusterIsBusy`
+- `README.md`, section "When a phase-one check runs"
+- `test-support/src/main/java/io/vanillabp/camunda8/test/ClusterUnderTest.java`, javadoc of
+  `REQUEST_FLOW_CONTROL`
+- `core/src/test/java/io/vanillabp/camunda8/processservice/Camunda8PreCommitCheckOnABusyClusterTest.java`
+- `spring-boot/src/test/java/io/vanillabp/camunda8/springboot/it/Camunda8ABusyClusterTakesEveryDeploymentIT.java`
+- decision 96, last paragraph: an addition there can point here ("answered by decision N")
+
+### 99. Addition to decision 95: the wiki has moved
+
+An addition, added by story 2092 on 2026-11-07, to the paragraph "What is left for later" of
+decision 95. Story 2086 moved the wiki to `vanillabp/camunda8-adapter`. The message in
+`Camunda8Connectors` (`A_JOB_NOBODY_FETCHES`) now links
+`https://github.com/vanillabp/camunda8-adapter/wiki/Configuration#a-job-nobody-fetches`, and
+`Camunda8ConnectorsReportTest#withoutThePropertyTheAdapterGuidesTowardsIt` asserts that link. No
+other link into the Camunda Community Hub is left in the production code.
+
+The links in decisions 24, 53 and 54 (the wiki section "a job nobody fetches") and 71 (the wiki page
+`Deviations`) still point to the wiki in the Camunda Community Hub, which gets no updates any more.
+Decision 40 names the old repository address as the example of a broken URL, which stays as it is.
+The decisions are not edited; the pages they name exist under
+`https://github.com/vanillabp/camunda8-adapter/wiki/` with the same names.
+
+Places which refer to this addition:
+
+- `core/src/main/java/io/vanillabp/camunda8/wiring/Camunda8Connectors.java`, `A_JOB_NOBODY_FETCHES`
+- `core/src/test/java/io/vanillabp/camunda8/deployment/Camunda8ConnectorsReportTest.java`
