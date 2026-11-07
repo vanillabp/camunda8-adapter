@@ -1617,9 +1617,11 @@ with no retries left, so the cluster raises an incident naming the workflow aggr
 and the age (`Camunda8AsyncTaskAgeTest` and `Camunda8AsyncTaskAgeIT#anOverdueTaskEndsInAnIncident`).
 
 **The command which reports the outcome is repeated:** a cluster which cannot keep up rejects
-commands, as `RESOURCE_EXHAUSTED` on gRPC and as HTTP 503 on REST. The client repeats neither of
-them (its gRPC retry policy is off by default and would not cover REST anyway; probe P5b
-measured 19.433 of 20.000 gRPC commands rejected at the caller against one node). The outbox
+commands, as `RESOURCE_EXHAUSTED` on gRPC and as HTTP 503 on REST. On REST the HTTP library inside
+the client repeats a 503 once, one second later, and the caller gets the second answer. On gRPC
+nothing repeats it: the retry policy of the channel is off by default (probe P5b measured 19.433 of
+20.000 gRPC commands rejected at the caller against one node). All three lines behave the same,
+which `Camunda8ClientOnABusyClusterTest` holds on each of them. The outbox
 covers the phase-two commands. What was left unprotected was the command the handler itself
 sends back: a rejected completion of committed work escaped into the client's fail path and cost
 the job a retry. `Camunda8CommandRetry` now wraps the completion, the BPMN error, the fail
@@ -1631,8 +1633,11 @@ tolerated at-least-once residual into a storm). It stops at the job's remaining 
 attempts, and at once when the module is shutting down (the job keeps its lock then, and a retry
 loop must not hold up the drain). The waits are the client's own activation backoff numbers: 50
 ms at first, factor 1.6, a tenth of jitter and a 5s ceiling which the five attempts never reach.
-That keeps the whole sequence below half a second, which matters because a waiting handler
-occupies an execution slot. When the bound is reached, the original failure is rethrown, so the
+These waits add up to less than half a second, which is all a command takes on gRPC. On REST each
+attempt which meets a 503 adds the second the client waits, so five of them send ten requests and
+take about five and a half seconds. The time matters because a waiting handler occupies an
+execution slot. The check against the lock counts only the adapter's own waits, so the client's
+repetition of the last attempt can leave after the lock ended. When the bound is reached, the original failure is rethrown, so the
 behaviour after the retry is exactly what it was before. The bounds and the waits are
 `Camunda8CommandRetryTest`, and `Camunda8OutcomeCommandRetryTest` sends through it from four
 kinds of worker. The listener somebody modelled is not among them yet.

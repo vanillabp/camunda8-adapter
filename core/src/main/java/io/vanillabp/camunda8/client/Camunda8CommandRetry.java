@@ -19,11 +19,13 @@ import lombok.extern.slf4j.Slf4j;
  * comment is about the first one, unless it says otherwise.
  * <p>
  * <b>Why it exists.</b> A command the cluster rejects because it is busy arrives as
- * <code>RESOURCE_EXHAUSTED</code> on gRPC and as HTTP 503 on REST. Nothing in the Camunda
- * client repeats either of them. The gRPC retry policy is switched off by default. Even
- * when it is on, it is a channel setting, and it does nothing for the REST transport which
- * this adapter prefers. Measured against a single node, 19.433 of 20.000 gRPC commands came
- * back rejected. Phase-two commands survive that, because the outbox repeats them. The
+ * <code>RESOURCE_EXHAUSTED</code> on gRPC and as HTTP 503 on REST. The client helps only a
+ * little. On REST, the transport this adapter prefers, its HTTP library repeats a 503 once,
+ * one second later, and the caller gets the second answer. On gRPC nothing repeats it,
+ * because the retry policy of the channel is switched off by default. See
+ * {@code Camunda8ClientOnABusyClusterTest}. Measured against a single node, 19.433 of 20.000
+ * gRPC commands came back rejected. Phase-two commands survive that, because the outbox
+ * repeats them. The
  * command inside a job handler had nobody to repeat it. So a rejected completion of work
  * which was already committed went into the client's fail path, and the job lost one of
  * its retries. Under lasting load, that drives a job into an incident, although every
@@ -37,17 +39,20 @@ import lombok.extern.slf4j.Slf4j;
  * of it is left.</li>
  * <li><b>{@value #MAX_ATTEMPTS} attempts.</b> A handler which waits for a cluster to calm
  * down holds an execution slot (see {@link Camunda8ExecutionModel}). A slot which waits
- * delivers nothing. Five attempts spread over less than half a second are a hiccup. More
- * than that is a cluster problem which an operator has to see. A worker should not just
- * sit it out.</li>
+ * delivers nothing. On gRPC five attempts take less than half a second. On REST each attempt
+ * which meets a 503 adds the second the client waits, so five of them take about five and a
+ * half seconds and send ten requests. More than that is a cluster problem which an operator
+ * has to see. A worker should not just sit it out.</li>
  * </ul>
  * The backoff is exponential and has the shape of the client's own activation backoff
  * ({@code ExponentialBackoffBuilderImpl}): {@value #INITIAL_BACKOFF_MILLIS} ms at first,
  * factor {@value #BACKOFF_FACTOR}, a ceiling of {@value #MAX_BACKOFF_MILLIS} ms and
  * {@value #JITTER_FACTOR} jitter. So the documentation tells one story about backoff, not
  * two. With five attempts the ceiling is never reached. There are four waits, of 50, 80, 128
- * and 205 ms before jitter, so the whole sequence stays around half a second, which is the
- * point.
+ * and 205 ms before jitter, which is 463 ms in total. The check against the lock counts only
+ * these waits and not the second of the client. So on REST the last request can leave after
+ * the lock ended. The cluster then answers as it does to any late command, and the cases below
+ * take that answer.
  * <p>
  * <b>What is not retried.</b> The classification is the one the outbox already uses
  * ({@link Camunda8Errors#repeatableJobCommandFailure}). So the adapter has one opinion
@@ -286,7 +291,8 @@ public final class Camunda8CommandRetry {
    * passes in a few milliseconds.
    * <p>
    * <b>What bounds it.</b> {@value #MAX_ATTEMPTS} attempts with the backoff of
-   * {@link #send}, under half a second in total. This runs on a thread of the phase-two
+   * {@link #send}, under half a second in total. The client does not repeat a
+   * <code>409</code>, so no second of its own comes on top. This runs on a thread of the phase-two
    * dispatcher. Half a second there is a hiccup, but thirty seconds of waiting is a delay
    * somebody notices. Nothing is lost when the attempts are used up. The failure is thrown
    * again, and the outbox repeats the entry as it does today.
