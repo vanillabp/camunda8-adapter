@@ -442,3 +442,63 @@ jobs:
       actions: read
       issues: write
     uses: ./.github/workflows/preview-line-issue.yaml
+
+  # A new client version can bring a setting which the adapter does not pass on yet. The build
+  # stays green and nobody notices, because the adapter configures the client itself and reads only
+  # its own keys. So this job reads the client jars of the base branch and of the pull request,
+  # and opens an issue for each new setting which client-configuration-inventory.yml does not
+  # list yet. The script says in its header what else it reports.
+  #
+  # A find never makes this job red. The pull request may merge as soon as the build is green,
+  # and the issue carries the work. Only a failure of the script itself makes it red, because a
+  # check which read nothing must not look like a version without news. That is also why the
+  # self test runs first.
+  client-configuration:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # the issue for a new setting, and its label
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A pull request is checked out as a merge commit. Its first parent is the base
+          # branch, and the POM there names the version the pull request moves away from.
+          fetch-depth: 2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: PyYAML, which reads the inventory
+        run: pip install --quiet pyyaml==6.0.3
+      - name: The check still finds a setting it is known to find
+        run: python .github/client-configuration/check.py self-test
+      - name: Each new setting of the client becomes an issue
+        env:
+          GH_TOKEN: "${{ github.token }}"
+          # Optional. With a token which may write to the organization's projects, the script
+          # adds a new issue to the project itself. Without it, the auto-add workflow of the
+          # project has to pick the issue up by its label.
+          PROJECT_TOKEN: "${{ secrets.VANILLABP_PROJECT_TOKEN }}"
+          EVENT: "${{ github.event_name }}"
+          PULL_REQUEST: "${{ github.event.pull_request.html_url }}"
+          # The token of a pull request from a fork may not write issues, so such a run only
+          # says in its summary which issue it would open. Renovate and the maintainers push
+          # their branches to this repository, so their pull requests open the issues.
+          SAME_REPOSITORY: "${{ github.event.pull_request.head.repo.full_name == github.repository }}"
+        run: |
+          set -euo pipefail
+          base="$RUNNER_TEMP/base-pom.xml"
+          if [ "$EVENT" = "pull_request" ]; then
+            git show HEAD^1:pom.xml > "$base"
+          else
+            # a run by hand has no base to compare with, it checks the inventory only
+            cp pom.xml "$base"
+          fi
+          create=()
+          if [ "$SAME_REPOSITORY" = "true" ]; then
+            create=(--create-issues)
+          fi
+          python .github/client-configuration/check.py check \
+            --base-pom "$base" --head-pom pom.xml \
+            ${PULL_REQUEST:+--pull-request "$PULL_REQUEST"} \
+            --summary "$GITHUB_STEP_SUMMARY" "${create[@]}"
