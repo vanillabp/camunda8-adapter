@@ -1,0 +1,335 @@
+# Which settings of the Camunda 8 client this adapter passes on to its users, and which it does
+# not.
+#
+# The adapter builds the client itself and reads only its own keys, 'vanillabp.adapters.<id>.*'.
+# So a setting which a new client version adds reaches a user only when the adapter gets a key for
+# it. The script .github/client-configuration/check.py reads the settings out of the client jars.
+# The job 'client-configuration' of .github/workflows/checks.yaml runs it on every pull request.
+# When a pull request moves the pin of a release line, it compares the two versions of that line
+# and opens an issue labelled 'client-configuration' for each new setting which this file does
+# not list yet.
+#
+# Every setting is listed once, under one of four answers:
+#
+#   supported       the adapter has a key which sets it ('key')
+#   set-by-adapter  the adapter sets it itself ('reason')
+#   not-supported   why a user of the adapter does not need it ('reason')
+#   open            the issue which decides it ('issue')
+#
+# The file ends in '.yml' on purpose. Spotless formats every '*.yaml' file through Jackson, which
+# drops the comments, and the comments here are half of the answers.
+#
+# A group shares one answer, but it names each of its settings. So a new setting never falls into
+# a group without somebody writing its name down here. One file serves every release line. A
+# setting which only the newer lines have is listed like any other.
+client:
+  name: Camunda 8 client
+  # where the pull request finds the client version of each release line, in the root pom.xml
+  version-properties:
+    - camunda8.version.line-8.8
+    - camunda8.version.line-8.9
+    - camunda8.version.line-8.10
+  # https://github.com/orgs/vanillabp/projects/4, where the issues belong
+  project: 4
+  # what an issue suggests as the key of a new setting
+  suggested-key-prefix: vanillabp.adapters.<id>.
+# A comparison whose result is known. The job runs it first, so that a check which reads nothing
+# cannot look like a version without news.
+self-test:
+  old: 8.8.46
+  new: 8.10.8
+  new-settings:
+    builder:
+      - physicalTenantId
+    starter:
+      - camunda.client.physical-tenant-id
+# What the script reads.
+surfaces:
+  # The methods of the builder the adapter builds the client with.
+  - id: builder
+    title: client builder setting
+    read: methods
+    artifacts:
+      - io.camunda:camunda-client-java
+    classes:
+      - io.camunda.client.CamundaClientBuilder
+  # The properties of Camunda's Spring Boot starter, from its Spring configuration metadata, with
+  # the defaults of the job workers. The adapter does not use the starter. But the starter is the
+  # best list of what Camunda thinks a user wants to set.
+  - id: starter
+    title: Spring Boot starter property
+    read: spring-metadata
+    artifacts:
+      - io.camunda:camunda-spring-boot-starter
+    prefix: camunda.client.
+settings:
+  builder:
+    supported:
+      - names: [restAddress]
+        key: vanillabp.adapters.<id>.rest-address
+      - names: [grpcAddress]
+        key: vanillabp.adapters.<id>.grpc-address
+      - names: [preferRestOverGrpc]
+        key: vanillabp.adapters.<id>.prefer-rest-over-grpc
+      - names: [defaultTenantId]
+        key: vanillabp.adapters.<id>.tenant-id
+      - names: [defaultJobWorkerMaxJobsActive]
+        key: vanillabp.adapters.<id>.max-jobs-active
+      - names: [defaultJobPollInterval]
+        key: vanillabp.adapters.<id>.poll-interval
+      - names: [defaultRequestTimeout]
+        key: vanillabp.adapters.<id>.request-timeout
+      - names: [defaultJobWorkerStreamEnabled]
+        key: vanillabp.adapters.<id>.stream-enabled
+      - names: [defaultJobTimeout]
+        key: vanillabp.adapters.<id>.job-timeout (set on each worker)
+      - names: [maxMessageSize]
+        key: vanillabp.adapters.<id>.max-message-size
+      - names: [keepAlive]
+        key: vanillabp.adapters.<id>.keep-alive
+      - names: [maxHttpConnections]
+        key: vanillabp.adapters.<id>.max-http-connections
+      - names: [overrideAuthority]
+        key: vanillabp.adapters.<id>.override-authority
+      - names: [caCertificatePath]
+        key: vanillabp.adapters.<id>.auth.ca-certificate-path
+      - names: [credentialsProvider]
+        key: vanillabp.adapters.<id>.auth.*
+    set-by-adapter:
+      - names:
+          - jobHandlingExecutor
+          - jobWorkerExecutor
+          - jobWorkerSchedulingExecutor
+          - numJobWorkerExecutionThreads
+        reason: >-
+          The adapter brings its own executor for the job workers, with platform or virtual threads,
+          see 'worker-threads'. The pool which 'numJobWorkerExecutionThreads' sizes is not used then.
+      - names:
+          - defaultJobWorkerName
+          - defaultJobWorkerTenantFilter
+          - defaultJobWorkerTenantIds
+        reason: The adapter names each worker and gives it its tenant itself, per task.
+      - names: [build]
+        reason: The adapter builds the client once per adapter id.
+    not-supported:
+      - names: [applyEnvironmentVariableOverrides]
+        reason: >-
+          Stays at the default of the client, which is on: an environment variable of the client
+          overrules what the adapter set, and the adapter logs what it changed.
+      - names:
+          - withConfiguration
+          - withProperties
+        reason: >-
+          These read the client's own configuration. The adapter configures the client from its own
+          keys instead.
+      - names:
+          - defaultJobWorkerExceptionHandler
+          - withChainHandlers
+          - withInterceptors
+          - withJsonMapper
+        reason: >-
+          It takes a Java object. The adapter has no way yet to hand one from the application to the
+          client, and nobody has asked for one.
+      - names:
+          - defaultMessageTimeToLive
+          - defaultRequestTimeoutOffset
+          - maxMetadataSize
+          - useClientSideLoadBalancing
+          - useDefaultRetryPolicy
+        reason: >-
+          Stays at the default of the client. A message gets its time to live from the adapter per
+          call, and the others have never been needed.
+      - names:
+          - physicalTenantId
+          - prefixPhysicalTenantPath
+        reason: >-
+          Physical tenants are a feature of the cluster which VanillaBP does not use. The adapter
+          keeps workflow modules apart with its own tenants.
+  starter:
+    supported:
+      - names: [camunda.client.rest-address]
+        key: vanillabp.adapters.<id>.rest-address
+      - names: [camunda.client.grpc-address]
+        key: vanillabp.adapters.<id>.grpc-address
+      - names: [camunda.client.prefer-rest-over-grpc]
+        key: vanillabp.adapters.<id>.prefer-rest-over-grpc
+      - names: [camunda.client.tenant-id]
+        key: vanillabp.adapters.<id>.tenant-id
+      - names: [camunda.client.mode]
+        key: vanillabp.adapters.<id>.mode
+      - names:
+          - camunda.client.cloud.cluster-id
+          - camunda.client.cluster-id
+        key: vanillabp.adapters.<id>.cluster-id
+      - names:
+          - camunda.client.cloud.region
+          - camunda.client.region
+        key: vanillabp.adapters.<id>.region
+      - names: [camunda.client.auth.method]
+        key: vanillabp.adapters.<id>.auth.method
+      - names: [camunda.client.auth.username]
+        key: vanillabp.adapters.<id>.auth.username
+      - names: [camunda.client.auth.password]
+        key: vanillabp.adapters.<id>.auth.password
+      - names: [camunda.client.auth.client-id]
+        key: vanillabp.adapters.<id>.auth.client-id
+      - names: [camunda.client.auth.client-secret]
+        key: vanillabp.adapters.<id>.auth.client-secret
+      - names: [camunda.client.auth.token-url]
+        key: vanillabp.adapters.<id>.auth.authorization-server-url
+      - names: [camunda.client.auth.audience]
+        key: vanillabp.adapters.<id>.auth.audience
+      - names: [camunda.client.auth.scope]
+        key: vanillabp.adapters.<id>.auth.scope
+      - names: [camunda.client.auth.credentials-cache-path]
+        key: vanillabp.adapters.<id>.auth.credentials-cache-path
+      - names: [camunda.client.auth.connect-timeout]
+        key: vanillabp.adapters.<id>.auth.connect-timeout
+      - names: [camunda.client.auth.read-timeout]
+        key: vanillabp.adapters.<id>.auth.read-timeout
+      - names: [camunda.client.auth.keystore-path]
+        key: vanillabp.adapters.<id>.auth.keystore-path
+      - names: [camunda.client.auth.keystore-password]
+        key: vanillabp.adapters.<id>.auth.keystore-password
+      - names: [camunda.client.auth.keystore-key-password]
+        key: vanillabp.adapters.<id>.auth.keystore-key-password
+      - names: [camunda.client.auth.truststore-path]
+        key: vanillabp.adapters.<id>.auth.truststore-path
+      - names: [camunda.client.auth.truststore-password]
+        key: vanillabp.adapters.<id>.auth.truststore-password
+      - names: [camunda.client.ca-certificate-path]
+        key: vanillabp.adapters.<id>.auth.ca-certificate-path
+      - names: [camunda.client.keep-alive]
+        key: vanillabp.adapters.<id>.keep-alive
+      - names: [camunda.client.max-http-connections]
+        key: vanillabp.adapters.<id>.max-http-connections
+      - names: [camunda.client.max-message-size]
+        key: vanillabp.adapters.<id>.max-message-size
+      - names: [camunda.client.override-authority]
+        key: vanillabp.adapters.<id>.override-authority
+      - names: [camunda.client.request-timeout]
+        key: vanillabp.adapters.<id>.request-timeout
+      - names: [camunda.client.execution-threads]
+        key: vanillabp.adapters.<id>.worker-threads
+      - names: [camunda.client.worker.defaults.max-jobs-active]
+        key: vanillabp.adapters.<id>.max-jobs-active
+      - names: [camunda.client.worker.defaults.poll-interval]
+        key: vanillabp.adapters.<id>.poll-interval
+      - names: [camunda.client.worker.defaults.request-timeout]
+        key: vanillabp.adapters.<id>.request-timeout
+      - names: [camunda.client.worker.defaults.stream-enabled]
+        key: vanillabp.adapters.<id>.stream-enabled
+      - names: [camunda.client.worker.defaults.stream-timeout]
+        key: vanillabp.adapters.<id>.stream-timeout
+      - names: [camunda.client.worker.defaults.timeout]
+        key: vanillabp.adapters.<id>.job-timeout
+      - names: [camunda.client.worker.defaults.fetch-variables]
+        key: vanillabp.adapters.<id>.fetch-variables
+      - names: [camunda.client.worker.defaults.retry-backoff]
+        key: vanillabp.adapters.<id>.retry-backoff
+      - names: [camunda.client.worker.defaults.with-lease]
+        key: vanillabp.adapters.<id>.job-lease
+    set-by-adapter:
+      - names:
+          - camunda.client.enabled
+          - camunda.client.worker.defaults.auto-complete
+          - camunda.client.worker.defaults.enabled
+          - camunda.client.worker.defaults.force-fetch-all-variables
+          - camunda.client.worker.defaults.name
+          - camunda.client.worker.defaults.tenant-filter
+          - camunda.client.worker.defaults.tenant-ids
+          - camunda.client.worker.defaults.type
+          - camunda.client.worker.override
+        reason: >-
+          The adapter builds the client per adapter id and opens one worker per task. It decides the
+          type, the name, the tenant and the completion of each worker from the workflow module.
+      - names:
+          - camunda.client.deployment.enabled
+          - camunda.client.deployment.own-jar-only
+        reason: VanillaBP deploys the models of each workflow module itself.
+    not-supported:
+      - names: [camunda.client.worker.defaults.max-retries]
+        reason: VanillaBP retries a task only where the model asks for it.
+      - names:
+          - camunda.client.auth.client-assertion.keystore-key-alias
+          - camunda.client.auth.client-assertion.keystore-key-password
+          - camunda.client.auth.client-assertion.keystore-password
+          - camunda.client.auth.client-assertion.keystore-path
+          - camunda.client.auth.issuer-url
+          - camunda.client.auth.proactive-token-refresh-threshold
+          - camunda.client.auth.resource
+          - camunda.client.auth.token-fetch-backoff-multiplier
+          - camunda.client.auth.token-fetch-initial-backoff
+          - camunda.client.auth.token-fetch-max-retries
+          - camunda.client.auth.token-fetch-non-retryable-cooldown
+          - camunda.client.auth.token-fetch-retryable-status-codes
+          - camunda.client.auth.well-known-configuration-url
+          - camunda.client.max-metadata-size
+          - camunda.client.message-time-to-live
+          - camunda.client.request-timeout-offset
+          - camunda.client.use-client-side-load-balancing
+          - camunda.client.worker.defaults.stream-inactivity-timeout
+        reason: >-
+          Stays at the default of the client. A message gets its time to live from the adapter per
+          call, and the others have never been needed.
+      - names:
+          - camunda.client.physical-tenant-id
+          - camunda.client.prefix-physical-tenant-path
+        reason: >-
+          Physical tenants are a feature of the cluster which VanillaBP does not use. The adapter
+          keeps workflow modules apart with its own tenants.
+      - names:
+          - camunda.client.cluster-variables.enabled
+          - camunda.client.cluster-variables.global
+          - camunda.client.cluster-variables.tenant
+          - camunda.client.cluster-variables.variables
+        reason: >-
+          Cluster variables are a feature of the starter. VanillaBP passes the values of a workflow
+          aggregate instead.
+      - names:
+          - camunda.client.auth.issuer
+          - camunda.client.cloud.base-url
+          - camunda.client.cloud.domain
+          - camunda.client.cloud.port
+          - camunda.client.identity.audience
+          - camunda.client.identity.base-url
+          - camunda.client.identity.enabled
+          - camunda.client.identity.scope
+          - camunda.client.tenant-ids
+        reason: >-
+          Older names, or details of Camunda SaaS which the client derives from the cluster id and the
+          region. The adapter has the keys which replace them.
+      - names:
+          - camunda.client.zeebe.audience
+          - camunda.client.zeebe.base-url
+          - camunda.client.zeebe.ca-certificate-path
+          - camunda.client.zeebe.defaults.auto-complete
+          - camunda.client.zeebe.defaults.enabled
+          - camunda.client.zeebe.defaults.fetch-variables
+          - camunda.client.zeebe.defaults.force-fetch-all-variables
+          - camunda.client.zeebe.defaults.max-jobs-active
+          - camunda.client.zeebe.defaults.max-retries
+          - camunda.client.zeebe.defaults.name
+          - camunda.client.zeebe.defaults.poll-interval
+          - camunda.client.zeebe.defaults.request-timeout
+          - camunda.client.zeebe.defaults.stream-enabled
+          - camunda.client.zeebe.defaults.stream-timeout
+          - camunda.client.zeebe.defaults.tenant-ids
+          - camunda.client.zeebe.defaults.timeout
+          - camunda.client.zeebe.defaults.type
+          - camunda.client.zeebe.deployment.enabled
+          - camunda.client.zeebe.enabled
+          - camunda.client.zeebe.execution-threads
+          - camunda.client.zeebe.grpc-address
+          - camunda.client.zeebe.keep-alive
+          - camunda.client.zeebe.max-message-size
+          - camunda.client.zeebe.max-metadata-size
+          - camunda.client.zeebe.message-time-to-live
+          - camunda.client.zeebe.override-authority
+          - camunda.client.zeebe.prefer-rest-over-grpc
+          - camunda.client.zeebe.request-timeout
+          - camunda.client.zeebe.rest-address
+          - camunda.client.zeebe.scope
+        reason: >-
+          The names of the Zeebe client before Camunda renamed it. The starter reads them for
+          applications which have not moved yet, and the adapter has the keys which replace them.
