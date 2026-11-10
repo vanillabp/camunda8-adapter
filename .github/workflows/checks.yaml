@@ -467,7 +467,7 @@ jobs:
           fetch-depth: 2
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.15"
       - name: PyYAML, which reads the inventory
         run: pip install --quiet pyyaml==6.0.3
       - name: The check still finds a setting it is known to find
