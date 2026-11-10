@@ -79,7 +79,21 @@ jobs:
         with:
           java-version: 25.0.5+8.0.LTS
           distribution: temurin
-          cache: maven
+      # The Maven repository of the lines, as in the blueprints. 'cache: maven' of setup-java
+      # keys on the POMs alone and has no fallback, so every change to a POM started all
+      # lines with an empty repository, and each of them fetched 1,700 to 1,900 files from
+      # Central. This key carries the run id, so one line writes it on every run, and the
+      # restore keys hand the next run the newest repository there is, even after a POM
+      # change. Only the first line writes: the lines differ by a few dozen files, and three
+      # caches of 250 MB per run would push older ones out of the storage of this repository.
+      - id: maven-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.m2/repository
+          key: maven-lines-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
+          restore-keys: |
+            maven-lines-${{ hashFiles('**/pom.xml') }}-
+            maven-lines-
       # The Maven cache of this runner can hold a platform jar from a day this build never
       # asks for again. The step which names the snapshot reads what is newer than this
       # marker, so it names what Maven fetched tonight.
@@ -223,6 +237,19 @@ jobs:
         with:
           name: line-result-${{ matrix.line }}
           path: "${{ runner.temp }}/line-result/${{ matrix.line }}"
+      # Our own snapshots never go into the cache, as in the blueprints. A line has to build
+      # against what the registry holds now, and a snapshot the cache carried in would still
+      # resolve after the registry lost it.
+      - name: Keep our own snapshots out of the Maven cache
+        if: matrix.line == fromJSON(needs.discover.outputs.lines)[0]
+        run: find ~/.m2/repository/io/vanillabp -type d -name '*-SNAPSHOT' -prune -exec rm -rf {} + || true
+      # The key comes from the restore step, because the build has added copies of the POMs
+      # under target, and hashFiles would read a different key here than at the start.
+      - uses: actions/cache/save@v6
+        if: matrix.line == fromJSON(needs.discover.outputs.lines)[0]
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.maven-cache.outputs.cache-primary-key }}
 
   # One name that never changes, so branch protection and the release workflow have something to
   # require while the matrix grows and shrinks with the lines.

@@ -153,17 +153,30 @@ jobs:
       # Maven 3.10.
       - name: Use Maven 3.9
         run: |
-          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.16/apache-maven-3.9.16-bin.tar.gz \
-            | tar xz -C "$RUNNER_TEMP"
+          # Into a file and not through a pipe: a transfer which breaks halfway has already
+          # written to tar, so a repeat of curl could not mend it. Nine repeats wait about
+          # eight minutes, long enough for a 429 of Central to pass.
+          curl -fsSL --retry 9 --retry-all-errors --retry-max-time 600 --connect-timeout 20 --max-time 120 \
+            -o "$RUNNER_TEMP/apache-maven.tar.gz" \
+            https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.16/apache-maven-3.9.16-bin.tar.gz
+          tar xzf "$RUNNER_TEMP/apache-maven.tar.gz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/apache-maven-3.9.16/bin" >> "$GITHUB_PATH"
       - uses: actions/setup-java@v6
         with:
           java-version: 25.0.5+8.0.LTS
           distribution: temurin
-          cache: maven
           server-id: vanillabp-central
           server-username-env-var: MAVEN_USERNAME
           server-password-env-var: MAVEN_PASSWORD
+      # Read only, from the repository the line matrix wrote (line-matrix.yaml says why).
+      # Without it a POM change made every line here fetch everything from Central.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/.m2/repository
+          key: maven-lines-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
+          restore-keys: |
+            maven-lines-${{ hashFiles('**/pom.xml') }}-
+            maven-lines-
       # The profile 'central-portal' of io.vanillabp:release-parent sends a version ending in
       # -SNAPSHOT straight to the snapshot repository of Maven Central. spi-for-java and the
       # platform come from the same repository, which the parent names and which needs no
