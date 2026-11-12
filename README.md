@@ -724,6 +724,15 @@ instance and for every completely configured SaaS adapter instance. The set of a
 always comes from the platform's core properties (ids of type `camunda8`); the overlay maps are
 only looked up per known id.
 
+A section may be written as `vanillabp.adapters.<adapter-id>: {}` in a YAML file, and its keys set
+somewhere else. Spring Boot reads the empty YAML map as an empty value at the section's own name.
+When it binds an object, it takes that value first and ignores the keys below it, including keys
+from the command line, an environment variable or a second YAML document. The platform's
+`EmptySections` stops this for every section below `vanillabp`, so it covers
+`VanillaBpCamunda8Properties` as well. This adapter binds nothing with a `Binder` of its own, so it
+needs nothing more. `EmptyAdapterSectionTest` checks the overlay at the adapter and the
+workflow-module level, a section of nothing but `{}`, and the client built from such a section.
+
 |                        Property                         |  Applies to  |                                    Required                                    |                                  Description                                  |
 |---------------------------------------------------------|--------------|--------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
 | `vanillabp.adapters.<adapter-id>.mode`                  | both         | no (default `self-managed`)                                                    | `self-managed` or `saas`                                                      |
