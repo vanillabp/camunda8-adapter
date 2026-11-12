@@ -1,0 +1,12 @@
+vanillabp:
+  adapters:
+    c8: {}
+  workflow-modules:
+    loans:
+      adapters:
+        c8: {}
+---
+vanillabp:
+  adapters:
+    c8:
+      job-timeout: PT7M

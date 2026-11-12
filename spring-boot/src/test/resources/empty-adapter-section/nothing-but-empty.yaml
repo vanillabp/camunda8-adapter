@@ -1,0 +1,7 @@
+vanillabp:
+  adapters:
+    c8: {}
+  workflow-modules:
+    loans:
+      adapters:
+        c8: {}
