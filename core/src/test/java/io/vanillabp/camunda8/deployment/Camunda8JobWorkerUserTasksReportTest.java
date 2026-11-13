@@ -41,10 +41,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * there is nothing to ask of a model somebody else owns, so it is not looked at and the boot
  * goes on (decision 73 in the repository's DECISIONS.md).
  * <p>
- * One element has the shape and is still none of this: a user task with a
- * {@code zeebe:taskDefinition} of its own. A worker of the application serves it under a job
- * type the application chose. So the reader passes over it, and a test below holds that
- * boundary.
+ * A user task with a {@code zeebe:taskDefinition} of its own has the same shape, and it is
+ * refused the same way. The cluster ignores a job type on a user task and hands out its own
+ * user-task job all the same ({@code Camunda8LegacyUserTaskIT} measures it). So the message
+ * says that the job type changes nothing, whether or not a method names it.
  * <p>
  * Two shapes reach the message and it has to keep them apart. One carries the
  * {@code formKey} VanillaBP 1 read the task definition from up to its release 1.6.3, and an
@@ -99,9 +99,9 @@ public class Camunda8JobWorkerUserTasksReportTest {
   private static final String OLDER_VERSIONS_MAY_KEEP_IT = "Older versions of this process which the cluster already holds may keep this shape; they are not refused.";
 
   /**
-   * How the refusal of a method for a user task with a job type of its own starts.
+   * What the refusal says about a user task which names a job type of its own.
    */
-  private static final String A_JOB_TYPE_OF_ITS_OWN = "is a user task with a job type of its own";
+  private static final String THE_JOB_TYPE_CHANGES_NOTHING = "does not change that: the cluster ignores a job type on a user task and hands out a job of type 'io.camunda.zeebe:userTask'";
 
   private static BpmnModelInstance model(
       final String userTaskContent) {
@@ -147,10 +147,10 @@ public class Camunda8JobWorkerUserTasksReportTest {
   }
 
   /**
-   * The one element which carries the shape and is still none of this: a worker of the
-   * application serves it, under a job type the application chose.
+   * The shape with a job type of its own, which older Camunda Modelers often wrote. It looks
+   * like an element a worker of the application serves. The cluster ignores the job type.
    */
-  private static BpmnModelInstance aUserTaskAWorkerOfTheApplicationServes() {
+  private static BpmnModelInstance aUserTaskWithAJobTypeOfItsOwn() {
 
     return model("""
             <bpmn:userTask id="Activity_ApproveTheLoan">
@@ -456,44 +456,82 @@ public class Camunda8JobWorkerUserTasksReportTest {
 
 
   @Test
-  @DisplayName("A claimed process whose user task carries a task definition of its own boots")
-  public void anElementTheApplicationServesItselfIsLeftAlone(
-      final CapturedOutput output) {
+  @DisplayName("A claimed process whose user task carries a job type of its own does not deploy either")
+  public void aUserTaskWithAJobTypeOfItsOwnEndsTheBootToo() {
 
-    final var before = output.getAll().length();
-    assertDoesNotThrow(wiringOf(aUserTaskAWorkerOfTheApplicationServes(), new NoMethodServesIt()));
-    final var logged = output.getAll().substring(before);
+    final var refused = assertThrows(
+        IllegalStateException.class,
+        wiringOf(aUserTaskWithAJobTypeOfItsOwn(), new NoMethodServesIt())).getMessage();
 
-    assertFalse(
-        logged.contains(THE_FINDING),
-        () -> "a task definition of its own says a worker of the application serves the element, "
-            + "so it is no user task of VanillaBP's and this check passes over it: "
-            + logged);
-    assertFalse(
-        logged.contains(A_JOB_TYPE_OF_ITS_OWN),
-        () -> "and no method names its job type, so nothing is wrong: "
-            + logged);
+    assertTrue(
+        refused.contains("user task 'Activity_ApproveTheLoan' has "
+            + THE_FINDING),
+        () -> "the cluster serves it with its own user-task job, so it is a job-worker user task "
+            + "like every other one, even without a method for its job type: "
+            + refused);
+    assertTrue(
+        refused.contains("The job type in 'zeebe:taskDefinition' ('approveTheLoan' for 'Activity_ApproveTheLoan') "
+            + THE_JOB_TYPE_CHANGES_NOTHING),
+        () -> "the developer reads a job type in the model, so the message says why it does not help: "
+            + refused);
+    assertTrue(
+        refused.contains("If a job is really what you want, model the element as a service task."),
+        () -> "and names the element which does take a job type: "
+            + refused);
+    assertTrue(
+        refused.contains(
+            "set 'External form reference' to the task definition of the @WorkflowTask method which serves it."),
+        () -> "no method names the job type or the element id, so no task definition is guessed: "
+            + refused);
 
   }
 
   @Test
-  @DisplayName("A method naming the job type of a user task with a job type of its own ends the boot")
-  public void aMethodForAUserTaskWithAJobTypeOfItsOwnEndsTheBoot() {
+  @DisplayName("A method naming the job type of such a user task is named as the reference to set")
+  public void aMethodForAUserTaskWithAJobTypeOfItsOwnIsNamedInTheRefusal() {
 
-    final var refused = whyTheBootEnded(aUserTaskAWorkerOfTheApplicationServes());
+    final var refused = whyTheBootEnded(aUserTaskWithAJobTypeOfItsOwn());
 
-    assertEquals(
-        "Camunda 8 adapter 'c8' does not deploy BPMN process 'LoanApproval' of workflow module "
-            + "'loan-approval': 'Activity_ApproveTheLoan' is a user task with a job type of its own "
-            + "('approveTheLoan'). The cluster ignores a job type on a user task: it serves the element "
-            + "with a job of type 'io.camunda.zeebe:userTask', which no worker of VanillaBP fetches, so "
-            + "your @WorkflowTask method for task definition 'approveTheLoan' is never called. Make it a "
-            + "Camunda user task: in the Modeler choose \"Camunda user task\" as its implementation (this "
-            + "writes '<zeebe:userTask />') and set 'External form reference' to 'approveTheLoan'. Or "
-            + "model it as a service task, if a job is really what you want.",
-        refused,
-        "the task IS in the model, so the message says what is wrong with it instead of asking "
-            + "to add it");
+    assertTrue(
+        refused.contains(THE_FINDING) && refused.contains(THE_JOB_TYPE_CHANGES_NOTHING),
+        () -> "the same refusal as without a method: "
+            + refused);
+    assertTrue(
+        refused.contains("set 'External form reference' to 'approveTheLoan', the task definition of the "
+            + "@WorkflowTask method which serves it."),
+        () -> "a method names the job type, so that is the reference to set: "
+            + refused);
+    assertFalse(
+        refused.contains("matching no task"),
+        () -> "the task IS in the model, so the message does not ask to add it: "
+            + refused);
+
+  }
+
+  @Test
+  @DisplayName("A user task without a job type of its own gets no sentence about one")
+  public void theSentenceAboutAJobTypeIsOnlyWrittenWhereOneIsNamed() {
+
+    final var refused = whyTheBootEnded(aUserTaskCarryingNothing());
+
+    assertFalse(
+        refused.contains(THE_JOB_TYPE_CHANGES_NOTHING),
+        () -> "the element names no job type: "
+            + refused);
+
+  }
+
+  @Test
+  @DisplayName("A process nobody claims is not looked at for a job type of its own either")
+  public void anUnclaimedProcessIsNotLookedAtForAJobTypeOfItsOwn(
+      final CapturedOutput output) {
+
+    final var logged = whatTheBootSaid(output, aUserTaskWithAJobTypeOfItsOwn());
+
+    assertFalse(
+        logged.contains(THE_FINDING) || logged.contains(THE_JOB_TYPE_CHANGES_NOTHING),
+        () -> "somebody else's model is not judged: "
+            + logged);
 
   }
 

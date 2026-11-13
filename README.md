@@ -1911,21 +1911,24 @@ searching its models for that word. The other shape carries no `formKey` at all.
 finds it, but the cluster treats it exactly the same. That second shape is why the reader does
 not filter on the formKey: it went through the whole boot without a word.
 
-One element has this shape and still does not count: a user task with a `zeebe:taskDefinition` of
-its own. The reader passes over it. But the cluster ignores that job type: measured against
-`camunda/camunda:8.10.9` by `Camunda8LegacyUserTaskIT`, it hands out a job of
-`io.camunda.zeebe:userTask` for such an element all the same. So the refusal no longer offers the
-job type as a way out. Where a `@WorkflowTask` method names that job type, the method would never be
-called, and `refuseMethodsOfUserTasksWithAJobTypeOfTheirOwn` ends the boot with a message which says
-so. Without it the core would say that the method matches no task, while the task is right there in
-the model. `Camunda8JobWorkerUserTasksReportTest` holds both cases.
+A user task with a `zeebe:taskDefinition` of its own has the same shape, and it is refused the same
+way. Camunda deprecated user tasks which a job worker serves, and the maintainer decided on
+2026-11-13 that this adapter takes Camunda user tasks only. The job type does not help either: the
+cluster ignores it on a user task. Measured against `camunda/camunda:8.10.9` by
+`Camunda8LegacyUserTaskIT`, it hands out a job of `io.camunda.zeebe:userTask` for such an element all
+the same. Older versions of this adapter passed over the element, as one which a worker of the
+application serves, and such a process deployed without a word. Now the refusal adds one sentence
+for each such element: the job type changes nothing, and whoever really wants a job models a service
+task. Where a `@WorkflowTask` method names the job type, that job type is the external form
+reference the message asks for. `Camunda8JobWorkerUserTasksReportTest` holds both cases, with and
+without a method.
 
 What happens next is in `Camunda8DeploymentService#refuseJobWorkerUserTasks`. Where a
 `@WorkflowService` class of the application claims the process, the boot ends: the class says the
 application stands in for that process, and VanillaBP serves a user task only where the cluster
 manages it. The message is short: it names the process and the elements, says how to fix the model
 in the Modeler, names the task definition to set where it can find one (the `formKey` of version 1,
-or the element id where a method names it), and says that older versions in the cluster may keep the
+or the job type or the element id where a method names it), and says that older versions in the cluster may keep the
 shape. The sentence about a search for `formKey` is only written where an element carries one. A
 process nobody claims is not looked at, see [A process nobody claims](#a-process-nobody-claims).
 

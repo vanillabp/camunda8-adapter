@@ -106,6 +106,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
   public interface JobTypesItDelivers {
 
     /**
+     * The job types this adapter delivers for the given process.
+     *
      * @param workflowModuleId The workflow module ID
      * @param bpmnProcessId The PLAIN BPMN process ID
      * @return The job types, or <code>null</code> where the cluster could not be asked
@@ -133,6 +135,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
+   * The way the job types this adapter delivers are found.
+   *
    * @return How the job types this adapter delivers are found, or <code>null</code> where no
    *         deployment service handed it over
    */

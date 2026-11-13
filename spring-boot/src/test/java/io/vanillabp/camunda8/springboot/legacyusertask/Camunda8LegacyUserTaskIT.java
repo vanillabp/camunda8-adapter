@@ -273,9 +273,20 @@ public class Camunda8LegacyUserTaskIT extends TestOnTheSharedCluster {
     record(reporter, "(a') the tag of an older modeller with a job type", causes(failure));
     final var refused = causes(failure);
     assertTrue(
-        refused.contains("'manualMatching' is a user task with a job type of its own ('manualMatching'). The "
-            + "cluster ignores a job type on a user task"),
-        () -> "the task is in the model, so the message says what is wrong with it: "
+        refused.contains("does not deploy BPMN process 'LegacyUserTaskProcess' of workflow module 'test-app': "
+            + "user task 'manualMatching' has no 'zeebe:userTask'."),
+        () -> "a job type of its own does not make it something else than a job-worker user task: "
+            + refused);
+    assertTrue(
+        refused.contains("The job type in 'zeebe:taskDefinition' ('manualMatching' for 'manualMatching') does "
+            + "not change that: the cluster ignores a job type on a user task and hands out a job of type "
+            + "'io.camunda.zeebe:userTask'"),
+        () -> "the message says why the job type does not help, as measured in the first step: "
+            + refused);
+    assertTrue(
+        refused.contains("set 'External form reference' to 'manualMatching', the task definition of the "
+            + "@WorkflowTask method which serves it."),
+        () -> "the fix with the task definition of the method: "
             + refused);
     assertFalse(
         refused.contains("matching no task"),
