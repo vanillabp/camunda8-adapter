@@ -370,11 +370,12 @@ package-private and has no public members, so the API identity check sees the sa
 on every line.
 
 What a line did need so far is a dependency pin and not code. Each client brings generated
-protobuf code (gencode), and protobuf refuses a runtime older than its gencode. The Spring Boot
-BOM (bill of materials) manages a protobuf version of its own, and an imported BOM beats a
-transitive dependency. So the parent POM manages `protobuf-java` itself, before that import, at
-a version high enough for every pinned client. A newer runtime serves an older gencode, so one
-number covers all three lines: the gencode of the newest client among them.
+protobuf code (gencode), and protobuf refuses a runtime older than its gencode. A newer runtime
+is fine. The Spring Boot BOM (bill of materials) manages a protobuf version of its own, and an
+imported BOM beats a transitive dependency. So the parent POM manages `protobuf-java` itself,
+before that import, at a version high enough for every pinned client: the `protobuf-java`
+version which the POM of the newest client names. That number is never older than the gencode
+of any client, so one number covers all three lines.
 
 The number cannot be derived. A `dependencyManagement` version has to be written down before the
 client is resolved, so Maven cannot take it out of the client's own POM. What the build can do
@@ -387,29 +388,38 @@ first command that touches the protocol, thirty lines below a message about a cl
 is how a client bump used to go red. It now breaks with a sentence instead, and the Renovate
 pull request which proposes such a bump says the same thing in its body.
 
+The version a client's POM declares and the gencode of its classes are not always the same.
+From `8.10.0-rc3` on, the 8.10 client declares `protobuf-java` 4.36.2, but its generated classes
+carry gencode 4.34.2. The gencode is what protobuf checks when a class loads. It is the second
+argument of `RuntimeVersion.validateProtobufGencodeVersion` in the static initializer of
+`io.camunda.zeebe.gateway.protocol.GatewayOuterClass`, in `zeebe-gateway-protocol-impl`.
+
 That pin only sets the classpath of this build and reaches no application, because the published
 POMs carry no `dependencyManagement`. So one number per line would change nothing for a user. It
 would only lower the version the older lines are tested against. That is why there is a single
-number. What an application gets instead was measured on 2026-09-20, with a sample project per
-platform and line:
+number. What an application gets instead, read on 2026-11-13 from the clients pinned then and
+from the platform BOMs:
 
-| Line | Client gencode | Spring Boot 4.0 | Spring Boot 4.1.1 | Quarkus 3.39.3 | No platform BOM |
-|------|----------------|-----------------|-------------------|----------------|-----------------|
-| 8.8  | 4.31.1         | 4.31.1          | 4.35.1            | 4.35.0         | 4.31.1          |
-| 8.9  | 4.33.6         | 4.33.6          | 4.35.1            | 4.35.0         | 4.33.6          |
-| 8.10 | 4.36.2         | 4.36.2          | **4.35.1**        | **4.35.0**     | 4.36.2          |
+| Line |  Client  | Its gencode | Its POM names | Spring Boot 4.0 | Spring Boot 4.1.2 | Quarkus 3.40.1.1 |
+|------|----------|-------------|---------------|-----------------|-------------------|------------------|
+| 8.8  | `8.8.46` | 4.31.1      | 4.31.1        | 4.31.1          | 4.36.2            | 4.35.0           |
+| 8.9  | `8.9.28` | 4.33.6      | 4.33.6        | 4.33.6          | 4.36.2            | 4.35.0           |
+| 8.10 | `8.10.9` | 4.34.2      | 4.36.2        | 4.36.2          | 4.36.2            | 4.35.0           |
 
-Spring Boot manages `protobuf-java` from 4.1 on and Quarkus manages it in every version, and
-an imported BOM wins over anything the adapter brings. So on the 8.8 and the 8.9 line an
-application runs a protobuf newer than its client asks for, which protobuf allows. On the 8.10
-line both platforms hand it an older one, and that is the failure this pin exists to avoid: the
-application dies with `Detected incompatible Protobuf Gencode/Runtime versions` on the first
-command that touches the protocol. Measured by loading the gateway protocol class of client
-`8.10.0-rc1` against runtime `4.35.1` and `4.35.0`.
+Spring Boot manages `protobuf-java` from 4.1 on (4.1.0 manages 4.34.2, 4.1.1 manages 4.35.1) and
+Quarkus manages it in every version. An imported BOM wins over anything the adapter brings. Spring
+Boot 4.0 manages none, so the client's own version arrives. Today every one of these runtimes is
+at least the gencode of its line, so no line needs a pin. Measured by loading `GatewayOuterClass`
+of each client against runtimes 4.31.1 to 4.35.0: 8.10.9 loads on 4.34.2 and 4.35.0 and is
+refused on 4.33.6.
 
-An application on the 8.10 line therefore pins `protobuf-java` to the gencode of that line's
-client itself, in its own `dependencyManagement`, above the platform BOM. Nothing this
-repository publishes can do it for it. The two older lines need nothing.
+The 8.10 line once needed a pin. The clients up to `8.10.0-rc1` carried gencode 4.36.2, and both
+platforms handed an application an older runtime. The next client which raises its gencode past
+what the platforms manage brings that back. And any application which gets an older
+`protobuf-java` from somewhere else, such as another BOM or a library, pins `protobuf-java`
+itself, in its own `dependencyManagement` above the platform BOM, to at least the version its
+client's POM names. Nothing this repository publishes can do it for the application. The wiki,
+section "Protobuf and the Camunda client", says this for users.
 
 What the adapter can do is say it. `Camunda8ProtobufRuntime` loads one generated class while the
 adapter validates its configuration. The client loads that class a moment later anyway. The
