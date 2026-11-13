@@ -1,5 +1,6 @@
 package io.vanillabp.camunda8.springboot.it;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.util.function.Supplier;
@@ -25,6 +26,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * <p>
  * What runs afterwards proves the second half. The event subprocess takes the workflow
  * over, and the task inside it is handed the aggregate which the application created.
+ * <p>
+ * An event subprocess may also start on a message. Its subscription belongs to the running
+ * workflow, so Camunda 8 needs a correlation key for it, like for an intermediate catch
+ * event. The model below carries none, and the application correlates by its aggregate. So
+ * the adapter has to add the key.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput
@@ -38,6 +44,12 @@ public class Camunda8EventSubprocessIT extends SpringBootTestOnTheSharedCluster 
 
   @Autowired
   private EventSubprocessDockerAggregateRepository repository;
+
+  @Autowired
+  private MessageEventSubprocessDockerWorkflowService messageWorkflowService;
+
+  @Autowired
+  private MessageEventSubprocessDockerAggregateRepository messageRepository;
 
   @Autowired
   private TransactionTemplate transactionTemplate;
@@ -74,6 +86,44 @@ public class Camunda8EventSubprocessIT extends SpringBootTestOnTheSharedCluster 
                 .map(EventSubprocessDockerAggregate::getProcessedBy)
                 .orElse(null)),
         "the event subprocess to take the workflow over");
+
+  }
+
+  @Test
+  @DisplayName("a message correlated by the aggregate starts the event subprocesses whose model names no correlation key")
+  public void aMessageStartsTheEventSubprocessesOfTheRunningWorkflow() throws Exception {
+
+    final var aggregateId = transactionTemplate
+        .execute(status -> messageWorkflowService.startWorkflow().getId());
+    assertNotNull(aggregateId);
+
+    // the event subprocess which does not interrupt the workflow. It runs next to the
+    // waiting token, so the workflow still waits afterwards
+    transactionTemplate.executeWithoutResult(status -> messageWorkflowService
+        .correlate(messageRepository.findById(aggregateId).orElseThrow(), "C8NoteAdded"));
+    awaitUntil(
+        () -> "note;".equals(
+            messageRepository
+                .findById(aggregateId)
+                .map(MessageEventSubprocessDockerAggregate::getNotes)
+                .orElse(null)),
+        "the message to start the event subprocess which does not interrupt the workflow");
+
+    // the event subprocess which takes the workflow over
+    transactionTemplate.executeWithoutResult(status -> messageWorkflowService
+        .correlate(messageRepository.findById(aggregateId).orElseThrow(), "C8TakeOver"));
+    awaitUntil(
+        () -> "recordMessageTakeOver".equals(
+            messageRepository
+                .findById(aggregateId)
+                .map(MessageEventSubprocessDockerAggregate::getTakenOverBy)
+                .orElse(null)),
+        "the message to start the event subprocess which takes the workflow over");
+    assertEquals(
+        "note;",
+        messageRepository.findById(aggregateId).orElseThrow().getNotes(),
+        "the note was recorded once, so the take-over message did not start the other event "
+            + "subprocess");
 
   }
 

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_MessageEventSubprocess"
+                  targetNamespace="http://bpmn.io/schema/bpmn">
+  <!-- neither message carries a zeebe:subscription. The adapter adds the correlation key -->
+  <bpmn:message id="Msg_NoteAdded" name="C8NoteAdded" />
+  <bpmn:message id="Msg_TakeOver" name="C8TakeOver" />
+  <bpmn:process id="MessageEventSubprocessProcess" isExecutable="true">
+    <bpmn:startEvent id="MESP_start">
+      <bpmn:outgoing>MESP_toWait</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="MESP_toWait" sourceRef="MESP_start" targetRef="MESP_wait" />
+    <!-- the workflow waits here until the interrupting event subprocess takes it over -->
+    <bpmn:intermediateCatchEvent id="MESP_wait">
+      <bpmn:incoming>MESP_toWait</bpmn:incoming>
+      <bpmn:outgoing>MESP_toNotReached</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="MESP_waitTimer">
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT1H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:sequenceFlow id="MESP_toNotReached" sourceRef="MESP_wait" targetRef="MESP_notReached" />
+    <bpmn:endEvent id="MESP_notReached">
+      <bpmn:incoming>MESP_toNotReached</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:subProcess id="MESP_note" triggeredByEvent="true">
+      <bpmn:startEvent id="MESP_noteAdded" isInterrupting="false">
+        <bpmn:outgoing>MESP_toRecordNote</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MESP_noteAddedDef" messageRef="Msg_NoteAdded" />
+      </bpmn:startEvent>
+      <bpmn:sequenceFlow id="MESP_toRecordNote" sourceRef="MESP_noteAdded" targetRef="MESP_recordNote" />
+      <bpmn:serviceTask id="MESP_recordNote">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="recordNote" />
+        </bpmn:extensionElements>
+        <bpmn:incoming>MESP_toRecordNote</bpmn:incoming>
+        <bpmn:outgoing>MESP_toNoteEnd</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="MESP_toNoteEnd" sourceRef="MESP_recordNote" targetRef="MESP_noteEnd" />
+      <bpmn:endEvent id="MESP_noteEnd">
+        <bpmn:incoming>MESP_toNoteEnd</bpmn:incoming>
+      </bpmn:endEvent>
+    </bpmn:subProcess>
+    <bpmn:subProcess id="MESP_takeOver" triggeredByEvent="true">
+      <bpmn:startEvent id="MESP_takeOverRequested" isInterrupting="true">
+        <bpmn:outgoing>MESP_toRecordTakeOver</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MESP_takeOverDef" messageRef="Msg_TakeOver" />
+      </bpmn:startEvent>
+      <bpmn:sequenceFlow id="MESP_toRecordTakeOver" sourceRef="MESP_takeOverRequested" targetRef="MESP_recordTakeOver" />
+      <bpmn:serviceTask id="MESP_recordTakeOver">
+        <bpmn:extensionElements>
+          <zeebe:taskDefinition type="recordMessageTakeOver" />
+        </bpmn:extensionElements>
+        <bpmn:incoming>MESP_toRecordTakeOver</bpmn:incoming>
+        <bpmn:outgoing>MESP_toTakeOverEnd</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:sequenceFlow id="MESP_toTakeOverEnd" sourceRef="MESP_recordTakeOver" targetRef="MESP_takeOverEnd" />
+      <bpmn:endEvent id="MESP_takeOverEnd">
+        <bpmn:incoming>MESP_toTakeOverEnd</bpmn:incoming>
+      </bpmn:endEvent>
+    </bpmn:subProcess>
+  </bpmn:process>
+</bpmn:definitions>

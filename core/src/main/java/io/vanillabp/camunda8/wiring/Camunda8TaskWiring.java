@@ -1246,8 +1246,9 @@ public final class Camunda8TaskWiring {
    * V2 convention <code>=&lt;aggregate-ID variable&gt;</code> is INJECTED. That is the
    * engine-specific BPMN modification of the pipeline. An existing expression is left
    * untouched. The modeller may correlate by a variable of their own, for example for
-   * correlation-id scenarios, and V1 models keep working byte-identically. Message START
-   * events need no correlation key and are skipped.
+   * correlation-id scenarios, and V1 models keep working byte-identically. A message START
+   * event of the process needs no correlation key and is skipped. The start event of an event
+   * subprocess is not skipped, because its subscription belongs to a running workflow.
    * <p>
    * The injection is for a process of which the application serves a workflow. It is
    * called for no other. The variable it names belongs to the workflow aggregate. A process
@@ -1332,8 +1333,8 @@ public final class Camunda8TaskWiring {
   /**
    * A message a process waits for without saying what to correlate it by.
    *
-   * @param catchElementId The intermediate catch event, boundary event or receive task
-   *          waiting for it
+   * @param catchElementId The intermediate catch event, boundary event, receive task or
+   *          start event of an event subprocess waiting for it
    * @param messageName The name a publication of that message carries
    */
   public record MessageWithoutACorrelationKey(
@@ -1346,7 +1347,8 @@ public final class Camunda8TaskWiring {
    * message belongs to the FILE and not to the process. So two processes of one file can
    * point at the same one.
    *
-   * @param elementId The intermediate catch event, boundary event or receive task waiting
+   * @param elementId The intermediate catch event, boundary event, receive task or start
+   *          event of an event subprocess waiting
    * @param message The message it points at
    */
   record MessageCatchElement(
@@ -1356,8 +1358,13 @@ public final class Camunda8TaskWiring {
 
   /**
    * Every element of the given executable process which waits for a message: an
-   * intermediate catch event, a boundary event or a receive task. A message START event
-   * is not one of them. It correlates by name and needs no key.
+   * intermediate catch event, a boundary event, a receive task or the start event of an
+   * event subprocess. A message start event of the process itself is not one of them. It
+   * starts a new workflow, so it correlates by name and needs no key.
+   * <p>
+   * The start event of an event subprocess is different. Camunda 8 opens its subscription
+   * when the workflow starts, for that one workflow. So it needs a correlation key like an
+   * intermediate catch event, and the cluster refuses a model in which it has none.
    *
    * @param model The BPMN model of one file
    * @param bpmnProcessId The process id as it stands in the model
@@ -1371,7 +1378,7 @@ public final class Camunda8TaskWiring {
         .getModelElementsByType(CatchEvent.class)
         .stream()
         .filter(event -> bpmnProcessId.equals(owningProcessId(event)))
-        .filter(event -> !(event instanceof StartEvent))
+        .filter(event -> !((event instanceof StartEvent startEvent) && startsTheWorkflow(startEvent)))
         .flatMap(event -> event
             .getEventDefinitions()
             .stream()
