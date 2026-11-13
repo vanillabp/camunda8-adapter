@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="Definitions_LegacyUserTask" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="LegacyUserTaskProcess" isExecutable="true">
+    <bpmn:startEvent id="LUT_Start">
+      <bpmn:outgoing>LUT_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="LUT_f1" sourceRef="LUT_Start" targetRef="manualMatching" />
+    <!-- the re-modelled user task: the cluster manages it -->
+    <bpmn:userTask id="manualMatching" name="manual matching">
+      <bpmn:extensionElements>
+        <zeebe:userTask />
+        <zeebe:formDefinition externalReference="manualMatching" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>LUT_f1</bpmn:incoming>
+      <bpmn:outgoing>LUT_f2</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="LUT_f2" sourceRef="manualMatching" targetRef="LUT_End" />
+    <bpmn:endEvent id="LUT_End">
+      <bpmn:incoming>LUT_f2</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>

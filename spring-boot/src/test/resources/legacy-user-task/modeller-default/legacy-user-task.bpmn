@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="Definitions_LegacyUserTask" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="LegacyUserTaskProcess" isExecutable="true">
+    <bpmn:startEvent id="LUT_Start">
+      <bpmn:outgoing>LUT_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="LUT_f1" sourceRef="LUT_Start" targetRef="Activity_0vefbga" />
+    <!-- what a current Camunda Modeler writes when nobody touches the properties -->
+    <bpmn:userTask id="Activity_0vefbga">
+      <bpmn:incoming>LUT_f1</bpmn:incoming>
+      <bpmn:outgoing>LUT_f2</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="LUT_f2" sourceRef="Activity_0vefbga" targetRef="LUT_End" />
+    <bpmn:endEvent id="LUT_End">
+      <bpmn:incoming>LUT_f2</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>

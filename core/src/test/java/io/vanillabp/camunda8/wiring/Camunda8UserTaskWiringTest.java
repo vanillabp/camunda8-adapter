@@ -203,17 +203,22 @@ public class Camunda8UserTaskWiringTest {
   }
 
   @Test
-  @DisplayName("A user task carrying a task definition of its own is none of this")
-  public void aUserTaskWithAnOwnJobWorkerIsNoneOfThis() {
+  @DisplayName("A user task carrying a task definition of its own is a job-worker user task too")
+  public void aUserTaskWithAJobTypeOfItsOwnIsFound() {
 
     final var bpmn = model("""
         <zeebe:taskDefinition type="ownWorker" />
         <zeebe:formDefinition formKey="camunda-forms:bpmn:approve" />""");
 
-    assertTrue(
-        Camunda8TaskWiring.jobWorkerUserTasksOf(bpmn, "UTProcess").isEmpty(),
-        "a task definition of its own says the application serves the element, so it is no user "
-            + "task of VanillaBP's and the reader passes over it");
+    assertEquals(
+        List.of("ut"),
+        Camunda8TaskWiring.jobWorkerUserTasksOf(bpmn, "UTProcess").withVersionOnesFormKey(),
+        "the cluster ignores a job type on a user task and hands out its own user-task job, so "
+            + "the element is found like every other user task without zeebe:userTask");
+    assertEquals(
+        List.of(new Camunda8TaskWiring.Camunda8UserTaskWithAJobTypeOfItsOwn("ut", "ownWorker")),
+        Camunda8TaskWiring.userTasksWithAJobTypeOfTheirOwn(bpmn, "UTProcess"),
+        "and its job type is read, so the refusal can say why it changes nothing");
 
   }
 
