@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    generate-unique-name: true
+  jpa:
+    hibernate:
+      ddl-auto: create
+vanillabp:
+  adapters:
+    c8:
+      type: camunda8
+      request-timeout: PT5S
+      job-lease: use
+      job-timeout: PT30S
+      name-clash-avoidance: use-prefix
+  prioritized-adapters:
+    - c8
+  workflow-modules:
+    test-app:
+      adapters:
+        c8:
+          resources-location: classpath*:legacy-user-task/current
