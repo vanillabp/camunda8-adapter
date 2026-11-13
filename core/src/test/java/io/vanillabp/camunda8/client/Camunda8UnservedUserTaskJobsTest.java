@@ -1,7 +1,6 @@
 package io.vanillabp.camunda8.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Answers.RETURNS_SELF;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -185,19 +184,11 @@ public class Camunda8UnservedUserTaskJobsTest {
     final var said = Camunda8UnservedUserTaskJobs
         .howManyAreOpen(new Camunda8UnservedUserTaskJobs.Count(2L, 1L));
 
-    assertTrue(
-        said.startsWith("Open right now: 1."),
-        () -> "the number a reader watches comes first: "
-            + said);
-    assertTrue(
-        said.contains("holds 2 job(s) of that type for this process and has seen 1 of them end"),
-        () -> "and the two numbers behind it, so a reader can check the arithmetic: "
-            + said);
-    assertTrue(
-        said.contains("runs behind the engine"),
-        () -> "an exporter feeds that index, which the message admits instead of claiming to be "
-            + "exact: "
-            + said);
+    assertEquals(
+        "Open right now: 1 job(s) of type 'io.camunda.zeebe:userTask', as far as the search index of the cluster knows (it runs a little behind the engine).",
+        said,
+        "the number a reader watches, the job type to look the jobs up by, and that the index is not "
+            + "exact");
 
   }
 
@@ -208,7 +199,7 @@ public class Camunda8UnservedUserTaskJobsTest {
     final var said = Camunda8UnservedUserTaskJobs.howManyAreOpen(null);
 
     assertEquals(
-        "The cluster did not answer how many of them are open right now.",
+        "The cluster did not answer how many jobs of type 'io.camunda.zeebe:userTask' are open right now.",
         said,
         "a boot which runs before the cluster is up says this instead of a zero");
 

@@ -2373,6 +2373,8 @@ See [Release lines](./README.md#release-lines).
 
 ### 53. A user task a job worker serves is refused in a process the application claims, and only warned about in one it does not
 
+*Superseded in part by decision 102: a user task with a `zeebe:taskDefinition` of its own is a job-worker user task like every other one, and it is refused in a claimed process. The paragraph about the third way out no longer holds, and neither does the boundary test named in the last paragraph.*
+
 *Superseded in part by decision 73: a process nobody claims is not looked at any more. No WARN, and no wait for the cluster to count its open jobs.*
 
 Camunda 8 knows two kinds of user task. One carries `zeebe:userTask`, and the CLUSTER manages it.
@@ -2436,6 +2438,8 @@ application serves itself, the counter-test of a claimed process whose user task
 Camunda, and that the WARN asks for nothing.
 
 ### 54. Every element of a claimed process has to be served, and an element template is how the model says it is served elsewhere
+
+*Superseded in part by decision 102: a user task with a `zeebe:taskDefinition` of its own is no element the application serves itself. The cluster ignores that job type, so such a user task is refused like every other job-worker user task.*
 
 *Superseded in part by decision 73: a process nobody claims is not looked at any more, so it keeps no WARN.*
 
@@ -4375,6 +4379,87 @@ variable, so the builds go back to Maven Central without a push should GitHub Pa
 same, and `.github/maven/settings.xml` and the workflows say it in their comments.
 
 **Addendum:** see decision 103.
+
+### 102. A claimed process takes Camunda user tasks only, also where a user task names a job type of its own
+
+Proposed by story 2161 (found by story 2156). Decided by the maintainer on 2026-11-13: "Camunda
+deprecated job-worker user tasks. The VanillaBP adapter may only allow Camunda user tasks."
+
+**In a process which a `@WorkflowService` class of the application claims, every `bpmn:userTask`
+without `zeebe:userTask` ends the boot.** That holds for a user task with a `zeebe:taskDefinition`
+of its own as well, and it holds whether or not a `@WorkflowTask` method names that job type.
+Camunda deprecated user tasks which a job worker serves. This adapter serves the Camunda user task
+(`zeebe:userTask`) and nothing else.
+
+The rule of decision 53 had one exception. A user task with a `zeebe:taskDefinition` of its own was
+taken for an element which a worker of the APPLICATION serves, under a job type the application
+chose. So the reader passed over it, and the refusal named the job type as a third way out. That
+exception rested on a fact which is not true. Measured against `camunda/camunda:8.10.9` on
+2026-11-13 (`Camunda8LegacyUserTaskIT`): the cluster ignores the job type of a user task. It hands
+out a job of type `io.camunda.zeebe:userTask` for such an element, exactly as for one without a
+`zeebe:taskDefinition`. A worker which subscribes to the job type of the model never gets the job.
+So a claimed process with such an element deployed without a word, and its workflows stood at the
+element for good, with no incident.
+
+What follows from the rule:
+
+- `Camunda8TaskWiring#jobWorkerUserTasksOf` finds every user task without `zeebe:userTask`. The
+  element with a job type of its own is one of them.
+- The refusal is the one of decision 53. For an element which names a job type, it adds one
+  sentence: the job type does not change anything, because the cluster ignores it on a user task,
+  and whoever really wants a job models a service task. Where a `@WorkflowTask` method names that
+  job type, the refusal names it as the external form reference to set. The separate refusal for
+  such a method, which an earlier state of this branch had, is gone. The general refusal comes
+  first and says the same.
+- The refusal does not offer the `zeebe:taskDefinition` as a way out any more.
+
+What stays as it was:
+
+- A process nobody claims is not looked at (decision 73).
+- A version the cluster already holds may keep a job-worker user task, with or without a job type
+  of its own, because nobody can change it any more. Where workflows still run on such a version,
+  the start warns in "DEPLOYED VERSIONS" and names the way out measured in the same run: a process
+  instance migration in Operate to a version with a Camunda user task, and for an instance which
+  already stands at the user task a process instance modification after it (cancel the token, add
+  a new one at the same element). The migration alone creates the Camunda user task without running
+  its `creating` listeners, so VanillaBP never hears of it.
+- An application which cannot change its models at once has the way out of every deployment
+  failure: a non-primary adapter with `deployment-failure: warn`.
+
+## What this supersedes
+
+Decision 53 gets a second note under its heading:
+
+> *Superseded in part by decision 102: a user task with a `zeebe:taskDefinition` of its own is a
+> job-worker user task like every other one, and it is refused in a claimed process. The paragraph
+> about the third way out no longer holds, and neither does the boundary test named in the last
+> paragraph.*
+
+Decision 54 gets a note under its heading as well, because its rule "every element of a claimed
+process has to be served" had the one silent gap which this closes:
+
+> *Superseded in part by decision 102: a user task with a `zeebe:taskDefinition` of its own is no
+> element the application serves itself. The cluster ignores that job type, so such a user task is
+> refused like every other job-worker user task.*
+
+## Where it is referred to
+
+None of these cite a decision number.
+
+- `core/src/main/java/io/vanillabp/camunda8/wiring/Camunda8TaskWiring.java`: javadoc of
+  `jobWorkerUserTasksOf` and of `userTasksWithAJobTypeOfTheirOwn`.
+- `core/src/main/java/io/vanillabp/camunda8/deployment/Camunda8DeploymentService.java`: javadoc of
+  `refuseJobWorkerUserTasks` and `jobTypesTheClusterIgnores`.
+- `core/src/test/java/io/vanillabp/camunda8/deployment/Camunda8JobWorkerUserTasksReportTest.java`
+  (class javadoc and the tests about a job type of its own),
+  `core/src/test/java/io/vanillabp/camunda8/wiring/Camunda8UserTaskWiringTest.java`
+  (`aUserTaskWithAJobTypeOfItsOwnIsFound`),
+  `spring-boot/src/test/java/io/vanillabp/camunda8/springboot/legacyusertask/Camunda8LegacyUserTaskIT.java`
+  (the probe in step 1 and `theOldTagWithAJobTypeInTheModelOfThisBoot`).
+- `README.md`, section about job-worker user tasks (it already names decisions 53 and 54).
+- `UPGRADE.md`, section about user task models.
+- Wiki: `Deviations` (section "A user task a job worker serves is not accepted, and refused where
+  you claim the process") and `Configuration` (the list of what ends the boot).
 
 ### 103. Addendum to decision 101: a snapshot reaches Maven Central again, without a sources jar, and a refused request is repeated
 

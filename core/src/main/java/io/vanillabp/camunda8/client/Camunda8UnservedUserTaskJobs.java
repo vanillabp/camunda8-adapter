@@ -67,7 +67,7 @@ public final class Camunda8UnservedUserTaskJobs {
    * The states a job does not leave again. Everything else counts as open, including a
    * literal which this build has never seen.
    */
-  private static final List<JobState> A_JOB_WHICH_IS_OVER = List.of(
+  static final List<JobState> A_JOB_WHICH_IS_OVER = List.of(
       JobState.COMPLETED,
       JobState.CANCELED,
       JobState.ERROR_THROWN);
@@ -110,10 +110,30 @@ public final class Camunda8UnservedUserTaskJobs {
       final CamundaClient client,
       final String scopedBpmnProcessId) {
 
+    return countFor(client, scopedBpmnProcessId, null);
+
+  }
+
+  /**
+   * Asks the index about the jobs of the plain user task's type for one version of a process.
+   *
+   * @param client The client of the adapter asking
+   * @param scopedBpmnProcessId The process definition id as the cluster knows it
+   * @param processDefinitionKey The key of the version to ask about, or <code>null</code> for
+   *          every version
+   * @return Both numbers. Whatever the search threw is thrown on. The caller decides what a
+   *         cluster which cannot answer costs
+   */
+  public static Count countFor(
+      final CamundaClient client,
+      final String scopedBpmnProcessId,
+      final Long processDefinitionKey) {
+
     // two readings and not one. Whoever reads them knows it, because Count never answers
     // less than zero
-    final var allOfThatType = howManyJobs(client, scopedBpmnProcessId, null);
-    final var thoseWhichAreOver = howManyJobs(client, scopedBpmnProcessId, A_JOB_WHICH_IS_OVER);
+    final var allOfThatType = howManyJobs(client, scopedBpmnProcessId, processDefinitionKey, null);
+    final var thoseWhichAreOver = howManyJobs(
+        client, scopedBpmnProcessId, processDefinitionKey, A_JOB_WHICH_IS_OVER);
     return new Count(allOfThatType, thoseWhichAreOver);
 
   }
@@ -121,6 +141,8 @@ public final class Camunda8UnservedUserTaskJobs {
   /**
    * @param client The client of the adapter asking
    * @param scopedBpmnProcessId The process definition id as the cluster knows it
+   * @param processDefinitionKey The version to ask about, or <code>null</code> for every
+   *          version
    * @param states The states to count, or <code>null</code> to count the jobs of that type
    *          whatever state they are in
    * @return How many jobs the index holds for that question
@@ -128,6 +150,7 @@ public final class Camunda8UnservedUserTaskJobs {
   private static long howManyJobs(
       final CamundaClient client,
       final String scopedBpmnProcessId,
+      final Long processDefinitionKey,
       final List<JobState> states) {
 
     final var found = client
@@ -136,6 +159,9 @@ public final class Camunda8UnservedUserTaskJobs {
           filter
               .processDefinitionId(scopedBpmnProcessId)
               .type(Camunda8TaskWiring.TASKDEFINITION_USERTASK_WORKER_V1);
+          if (processDefinitionKey != null) {
+            filter.processDefinitionKey(processDefinitionKey);
+          }
           if (states != null) {
             filter.state(state -> state.in(states));
           }
@@ -153,28 +179,24 @@ public final class Camunda8UnservedUserTaskJobs {
   }
 
   /**
-   * What every message about such an element says about the number. So the refusal and the
-   * warning of the deployment say the same thing about it.
+   * What every message about such an element says about the number. So the refusal of the
+   * deployment and the warning about a version the cluster holds say the same thing about it.
+   * The sentence is short on purpose. It names the job type, so a reader can look the jobs up,
+   * and it says once that the index runs behind the engine.
    *
    * @param count What the index answered, or <code>null</code> where the cluster did not answer
    *          at all
-   * @return The sentences for the message, ending with a full stop
+   * @return The sentence for the message, ending with a full stop
    */
   public static String howManyAreOpen(
       final Count count) {
 
     if (count == null) {
-      return "The cluster did not answer how many of them are open right now.";
+      return "The cluster did not answer how many jobs of type '%s' are open right now."
+          .formatted(Camunda8TaskWiring.TASKDEFINITION_USERTASK_WORKER_V1);
     }
-    return """
-        Open right now: %d. The cluster's index holds %d job(s) of that type for this process and \
-        has seen %d of them end. An exporter feeds that index and it runs behind the engine, so a \
-        task which just ended can still be counted and one which just opened can still be \
-        missing."""
-        .formatted(
-            Long.valueOf(count.areOpen()),
-            Long.valueOf(count.theIndexHolds()),
-            Long.valueOf(count.theIndexHasSeenFinish()));
+    return "Open right now: %d job(s) of type '%s', as far as the search index of the cluster knows (it runs a little behind the engine)."
+        .formatted(Long.valueOf(count.areOpen()), Camunda8TaskWiring.TASKDEFINITION_USERTASK_WORKER_V1);
 
   }
 

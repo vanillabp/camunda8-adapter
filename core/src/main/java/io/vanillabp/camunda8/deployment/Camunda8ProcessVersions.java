@@ -107,6 +107,26 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   private TasksOfModel tasksOfModel;
 
   /**
+   * What workflows on older versions of one BPMN process are not served at all, in words
+   * which continue the list of {@link #whatOlderVersionsMiss}. The deployment service answers
+   * it, because it reads the models.
+   */
+  private BiFunction<String, String, String> whatHeldVersionsLeaveUnserved;
+
+  /**
+   * Hands over how the versions are found whose workflows are not served at all.
+   *
+   * @param whatHeldVersionsLeaveUnserved Answers the words to add for a workflow module and a
+   *          PLAIN BPMN process id, or <code>null</code> where nothing has to be added
+   */
+  public void setWhatHeldVersionsLeaveUnserved(
+      final BiFunction<String, String, String> whatHeldVersionsLeaveUnserved) {
+
+    this.whatHeldVersionsLeaveUnserved = whatHeldVersionsLeaveUnserved;
+
+  }
+
+  /**
    * Hands over how a model is read for tasks. The deployment service does this after both
    * halves are built, because each one needs the other.
    *
@@ -525,6 +545,25 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
   }
 
   /**
+   * The process definition key of ONE version of a process in the cluster, for a search of
+   * the deployment service which is limited to that version.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param version The version the cluster assigned
+   * @return The key, or <code>null</code> where the cluster does not hold that version
+   * @throws RuntimeException If the cluster could not be asked
+   */
+  public Long definitionKeyOfVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    return definitionKeyOf(workflowModuleId, bpmnProcessId, version);
+
+  }
+
+  /**
    * The process definition key of ONE version of a process in the cluster. Both the model
    * and the instance count are read by this key. It comes from what the version list
    * already brought back. Only if it is not there, a search of its own runs.
@@ -780,9 +819,19 @@ public class Camunda8ProcessVersions extends CachingProcessVersionCatalog {
     // here reaches the version deployed now and no earlier one. Camunda 7 answers nothing
     // to the same question. It attaches while the engine parses a definition, and that
     // reaches every version the engine holds
-    return "the end of a workflow is not reported to a @WorkflowEnded method, user-task lifecycle "
+    final var missing = "the end of a workflow is not reported to a @WorkflowEnded method, user-task lifecycle "
         + "notifications do not arrive where the listeners were added by this deployment, and a "
         + "message catch event correlates only by a correlation key its own model already carried";
+    // "they keep being served", says the finding around these words. A user task without
+    // 'zeebe:userTask' in an older version is the exception, and the finding must not hide it
+    final var unserved = whatHeldVersionsLeaveUnserved == null
+        ? null
+        : whatHeldVersionsLeaveUnserved.apply(workflowModuleId, bpmnProcessId);
+    return unserved == null
+        ? missing
+        : missing
+            + "; "
+            + unserved;
 
   }
 

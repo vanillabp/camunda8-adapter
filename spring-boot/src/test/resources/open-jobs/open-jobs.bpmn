@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="Definitions_OpenJobs" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="OpenJobsProcess" isExecutable="true">
+    <bpmn:startEvent id="OJ_Start">
+      <bpmn:outgoing>OJ_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="OJ_f1" sourceRef="OJ_Start" targetRef="OJ_DoTheWork" />
+    <bpmn:serviceTask id="OJ_DoTheWork" name="do the work">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="doTheWork" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>OJ_f1</bpmn:incoming>
+      <bpmn:outgoing>OJ_f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="OJ_f2" sourceRef="OJ_DoTheWork" targetRef="OJ_End" />
+    <bpmn:endEvent id="OJ_End">
+      <bpmn:incoming>OJ_f2</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>

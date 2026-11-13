@@ -919,24 +919,23 @@ public final class Camunda8TaskWiring {
 
   /**
    * The user tasks of the given executable process which are modelled as a JOB-WORKER user
-   * task. That is a user task without a <code>zeebe:userTask</code> extension element, and
-   * without a <code>zeebe:taskDefinition</code> of the application itself.
+   * task. That is every user task without a <code>zeebe:userTask</code> extension element.
    * <p>
    * The question is the shape of the element and nothing else. The cluster manages a user
    * task carrying <code>zeebe:userTask</code>, and that is the one shape this adapter takes.
-   * A user task without it is served by a job of {@value #TASKDEFINITION_USERTASK_WORKER_V1}.
-   * VanillaBP 1 worked that way up to its release 1.6.3, and this adapter does not take that
-   * shape. So the reader does not ask whether something would fetch that job. Nor does it
-   * ask whether the element names a <code>formKey</code>. For a process which a workflow
-   * service of the application claims, the deployment ends the boot over the answer. It asks
-   * nothing about a process nobody claims.
+   * Camunda deprecated the other shape. A user task without it is served by a job of
+   * {@value #TASKDEFINITION_USERTASK_WORKER_V1}. VanillaBP 1 worked that way up to its release
+   * 1.6.3, and this adapter does not take that shape. So the reader does not ask whether
+   * something would fetch that job. Nor does it ask whether the element names a
+   * <code>formKey</code>. For a process which a workflow service of the application claims,
+   * the deployment ends the boot over the answer. It asks nothing about a process nobody
+   * claims.
    * <p>
-   * The element carrying a <code>zeebe:taskDefinition</code> is left out. It is the one case
-   * which is not this shape. A worker of the APPLICATION serves such an element, under a job
-   * type the application chose. So it is no longer a user task VanillaBP is meant to serve.
-   * Nothing here notifies anybody about it, and nothing completes it. It falls through the
-   * rest as well, because {@link #tasksOf} reads service-like tasks only, and
-   * {@link #userTasksOf} skips anything without a <code>zeebe:userTask</code>.
+   * A user task which carries a <code>zeebe:taskDefinition</code> of its own is found as well.
+   * The cluster ignores that job type and hands out a job of
+   * {@value #TASKDEFINITION_USERTASK_WORKER_V1} all the same, so a worker which subscribes to
+   * the job type of the model never gets the job. {@link #userTasksWithAJobTypeOfTheirOwn}
+   * reads those job types, so that the message can say why naming one changes nothing.
    * <p>
    * Two shapes end up here, and the message has to keep them apart. Up to release 1.6.3,
    * VanillaBP 1 served exactly this element. It read its task definition from the
@@ -959,11 +958,9 @@ public final class Camunda8TaskWiring {
         .getModelElementsByType(UserTask.class)
         .stream()
         .filter(task -> bpmnProcessId.equals(owningProcessId(task)))
-        // a Camunda-managed user task is the shape this adapter takes. A user task
-        // carrying a zeebe:taskDefinition is an element the application serves itself.
-        // Neither of them is a job-worker user task of VanillaBP.
+        // a Camunda-managed user task is the one shape this adapter takes. A job type of
+        // the element's own changes nothing: the cluster ignores it on a user task
         .filter(task -> task.getSingleExtensionElement(ZeebeUserTask.class) == null)
-        .filter(task -> task.getSingleExtensionElement(ZeebeTaskDefinition.class) == null)
         .collect(
             java.util.stream.Collectors
                 .partitioningBy(
@@ -971,6 +968,54 @@ public final class Camunda8TaskWiring {
                     java.util.stream.Collectors.mapping(FlowElement::getId, java.util.stream.Collectors.toList())));
     return new Camunda8JobWorkerUserTasks(
         List.copyOf(byShape.get(Boolean.TRUE)), List.copyOf(byShape.get(Boolean.FALSE)));
+
+  }
+
+  /**
+   * A user task without <code>zeebe:userTask</code> which names a job type of its own. The
+   * cluster ignores that job type and hands out a job of
+   * {@value #TASKDEFINITION_USERTASK_WORKER_V1} for the element, measured against
+   * <code>camunda/camunda:8.10.9</code> on 2026-11-13 by {@code Camunda8LegacyUserTaskIT}.
+   *
+   * @param activityId The element id
+   * @param jobType The type of its <code>zeebe:taskDefinition</code>, as the model holds it
+   */
+  public record Camunda8UserTaskWithAJobTypeOfItsOwn(
+                                                     String activityId,
+                                                     String jobType) {
+  }
+
+  /**
+   * The user tasks of the given executable process which carry no <code>zeebe:userTask</code>
+   * but a <code>zeebe:taskDefinition</code> of their own. {@link #jobWorkerUserTasksOf} finds
+   * them like every other job-worker user task. They are read once more for their job type,
+   * so that the refusal can say why that job type changes nothing: the cluster serves the
+   * element with a job of {@value #TASKDEFINITION_USERTASK_WORKER_V1} whatever job type the
+   * model names. And where a <code>&#64;WorkflowTask</code> method names that job type, the
+   * refusal names it as the external form reference to set.
+   *
+   * @param model The BPMN model of one file
+   * @param bpmnProcessId The process id as the CLUSTER knows it
+   * @return The elements with their job type, in the order of the model
+   */
+  public static List<Camunda8UserTaskWithAJobTypeOfItsOwn> userTasksWithAJobTypeOfTheirOwn(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    return model
+        .getModelElementsByType(UserTask.class)
+        .stream()
+        .filter(task -> bpmnProcessId.equals(owningProcessId(task)))
+        .filter(task -> task.getSingleExtensionElement(ZeebeUserTask.class) == null)
+        .map(task -> {
+          final var taskDefinition = task.getSingleExtensionElement(ZeebeTaskDefinition.class);
+          if ((taskDefinition == null) || (taskDefinition.getType() == null) || taskDefinition.getType().isBlank()) {
+            return null;
+          }
+          return new Camunda8UserTaskWithAJobTypeOfItsOwn(task.getId(), taskDefinition.getType());
+        })
+        .filter(Objects::nonNull)
+        .toList();
 
   }
 

@@ -176,10 +176,14 @@ when the task is created or canceled.
 **Your application does not boot until those models are changed, and that is on purpose.** A
 `@WorkflowService` class which claims a BPMN process says that your application stands in for that
 process. So the deployment refuses a process with a shape this adapter does not take. The message
-names the process, the elements, which of the two shapes each element has, and the ways out. If a
-worker of your own serves the element, give the element a `zeebe:taskDefinition` naming that
-worker's job type. The element is then yours to serve, not a user task of VanillaBP, and the check
-skips it.
+names the process, the elements, which of the two shapes each element has, and the ways out.
+
+A `zeebe:taskDefinition` on such a user task does not help. Camunda deprecated user tasks which a
+job worker serves, and this adapter takes only Camunda user tasks in a process you claim. The
+cluster also ignores the job type on a user task and hands out a job of `io.camunda.zeebe:userTask`
+all the same (measured against `camunda/camunda:8.10.9` on 2026-11-13). So a worker of your own
+which listens on that job type never gets the job. If you really want a job, model the element as a
+service task.
 
 A BPMN process which no `@WorkflowService` class of yours claims is not checked, once you marked it
 as somebody else's. See [A process none of your classes
