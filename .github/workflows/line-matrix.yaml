@@ -75,6 +75,21 @@ jobs:
         line: "${{ fromJSON(needs.discover.outputs.lines) }}"
     steps:
       - uses: actions/checkout@v7
+      # The runner image brings its own Maven, whose version moves with the image, and an
+      # image with Maven 3.10 has been out before. Maven 3.10 breaks the bootstrap
+      # of the Quarkus tests, so a line would go red for a reason in no line. This job brings
+      # the 3.9 the snapshot and the release jobs use, and the lines test with the Maven they
+      # are published with.
+      - name: Use Maven 3.9
+        run: |
+          # Into a file and not through a pipe: a transfer which breaks halfway has already
+          # written to tar, so a repeat of curl could not mend it. Nine repeats wait about
+          # eight minutes, long enough for a 429 of Central to pass.
+          curl -fsSL --retry 9 --retry-all-errors --retry-max-time 600 --connect-timeout 20 --max-time 120 \
+            -o "$RUNNER_TEMP/apache-maven.tar.gz" \
+            https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.16/apache-maven-3.9.16-bin.tar.gz
+          tar xzf "$RUNNER_TEMP/apache-maven.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/apache-maven-3.9.16/bin" >> "$GITHUB_PATH"
       - uses: actions/setup-java@v6
         with:
           java-version: 25.0.5+8.0.LTS
