@@ -388,6 +388,11 @@ jobs:
   # DECISIONS.md.
   lines:
     needs: orphaned-javadoc-check
+    # the matrix reads the snapshots of the other VanillaBP repositories from GitHub
+    # Packages, see line-matrix.yaml. A called workflow gets no more than its caller allows
+    permissions:
+      contents: read
+      packages: read
     uses: ./.github/workflows/line-matrix.yaml
     secrets: inherit
 

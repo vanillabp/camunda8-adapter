@@ -122,6 +122,14 @@ to `main` publishes them. The old snapshots in the GitHub Packages registries
 `https://maven.pkg.github.com/vanillabp/camunda8-adapter` carry the old groupId
 `org.camunda.community.vanillabp` and no longer change.
 
+The workflows publish the same snapshots to GitHub Packages of this repository as well, with the
+profile `publish-snapshots` of the root POM, and only where the Actions variable `VANILLABP_PUBLISH`
+is `true`. The vanillabp organization sets it, a fork does not have it. Once the organization sets
+the Actions variable `VANILLABP_SNAPSHOTS_FROM` to `github-packages`, the workflows also read the
+snapshots of the other VanillaBP repositories from there, so the rate limit of Maven Central does
+not stop them. `.github/maven/settings.xml` says how, and every Maven call of a workflow names it.
+On your own machine nothing changes.
+
 ## What a POM hands an application
 
 A tool which is only needed to compile our source belongs in scope `provided`. Write the scope at
