@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:c8-open-jobs;DB_CLOSE_DELAY=-1
+  jpa:
+    hibernate:
+      ddl-auto: update
+vanillabp:
+  adapters:
+    c8:
+      type: camunda8
+      request-timeout: PT5S
+      job-lease: use
+      job-timeout: PT30S
+      name-clash-avoidance: use-prefix
+  prioritized-adapters:
+    - c8
+  workflow-modules:
+    test-app:
+      adapters:
+        c8:
+          resources-location: classpath*:open-jobs

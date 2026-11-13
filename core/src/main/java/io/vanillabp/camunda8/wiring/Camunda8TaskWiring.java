@@ -975,6 +975,54 @@ public final class Camunda8TaskWiring {
   }
 
   /**
+   * A user task without <code>zeebe:userTask</code> which names a job type of its own. The
+   * cluster ignores that job type and hands out a job of
+   * {@value #TASKDEFINITION_USERTASK_WORKER_V1} for the element, measured against
+   * <code>camunda/camunda:8.10.9</code> on 2026-11-13 by {@code Camunda8LegacyUserTaskIT}.
+   *
+   * @param activityId The element id
+   * @param jobType The type of its <code>zeebe:taskDefinition</code>, as the model holds it
+   */
+  public record Camunda8UserTaskWithAJobTypeOfItsOwn(
+                                                     String activityId,
+                                                     String jobType) {
+  }
+
+  /**
+   * The user tasks of the given executable process which carry no <code>zeebe:userTask</code>
+   * but a <code>zeebe:taskDefinition</code> of their own. {@link #jobWorkerUserTasksOf} leaves
+   * them out. They are read so that the deployment can explain a
+   * <code>&#64;WorkflowTask</code> method which names such a job type. That method would never
+   * be called, because the cluster serves the element with a job of
+   * {@value #TASKDEFINITION_USERTASK_WORKER_V1} whatever job type the model names. Without
+   * this, the boot would only say that the method matches no task.
+   *
+   * @param model The BPMN model of one file
+   * @param bpmnProcessId The process id as the CLUSTER knows it
+   * @return The elements with their job type, in the order of the model
+   */
+  public static List<Camunda8UserTaskWithAJobTypeOfItsOwn> userTasksWithAJobTypeOfTheirOwn(
+      final BpmnModelInstance model,
+      final String bpmnProcessId) {
+
+    return model
+        .getModelElementsByType(UserTask.class)
+        .stream()
+        .filter(task -> bpmnProcessId.equals(owningProcessId(task)))
+        .filter(task -> task.getSingleExtensionElement(ZeebeUserTask.class) == null)
+        .map(task -> {
+          final var taskDefinition = task.getSingleExtensionElement(ZeebeTaskDefinition.class);
+          if ((taskDefinition == null) || (taskDefinition.getType() == null) || taskDefinition.getType().isBlank()) {
+            return null;
+          }
+          return new Camunda8UserTaskWithAJobTypeOfItsOwn(task.getId(), taskDefinition.getType());
+        })
+        .filter(Objects::nonNull)
+        .toList();
+
+  }
+
+  /**
    * Whether a form definition names the formKey of version 1. It told that adapter the task
    * definition of the user task.
    *

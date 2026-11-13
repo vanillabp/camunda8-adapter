@@ -702,6 +702,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     processVersions.setStartEventsOfModel(this::startEventSpecsOf);
     processVersions.setConcurrentTokenElementsOfModel(this::concurrentTokenElementIdsOf);
     processVersions.setIdentifiersOfModel(this::identifiersOfModel);
+    // the finding about workflows on older versions says that they keep being served. That
+    // is not true at a user task without 'zeebe:userTask' in such a version, and the
+    // finding has to say so
+    processVersions.setWhatHeldVersionsLeaveUnserved(this::whatHeldVersionsLeaveUnserved);
+    // the process service counts the open jobs this adapter delivers while the application
+    // starts. Only this service reads the models, so it says which job types those are
+    clientFactory.provideJobTypesItDelivers(this::jobTypesItDeliversFor);
 
   }
 
@@ -1531,7 +1538,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         workflowModuleId,
         bpmnProcessId,
         scopedBpmnProcessId,
+        model,
         Camunda8TaskWiring.jobWorkerUserTasksOf(model, scopedBpmnProcessId));
+    // the same tag WITH a job type of its own is an element the application serves itself.
+    // A @WorkflowTask method naming that job type would never be called
+    refuseMethodsOfUserTasksWithAJobTypeOfTheirOwn(workflowModuleId, bpmnProcessId, scopedBpmnProcessId, model, tasks);
 
     // under 'use-prefix', a called process or decision may be named by FEEL. Then its prefix
     // is written INSIDE the expression, so the cluster holds more than the developer typed.
@@ -1681,9 +1692,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     }
 
     log.info(
-        "Camunda8[{}]: wired {} task(s) of BPMN process '{}' (file '{}', workflow module '{}')",
+        "Camunda8[{}]: wired {} task(s) and {} user task(s) of BPMN process '{}' (file '{}', workflow module '{}')",
         adapterId,
         tasks.size(),
+        userTasks.size(),
         bpmnProcessId,
         filename,
         workflowModuleId);
@@ -2528,35 +2540,32 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
    * The finding is the SHAPE of the element. A user task which carries
    * <code>zeebe:userTask</code> is managed by the cluster, and that is the one shape this
    * adapter takes. A user task without it is a job-worker user task. VanillaBP 1 used that
-   * shape up to its release 1.6.3, and this adapter does not take it. So nothing here asks
-   * whether some worker would fetch the job. The model says that a job worker serves the
-   * task, and that is already the answer.
+   * shape up to its release 1.6.3, and older Camunda Modelers drew every user task that way.
+   * So nothing here asks whether some worker would fetch the job. The model says that a job
+   * worker serves the task, and that is already the answer.
    * <p>
    * A <code>&#64;WorkflowService</code> class which claims a process says that the
-   * application serves that process. So the boot ends over such an element. The cost of the
-   * shape shows why ending the boot is the kinder answer. The cluster hands out a job of its
-   * own user-task type, and nothing here fetches it. The workflow stands at the element with
-   * no incident, because a job nobody fetches never loses a retry. Nobody sees that until
-   * somebody waits for a task which never appears.
+   * application serves that process. So the boot ends over such an element. The cluster would
+   * hand out a job of its own user-task type, nothing here would fetch it, and the workflow
+   * would stand at the element with no incident.
    * <p>
-   * The two shapes are named apart, because only one of them can be searched for. Up to
-   * release 1.6.3, VanillaBP 1 served this element and read its task definition off the
-   * <code>formKey</code>. So an upgrading application finds those by searching its models.
-   * A user task without a <code>formKey</code> does not follow that convention, and no such
-   * search finds it. But the cluster does exactly the same with it.
+   * The message is short on purpose. It says what is wrong and how to fix the model in the
+   * Modeler, and it says that older versions in the cluster may keep the shape. The wiki
+   * page it links explains the rest. It names the task definition to set where it can find
+   * one: the formKey from which VanillaBP 1 read it, or the element id where a
+   * <code>&#64;WorkflowTask</code> method names it. The sentence about a search for
+   * <code>formKey</code> is only written where an element carries one, because only those
+   * elements such a search finds.
    * <p>
-   * Two numbers are given, and only the first one is certain. The elements come from the
-   * model this boot deploys, and their number has to reach zero. The count of open tasks is a
-   * search of the index of the cluster. {@link Camunda8UnservedUserTaskJobs} says what that
-   * answer is worth. The index leaves out the jobs it has seen finish, and it runs behind the
-   * engine at both ends. So the number is close, not exact, and the message says so. The
-   * adapter does not wait for the cluster. If the cluster does not answer yet, the number is
-   * missing. The model is the cause, and a wait would only put a message about the cluster
-   * in front of it.
+   * The count of open tasks is a search of the index of the cluster.
+   * {@link Camunda8UnservedUserTaskJobs} says what that answer is worth. The adapter does not
+   * wait for the cluster. If the cluster does not answer yet, the number is missing. The model
+   * is the cause, and a wait would only put a message about the cluster in front of it.
    *
    * @param workflowModuleId The workflow module id
    * @param bpmnProcessId The plain BPMN process id
    * @param scopedBpmnProcessId The process id as the cluster knows it
+   * @param model The model this boot deploys, to read the formKey of an element
    * @param found The job-worker user tasks, per shape, both empty for a model whose user
    *          tasks are all Camunda-managed
    * @throws IllegalStateException If the model carries such a user task
@@ -2565,6 +2574,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final String bpmnProcessId,
       final String scopedBpmnProcessId,
+      final BpmnModelInstance model,
       final Camunda8TaskWiring.Camunda8JobWorkerUserTasks found) {
 
     if (found.isEmpty()) {
@@ -2575,61 +2585,173 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // own message, and that hides the real cause
     final var howManyAreOpen = Camunda8UnservedUserTaskJobs
         .howManyAreOpen(whatTheIndexHoldsOfTheJobWorkerUserTasks(scopedBpmnProcessId));
+    final var formKeySentence = found.withVersionOnesFormKey().isEmpty()
+        ? ""
+        : " %s carr%s the formKey from which VanillaBP 1 read the task definition, so a search of your models for 'formKey' finds such elements."
+            .formatted(named(found.withVersionOnesFormKey()), found.withVersionOnesFormKey().size() == 1
+                ? "ies"
+                : "y");
     throw new IllegalStateException(
         """
-            Camunda 8 adapter '%s' does not deploy BPMN process '%s' of workflow module '%s': it \
-            carries %d user task(s) with no 'zeebe:userTask' extension element, which is a user \
-            task a job worker serves, and this adapter does not accept that shape: %s. A \
-            @WorkflowService class of this application claims this process, so the application \
-            stands in for it, and VanillaBP serves a user task only where the CLUSTER manages it. \
-            What the shape would cost you: the cluster creates a job of '%s', nothing here \
-            fetches it, and the workflow stands at the element. %s Nobody sees that until somebody \
-            waits for a task which never appears, so the boot ends here instead. Two ways out. Make the user task a Camunda-managed one \
-            ('zeebe:userTask') and set 'External form reference' (zeebe:formDefinition \
-            externalReference) to the task definition your @WorkflowTask method names - VanillaBP \
-            then wires its lifecycle listeners itself. Or take the element out of the model, if \
-            that work is not done any more. Where a worker of your own serves the element, give it \
-            a 'zeebe:taskDefinition' naming that worker's job type, and this check passes over it: \
-            the element is then yours to serve rather than a user task of VanillaBP's. %s A task \
-            already open on such an element stays as it is: its workflow runs on the process \
-            version it was started on, which no change to your model reaches, so finish or cancel \
-            those through your own task list."""
+            Camunda 8 adapter '%s' does not deploy BPMN process '%s' of workflow module '%s': user \
+            task %s %s no 'zeebe:userTask'. Such a user task is served by a job worker (the way older \
+            Camunda Modelers and VanillaBP up to 1.6.3 drew it), and this adapter does not serve that \
+            shape. Fix the model: open the element in the Modeler, choose "Camunda user task" as its \
+            implementation (this writes '<zeebe:userTask />') and set 'External form reference' to \
+            %s.%s If that work is not done any more, take the element out of the model. Older versions \
+            of this process which the cluster already holds may keep this shape; they are not refused. \
+            %s Details: %s"""
             .formatted(
                 adapterId,
                 bpmnProcessId,
                 workflowModuleId,
-                found.all().size(),
-                whichShapeEachOfThemIs(found),
-                Camunda8TaskWiring.TASKDEFINITION_USERTASK_WORKER_V1,
-                Camunda8Connectors.A_JOB_NOBODY_FETCHES,
-                howManyAreOpen));
+                named(found.all()),
+                found.all().size() == 1
+                    ? "has"
+                    : "have",
+                whichTaskDefinitionToSet(workflowModuleId, bpmnProcessId, model, found.all()),
+                formKeySentence,
+                howManyAreOpen,
+                A_USER_TASK_A_JOB_WORKER_SERVES));
 
   }
 
   /**
-   * Names the elements found, per shape. So a developer reads which of them a search for
-   * <code>formKey</code> would have found.
-   *
-   * @param found The job-worker user tasks, per shape
-   * @return One sentence naming what there is, leaving out a shape which is not there
+   * Where the wiki explains why a user task a job worker serves is refused.
    */
-  private static String whichShapeEachOfThemIs(
-      final Camunda8TaskWiring.Camunda8JobWorkerUserTasks found) {
+  static final String A_USER_TASK_A_JOB_WORKER_SERVES = "https://github.com/vanillabp/camunda8-adapter/wiki/Deviations#a-user-task-a-job-worker-serves-is-not-accepted-and-refused-where-you-claim-the-process";
 
-    final var sentences = new ArrayList<String>();
-    if (!found.withVersionOnesFormKey().isEmpty()) {
-      sentences
-          .add(
-              "carrying the formKey VanillaBP 1 read their task definition from, up to its release 1.6.3, which is what a search of your models for 'formKey' finds: %s"
-                  .formatted(named(found.withVersionOnesFormKey())));
+  /**
+   * Says to what the external form reference of each element has to be set. That is the task
+   * definition of the <code>&#64;WorkflowTask</code> method which serves it. Where it can be
+   * found, it is named: the formKey from which VanillaBP 1 read it, or the element id, if a
+   * method names it.
+   *
+   * @param workflowModuleId The workflow module id
+   * @param bpmnProcessId The plain BPMN process id
+   * @param model The model this boot deploys
+   * @param elementIds The job-worker user tasks
+   * @return The words which end the sentence about the external form reference
+   */
+  private String whichTaskDefinitionToSet(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final BpmnModelInstance model,
+      final List<String> elementIds) {
+
+    final var known = new ArrayList<String>();
+    for (final var elementId : elementIds) {
+      final var taskDefinition = taskDefinitionOfAJobWorkerUserTask(workflowModuleId, bpmnProcessId, model, elementId);
+      if (taskDefinition != null) {
+        known
+            .add(elementIds.size() == 1
+                ? "'%s'".formatted(taskDefinition)
+                : "'%s' for '%s'".formatted(taskDefinition, elementId));
+      }
     }
-    if (!found.withoutAFormKey().isEmpty()) {
-      sentences
-          .add(
-              "carrying no formKey at all, so no search for one finds them although this cluster treats them the same: %s"
-                  .formatted(named(found.withoutAFormKey())));
+    final var whatItIs = "the task definition of the @WorkflowTask method which serves it";
+    if (known.isEmpty()) {
+      return whatItIs;
     }
-    return String.join("; ", sentences);
+    return elementIds.size() == 1
+        ? "%s, %s".formatted(known.getFirst(), whatItIs)
+        : "%s (%s)".formatted(whatItIs, String.join(", ", known));
+
+  }
+
+  /**
+   * @return The formKey of the element, the element id where a method names it, or
+   *         <code>null</code> where neither is known
+   */
+  private String taskDefinitionOfAJobWorkerUserTask(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final BpmnModelInstance model,
+      final String elementId) {
+
+    if (model.getModelElementById(elementId) instanceof io.camunda.zeebe.model.bpmn.instance.UserTask userTask) {
+      final var formDefinition = userTask
+          .getSingleExtensionElement(io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeFormDefinition.class);
+      if ((formDefinition != null) && (formDefinition.getFormKey() != null) && !formDefinition.getFormKey().isBlank()) {
+        return formDefinition.getFormKey();
+      }
+    }
+    return workflowTaskInvoker.workflowTaskHandlerExists(workflowModuleId, bpmnProcessId, elementId)
+        ? elementId
+        : null;
+
+  }
+
+  /**
+   * Ends the boot where a <code>&#64;WorkflowTask</code> method names the job type of a user
+   * task which carries no <code>zeebe:userTask</code> but a <code>zeebe:taskDefinition</code>
+   * of its own.
+   * <p>
+   * The cluster ignores a job type on a user task. It serves the element with a job of
+   * {@value Camunda8TaskWiring#TASKDEFINITION_USERTASK_WORKER_V1}, measured against
+   * <code>camunda/camunda:8.10.9</code> on 2026-11-13 by {@code Camunda8LegacyUserTaskIT}. No
+   * worker of VanillaBP fetches that job, so the method is never called. Without this check, the boot ends a little later
+   * with "matching no task of any wired BPMN process". That message tells the reader to add
+   * the task to the model, and the task is in the model already. Older Camunda Modelers often
+   * wrote such a job type on a user task, so this is a likely mistake after an upgrade.
+   * <p>
+   * A job type which a service-like task of the same process uses as well is left alone. Its
+   * method is wired through that task.
+   *
+   * @param workflowModuleId The workflow module id
+   * @param bpmnProcessId The plain BPMN process id
+   * @param scopedBpmnProcessId The process id as the cluster knows it
+   * @param model The model this boot deploys
+   * @param tasks The service-like tasks of the process, as the wiring read them
+   * @throws IllegalStateException If a method names the job type of such a user task
+   */
+  private void refuseMethodsOfUserTasksWithAJobTypeOfTheirOwn(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String scopedBpmnProcessId,
+      final BpmnModelInstance model,
+      final List<Camunda8TaskWiring.Camunda8TaskToWire> tasks) {
+
+    final var jobTypesOfTasks = tasks
+        .stream()
+        .map(Camunda8TaskWiring.Camunda8TaskToWire::taskDefinition)
+        .filter(Objects::nonNull)
+        .collect(Collectors.toSet());
+    final var namedByAMethod = Camunda8TaskWiring
+        .userTasksWithAJobTypeOfTheirOwn(model, scopedBpmnProcessId)
+        .stream()
+        .filter(userTask -> !jobTypesOfTasks.contains(userTask.jobType()))
+        .filter(userTask -> workflowTaskInvoker
+            .workflowTaskHandlerExists(
+                workflowModuleId,
+                bpmnProcessId,
+                plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.jobType())))
+        .toList();
+    if (namedByAMethod.isEmpty()) {
+      return;
+    }
+    final var described = namedByAMethod
+        .stream()
+        .map(userTask -> {
+          final var taskDefinition = plainTaskDefinition(workflowModuleId, bpmnProcessId, userTask.jobType());
+          return """
+              '%s' is a user task with a job type of its own ('%s'). The cluster ignores a job type on a \
+              user task: it serves the element with a job of type '%s', which no worker of VanillaBP \
+              fetches, so your @WorkflowTask method for task definition '%s' is never called. Make it a \
+              Camunda user task: in the Modeler choose "Camunda user task" as its implementation (this \
+              writes '<zeebe:userTask />') and set 'External form reference' to '%s'. Or model it as a \
+              service task, if a job is really what you want."""
+              .formatted(
+                  userTask.activityId(),
+                  taskDefinition,
+                  Camunda8TaskWiring.TASKDEFINITION_USERTASK_WORKER_V1,
+                  taskDefinition,
+                  taskDefinition);
+        })
+        .collect(Collectors.joining(" "));
+    throw new IllegalStateException(
+        "Camunda 8 adapter '%s' does not deploy BPMN process '%s' of workflow module '%s': %s"
+            .formatted(adapterId, bpmnProcessId, workflowModuleId, described));
 
   }
 
@@ -3081,6 +3203,39 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   }
 
   /**
+   * The same for ONE version of a process the cluster holds.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @param version The version the cluster assigned
+   * @return What the index answered, or <code>null</code> where the cluster did not answer
+   */
+  private Camunda8UnservedUserTaskJobs.Count whatTheIndexHoldsOfTheJobWorkerUserTasks(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final String version) {
+
+    final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
+    try {
+      final var definitionKey = processVersions.definitionKeyOfVersion(workflowModuleId, bpmnProcessId, version);
+      if (definitionKey == null) {
+        return null;
+      }
+      return Camunda8UnservedUserTaskJobs.countFor(clientFactory.getClient(), scopedBpmnProcessId, definitionKey);
+    } catch (final RuntimeException e) {
+      // a diagnostic never fails a deployment. If the cluster cannot answer, the message
+      // says so instead
+      log.debug(
+          "Camunda8[{}]: the cluster did not answer how many job-worker user tasks of '{}' are open",
+          adapterId,
+          scopedBpmnProcessId,
+          e);
+      return null;
+    }
+
+  }
+
+  /**
    * The tasks of ONE model the cluster holds, as the core checks them. The startup
    * check about older versions reads them through the version catalog. The user tasks
    * are read without any refusal. The check looks at a model which an earlier
@@ -3510,6 +3665,11 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
     // and what this release line cannot say about an instance which was canceled
     reportWhatACancelationCannotSay(workflowModuleId, bpmsProcessingContext);
+
+    // an older version may carry user tasks a job worker serves, which nothing here serves.
+    // It is said now and not when the workers open, because the block of the start is
+    // written before that
+    warnAboutJobWorkerUserTasksOfHeldVersions(workflowModuleId);
 
   }
 
@@ -3950,6 +4110,262 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                         "Camunda8[{}]: {}",
                         adapterId,
                         Camunda8StandardLoops.warningAboutAHeldVersion(heldVersion, bpmnProcessId, workflowModuleId))));
+
+  }
+
+  /**
+   * One version the cluster holds which has user tasks without <code>zeebe:userTask</code>,
+   * while workflows still run on it.
+   *
+   * @param version The version the cluster assigned
+   * @param elementIds The user tasks a job worker serves
+   * @param running How many workflows still run on that version
+   * @param open What the index holds of the jobs of those user tasks on that version, or
+   *          <code>null</code> where the cluster did not answer
+   */
+  private record HeldVersionWithJobWorkerUserTasks(
+                                                   String version,
+                                                   List<String> elementIds,
+                                                   long running,
+                                                   Camunda8UnservedUserTaskJobs.Count open) {
+  }
+
+  /**
+   * The versions found per BPMN process, so the finding of the core and the warning of this
+   * adapter read the cluster once. The key is {@code <workflow module>|<bpmn process id>}.
+   * Both questions are asked while the application starts, after the deployment.
+   */
+  private final Map<String, List<HeldVersionWithJobWorkerUserTasks>> heldVersionsWithJobWorkerUserTasks = new ConcurrentHashMap<>();
+
+  /**
+   * The versions of one BPMN process which the cluster holds, which have user tasks without
+   * <code>zeebe:userTask</code>, and on which workflows still run. A version without running
+   * workflows is left out. It costs nothing, because no workflow can reach its user tasks.
+   * <p>
+   * The models come from the picture of what the cluster holds (see decision 19 in the
+   * repository's DECISIONS.md). If the cluster cannot be searched, the answer is empty and
+   * nothing is said. A model is read first, and the workflows are counted only where it has
+   * such a user task, because counting is a search on the cluster.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @return The versions, oldest first, possibly empty
+   */
+  private List<HeldVersionWithJobWorkerUserTasks> heldVersionsWithJobWorkerUserTasksOf(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    return heldVersionsWithJobWorkerUserTasks
+        .computeIfAbsent(
+            workflowModuleId
+                + "|"
+                + bpmnProcessId,
+            key -> readHeldVersionsWithJobWorkerUserTasks(workflowModuleId, bpmnProcessId));
+
+  }
+
+  private List<HeldVersionWithJobWorkerUserTasks> readHeldVersionsWithJobWorkerUserTasks(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    final var modelsTheClusterHolds = clientFactory.getModelsTheClusterHolds();
+    if (modelsTheClusterHolds == null) {
+      return List.of();
+    }
+    if (!(modelsTheClusterHolds
+        .heldFor(workflowModuleId, bpmnProcessId) instanceof Camunda8ModelsTheClusterHolds.Answer.Known known)) {
+      return List.of();
+    }
+    final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
+    final var found = new ArrayList<HeldVersionWithJobWorkerUserTasks>();
+    for (final var heldModel : known.models()) {
+      final var elementIds = Camunda8TaskWiring.jobWorkerUserTasksOf(heldModel.model(), scopedBpmnProcessId).all();
+      if (elementIds.isEmpty()) {
+        continue;
+      }
+      final var running = workflowsRunningOn(workflowModuleId, bpmnProcessId, heldModel.version());
+      if ((running == null) || (running == 0L)) {
+        continue;
+      }
+      found
+          .add(
+              new HeldVersionWithJobWorkerUserTasks(
+                  heldModel.version(), elementIds, running, whatTheIndexHoldsOfTheJobWorkerUserTasks(workflowModuleId,
+                      bpmnProcessId, heldModel.version())));
+    }
+    found.sort(java.util.Comparator.comparing(held -> Long.parseLong(held.version())));
+    return List.copyOf(found);
+
+  }
+
+  /**
+   * What the finding of the core about workflows on older versions has to add for this
+   * BPMN process. That finding says those workflows keep being served. A workflow which
+   * reaches a user task without <code>zeebe:userTask</code> is not served at all, so this
+   * names the versions where that can happen.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @return The words to add, or <code>null</code> where nothing has to be added
+   */
+  private String whatHeldVersionsLeaveUnserved(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    final var held = heldVersionsWithJobWorkerUserTasksOf(workflowModuleId, bpmnProcessId);
+    if (held.isEmpty()) {
+      return null;
+    }
+    final var versions = held
+        .stream()
+        .map(HeldVersionWithJobWorkerUserTasks::version)
+        .collect(Collectors.joining(", "));
+    return "but a workflow on version %s which reaches a user task without 'zeebe:userTask' is not served at all, see the warning about version %s"
+        .formatted(versions, versions);
+
+  }
+
+  /**
+   * Warns about each version the cluster holds which has user tasks without
+   * <code>zeebe:userTask</code>, while workflows still run on it. A job worker serves such a
+   * user task, and VanillaBP does not. The cluster holds that model already, so nobody can
+   * change it, and this is a warning, not a refusal.
+   * <p>
+   * The warning says how to get those workflows onto a version VanillaBP serves. Measured
+   * against <code>camunda/camunda:8.10.9</code> on 2026-11-13 by
+   * {@code Camunda8LegacyUserTaskIT}: a process instance migration which maps the old element
+   * to a Camunda user task of a newer version is accepted. The cluster cancels the job and
+   * creates the Camunda user task. But it creates it without running its
+   * <code>creating</code> listeners, so VanillaBP never hears of that task. A process instance
+   * modification on the migrated instance, which cancels the token in the user task and adds a
+   * new one at the same element, creates the user task again, with its listeners. That is the
+   * second step the warning names.
+   *
+   * @param workflowModuleId The workflow module which is about to process workflows
+   */
+  private void warnAboutJobWorkerUserTasksOfHeldVersions(
+      final String workflowModuleId) {
+
+    final var modelsTheClusterHolds = clientFactory.getModelsTheClusterHolds();
+    if (modelsTheClusterHolds == null) {
+      return;
+    }
+    if (!(modelsTheClusterHolds
+        .heldFor(workflowModuleId) instanceof Camunda8ModelsTheClusterHolds.Answer.Known known)) {
+      return;
+    }
+    known
+        .models()
+        .stream()
+        .map(Camunda8ModelsTheClusterHolds.HeldModel::bpmnProcessId)
+        .collect(Collectors.toCollection(TreeSet::new))
+        .forEach(bpmnProcessId -> heldVersionsWithJobWorkerUserTasksOf(workflowModuleId, bpmnProcessId)
+            .forEach(held -> warnAboutAHeldVersion(workflowModuleId, bpmnProcessId, held)));
+
+  }
+
+  private void warnAboutAHeldVersion(
+      final String workflowModuleId,
+      final String bpmnProcessId,
+      final HeldVersionWithJobWorkerUserTasks held) {
+
+    final var deployed = clientFactory.getDeployedProcesses().deployedVersionOf(workflowModuleId, bpmnProcessId);
+    final var newerVersion = (deployed != null) && (deployed.version() > Long.parseLong(held.version()))
+        ? ", such as version %d which this application deployed".formatted(deployed.version())
+        : "";
+    final var message = """
+        Version %s of this BPMN process, which the cluster still holds, has user task(s) without \
+        'zeebe:userTask': %s. A job worker serves such a user task, and VanillaBP does not. %d \
+        workflow(s) still run on version %s, and each of them which reaches such a user task waits \
+        there until somebody finishes its job of type '%s' outside of this application. %s Migrate \
+        those process instances in Camunda Operate to a newer version of this process which already \
+        uses Camunda user tasks ('zeebe:userTask')%s. For a process instance which already stands at \
+        such a user task, the migration alone is not enough: the cluster creates the Camunda user task \
+        without running its 'creating' listeners, so VanillaBP never hears of it. For those, cancel the \
+        token in the user task and add a new one at the same user task after the migration, in Operate \
+        with "Modify instance" (process instance modification). Nothing in your current model needs to \
+        change. Details: %s"""
+        .formatted(
+            held.version(),
+            named(held.elementIds()),
+            Long.valueOf(held.running()),
+            held.version(),
+            Camunda8TaskWiring.TASKDEFINITION_USERTASK_WORKER_V1,
+            Camunda8UnservedUserTaskJobs.howManyAreOpen(held.open()),
+            newerVersion,
+            MIGRATING_FROM_JOB_BASED_USER_TASKS);
+    final var scope = "process '%s' of workflow module '%s', adapter '%s'"
+        .formatted(bpmnProcessId, workflowModuleId, adapterId);
+    if (startupReport != null) {
+      startupReport.warn(StartupTopic.DEPLOYED_VERSIONS, scope, message);
+      return;
+    }
+    log.warn("{}: {}", scope, message);
+
+  }
+
+  /**
+   * Where the wiki describes how workflows get from a user task a job worker serves to a
+   * Camunda user task.
+   */
+  static final String MIGRATING_FROM_JOB_BASED_USER_TASKS = "https://github.com/vanillabp/camunda8-adapter/wiki/Deviations#migrating-instances-from-job-based-user-tasks";
+
+  /**
+   * The job types this adapter delivers for one BPMN process, as the cluster knows them. The
+   * process service counts the open jobs of those types while the application starts. That
+   * happens before this boot deploys anything. So the job types are read off the versions the
+   * cluster holds already, and only off those on which workflows still run. A version nobody
+   * runs on has no open job.
+   * <p>
+   * The picture of what the cluster holds is not asked. It keeps what it read, and a picture
+   * read before the deployment would miss the version this boot deploys.
+   * <p>
+   * The job types are those of the workers this adapter opens: the service-like tasks which
+   * nothing else serves, the lifecycle listeners of the Camunda user tasks, and the listeners
+   * somebody modelled where they are allowed. A user task without <code>zeebe:userTask</code>,
+   * a connector and a user task with a job type of its own are not among them.
+   *
+   * @param workflowModuleId The workflow module ID
+   * @param bpmnProcessId The PLAIN BPMN process ID
+   * @return The job types. Whatever the cluster threw is thrown on
+   */
+  private Set<String> jobTypesItDeliversFor(
+      final String workflowModuleId,
+      final String bpmnProcessId) {
+
+    final var scopedBpmnProcessId = scopedProcessId(workflowModuleId, bpmnProcessId);
+    final var connectorsAreAllowed = connectorsAllowedFor(workflowModuleId, bpmnProcessId).allowed();
+    final var listenersAreAllowed = listenersAllowedFor(workflowModuleId, bpmnProcessId).allowed();
+    final var jobTypes = new TreeSet<String>();
+    for (final var version : processVersions.versionsHeldUnder(workflowModuleId, bpmnProcessId)) {
+      final var running = processVersions.activeInstanceCountOf(workflowModuleId, bpmnProcessId, version);
+      if ((running != null) && (running == 0L)) {
+        continue;
+      }
+      final var model = processVersions.modelOfVersion(workflowModuleId, bpmnProcessId, version);
+      if (model == null) {
+        continue;
+      }
+      Camunda8TaskWiring
+          .tasksOf(model, scopedBpmnProcessId, connectorsAreAllowed)
+          .stream()
+          .filter(task -> task.taskDefinition() != null)
+          .filter(task -> !workflowTaskWiring
+              .isImplementedExternally(
+                  adapterId,
+                  workflowModuleId,
+                  bpmnProcessId,
+                  new BpmnTaskSpec(
+                      task.activityId(), plainTaskDefinition(workflowModuleId, bpmnProcessId, task.taskDefinition()))))
+          .forEach(task -> jobTypes.add(task.taskDefinition()));
+      jobTypes.addAll(Camunda8TaskWiring.userTaskListenerJobTypesOfHeldModel(model, scopedBpmnProcessId));
+      if (listenersAreAllowed) {
+        Camunda8Listeners
+            .listenersOf(model, scopedBpmnProcessId)
+            .forEach(listener -> jobTypes.add(listener.taskDefinition()));
+      }
+    }
+    return jobTypes;
 
   }
 

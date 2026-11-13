@@ -1911,17 +1911,32 @@ searching its models for that word. The other shape carries no `formKey` at all.
 finds it, but the cluster treats it exactly the same. That second shape is why the reader does
 not filter on the formKey: it went through the whole boot without a word.
 
-One element has this shape and still does not count: a user task with a `zeebe:taskDefinition`
-of its own. A worker of the APPLICATION serves it, under a job type the application chose. So it
-is no longer a user task VanillaBP is meant to serve, and the reader passes over it. That is the
-third way out which the refusal names, and `Camunda8JobWorkerUserTasksReportTest` holds the
-boundary.
+One element has this shape and still does not count: a user task with a `zeebe:taskDefinition` of
+its own. The reader passes over it. But the cluster ignores that job type: measured against
+`camunda/camunda:8.10.9` by `Camunda8LegacyUserTaskIT`, it hands out a job of
+`io.camunda.zeebe:userTask` for such an element all the same. So the refusal no longer offers the
+job type as a way out. Where a `@WorkflowTask` method names that job type, the method would never be
+called, and `refuseMethodsOfUserTasksWithAJobTypeOfTheirOwn` ends the boot with a message which says
+so. Without it the core would say that the method matches no task, while the task is right there in
+the model. `Camunda8JobWorkerUserTasksReportTest` holds both cases.
 
 What happens next is in `Camunda8DeploymentService#refuseJobWorkerUserTasks`. Where a
 `@WorkflowService` class of the application claims the process, the boot ends: the class says the
 application stands in for that process, and VanillaBP serves a user task only where the cluster
-manages it. The message names the process, the elements per shape and the three ways out. A process
-nobody claims is not looked at, see [A process nobody claims](#a-process-nobody-claims).
+manages it. The message is short: it names the process and the elements, says how to fix the model
+in the Modeler, names the task definition to set where it can find one (the `formKey` of version 1,
+or the element id where a method names it), and says that older versions in the cluster may keep the
+shape. The sentence about a search for `formKey` is only written where an element carries one. A
+process nobody claims is not looked at, see [A process nobody claims](#a-process-nobody-claims).
+
+An OLDER version the cluster holds may keep the shape. Where workflows still run on it,
+`warnAboutJobWorkerUserTasksOfHeldVersions` writes a warning into "DEPLOYED VERSIONS" right after the
+deployment, and `Camunda8ProcessVersions#whatOlderVersionsMiss` adds to the core's finding that those
+workflows are not served at such a user task. The warning names the way out which
+`Camunda8LegacyUserTaskIT` measured: a process instance migration in Operate to a version with a
+Camunda user task, and for an instance which already stands at the user task a process instance
+modification afterwards. The migration alone creates the Camunda user task without running its
+`creating` listeners, so VanillaBP never hears of it.
 `Camunda8JobWorkerUserTasksReportTest` holds the message and `Camunda8UserTaskWiringTest` the
 reader.
 
@@ -1937,6 +1952,17 @@ that class and in the message which carries it: the index runs behind the engine
 `Camunda8UnservedUserTaskJobsTest` holds the two searches and the arithmetic, and
 `Camunda8CountOfOpenUnservedUserTasksIT` reads one open and one finished job of the same type in
 the same process against a real cluster and writes down which states each line names.
+
+The startup finding about open tasks without a delivery record ("STORED STATE") asks
+`Camunda8ProcessService#openTaskCount`. It counts the same way, all jobs minus those in an end
+state, and only jobs of a type this adapter delivers: the service-like tasks nothing else serves,
+the lifecycle listeners of Camunda user tasks and allowed modelled listeners, read off the versions
+the cluster holds with running workflows (`Camunda8OpenJobsItDelivers`). The question is asked
+before this boot deploys, so the deployment service hands the job types over through the client
+factory and does not use the picture of held models, which would keep a list without the version
+deployed next. `Camunda8OpenJobsWithoutARecordIT` holds it: before the change the count was the
+total of every job of the process, completed jobs and the listener jobs of the start event and the
+process end included, so a start with an empty delivery log reported three tasks where one was open.
 
 The wiring and the V1 order of the listeners are `Camunda8UserTaskWiringTest`. The
 lifecycle against a cluster is `Camunda8TaskProcessingIT#userTaskCreatedAndCompleted`,

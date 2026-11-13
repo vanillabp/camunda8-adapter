@@ -32,6 +32,7 @@ import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8CommandRetry;
 import io.vanillabp.camunda8.client.Camunda8Errors;
 import io.vanillabp.camunda8.client.Camunda8InstanceProbe;
+import io.vanillabp.camunda8.client.Camunda8OpenJobsItDelivers;
 import io.vanillabp.camunda8.client.Camunda8QueryApi;
 import io.vanillabp.camunda8.client.Camunda8RefusedStart;
 import io.vanillabp.camunda8.client.Camunda8UserTaskProbe;
@@ -565,21 +566,23 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
       final String workflowModuleId,
       final String bpmnProcessId) {
 
-    // asked once per BPMN process at startup, so one search is affordable if the cluster
-    // can serve it at all. Both kinds which VanillaBP delivers are jobs. A service task
-    // IS a job, and a user task managed by Camunda reaches the application through its
-    // listener job
+    // asked once per BPMN process at startup. The question is how many deliveries could run
+    // a method a second time. So only OPEN jobs count, and only those of a job type this
+    // adapter delivers: a service task IS a job, and a Camunda user task reaches the
+    // application through its listener job. A job of a user task without 'zeebe:userTask', of
+    // a connector or of anything else served elsewhere is never delivered here.
+    // Camunda8OpenJobsItDelivers says why the search subtracts the jobs which are over
+    final var jobTypesItDelivers = clientFactory.getJobTypesItDelivers();
+    if (jobTypesItDelivers == null) {
+      return null;
+    }
     try {
-      // the TOTAL, not the page which came back. Only one item is fetched, because only
-      // the number is wanted
-      final var found = clientFactory
-          .getClient()
-          .newJobSearchRequest()
-          .filter(filter -> filter.processDefinitionId(scopedProcessId(workflowModuleId, bpmnProcessId)))
-          .page(page -> page.limit(1))
-          .send()
-          .join();
-      return found.page().totalItems();
+      final var jobTypes = jobTypesItDelivers.of(workflowModuleId, bpmnProcessId);
+      if (jobTypes == null) {
+        return null;
+      }
+      return Camunda8OpenJobsItDelivers
+          .countFor(clientFactory.getClient(), scopedProcessId(workflowModuleId, bpmnProcessId), jobTypes);
     } catch (final Exception e) {
       // a startup diagnostic. So if the cluster did not answer, only the number is lost
       log

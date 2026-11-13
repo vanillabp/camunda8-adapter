@@ -98,6 +98,50 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
   }
 
+  /**
+   * The job types this adapter delivers for one BPMN process, as the cluster knows them.
+   * {@code null} answers mean that the cluster could not tell.
+   */
+  @FunctionalInterface
+  public interface JobTypesItDelivers {
+
+    /**
+     * @param workflowModuleId The workflow module ID
+     * @param bpmnProcessId The PLAIN BPMN process ID
+     * @return The job types, or <code>null</code> where the cluster could not be asked
+     */
+    java.util.Set<String> of(
+        String workflowModuleId,
+        String bpmnProcessId);
+
+  }
+
+  private volatile JobTypesItDelivers jobTypesItDelivers;
+
+  /**
+   * Hands over how the job types this adapter delivers are found. The deployment service
+   * calls this while it is created, because it reads the models. The process service asks
+   * it while the application starts, before anything is deployed.
+   *
+   * @param jobTypesItDelivers How to find them
+   */
+  public void provideJobTypesItDelivers(
+      final JobTypesItDelivers jobTypesItDelivers) {
+
+    this.jobTypesItDelivers = jobTypesItDelivers;
+
+  }
+
+  /**
+   * @return How the job types this adapter delivers are found, or <code>null</code> where no
+   *         deployment service handed it over
+   */
+  public JobTypesItDelivers getJobTypesItDelivers() {
+
+    return jobTypesItDelivers;
+
+  }
+
   private CamundaClient client;
 
   /**
