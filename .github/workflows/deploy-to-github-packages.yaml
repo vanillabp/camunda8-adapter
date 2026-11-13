@@ -10,15 +10,23 @@ name: Build and publish snapshots
 # compiled against.
 #
 # A push to main publishes one snapshot per release line, 2.0.0-<line>-SNAPSHOT, in the
-# job 'snapshot', to the snapshot repository of Maven Central. Anybody can read them there
-# without a login, the build of a pull request from a fork included. Writing needs the
-# Central Portal token, and only a push to main gets it. So a project can try any line
-# before it is released, not only the current GA line. The job 'publish' still builds and
+# job 'snapshot'. So a project can try any line before it is released, not only the current
+# GA line. The job 'publish' still builds and
 # tests the current GA line on that push, because the coverage report on GitHub Pages comes
 # from its tests. See decision 80 in the repository's DECISIONS.md.
 #
+# The snapshots go to two places in one build, with the profile 'publish-snapshots' of the
+# POM. GitHub Packages is what the builds of the other VanillaBP repositories read, so they
+# do not ask Maven Central for every snapshot and are not stopped by its rate limit. The
+# snapshot repository of Maven Central stays for everybody else: anybody can read it there
+# without a login.
+#
+# Only a push to main publishes, and only where the Actions variable VANILLABP_PUBLISH is
+# 'true'. The vanillabp organization sets it for all its repositories. A fork does not have
+# it, so a push to the main branch of a fork publishes nothing.
+#
 # The file keeps its old name, deploy-to-github-packages.yaml, because the other workflows
-# and the documents name it. Nothing goes to GitHub Packages any more.
+# and the documents name it.
 "on":
   pull_request:
   push:
@@ -28,6 +36,15 @@ permissions:
   contents: read
   pages: write
   id-token: write
+# Where Maven reads the snapshots of the other VanillaBP repositories from, see
+# .github/maven/settings.xml: from GitHub Packages once the organization sets the Actions
+# variable VANILLABP_SNAPSHOTS_FROM to 'github-packages', else from the snapshot repository of
+# Maven Central. Reading GitHub Packages needs a token even for public packages. The
+# GITHUB_TOKEN of the run is enough, because every job which runs Maven asks for
+# 'packages: read'.
+env:
+  VBP_SNAPSHOTS_FROM: "${{ vars.VANILLABP_SNAPSHOTS_FROM == 'github-packages' && 'github-packages' || 'central' }}"
+  VBP_PACKAGES_READ_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
 concurrency:
   # two pushes to main must not publish at the same time, and the later one has to
   # finish rather than be cancelled: it carries the newer artifacts
@@ -38,6 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v7
       # The runner image brings its own Maven, whose version moves with the image, and an
@@ -68,7 +86,7 @@ jobs:
       # It runs on a push to main as well, where it publishes nothing. The job 'snapshot'
       # publishes, and this run gives the coverage report.
       - name: Build and test
-        run: mvn --batch-mode --no-transfer-progress --update-snapshots install
+        run: mvn -s .github/maven/settings.xml --batch-mode --no-transfer-progress --update-snapshots install
         env:
           CI: false
       # what a failing test printed is in these reports, and for the Quarkus tests
@@ -148,11 +166,15 @@ jobs:
   # for the same reason as in line-matrix.yaml: classes compiled against another client
   # are binary compatible with nothing. See decision 80 in the repository's DECISIONS.md.
   snapshot:
-    if: "${{ github.event_name == 'push' }}"
+    if: "${{ github.event_name == 'push' && vars.VANILLABP_PUBLISH == 'true' }}"
     needs: discover
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # writes the snapshots to GitHub Packages of this repository and reads those of the
+      # other repositories. A pull request from a fork gets a token which can only read,
+      # whatever this line says
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -179,9 +201,6 @@ jobs:
         with:
           java-version: 25.0.5+8.0.LTS
           distribution: temurin
-          server-id: vanillabp-central
-          server-username-env-var: MAVEN_USERNAME
-          server-password-env-var: MAVEN_PASSWORD
       # Read only, from the repository the line matrix wrote (line-matrix.yaml says why).
       # Without it a POM change made every line here fetch everything from Central.
       - uses: actions/cache/restore@v6
@@ -191,19 +210,19 @@ jobs:
           restore-keys: |
             maven-lines-${{ hashFiles('**/pom.xml') }}-
             maven-lines-
-      # The profile 'central-portal' of io.vanillabp:release-parent sends a version ending in
-      # -SNAPSHOT straight to the snapshot repository of Maven Central. spi-for-java and the
-      # platform come from the same repository, which the parent names and which needs no
-      # login.
+      # The profile 'publish-snapshots' sends the snapshot to GitHub Packages of this
+      # repository and to the snapshot repository of Maven Central. spi-for-java and the
+      # platform come from the place .github/maven/settings.xml names.
       - name: "Publish the snapshot of line ${{ matrix.line }}"
         timeout-minutes: 30
-        run: mvn --batch-mode --no-transfer-progress --update-snapshots
-          -Pline-${{ matrix.line }},central-portal -Drevision=2.0.0-${{ matrix.line }}-SNAPSHOT
+        run: mvn -s .github/maven/settings.xml --batch-mode --no-transfer-progress --update-snapshots
+          -Pline-${{ matrix.line }},publish-snapshots -Drevision=2.0.0-${{ matrix.line }}-SNAPSHOT
           -Dmaven.test.skip=true -DskipITs
           clean deploy
         env:
           MAVEN_USERNAME: "${{ secrets.MAVEN_CENTRAL_PORTAL_TOKEN_USER }}"
           MAVEN_PASSWORD: "${{ secrets.MAVEN_CENTRAL_PORTAL_TOKEN_PW }}"
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           CI: false
   native-build:
     # The one test which cannot run in a JVM: the adapter has to build into a native
@@ -216,6 +235,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v7
       # The runner image brings its own Maven, whose version moves with the image, and an
@@ -242,14 +262,14 @@ jobs:
       # leave it to be resolved from the registry - and the build steps under test live
       # in exactly that module
       - name: Build what the application needs
-        run: mvn --batch-mode --no-transfer-progress --update-snapshots -DskipTests
+        run: mvn -s .github/maven/settings.xml --batch-mode --no-transfer-progress --update-snapshots -DskipTests
           -pl quarkus/deployment,quarkus/native-image-tests -am install
         env:
           CI: false
       # 'verify' and not 'package': the image is built in the package phase, and the
       # integration test which starts the binary against a cluster runs after it
       - name: Build the native image and run the binary
-        run: mvn --batch-mode --no-transfer-progress
+        run: mvn -s .github/maven/settings.xml --batch-mode --no-transfer-progress
           -pl quarkus/native-image-tests -Dnative verify
         env:
           CI: false
