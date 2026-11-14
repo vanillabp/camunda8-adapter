@@ -26,6 +26,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import io.camunda.client.CamundaClient;
+import io.camunda.client.api.search.enums.ProcessInstanceState;
 import io.vanillabp.camunda8.springboot.TestOnTheSharedCluster;
 import io.vanillabp.camunda8.wiring.Camunda8TaskWiring;
 import io.vanillabp.integration.test.utils.CapturedOutput;
@@ -446,18 +447,30 @@ public class Camunda8LegacyUserTaskIT extends TestOnTheSharedCluster {
           .join();
       record("the earlier deployment with a job type: version %d, workflow %d"
           .formatted(heldVersion, instance.getProcessInstanceKey()));
-      // the warning counts the workflows on the held version through the search, so the
-      // workflow has to be there before the application starts
+      // the warning counts the ACTIVE process instances of the held version through the
+      // search, so the workflow has to be in that index before the application starts. The
+      // job index is a different one, and it can be ahead of the index of process instances
+      final var definitionKey = deployed.getProcesses().getFirst().getProcessDefinitionKey();
       final var deadline = System.currentTimeMillis() + THE_EXPORT_PIPELINE_CATCHES_UP_WITHIN;
-      while (client
-          .newJobSearchRequest()
-          .filter(filter -> filter.processInstanceKey(instance.getProcessInstanceKey()))
+      while ((client
+          .newProcessInstanceSearchRequest()
+          .filter(filter -> filter
+              .processInstanceKey(instance.getProcessInstanceKey())
+              .processDefinitionKey(definitionKey)
+              .state(ProcessInstanceState.ACTIVE))
           .send()
           .join()
           .items()
-          .isEmpty()) {
+          .isEmpty()) || client
+              .newJobSearchRequest()
+              .filter(filter -> filter.processInstanceKey(instance.getProcessInstanceKey()))
+              .send()
+              .join()
+              .items()
+              .isEmpty()) {
         if (System.currentTimeMillis() > deadline) {
-          throw new AssertionError("the job of the old shape with a job type never reached the search");
+          throw new AssertionError("the workflow on the old shape with a job type, or its job, never reached the "
+              + "search");
         }
         Thread.sleep(500);
       }
