@@ -39,7 +39,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * Two situations are read against a real cluster. In the first, the shape is in the model the
  * application deploys now. In the second, the cluster holds the shape in an older version
  * only, and a workflow still stands at it. The application deploys a re-modelled version
- * next to it.
+ * next to it. The second situation is read twice: once for the tag without a job type, and
+ * at the end once more for the tag with a {@code zeebe:taskDefinition} of its own. Both are
+ * job-worker user tasks, so both get the same warning.
  * <p>
  * The test asserts what each boot says. It also writes every message it reads to
  * {@code target/legacy-user-task-messages.txt} and to the test report, because the output of
@@ -408,6 +410,83 @@ public class Camunda8LegacyUserTaskIT extends TestOnTheSharedCluster {
       application.close();
     }
     record(reporter, "migration to the re-modelled version", String.join("\n", lines));
+
+  }
+
+  @Test
+  @Order(7)
+  @DisplayName("(b) The old shape with a job type in an older version only, next to a re-modelled one")
+  public void theOldTagWithAJobTypeInAnOlderVersion(
+      final CapturedOutput output,
+      final TestReporter reporter) throws Exception {
+
+    final int heldVersion;
+    try (var client = testClient()) {
+      final var model = Files
+          .readString(
+              Path.of("src/test/resources/legacy-user-task/stephans-tag-with-a-job-type/legacy-user-task.bpmn"),
+              StandardCharsets.UTF_8)
+          .replace("\"LegacyUserTaskProcess\"", "\""
+              + THE_PROCESS_AS_THE_CLUSTER_KNOWS_IT
+              + "\"");
+      // deployed past the adapter, as an earlier release of the application did. The adapter
+      // refuses this shape in the model it deploys itself, see the step before
+      final var deployed = client
+          .newDeployResourceCommand()
+          .addResourceStringUtf8(model, "legacy-user-task.bpmn")
+          .send()
+          .join();
+      heldVersion = deployed.getProcesses().getFirst().getVersion();
+      final var instance = client
+          .newCreateInstanceCommand()
+          .bpmnProcessId(THE_PROCESS_AS_THE_CLUSTER_KNOWS_IT)
+          .version(heldVersion)
+          .variables(Map.of("id", "legacy-2"))
+          .send()
+          .join();
+      record("the earlier deployment with a job type: version %d, workflow %d"
+          .formatted(heldVersion, instance.getProcessInstanceKey()));
+      // the warning counts the workflows on the held version through the search, so the
+      // workflow has to be there before the application starts
+      final var deadline = System.currentTimeMillis() + THE_EXPORT_PIPELINE_CATCHES_UP_WITHIN;
+      while (client
+          .newJobSearchRequest()
+          .filter(filter -> filter.processInstanceKey(instance.getProcessInstanceKey()))
+          .send()
+          .join()
+          .items()
+          .isEmpty()) {
+        if (System.currentTimeMillis() > deadline) {
+          throw new AssertionError("the job of the old shape with a job type never reached the search");
+        }
+        Thread.sleep(500);
+      }
+    }
+
+    final var before = output.getAll().length();
+    final var application = assertDoesNotThrow(() -> boot("current"));
+    application.close();
+    final var said = output.getAll().substring(before);
+    record(reporter, "(b') older version with the old tag and a job type, current version re-modelled", said);
+    final var box = said.substring(said.indexOf("VanillaBP 2.0 looked at this application"));
+    final var theBox = box.substring(0, box.indexOf("\n-----"));
+    assertTrue(
+        theBox.contains("Version %d of this BPMN process, which the cluster still holds, has user task(s) "
+            .formatted(heldVersion)
+            + "without 'zeebe:userTask': 'manualMatching'. A job worker serves such a user task, and "
+            + "VanillaBP does not. 1 workflow(s) still run on version %d".formatted(heldVersion)),
+        () -> "a job type of its own does not keep the held version out of the warning: "
+            + theBox);
+    assertTrue(
+        theBox.contains("Migrate those process instances in Camunda Operate to a newer version of this "
+            + "process which already uses Camunda user tasks ('zeebe:userTask'), such as version"),
+        () -> "and the way out: "
+            + theBox);
+    assertTrue(
+        theBox.contains("cancel the token in the user task and add a new one at the same user task after "
+            + "the migration, in Operate with \"Modify instance\""),
+        () -> "and the second step: "
+            + theBox);
 
   }
 
