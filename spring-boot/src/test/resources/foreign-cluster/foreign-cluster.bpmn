@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:zeebe="http://camunda.org/schema/zeebe/1.0" id="Definitions_ForeignCluster" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="ForeignClusterProcess" isExecutable="true">
+    <bpmn:startEvent id="FC_Start">
+      <bpmn:outgoing>FC_f1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:sequenceFlow id="FC_f1" sourceRef="FC_Start" targetRef="FC_RecordSomething" />
+    <bpmn:serviceTask id="FC_RecordSomething" name="record something">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="recordSomething" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>FC_f1</bpmn:incoming>
+      <bpmn:outgoing>FC_f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="FC_f2" sourceRef="FC_RecordSomething" targetRef="FC_End" />
+    <bpmn:endEvent id="FC_End">
+      <bpmn:incoming>FC_f2</bpmn:incoming>
+    </bpmn:endEvent>
+  </bpmn:process>
+</bpmn:definitions>

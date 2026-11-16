@@ -561,6 +561,18 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
 
   }
 
+  /**
+   * The identity of the cluster, kept per adapter instance by its client factory. The 8.9
+   * line and later keep it in a cluster variable, the 8.8 line in the name of a marker
+   * deployment (see Camunda8ClusterIdentity of each line).
+   */
+  @Override
+  public String identityOfTheBpms() {
+
+    return clientFactory.clusterIdentity();
+
+  }
+
   @Override
   public Long openTaskCount(
       final String workflowModuleId,
