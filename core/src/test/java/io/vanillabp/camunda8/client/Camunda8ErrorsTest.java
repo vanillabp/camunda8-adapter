@@ -276,6 +276,37 @@ public class Camunda8ErrorsTest {
   }
 
   @Test
+  @DisplayName("Only backpressure counts as a busy cluster for phase two, an outage does not")
+  public void onlyBackpressureIsABusyCluster() {
+
+    // what the flow control of the broker answers: REST 503 with the title of the gRPC status,
+    // and gRPC that status itself
+    assertTrue(Camunda8Errors.refusedByBackpressure(problem(503, "RESOURCE_EXHAUSTED")));
+    assertTrue(
+        Camunda8Errors.refusedByBackpressure(
+            new ClientStatusException(Status.RESOURCE_EXHAUSTED, null)));
+    // anywhere in the chain of causes, as the client wraps it in a future
+    assertTrue(
+        Camunda8Errors.refusedByBackpressure(
+            new CompletionException(new ClientException("wrapped", problem(503, "RESOURCE_EXHAUSTED")))));
+
+    // a 503 without that title comes from a gateway or a proxy which cannot reach the cluster
+    assertFalse(Camunda8Errors.refusedByBackpressure(problem(503)));
+    assertFalse(Camunda8Errors.refusedByBackpressure(new ClientHttpException(503, "Service Unavailable")));
+    // nobody answered at all, which is an outage
+    assertFalse(
+        Camunda8Errors.refusedByBackpressure(
+            new ClientStatusException(Status.UNAVAILABLE, null)));
+    // a bad gateway and a request which ran too long are no busy cluster either
+    assertFalse(Camunda8Errors.refusedByBackpressure(problem(502, "RESOURCE_EXHAUSTED")));
+    assertFalse(Camunda8Errors.refusedByBackpressure(problem(504)));
+    assertFalse(Camunda8Errors.refusedByBackpressure(new IllegalStateException("RESOURCE_EXHAUSTED")));
+    // and every refusal of backpressure stays repeatable, so the outbox gets to see it
+    assertFalse(Camunda8Errors.permanentFailure(problem(503, "RESOURCE_EXHAUSTED")));
+
+  }
+
+  @Test
   @DisplayName("A job which is gone is recognised on both transports, by their codes")
   public void aGoneJobIsRecognisedOnBothTransports() {
 

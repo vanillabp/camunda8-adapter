@@ -46,6 +46,7 @@ import io.vanillabp.integration.adapter.spi.MigratableProcessService;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
 import io.vanillabp.integration.adapter.spi.PhaseOneRequest;
 import io.vanillabp.integration.adapter.spi.PhaseOperationHandler;
+import io.vanillabp.integration.adapter.spi.PhaseTwoFailureKind;
 import io.vanillabp.integration.adapter.spi.PhaseTwoRequest;
 import io.vanillabp.integration.adapter.spi.PreCommitRegistrar;
 import io.vanillabp.integration.adapter.spi.SuspendedWorkflowReporter;
@@ -1867,6 +1868,31 @@ public class Camunda8ProcessService<A> implements MigratableProcessService<A> {
     // its refusal, not by asking here, because this method gets the failure and never the
     // operation
     return !Camunda8Errors.permanentFailure(failure);
+
+  }
+
+  /**
+   * A phase-two command which the cluster refused because of backpressure is
+   * {@link PhaseTwoFailureKind#BUSY}. The outbox then plans it again after its attempt
+   * frequency, uses no attempt for it and writes a WARN line, which is where an overloaded
+   * cluster becomes visible. Camunda 8 has no failure of kind
+   * {@link PhaseTwoFailureKind#COLLISION}: the broker orders the commands of a process
+   * instance on its partition itself.
+   * <p>
+   * Nothing repeats the command here before the outbox gets it. A full cluster does not
+   * recover in milliseconds, and a short repetition would only add load.
+   *
+   * @param failure What the phase-two command threw
+   * @return {@link PhaseTwoFailureKind#BUSY} for backpressure, otherwise
+   *         {@link PhaseTwoFailureKind#OTHER}
+   */
+  @Override
+  public PhaseTwoFailureKind kindOfPhaseTwoFailure(
+      final Throwable failure) {
+
+    return Camunda8Errors.refusedByBackpressure(failure)
+        ? PhaseTwoFailureKind.BUSY
+        : PhaseTwoFailureKind.OTHER;
 
   }
 
