@@ -224,6 +224,53 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
+   * Whether the identity of the cluster was asked for already. It is asked once per adapter
+   * instance, whatever number of BPMN processes the startup check asks about.
+   */
+  private boolean clusterIdentityAsked;
+
+  private String clusterIdentity;
+
+  /**
+   * The identity of the cluster of this adapter instance, which the core compares at startup
+   * with the identity it wrote down before (see
+   * {@code MigratableProcessService#identityOfTheBpms}). The cluster is asked once, and the
+   * answer is kept.
+   * <p>
+   * Every failure is reported in a WARN and answered with <code>null</code>: an adapter which
+   * booted without a cluster address, a cluster which does not answer in time, a cluster
+   * without the query API on the 8.8 line, missing permissions. The start then goes on
+   * without the comparison, as it did before it existed.
+   *
+   * @return The identity, or <code>null</code> where the cluster cannot tell it
+   */
+  public synchronized String clusterIdentity() {
+
+    if (clusterIdentityAsked) {
+      return clusterIdentity;
+    }
+    clusterIdentityAsked = true;
+    try {
+      // the startup check of the core may run before the deployment waited for the cluster
+      waitUntilTheClusterAnswers();
+      clusterIdentity = Camunda8ClusterIdentity.readOrCreate(getClient());
+      log.debug("Camunda8[{}]: the cluster has the identity '{}'", adapterId, clusterIdentity);
+    } catch (final RuntimeException e) {
+      log
+          .warn(
+              "Camunda8[{}]: could not read the identity of the cluster, so this start cannot tell "
+                  + "whether the cluster is the one the delivery log of this application was written "
+                  + "with. A new cluster hands out the ids of the old one again; a delivery which then "
+                  + "meets an old record fails with an ERROR which says how to clean up. Cause: {}",
+              adapterId,
+              e.toString());
+      log.debug("Camunda8[{}]: reading the identity of the cluster failed", adapterId, e);
+    }
+    return clusterIdentity;
+
+  }
+
+  /**
    * Whether {@link #close()} was called. A dispatch which races the shutdown must not use
    * a client which is about to be closed.
    */
