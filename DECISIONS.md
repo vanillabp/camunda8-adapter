@@ -649,6 +649,8 @@ as the connector is in the model, and a key turning it off would only hide the l
 
 See [Elements another runtime serves](./README.md#elements-another-runtime-serves).
 
+**Addendum:** decision 106 ends the start on `allow-listeners` set at task level instead of warning about it.
+
 ### 24. An ad-hoc subprocess nothing serves is named, and the boot goes on
 
 **Superseded for a BPMN process the application claims by decision 54.** What is written below
@@ -1040,6 +1042,8 @@ back as the gateway does, and reads it from the queue again.
 
 See [Listeners somebody modelled](./README.md#listeners-somebody-modelled) and
 [The end of a workflow](./README.md#the-end-of-a-workflow).
+
+**Addendum:** decision 106 ends the start on `allow-connectors` or `allow-listeners` set at task level instead of warning about it.
 
 ### 28. What an extension of this adapter may use is this adapter's own API
 
@@ -3608,6 +3612,8 @@ uses when two jars describe the same name was not tried in an IDE. The Quarkus m
 this: it is a Quarkus extension, and its build writes a description of every key into
 `META-INF/quarkus-config-doc/`.
 
+**Addendum:** decision 105 ends the start on a key of version 1 instead of warning about it.
+
 ### 83. A failed job is retried only where the model asks for it, and a user task which is ending rolls the completion back
 
 Built by story 998 on 2026-10-28. Both halves bring back what version 1 did, which Stephan decided
@@ -4502,3 +4508,141 @@ this repository, on a laptop and in a pull request as well.
 comment in `pom.xml` where `maven-source-plugin` used to be bound, the comment at
 `maven-source-plugin` in the POM of each module which builds no jar, and the comments in
 `.mvn/maven.config`. None of them cites a number.
+
+### 104. The identity of a cluster is a cluster variable from 8.9 on and the name of a marker deployment on 8.8
+
+The platform ends a start which meets another installation of a BPMS while the delivery log holds
+records of it. This adapter has to report an identity of its cluster which survives a restart and a
+restored backup, and which a new cluster does not have.
+
+What Camunda 8 offers, checked against 8.8, 8.9 and 8.10:
+
+- The topology carries no cluster id. A new cluster looks the same as the old one.
+- Every key is the same in every new cluster, so a deployed marker gets the same key and version 1
+  there too. Neither can be the identity.
+- From 8.9 on, globally scoped cluster variables are part of the cluster state. The adapter reads
+  `vanillabp-cluster-identity` and creates it with a random UUID where it is missing. A create
+  refused with 409 means another instance created it a moment ago, and the read is repeated until
+  the read model shows it.
+- On 8.8 the adapter deploys a process definition `vanillabp-cluster-identity` whose NAME is a
+  random UUID, and reads the name of version 1 through the definition search. If two instances
+  deploy at the same moment, version 1 is still the one identity. This needs secondary storage.
+
+The client factory of each adapter id asks once and keeps the answer. Every failure is a WARN and the
+answer `null`, so the start goes on without the comparison, and the check of each delivery stays the
+net underneath. Each release line has its own class in its source directory, because the client of
+8.8 has no cluster variables.
+
+Referred to by: `Camunda8ClusterIdentity` of each line, `Camunda8ClientFactory#clusterIdentity`, the
+wiki page `Configuration`.
+
+### 105. A key of version 1 which this version does not read ends the start
+
+Decided by the maintainer on 2026-11-14, who took the default of the question: a key nobody reads
+ends the start, always.
+
+This changes one sentence of decision 82. Its bullet about the keys of version 1 says "The start
+warns about them (`Camunda8VersionOneKeys`)". It now reads "They end the start
+(`Camunda8VersionOneKeys`)". The rest of decision 82 stays as it is.
+
+#### What was wrong
+
+The start wrote one WARN for each key of version 1 which this version does not read, and went on.
+The reason given was that each of these keys only tunes something which works without it. But
+such a key changes nothing, and the application runs with a value it did not ask for. A WARN in a
+long start log is easy to miss. And on Quarkus the WARN never came: no configuration mapping
+declares these keys, so Quarkus ended the start before the adapter looked at them, with a message
+which names the key but not what became of it.
+
+#### The decision
+
+A key of version 1 which this version does not read ends the start, on both platforms, with one
+message. The message has one line per key. Each line names the key as it was written and what to
+write instead, with the full path. The keys are the ones of the table in UPGRADE.md which 2.0 no
+longer reads at that place: `task-timeout`, `poll-interval`, `poll-request-timeout`,
+`stream-enabled`, `stream-timeout`, `use-tenants` and `task-id-as-hex-string` below a workflow
+module, a workflow or a task, and `allow-connectors` at the three places version 1 read it.
+
+- On Spring Boot the auto-configuration of the client registry refuses them before it validates
+  any adapter. A later message may be about the very value the old key meant to set.
+- On Quarkus a build step refuses them while the application is built, over what the
+  configuration files say. It finds the Camunda 8 adapter ids by the platform's rules: a section
+  whose type is `camunda8` (or which has no type and is named `camunda8`), the id `camunda8` in
+  `prioritized-adapters`, and the id `camunda8` where nothing else names one. A key which only an
+  environment variable or a configuration source of the running application brings is left to
+  Quarkus and its own message. This is how the Business Cockpit refuses a key it does not read on
+  Quarkus.
+
+Environment variables are not looked at on either platform. Their spelling cannot be taken apart
+again without guessing.
+
+#### Where it is referred to
+
+- Decision 82 in `DECISIONS.md`, its bullet about the keys of version 1 (the sentence above).
+- `Camunda8VersionOneKeys` in `core`, its class comment.
+- `Camunda8ClientAutoConfiguration` in `spring-boot`, its class comment and
+  `camunda8ClientFactoryRegistry`.
+- `Camunda8VersionOneKeysProcessor` in `quarkus/deployment`, its class comment.
+- `spring-boot/src/main/resources/META-INF/additional-spring-configuration-metadata.json`, the
+  descriptions of the five keys of version 1 ("It ends the start").
+- `UPGRADE.md`, the paragraph below the table "Every key of version 1, and where it went".
+- The tests `Camunda8VersionOneKeysTest` (core), `Camunda8VersionOneKeyEndsTheStartTest`
+  (spring-boot and quarkus/deployment).
+- The wiki page `Configuration`, the paragraph about keys of VanillaBP 1.
+
+### 106. A switch set at task level ends the start
+
+Decided by the maintainer on 2026-11-14: a key nobody reads ends the start, always.
+
+This changes one passage of decision 27 and adds one sentence to decision 23.
+
+- Decision 27, the paragraph "**The key.**", says "A value set there anyway gets one guiding
+  warning, which names the three levels which work, and the boot goes on." It now reads "A value
+  set there anyway ends the start, with a message which names the key and the three levels which
+  work."
+- Decision 23 says that `allow-connectors` has no task level, but not what happens to a value set
+  there. After "which every element using that connector shares." it gets the sentence "A value
+  set there anyway ends the start, with a message which names the key and the three levels which
+  work."
+
+The rest of both decisions stays as it is.
+
+#### What was wrong
+
+`allow-connectors` and `allow-listeners` are read at adapter, workflow-module and workflow level,
+but not at task level. A value set at task level changed nothing, and the start only wrote one
+WARN about it and went on. So the application ran with a value it did not ask for, and a WARN in a
+long start log is easy to miss.
+
+#### The decision
+
+A value of `allow-connectors` or `allow-listeners` at task level ends the start, on both
+platforms. The message names each such key as it was written, the three levels where the key
+works, and why there is no task level for it.
+
+Both platforms bind the two keys at task level, because the task level shares its keys with the
+other levels. So the adapter sees them on both platforms, and it is the adapter which ends the
+start, while it builds the client registry. On Quarkus this needs no build step: Quarkus does not
+end the start on these keys by itself, unlike the keys of version 1. And the check at runtime also
+sees a key which an environment variable or another configuration source of the running
+application brings.
+
+#### Where it is referred to
+
+- Decision 23 and decision 27 in `DECISIONS.md` (see above).
+- `Camunda8Connectors#refuseKeysSetAtTaskLevel` and `Camunda8Listeners#refuseKeysSetAtTaskLevel`
+  in `core`.
+- `Camunda8ClientAutoConfiguration` in `spring-boot`, its class comment and
+  `camunda8ClientFactoryRegistry`.
+- `Camunda8ClientProducer` in `quarkus/runtime`, `camunda8ClientFactoryRegistry`.
+- `VanillaBpCamunda8Properties` in `spring-boot` and in `quarkus/runtime`,
+  `allowConnectorsKeysAtTaskLevel` and `allowListenersKeysAtTaskLevel`.
+- `spring-boot/src/main/resources/META-INF/additional-spring-configuration-metadata.json`, the
+  descriptions of `allow-connectors` and `allow-listeners`.
+- `README.md`, the sections about `allow-connectors` and `allow-listeners` ("There is no TASK
+  level").
+- `UPGRADE.md`, the entry "A listener in your model has to be allowed now".
+- The tests `Camunda8ConnectorsTest` and `Camunda8ListenersTest` (core),
+  `Camunda8SwitchAtTaskLevelEndsTheStartTest` (spring-boot and quarkus/deployment),
+  `Camunda8AllowConnectorsBootTest` and `Camunda8AllowListenersBootTest` (smoke-test).
+
