@@ -1,20 +1,18 @@
 package io.vanillabp.camunda8.client;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.function.Consumer;
 
 /**
  * Finds the keys of the Camunda 8 adapter of VanillaBP 1 which this version does not read, and
- * says in one WARN per key what to write instead.
+ * ends the start with one message which says for each of them what to write instead.
  * <p>
- * Both platforms bind the configuration so that an unknown key is ignored. A key of version 1
- * which this version does not read would then change nothing, and nobody would be told. The
- * start goes on, because each of these keys only tunes something which works without it. The
- * keys version 1 had, and what became of each of them, are in the repository's UPGRADE.md.
+ * A key which nobody reads changes nothing, and the application would run with a value it did
+ * not ask for. So such a key ends the start, like every other key the adapter does not read.
+ * The keys version 1 had, and what became of each of them, are in the repository's UPGRADE.md.
  * <p>
  * The keys are read from the property names the platform knows, in the dotted form of a
  * configuration file. Case and dashes do not matter, so <code>taskTimeout</code> is found as
@@ -61,49 +59,57 @@ public final class Camunda8VersionOneKeys {
                   + "the key. For 'use-tenants: false' write 'vanillabp.adapters.%2$s.name-clash-avoidance: "
                   + "none' instead."),
           new ScopedKey(
-              "task-id-as-hex-string", "It is gone, and there is nothing to write instead: a task id is always decimal now. "
+              "task-id-as-hex-string", "It is gone, so remove the key. A task id is always decimal now. "
                   + "Task ids your application stored in hexadecimal are data to migrate, see "
                   + "UPGRADE.md of the Camunda 8 adapter."));
 
   /**
-   * Reports every key of version 1 which this version does not read, for the Camunda 8 adapter
-   * ids of this application.
+   * Ends the start if the configuration holds a key of version 1 which this version does not
+   * read, for the Camunda 8 adapter ids of this application.
    *
    * @param adapterIds The ids of the configured adapters of type <code>camunda8</code>
    * @param propertyNames Every property name the platform knows
-   * @param warnLogger Where the warnings go. The start goes on
+   * @throws IllegalStateException If there is such a key. The message names every one of them
+   *           and what to write instead
    */
-  public static void reportKeysOfVersionOne(
+  public static void refuseKeysOfVersionOne(
       final Collection<String> adapterIds,
-      final Iterable<String> propertyNames,
-      final Consumer<String> warnLogger) {
+      final Iterable<String> propertyNames) {
 
     if (adapterIds.isEmpty()) {
       return;
     }
-    final var reported = new ArrayList<String>();
+    final var answers = new LinkedHashMap<String, String>();
     for (final var name : propertyNames) {
-      if ((name == null) || reported.contains(name)) {
+      if ((name == null) || answers.containsKey(name)) {
         continue;
       }
-      final var warning = warningFor(adapterIds, name);
-      if (warning != null) {
-        reported.add(name);
-        warnLogger.accept(warning);
+      final var answer = answerFor(adapterIds, name);
+      if (answer != null) {
+        answers.put(name, answer);
       }
     }
+    if (answers.isEmpty()) {
+      return;
+    }
+    throw new IllegalStateException(
+        """
+            The Camunda 8 adapter does not read these keys of VanillaBP 1, so they would change \
+            nothing. Change each one as its line says, and start again:
+            %s"""
+            .formatted(String.join("\n", answers.values())));
 
   }
 
   /**
-   * The warning about one property name, or <code>null</code> where the name is not a key of
+   * What to do about one property name, or <code>null</code> where the name is not a key of
    * version 1 which this version leaves unread.
    *
    * @param adapterIds The ids of the configured adapters of type <code>camunda8</code>
    * @param name One property name
-   * @return The warning or <code>null</code>
+   * @return One line of the message, or <code>null</code>
    */
-  static String warningFor(
+  static String answerFor(
       final Collection<String> adapterIds,
       final String name) {
 
@@ -115,9 +121,8 @@ public final class Camunda8VersionOneKeys {
     if (is(parts[parts.length - 1], "allow-connectors")) {
       final var location = allowConnectorsLocation(parts);
       if (location != null) {
-        return ("Camunda 8 adapter: '%s' is a key of VanillaBP 1 which this version does not read. It "
-            + "moved into the adapter section. Write '%s' instead, once for each Camunda 8 adapter id "
-            + "(%s).").formatted(name, location, String.join(", ", adapterIds));
+        return "  - '%s' moved into the adapter section. Write '%s' instead, once for each Camunda 8 adapter id (%s)."
+            .formatted(name, location, String.join(", ", adapterIds));
       }
       return null;
     }
@@ -138,8 +143,7 @@ public final class Camunda8VersionOneKeys {
         .stream()
         .filter(scopedKey -> is(key, scopedKey.name()))
         .findFirst()
-        .map(scopedKey -> "Camunda 8 adapter '%s': '%s' is a key of VanillaBP 1 which this version does not read. %s"
-            .formatted(adapterId.get(), name, scopedKey.successor().formatted(path, adapterId.get())))
+        .map(scopedKey -> "  - '%s': %s".formatted(name, scopedKey.successor().formatted(path, adapterId.get())))
         .orElse(null);
 
   }
