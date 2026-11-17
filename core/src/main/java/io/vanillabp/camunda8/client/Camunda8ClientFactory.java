@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.client;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -224,6 +225,12 @@ public class Camunda8ClientFactory implements AutoCloseable {
   }
 
   /**
+   * How long one request for the identity of the cluster may take. The core asks for it at
+   * startup and waits for the answer, so this bounds what the question can add to a start.
+   */
+  static final Duration TIME_PER_IDENTITY_REQUEST = Duration.ofSeconds(5);
+
+  /**
    * Whether the identity of the cluster was asked for already. It is asked once per adapter
    * instance, whatever number of BPMN processes the startup check asks about.
    */
@@ -237,10 +244,15 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * {@code MigratableProcessService#identityOfTheBpms}). The cluster is asked once, and the
    * answer is kept.
    * <p>
+   * It does NOT wait for the cluster (see {@link Camunda8ClusterWait}). An application whose
+   * cluster is not reachable still boots, and a start must not hang on a question which only
+   * guards against a mistake the check of each delivery catches as well. So each request
+   * gets {@link #TIME_PER_IDENTITY_REQUEST}, and the first failure ends the question.
+   * <p>
    * Every failure is reported in a WARN and answered with <code>null</code>: an adapter which
-   * booted without a cluster address, a cluster which does not answer in time, a cluster
-   * without the query API on the 8.8 line, missing permissions. The start then goes on
-   * without the comparison, as it did before it existed.
+   * booted without a cluster address, a cluster which is not reachable or does not answer in
+   * time, a cluster without the query API on the 8.8 line, missing permissions. The core then
+   * skips the comparison, as it did before it existed.
    *
    * @return The identity, or <code>null</code> where the cluster cannot tell it
    */
@@ -251,18 +263,18 @@ public class Camunda8ClientFactory implements AutoCloseable {
     }
     clusterIdentityAsked = true;
     try {
-      // the startup check of the core may run before the deployment waited for the cluster
-      waitUntilTheClusterAnswers();
-      clusterIdentity = Camunda8ClusterIdentity.readOrCreate(getClient());
+      clusterIdentity = Camunda8ClusterIdentity.readOrCreate(getClient(), TIME_PER_IDENTITY_REQUEST);
       log.debug("Camunda8[{}]: the cluster has the identity '{}'", adapterId, clusterIdentity);
     } catch (final RuntimeException e) {
       log
           .warn(
-              "Camunda8[{}]: could not read the identity of the cluster, so this start cannot tell "
-                  + "whether the cluster is the one the delivery log of this application was written "
-                  + "with. A new cluster hands out the ids of the old one again; a delivery which then "
-                  + "meets an old record fails with an ERROR which says how to clean up. Cause: {}",
+              "Camunda8[{}]: skipped the check whether the cluster is the one the delivery log of "
+                  + "this application was written with, because the cluster did not tell its identity "
+                  + "within {} per request. A new cluster hands out the ids of the old one again; a "
+                  + "delivery which then meets an old record fails with an ERROR which says how to "
+                  + "clean up. Cause: {}",
               adapterId,
+              TIME_PER_IDENTITY_REQUEST,
               e.toString());
       log.debug("Camunda8[{}]: reading the identity of the cluster failed", adapterId, e);
     }

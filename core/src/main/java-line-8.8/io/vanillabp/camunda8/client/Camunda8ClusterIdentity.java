@@ -1,5 +1,6 @@
 package io.vanillabp.camunda8.client;
 
+import java.time.Duration;
 import java.util.UUID;
 
 import io.camunda.client.CamundaClient;
@@ -47,14 +48,16 @@ public final class Camunda8ClusterIdentity {
    * Reads the identity of the cluster, and deploys the marker where the cluster has none yet.
    *
    * @param client The client of the adapter id
+   * @param timePerRequest How long each request to the cluster may take
    * @return The identity
    * @throws RuntimeException If the cluster cannot be asked. The caller reports it and goes
    *           on without an identity
    */
   public static String readOrCreate(
-      final CamundaClient client) {
+      final CamundaClient client,
+      final Duration timePerRequest) {
 
-    final var found = read(client);
+    final var found = read(client, timePerRequest);
     if (found != null) {
       return found;
     }
@@ -65,12 +68,12 @@ public final class Camunda8ClusterIdentity {
         .startEvent()
         .endEvent()
         .done();
-    final var deployed = client
-        .newDeployResourceCommand()
-        .addProcessModel(marker, MARKER_ID
-            + ".bpmn")
-        .send()
-        .join()
+    final var deployed = Camunda8BoundedRequest
+        .answerWithin(client
+            .newDeployResourceCommand()
+            .addProcessModel(marker, MARKER_ID
+                + ".bpmn"),
+            timePerRequest)
         .getProcesses()
         .getFirst();
     if (deployed.getVersion() == 1) {
@@ -79,7 +82,7 @@ public final class Camunda8ClusterIdentity {
     // another instance deployed its marker a moment earlier. Its version 1 is the identity
     for (var attempt = 0; attempt < READS_AFTER_A_LATE_DEPLOYMENT; ++attempt) {
       pause();
-      final var deployedByAnotherInstance = read(client);
+      final var deployedByAnotherInstance = read(client, timePerRequest);
       if (deployedByAnotherInstance != null) {
         return deployedByAnotherInstance;
       }
@@ -94,16 +97,16 @@ public final class Camunda8ClusterIdentity {
    * The name of version 1 of the marker, or <code>null</code> where the cluster holds none.
    */
   private static String read(
-      final CamundaClient client) {
+      final CamundaClient client,
+      final Duration timePerRequest) {
 
-    return client
-        .newProcessDefinitionSearchRequest()
-        .filter(filter -> filter
-            .processDefinitionId(MARKER_ID)
-            .version(Integer.valueOf(1)))
-        .page(page -> page.limit(Integer.valueOf(1)))
-        .send()
-        .join()
+    return Camunda8BoundedRequest
+        .answerWithin(client
+            .newProcessDefinitionSearchRequest()
+            .filter(filter -> filter
+                .processDefinitionId(MARKER_ID)
+                .version(Integer.valueOf(1)))
+            .page(page -> page.limit(Integer.valueOf(1))), timePerRequest)
         .items()
         .stream()
         .findFirst()

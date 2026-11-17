@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -266,6 +267,31 @@ public class Camunda8ClientFactoryTest {
 
     assertTrue(exception.getMessage().contains("vanillabp.adapters.c8.worker-threads"),
         exception.getMessage());
+
+  }
+
+  @Test
+  @DisplayName("an unreachable cluster answers no identity at once, and the start does not wait for it")
+  public void unreachableClusterAnswersNoIdentityWithoutWaiting(
+      final CapturedOutput output) {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    configuration.setRestAddress("http://localhost:65535");
+    configuration.setGrpcAddress("http://localhost:65535");
+    try (final var factory = new Camunda8ClientFactory("c8", configuration)) {
+
+      final var startedAt = System.nanoTime();
+      final var identity = factory.clusterIdentity();
+      final var took = Duration.ofNanos(System.nanoTime() - startedAt);
+
+      assertNull(identity);
+      // one request which fails. The default startup-wait of ten minutes is not used
+      assertTrue(took.compareTo(Camunda8ClientFactory.TIME_PER_IDENTITY_REQUEST.multipliedBy(2)) < 0,
+          took.toString());
+      final var logged = output.getOut() + output.getErr();
+      assertTrue(logged.contains("skipped the check whether the cluster is the one"), logged);
+      assertFalse(logged.contains("waiting for cluster"), logged);
+    }
 
   }
 

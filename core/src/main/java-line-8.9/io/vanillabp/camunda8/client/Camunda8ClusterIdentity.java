@@ -1,5 +1,6 @@
 package io.vanillabp.camunda8.client;
 
+import java.time.Duration;
 import java.util.UUID;
 
 import io.camunda.client.CamundaClient;
@@ -45,24 +46,25 @@ public final class Camunda8ClusterIdentity {
    * the read model shows it.
    *
    * @param client The client of the adapter id
+   * @param timePerRequest How long each request to the cluster may take
    * @return The identity
    * @throws RuntimeException If the cluster cannot be asked. The caller reports it and goes
    *           on without an identity
    */
   public static String readOrCreate(
-      final CamundaClient client) {
+      final CamundaClient client,
+      final Duration timePerRequest) {
 
-    final var found = read(client);
+    final var found = read(client, timePerRequest);
     if (found != null) {
       return found;
     }
     final var identity = UUID.randomUUID().toString();
     try {
-      client
-          .newGloballyScopedClusterVariableCreateRequest()
-          .create(NAME, identity)
-          .send()
-          .join();
+      Camunda8BoundedRequest
+          .answerWithin(client
+              .newGloballyScopedClusterVariableCreateRequest()
+              .create(NAME, identity), timePerRequest);
       return identity;
     } catch (final RuntimeException refused) {
       if (!alreadyExists(refused)) {
@@ -71,7 +73,7 @@ public final class Camunda8ClusterIdentity {
     }
     for (var attempt = 0; attempt < READS_AFTER_A_REFUSED_CREATE; ++attempt) {
       pause();
-      final var createdByAnotherInstance = read(client);
+      final var createdByAnotherInstance = read(client, timePerRequest);
       if (createdByAnotherInstance != null) {
         return createdByAnotherInstance;
       }
@@ -86,14 +88,14 @@ public final class Camunda8ClusterIdentity {
    * The identity the cluster holds, or <code>null</code> where it holds none yet.
    */
   private static String read(
-      final CamundaClient client) {
+      final CamundaClient client,
+      final Duration timePerRequest) {
 
     try {
-      final var variable = client
-          .newGloballyScopedClusterVariableGetRequest()
-          .withName(NAME)
-          .send()
-          .join();
+      final var variable = Camunda8BoundedRequest
+          .answerWithin(client
+              .newGloballyScopedClusterVariableGetRequest()
+              .withName(NAME), timePerRequest);
       return withoutJsonQuotes(variable.getValue());
     } catch (final RuntimeException e) {
       if (Camunda8Errors.notFound(e)) {
