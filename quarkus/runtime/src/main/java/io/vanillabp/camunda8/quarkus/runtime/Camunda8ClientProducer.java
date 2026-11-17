@@ -98,16 +98,9 @@ public class Camunda8ClientProducer {
               "quarkus.http.port",
               log::warn,
               log::info);
-          // a key at a level which does not read it changes nothing. Saying nothing would
-          // be worse than a line which says where the key is read
-          Camunda8Connectors.reportKeysSetAtTaskLevel(
-              adapterId,
-              overlay.allowConnectorsKeysAtTaskLevel(adapterId),
-              log::warn);
-          Camunda8Listeners.reportKeysSetAtTaskLevel(
-              adapterId,
-              overlay.allowListenersKeysAtTaskLevel(adapterId),
-              log::warn);
+          // a key at a level which does not read it would change nothing in silence
+          Camunda8Connectors.refuseKeysSetAtTaskLevel(adapterId, overlay.allowConnectorsKeysAtTaskLevel(adapterId));
+          Camunda8Listeners.refuseKeysSetAtTaskLevel(adapterId, overlay.allowListenersKeysAtTaskLevel(adapterId));
           configurations.put(adapterId, configuration);
         });
 

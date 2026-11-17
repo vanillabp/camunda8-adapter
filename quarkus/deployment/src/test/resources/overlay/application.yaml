@@ -59,8 +59,6 @@ vanillabp:
                   job-timeout: PT2S
                   retry-backoff: PT2S
                   report-errors-as-stack-trace: false
-                  allow-connectors: true
-                  allow-listeners: true
           messages:
             OfferRequested:
               message-time-to-live: PT1M

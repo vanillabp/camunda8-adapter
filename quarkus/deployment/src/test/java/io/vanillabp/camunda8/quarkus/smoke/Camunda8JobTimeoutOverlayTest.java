@@ -1,7 +1,6 @@
 package io.vanillabp.camunda8.quarkus.smoke;
 
 import java.time.Duration;
-import java.util.List;
 
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -239,23 +238,6 @@ public class Camunda8JobTimeoutOverlayTest {
   }
 
   @Test
-  public void aValueAtTaskLevelIsFoundAndChangesNoAnswer() {
-
-    final var overlay = overlay();
-
-    Assertions.assertEquals(
-        List
-            .of(
-                "vanillabp.workflow-modules.test-app.workflows.TaskProcess.tasks.happyTask.adapters.c8.allow-connectors"),
-        overlay.allowConnectorsKeysAtTaskLevel("c8"),
-        "the boot names the key it cannot honour instead of ignoring it silently");
-    Assertions.assertTrue(
-        overlay.allowConnectorsFor("test-app", "TaskProcess", "c8").allowed(),
-        "and the answer still comes from the workflow level");
-
-  }
-
-  @Test
   public void allowListenersResolvesThroughItsThreeLevels() {
 
     final var overlay = overlay();
@@ -283,23 +265,6 @@ public class Camunda8JobTimeoutOverlayTest {
     final var nothingConfigured = overlay.allowListenersFor("test-app", "TaskProcess", "unknown-adapter");
     Assertions.assertFalse(nothingConfigured.allowed(), "the default serves no modelled listener");
     Assertions.assertNull(nothingConfigured.propertyKey());
-
-  }
-
-  @Test
-  public void aListenerValueAtTaskLevelIsFoundAndChangesNoAnswer() {
-
-    final var overlay = overlay();
-
-    Assertions.assertEquals(
-        List
-            .of(
-                "vanillabp.workflow-modules.test-app.workflows.TaskProcess.tasks.happyTask.adapters.c8.allow-listeners"),
-        overlay.allowListenersKeysAtTaskLevel("c8"),
-        "the boot names the key it cannot honour instead of ignoring it silently");
-    Assertions.assertTrue(
-        overlay.allowListenersFor("test-app", "TaskProcess", "c8").allowed(),
-        "and the answer still comes from the workflow level");
 
   }
 

@@ -48,6 +48,8 @@ import lombok.extern.slf4j.Slf4j;
  * <li>The clients of completely configured adapters are built eagerly.</li>
  * <li>A key of version 1 which this version does not read ends the boot
  * ({@link Camunda8VersionOneKeys}).</li>
+ * <li>An <code>allow-connectors</code> or <code>allow-listeners</code> at task level ends the boot,
+ * because nothing reads it there.</li>
  * </ul>
  */
 @Slf4j
@@ -113,16 +115,9 @@ public class Camunda8ClientAutoConfiguration {
               "server.port",
               log::warn,
               log::info);
-          // a key at a level which does not read it changes nothing. Saying nothing would
-          // be worse than a line which says where the key is read
-          Camunda8Connectors.reportKeysSetAtTaskLevel(
-              adapterId,
-              overlay.allowConnectorsKeysAtTaskLevel(adapterId),
-              log::warn);
-          Camunda8Listeners.reportKeysSetAtTaskLevel(
-              adapterId,
-              overlay.allowListenersKeysAtTaskLevel(adapterId),
-              log::warn);
+          // a key at a level which does not read it would change nothing in silence
+          Camunda8Connectors.refuseKeysSetAtTaskLevel(adapterId, overlay.allowConnectorsKeysAtTaskLevel(adapterId));
+          Camunda8Listeners.refuseKeysSetAtTaskLevel(adapterId, overlay.allowListenersKeysAtTaskLevel(adapterId));
           configurations.put(adapterId, configuration);
         });
 

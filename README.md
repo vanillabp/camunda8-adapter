@@ -2179,8 +2179,8 @@ vanillabp.workflow-modules.<workflow-module-id>.workflows.<bpmn-process-id>.adap
 There is no TASK level. That level is keyed by the task DEFINITION, and the task definition of a
 connector is the connector's own type. Every element using that connector shares it, and it
 carries dots and colons on which a relaxed binder splits. The model decides which single element
-is left alone. A value set at task level earns one guiding warning naming the three levels which
-work, and the boot goes on.
+is left alone. A value set at task level ends the boot, with a message naming the key and the three
+levels which work.
 
 Where the switch is on, an element carrying the marker AND a `zeebe:taskDefinition` is left to the
 runtime which owns it:
@@ -2239,8 +2239,8 @@ vanillabp.workflow-modules.<workflow-module-id>.workflows.<bpmn-process-id>.adap
 There is no TASK level here either, but for a different reason than for `allow-connectors`. A
 task level is keyed by the task DEFINITION, and this key decides whether a listener becomes a
 task at all. So at the moment the key is read, there is no task definition to key a level by. A
-value set at task level earns one guiding warning naming the three levels which work, and the
-boot goes on.
+value set at task level ends the boot, with a message naming the key and the three levels which
+work.
 
 A listener is served only where a `@WorkflowTask` method names its job type, and the job type IS
 the task definition such a method names. A job type is a name in the cluster which anybody may

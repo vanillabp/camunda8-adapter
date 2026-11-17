@@ -10,12 +10,11 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import io.vanillabp.camunda8.springboot.client.VanillaBpCamunda8Properties;
-import io.vanillabp.integration.test.utils.CapturedOutput;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
- * Where the Spring binding reads <code>allow-connectors</code>, and what it says about a
- * value written at a level it does not read.
+ * Where the Spring binding reads <code>allow-connectors</code>, and what happens to a
+ * value written at a level it does not read: it ends the boot.
  * <p>
  * Three levels resolve it. The most specific configured level wins, in both directions. That
  * includes a case which VanillaBP 1 could not express: a workflow module which switches OFF
@@ -91,34 +90,30 @@ public class Camunda8AllowConnectorsBootTest {
   }
 
   @Test
-  public void aValueAtTaskLevelIsReportedAndTheBootGoesOn(
-      final CapturedOutput output) {
+  public void aValueAtTaskLevelEndsTheBoot() {
 
-    final var before = output.getAll().length();
+    final var failure = Assertions.assertThrows(
+        RuntimeException.class,
+        () -> run(
+            "vanillabp.adapters.c8.rest-address=http://localhost:65535",
+            "vanillabp.workflow-modules.smoke-app.workflows.LoanApproval.tasks.assessRisk.adapters.c8.allow-connectors=true")
+            .close());
 
-    try (var context = run(
-        "vanillabp.adapters.c8.rest-address=http://localhost:65535",
-        "vanillabp.workflow-modules.smoke-app.workflows.LoanApproval.tasks.assessRisk.adapters.c8.allow-connectors=true")) {
-
-      Assertions.assertTrue(context.isActive(), "a key which changes nothing may not end a boot");
-      Assertions.assertFalse(
-          context
-              .getBean(VanillaBpCamunda8Properties.class)
-              .allowConnectorsFor("smoke-app", "LoanApproval", "c8")
-              .allowed(),
-          "and it changes no answer");
-
+    final var causes = new StringBuilder();
+    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+      causes
+          .append(cause.getMessage())
+          .append('\n');
     }
-
-    final var log = output.getAll().substring(before);
+    final var message = causes.toString();
     Assertions.assertTrue(
-        log.contains("tasks.assessRisk.adapters.c8.allow-connectors"),
+        message.contains("tasks.assessRisk.adapters.c8.allow-connectors"),
         () -> "the key the reader has to find: "
-            + log);
+            + message);
     Assertions.assertTrue(
-        log.contains("vanillabp.workflow-modules.<m>.adapters.c8.allow-connectors"),
-        () -> "and the levels which do resolve it: "
-            + log);
+        message.contains("vanillabp.workflow-modules.<m>.adapters.c8.allow-connectors"),
+        () -> "and the levels which do read it: "
+            + message);
 
   }
 

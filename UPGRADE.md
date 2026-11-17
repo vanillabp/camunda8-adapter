@@ -501,8 +501,8 @@ vanillabp:
 ```
 
 There is no task level for the key. A task level is keyed by the task DEFINITION, and this key
-decides whether a listener becomes a task at all. A value written there causes one warning which
-says what to do, and the boot goes on.
+decides whether a listener becomes a task at all. A value written there ends the boot, with a
+message which names the levels where the key works.
 
 The boot failure is the good case. Without the key, there is no worker for the listener's job type.
 The cluster creates the job anyway, and the workflow stops right there: no incident, no message,

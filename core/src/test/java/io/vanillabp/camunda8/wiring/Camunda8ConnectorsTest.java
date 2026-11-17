@@ -2,6 +2,7 @@ package io.vanillabp.camunda8.wiring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -299,34 +300,32 @@ public class Camunda8ConnectorsTest {
   }
 
   @Test
-  @DisplayName("A key set at task level is reported and the boot goes on")
-  public void aKeyAtTaskLevelIsReported() {
+  @DisplayName("A key set at task level ends the start, and the message says where the key works")
+  public void aKeyAtTaskLevelEndsTheStart() {
 
-    final var reported = new java.util.ArrayList<String>();
+    Camunda8Connectors.refuseKeysSetAtTaskLevel("c8", List.of());
 
-    Camunda8Connectors.reportKeysSetAtTaskLevel("c8", List.of(), reported::add);
-    assertTrue(reported.isEmpty(), "nothing to say where nobody set the key there");
+    final var failure = assertThrows(
+        IllegalStateException.class,
+        () -> Camunda8Connectors
+            .refuseKeysSetAtTaskLevel(
+                "c8",
+                List.of(
+                    "vanillabp.workflow-modules.test-module.workflows.TestProcess.tasks.approve.adapters.c8.allow-connectors")));
 
-    Camunda8Connectors
-        .reportKeysSetAtTaskLevel(
-            "c8",
-            List.of(
-                "vanillabp.workflow-modules.test-module.workflows.TestProcess.tasks.approve.adapters.c8.allow-connectors"),
-            reported::add);
-
-    assertEquals(1, reported.size());
+    final var message = failure.getMessage();
     assertTrue(
-        reported.getFirst().contains("tasks.approve.adapters.c8.allow-connectors"),
+        message.contains("tasks.approve.adapters.c8.allow-connectors"),
         () -> "the key the reader has to find in their configuration: "
-            + reported.getFirst());
+            + message);
     assertTrue(
-        reported.getFirst().contains("vanillabp.workflow-modules.<m>.adapters.c8.allow-connectors"),
-        () -> "and the levels which do resolve it: "
-            + reported.getFirst());
+        message.contains("vanillabp.workflow-modules.<m>.adapters.c8.allow-connectors"),
+        () -> "and the levels which do read it: "
+            + message);
     assertFalse(
-        reported.getFirst().contains(".tasks.<"),
+        message.contains(".tasks.<"),
         () -> "the task level is not among them: "
-            + reported.getFirst());
+            + message);
 
   }
 
