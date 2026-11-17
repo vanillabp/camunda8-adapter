@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.processservice;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Answers.RETURNS_SELF;
@@ -34,6 +35,7 @@ import io.grpc.Status;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactory;
 import io.vanillabp.camunda8.client.Camunda8CommandRetry;
+import io.vanillabp.integration.adapter.spi.PhaseTwoFailureKind;
 import io.vanillabp.integration.spi.PhaseOperation;
 import io.vanillabp.integration.spi.PhaseTwoCall;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
@@ -235,6 +237,30 @@ public class Camunda8PreCommitCheckOnABusyClusterTest {
     assertThrows(ProblemException.class, () -> checkTheCompletionOf(PhaseOperation.COMPLETE_TASK));
 
     verify(timeoutChange, times(1)).send();
+
+  }
+
+
+  @Test
+  @DisplayName("Backpressure in phase two is a busy cluster, which costs the outbox entry no attempt, an outage is not")
+  public void backpressureInPhaseTwoIsABusyCluster() {
+
+    final var service = aService();
+
+    assertEquals(PhaseTwoFailureKind.BUSY, service.kindOfPhaseTwoFailure(busy()));
+    assertEquals(
+        PhaseTwoFailureKind.BUSY,
+        service.kindOfPhaseTwoFailure(new ClientStatusException(Status.RESOURCE_EXHAUSTED, null)));
+    // the core asks only about a failure it may repeat, and backpressure is one
+    assertTrue(service.isPhaseTwoFailureRepeatable(busy()));
+
+    // a gateway which cannot reach the cluster, and a cluster which does not answer, are an
+    // outage. The outbox counts an attempt for them
+    assertEquals(PhaseTwoFailureKind.OTHER, service.kindOfPhaseTwoFailure(problem(503, "Service Unavailable")));
+    assertEquals(
+        PhaseTwoFailureKind.OTHER,
+        service.kindOfPhaseTwoFailure(new ClientStatusException(Status.UNAVAILABLE, null)));
+    assertEquals(PhaseTwoFailureKind.OTHER, service.kindOfPhaseTwoFailure(problem(502, "Bad Gateway")));
 
   }
 

@@ -1283,6 +1283,18 @@ classification, because a gone job is the accepted at-least-once residual and co
 entry. `401` is usually an expired token, which the client refreshes. `409`, `429` and every
 `5xx` are what the outbox exists for.
 
+One repeatable failure costs the entry no attempt: backpressure. `Camunda8Errors.refusedByBackpressure`
+recognises HTTP `503` with the title `RESOURCE_EXHAUSTED` and the gRPC status `RESOURCE_EXHAUSTED`,
+anywhere in the chain of causes, and `kindOfPhaseTwoFailure` then answers `BUSY`. The platform plans
+such an entry again after `vanillabp.outbox.attempt-frequency`, counts no attempt and writes a WARN
+line, as often as the cluster keeps refusing. The title is the name of the gRPC status, not a
+sentence, so reading it follows decision 16 in the repository's DECISIONS.md. A `503` without that
+title and `UNAVAILABLE` stay ordinary failures. They come from a gateway or a cluster which cannot be
+reached, and an outage has to end in a blocked entry some day. The adapter repeats nothing itself
+before the outbox gets the refusal: a full cluster does not recover in milliseconds.
+`Camunda8ErrorsTest#onlyBackpressureIsABusyCluster` and
+`Camunda8PreCommitCheckOnABusyClusterTest#backpressureInPhaseTwoIsABusyCluster` hold it.
+
 The last two rows of the table are the same codes, and they are permanent for a START only. The
 code alone cannot tell. For a read, a `404` means the exporter is lagging behind. For a
 publication, a `409` means a message with that id still lives. For a start, they mean a process

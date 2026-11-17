@@ -449,6 +449,43 @@ public final class Camunda8Errors {
   }
 
   /**
+   * The title the REST gateway gives a refusal of the broker's flow control. It is the name of
+   * the gRPC status the gateway maps to HTTP 503, not a sentence, so it is a code in the sense
+   * of decision 16 in the repository's DECISIONS.md.
+   */
+  static final String BACKPRESSURE_TITLE = "RESOURCE_EXHAUSTED";
+
+  /**
+   * Whether the cluster refused a phase-two command because of backpressure, and only that.
+   * REST says so with HTTP <code>503</code> and the title <code>RESOURCE_EXHAUSTED</code>, gRPC
+   * with the status <code>RESOURCE_EXHAUSTED</code>. The broker refuses before it works on the
+   * command, so nothing of it happened, and the cluster is there and answers.
+   * <p>
+   * It is narrower than {@link #clusterIsBusy(Throwable)} on purpose. The outbox does not count
+   * an attempt for such a refusal and sets no limit on how often it comes back. That is right
+   * for a full cluster, and wrong for one which cannot be reached. A 503 without that title
+   * comes from a gateway or a proxy in front of it, and the gRPC status
+   * <code>UNAVAILABLE</code> means that nobody answered. Both are an outage, and an outage
+   * keeps the counted attempts, so an entry for a cluster which never comes back is still
+   * blocked in the end.
+   *
+   * @param throwable What the phase-two command threw
+   * @return Whether the cluster refused the command because it is busy right now
+   */
+  public static boolean refusedByBackpressure(
+      final Throwable throwable) {
+
+    return anyCauseAnswers(
+        throwable,
+        cause -> ((cause instanceof ProblemException problem) && (problem.code() == 503) && (problem
+            .details() != null) && BACKPRESSURE_TITLE.equals(problem
+                .details()
+                .getTitle())) || ((cause instanceof ClientStatusException status) && (status
+                    .getStatusCode() == Status.Code.RESOURCE_EXHAUSTED)));
+
+  }
+
+  /**
    * Whether a repetition can change the answer to a command which a JOB HANDLER sends back
    * to the cluster. That is a completion, a BPMN error, a failure or a lock renewal. It is
    * {@link #permanentFailure} plus two cases which are permanent for a job command, but not

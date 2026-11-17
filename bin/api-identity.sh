@@ -51,8 +51,12 @@ for line in "${lines[@]}"; do
   # compatible with nothing. A method inherited in one client and declared in the
   # other is called through the owner the compiler saw, so a stale target/ turns into
   # a NoClassDefFoundError at runtime instead of a compile error.
+  # The Quarkus applications of the test modules are not built: their jars are no API of
+  # this repository, and since the platform checks at build time that the versions of all
+  # VanillaBP parts belong together, the made-up revision below would end the build there.
   mvn --batch-mode --no-transfer-progress -q \
-    "-Pline-${line}" "-Drevision=0.0.0-${line}-api-identity" -DskipTests clean package
+    "-Pline-${line}" "-Drevision=0.0.0-${line}-api-identity" -DskipTests -Dquarkus.build.skip=true \
+    clean package
   mkdir -p "$work/$line"
   # only the JARs a module builds itself, '/target/<name>.jar' and nothing nested below
   # it: the Quarkus applications of the test modules put a runner and a copy of every
