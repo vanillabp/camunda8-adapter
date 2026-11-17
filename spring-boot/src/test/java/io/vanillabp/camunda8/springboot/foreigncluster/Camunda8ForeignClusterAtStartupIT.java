@@ -95,8 +95,16 @@ public class Camunda8ForeignClusterAtStartupIT {
         () -> "the start names the changed cluster: "
             + message);
     assertTrue(
+        message.contains("To go on, choose one of these"),
+        () -> "the start guides the developer to a way out: "
+            + message);
+    assertTrue(
+        message.contains("'vanillabp.adapters.c8.*'"),
+        () -> "the first way is correcting the address of a wrong cluster: "
+            + message);
+    assertTrue(
         message.contains("ADAPTER_ID 'c8'"),
-        () -> "and says which records to clean up: "
+        () -> "the second way says which records to clean up: "
             + message);
 
   }

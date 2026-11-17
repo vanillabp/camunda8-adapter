@@ -49,6 +49,14 @@ public class Camunda8UnsearchableClusterIT {
   @Container
   static final GenericContainer<?> SEARCHABLE_CLUSTER = ClusterUnderTest.cluster();
 
+  /**
+   * A delivery log of this class alone. The other class of this module runs workflows on a
+   * cluster of its own, and a start ends when it meets a cluster other than the one the
+   * delivery log holds records of. Sharing one log would make each class depend on the order
+   * in which the classes run.
+   */
+  private static final String OWN_DELIVERY_LOG = "--spring.datasource.url=jdbc:h2:mem:unsearchable-cluster-it;DB_CLOSE_DELAY=-1";
+
   private ConfigurableApplicationContext application;
 
   private static String restAddress(
@@ -89,6 +97,7 @@ public class Camunda8UnsearchableClusterIT {
         () -> application = new SpringApplicationBuilder(ElectionTestApplication.class)
             .run(
                 "--spring.config.name=camunda8-election-it",
+                OWN_DELIVERY_LOG,
                 "--spring.main.web-application-type=none",
                 "--vanillabp.adapters.c8-plain.rest-address="
                     + restAddress(BROKER_ALONE),
@@ -121,6 +130,7 @@ public class Camunda8UnsearchableClusterIT {
         () -> application = new SpringApplicationBuilder(ElectionTestApplication.class)
             .run(
                 "--spring.config.name=camunda8-election-it",
+                OWN_DELIVERY_LOG,
                 "--spring.main.web-application-type=none",
                 "--vanillabp.adapters.c8-plain.rest-address="
                     + restAddress(BROKER_ALONE),
@@ -157,6 +167,7 @@ public class Camunda8UnsearchableClusterIT {
     application = new SpringApplicationBuilder(ElectionTestApplication.class)
         .run(
             "--spring.config.name=camunda8-election-it",
+            OWN_DELIVERY_LOG,
             "--spring.main.web-application-type=none",
             // the new BPMS of the migration, on a cluster which can be searched
             "--vanillabp.adapters.c8-prefix.type=camunda8",
@@ -207,6 +218,7 @@ public class Camunda8UnsearchableClusterIT {
         () -> application = new SpringApplicationBuilder(ElectionTestApplication.class)
             .run(
                 "--spring.config.name=camunda8-election-it",
+                OWN_DELIVERY_LOG,
                 "--spring.main.web-application-type=none",
                 "--vanillabp.adapters.c8-prefix.type=camunda8",
                 "--vanillabp.adapters.c8-prefix.job-lease=use",
