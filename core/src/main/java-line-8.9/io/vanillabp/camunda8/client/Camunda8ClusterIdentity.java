@@ -8,7 +8,7 @@ import io.camunda.client.CamundaClient;
  * Where a cluster keeps the identity which VanillaBP gave it. This is the 8.9 variant.
  * <p>
  * The clusters of this line have globally scoped cluster variables. The first start creates
- * {@value #NAME} with a random UUID, and every later start reads it back. A cluster variable is
+ * {@code vanillabp-cluster-identity} with a random UUID, and every later start reads it back. A cluster variable is
  * part of the state of the cluster, so a restored backup of the same cluster keeps it and a new
  * cluster does not have it. That is exactly what the identity has to do. The topology of a
  * cluster has no such id, and every key a cluster hands out is the same in every new cluster.
@@ -22,7 +22,7 @@ public final class Camunda8ClusterIdentity {
   /**
    * The name of the cluster variable. Operate and the REST API show it under this name.
    */
-  public static final String NAME = "vanillabp-cluster-identity";
+  private static final String NAME = "vanillabp-cluster-identity";
 
   /**
    * How often a read is tried after the cluster refused a second create. The variable was

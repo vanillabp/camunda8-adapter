@@ -9,7 +9,7 @@ import io.camunda.zeebe.model.bpmn.Bpmn;
  * Where a cluster keeps the identity which VanillaBP gave it. This is the 8.8 variant.
  * <p>
  * The clusters of this line have no cluster variables. So the identity is the NAME of a small
- * process definition, {@value #MARKER_ID}, which the first start deploys with a random UUID as
+ * process definition, {@code vanillabp-cluster-identity}, which the first start deploys with a random UUID as
  * its name. It is never started. A deployment is part of the state of the cluster, so a restored
  * backup of the same cluster keeps it, and a new cluster does not have it. The key and the
  * version of the definition cannot serve as the identity, because a new cluster hands out the
@@ -30,7 +30,7 @@ public final class Camunda8ClusterIdentity {
   /**
    * The BPMN process id of the marker. Operate shows the definition under this id.
    */
-  public static final String MARKER_ID = "vanillabp-cluster-identity";
+  private static final String MARKER_ID = "vanillabp-cluster-identity";
 
   /**
    * How often the read is tried after a deployment which was not the first one. The read
