@@ -590,7 +590,8 @@ public class Camunda8WorkflowLifecycleTest {
     assertTrue(
         definitions
             .stream()
-            .filter(definition -> !definition.startsWith(CLUSTER_IDENTITY + "|"))
+            .filter(definition -> !definition.startsWith(CLUSTER_IDENTITY
+                + "|"))
             .allMatch(definition -> definition.startsWith("%s__".formatted(MODULE))),
         "with name-clash-avoidance 'use-prefix' no identifier may reach the cluster unscoped: "
             + definitions);
