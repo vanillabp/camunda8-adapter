@@ -11,7 +11,6 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
 import io.vanillabp.camunda8.client.Camunda8StartupValidation;
-import io.vanillabp.camunda8.client.Camunda8VersionOneKeys;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
@@ -111,10 +110,6 @@ public class Camunda8ClientProducer {
               log::warn);
           configurations.put(adapterId, configuration);
         });
-
-    // a key of version 1 which this version does not read would change nothing in silence
-    Camunda8VersionOneKeys
-        .reportKeysOfVersionOne(configurations.keySet(), ConfigProvider.getConfig().getPropertyNames(), log::warn);
 
     return new Camunda8ClientFactoryRegistry(configurations);
 
