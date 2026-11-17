@@ -90,6 +90,10 @@ public class Camunda8SharedClusterElectionIT {
 
     final var arguments = new LinkedList<String>();
     arguments.add("--spring.config.name=camunda8-election-it");
+    // a delivery log of this class alone, which outlives the restart within the class. The
+    // other class of this module boots against clusters of its own, and a start ends when it
+    // meets a cluster other than the one the delivery log holds records of
+    arguments.add("--spring.datasource.url=jdbc:h2:mem:shared-cluster-election-it;DB_CLOSE_DELAY=-1");
     arguments.add("--spring.main.web-application-type=none");
     arguments.add("--vanillabp.adapters.c8-plain.rest-address="
         + restAddress());

@@ -67,6 +67,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 @SuppressOutputExtension.SuppressBackgroundOutput
 public class Camunda8WorkflowLifecycleTest {
 
+  /** The name under which the adapter writes down the identity of a cluster. */
+  private static final String CLUSTER_IDENTITY = "vanillabp-cluster-identity";
+
   private static final Logger LOG = LoggerFactory.getLogger(Camunda8WorkflowLifecycleTest.class);
 
   private static final String MODULE = "c8-e2e";
@@ -581,9 +584,14 @@ public class Camunda8WorkflowLifecycleTest {
             .anyMatch(definition -> definition.startsWith("%s__TaskProcess|".formatted(MODULE))),
         "the primary process is deployed under the workflow module's prefix, but got: "
             + definitions);
+    // on a cluster without cluster variables the adapter writes down the identity of the cluster as
+    // a small process definition of its own. It belongs to the cluster, not to a workflow module, so
+    // every module of every application has to find it under the same name
     assertTrue(
         definitions
             .stream()
+            .filter(definition -> !definition.startsWith(CLUSTER_IDENTITY
+                + "|"))
             .allMatch(definition -> definition.startsWith("%s__".formatted(MODULE))),
         "with name-clash-avoidance 'use-prefix' no identifier may reach the cluster unscoped: "
             + definitions);

@@ -151,13 +151,13 @@
     {
       "name": "vanillabp.adapters.camunda8.allow-connectors",
       "type": "java.lang.Boolean",
-      "description": "Whether an element built from an element template, usually a Camunda connector, is left to the runtime which owns it. It is also read per workflow module and per workflow, and the most specific value wins: 'vanillabp.workflow-modules.<module>.workflows.<workflow>.adapters.<id>.allow-connectors'. There is no task level.",
+      "description": "Whether an element built from an element template, usually a Camunda connector, is left to the runtime which owns it. It is also read per workflow module and per workflow, and the most specific value wins: 'vanillabp.workflow-modules.<module>.workflows.<workflow>.adapters.<id>.allow-connectors'. There is no task level. A value set there ends the start.",
       "defaultValue": false
     },
     {
       "name": "vanillabp.adapters.camunda8.allow-listeners",
       "type": "java.lang.Boolean",
-      "description": "Whether @WorkflowTask methods serve the listeners somebody modelled. Without it a model with such a listener does not start. It is also read per workflow module and per workflow, and the most specific value wins: 'vanillabp.workflow-modules.<module>.workflows.<workflow>.adapters.<id>.allow-listeners'. There is no task level.",
+      "description": "Whether @WorkflowTask methods serve the listeners somebody modelled. Without it a model with such a listener does not start. It is also read per workflow module and per workflow, and the most specific value wins: 'vanillabp.workflow-modules.<module>.workflows.<workflow>.adapters.<id>.allow-listeners'. There is no task level. A value set there ends the start.",
       "defaultValue": false
     },
     {
@@ -300,7 +300,7 @@
     {
       "name": "vanillabp.adapters.camunda8.task-timeout",
       "type": "java.time.Duration",
-      "description": "A key of VanillaBP 1 which this version does not read. The start warns about it. Write 'job-timeout' instead, at the same level.",
+      "description": "A key of VanillaBP 1 which this version does not read. It ends the start. Write 'job-timeout' instead, at the same level.",
       "deprecation": {
         "level": "error",
         "reason": "Renamed in 2.0.",
@@ -310,7 +310,7 @@
     {
       "name": "vanillabp.adapters.camunda8.poll-request-timeout",
       "type": "java.time.Duration",
-      "description": "A key of VanillaBP 1 which this version does not read. The start warns about it. Write 'request-timeout' instead, at the adapter level only.",
+      "description": "A key of VanillaBP 1 which this version does not read. It ends the start. Write 'request-timeout' instead, at the adapter level only.",
       "deprecation": {
         "level": "error",
         "reason": "Renamed in 2.0, and read at the adapter level only.",
@@ -320,7 +320,7 @@
     {
       "name": "vanillabp.adapters.camunda8.use-tenants",
       "type": "java.lang.Boolean",
-      "description": "A key of VanillaBP 1 which this version does not read. The start warns about it. 'true' is what this version does by default. For 'false' write 'vanillabp.adapters.<id>.name-clash-avoidance: none'.",
+      "description": "A key of VanillaBP 1 which this version does not read. It ends the start. 'true' is what this version does by default. For 'false' write 'vanillabp.adapters.<id>.name-clash-avoidance: none'.",
       "deprecation": {
         "level": "error",
         "reason": "Gone in 2.0. Tenants follow 'name-clash-avoidance' now."
@@ -329,7 +329,7 @@
     {
       "name": "vanillabp.adapters.camunda8.task-id-as-hex-string",
       "type": "java.lang.Boolean",
-      "description": "A key of VanillaBP 1 which this version does not read. The start warns about it. A task id is always decimal now. Task ids stored in hexadecimal are data to migrate, see UPGRADE.md of the adapter.",
+      "description": "A key of VanillaBP 1 which this version does not read. It ends the start. A task id is always decimal now. Task ids stored in hexadecimal are data to migrate, see UPGRADE.md of the adapter.",
       "deprecation": {
         "level": "error",
         "reason": "Gone in 2.0. A task id is always decimal."
@@ -338,7 +338,7 @@
     {
       "name": "vanillabp.allow-connectors",
       "type": "java.lang.Boolean",
-      "description": "A key of VanillaBP 1 which this version does not read. The start warns about it. It moved into the adapter section, and so did its workflow-module and workflow levels: 'vanillabp.workflow-modules.<module>.workflows.<workflow>.adapters.<id>.allow-connectors'.",
+      "description": "A key of VanillaBP 1 which this version does not read. It ends the start. It moved into the adapter section, and so did its workflow-module and workflow levels: 'vanillabp.workflow-modules.<module>.workflows.<workflow>.adapters.<id>.allow-connectors'.",
       "deprecation": {
         "level": "error",
         "reason": "Moved into the adapter section in 2.0.",

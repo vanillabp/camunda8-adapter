@@ -303,12 +303,14 @@ means the adapter level `vanillabp.adapters.<id>` plus the three levels version 
 | `stream-timeout`               | Same name, at the adapter level only.                                                                    |
 | `allow-connectors`             | Moved into the adapter section, see "`allow-connectors` moved under the adapter" below.                  |
 
-You do not have to find these keys yourself. Spring Boot and Quarkus both ignore a key they do not
-know, so a key of version 1 would do nothing without a word. So the start writes one WARN for each
-key of the table which 2.0 no longer reads at that place. The WARN names the key you wrote and the
-key to write instead. The start goes on, because each of these keys only tunes something which
-works without it. Only keys in a configuration file are found this way. An environment variable
-spells a key in a form which cannot be taken apart again without guessing.
+You do not have to find these keys yourself. A key of the table which 2.0 no longer reads at that
+place ends the start. The message has one line for each such key. The line names the key you wrote
+and the key to write instead. A key nobody reads would change nothing, and your application would
+run with a value you did not ask for. On Quarkus the build of the application ends with the same
+message. Only keys in a configuration file are named this way. An environment variable spells a
+key in a form which cannot be taken apart again without guessing. On Quarkus such a key still ends
+the start, with the message of Quarkus, which names the key but not what became of it. On Spring
+Boot it is ignored.
 
 ### `report-errors-as-stack-trace` writes the causes first
 
@@ -499,8 +501,8 @@ vanillabp:
 ```
 
 There is no task level for the key. A task level is keyed by the task DEFINITION, and this key
-decides whether a listener becomes a task at all. A value written there causes one warning which
-says what to do, and the boot goes on.
+decides whether a listener becomes a task at all. A value written there ends the boot, with a
+message which names the levels where the key works.
 
 The boot failure is the good case. Without the key, there is no worker for the listener's job type.
 The cluster creates the job anyway, and the workflow stops right there: no incident, no message,

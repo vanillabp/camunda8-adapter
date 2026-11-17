@@ -385,7 +385,7 @@ public interface VanillaBpCamunda8Properties {
 
   /**
    * Every <code>allow-listeners</code> this configuration puts at TASK level, as full keys.
-   * This key is not read at the task level.
+   * This key is not read at the task level, so each of them ends the start.
    *
    * @param adapterId The adapter ID
    * @return The keys found
@@ -469,8 +469,7 @@ public interface VanillaBpCamunda8Properties {
 
   /**
    * Every <code>allow-connectors</code> this configuration puts at TASK level, as full
-   * keys. This key is not read at the task level. All the boot can do about it is say
-   * so.
+   * keys. This key is not read at the task level, so each of them ends the start.
    *
    * @param adapterId The adapter ID
    * @return The keys found

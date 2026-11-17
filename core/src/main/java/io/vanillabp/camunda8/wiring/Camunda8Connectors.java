@@ -3,7 +3,6 @@ package io.vanillabp.camunda8.wiring;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import org.camunda.bpm.model.xml.instance.ModelElementInstance;
@@ -296,36 +295,37 @@ public final class Camunda8Connectors {
       .formatted(A_JOB_NOBODY_FETCHES);
 
   /**
-   * Reports keys the application set at TASK level, where this one does not resolve. Then it
-   * lets the boot go on. The value changes no answer. Ending a boot over a key which simply
-   * does nothing would be worse than saying so.
+   * Ends the start if the application set this key at TASK level. Nothing reads it there, so
+   * the value would change nothing, and the application would run with a value it did not ask
+   * for.
    *
    * @param adapterId The adapter ID
-   * @param keysAtTaskLevel The keys found, fully spelled out. Nothing is reported for an
-   *          empty list
-   * @param warnLogger Where the guidance goes
+   * @param keysAtTaskLevel The keys found, fully spelled out. An empty list is fine
+   * @throws IllegalStateException If there is such a key. The message names each of them and
+   *           the levels where the key works
    */
-  public static void reportKeysSetAtTaskLevel(
+  public static void refuseKeysSetAtTaskLevel(
       final String adapterId,
-      final List<String> keysAtTaskLevel,
-      final Consumer<String> warnLogger) {
+      final List<String> keysAtTaskLevel) {
 
     if (keysAtTaskLevel.isEmpty()) {
       return;
     }
-    warnLogger.accept(
+    throw new IllegalStateException(
         """
-            Camunda 8 adapter '%s' has '%s' set at TASK level: %s. That level does not resolve this \
-            key and the value changes nothing. A task level is keyed by the task DEFINITION, and the \
-            task definition of a connector is the connector's own type, which every element using \
-            that connector shares. Which single element is left to another runtime is decided by the \
-            model instead, by the attribute 'zeebe:modelerTemplate' on the element. The key is read \
-            at these three levels, the most specific configured one winning:
-            %s"""
+            Camunda 8 adapter '%s' has '%s' set at TASK level, where nothing reads it:
+              %s
+            Move the value to one of these levels, or remove it. The most specific configured \
+            one wins:
+            %s
+            There is no task level for this key. A task level is keyed by the task DEFINITION, and \
+            the task definition of a connector is the connector's own type, which every element \
+            using that connector shares. Which single element is left to another runtime is \
+            decided by the model instead, by the attribute 'zeebe:modelerTemplate' on the element."""
             .formatted(
                 adapterId,
                 ALLOW_CONNECTORS_KEY,
-                String.join(", ", keysAtTaskLevel),
+                String.join("\n  ", keysAtTaskLevel),
                 levelsOf(adapterId, "<m>", "<w>")));
 
   }

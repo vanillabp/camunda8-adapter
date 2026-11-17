@@ -1,6 +1,7 @@
 package io.vanillabp.camunda8.springboot.it;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -59,6 +60,10 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * several rounds of its pool needs more than one request timeout to be released. People stop
  * reading a measurement which fails a build because a machine was slow. So the rest is
  * reported and asserted nowhere.
+ * <p>
+ * A case waits three request timeouts per round of the pool at most. Then it fails and names
+ * the workers which still do not report themselves closed. A drain has a grace period, but this
+ * test has none, and without a limit such a worker would keep it waiting forever.
  * <p>
  * The class is skipped when Docker is unavailable
  * ({@code @Testcontainers(disabledWithoutDocker = true)}).
@@ -176,7 +181,11 @@ public class Camunda8WhatADrainWaitsForIT extends TestOnTheSharedCluster {
 
       final var closedAt = System.nanoTime();
       open.forEach(JobWorker::close);
+      final var deadline = closedAt + longestWaitForTheRelease(rounds).toNanos();
       while (!open.stream().allMatch(JobWorker::isClosed)) {
+        if (System.nanoTime() >= deadline) {
+          fail(theWorkersWhichStayedOpen(open, workers, rounds, measured));
+        }
         TimeUnit.MILLISECONDS.sleep(50);
       }
       final var released = Duration.ofNanos(System.nanoTime() - closedAt);
@@ -197,6 +206,68 @@ public class Camunda8WhatADrainWaitsForIT extends TestOnTheSharedCluster {
 
   }
 
+  /**
+   * How long one case waits for its workers to be released before it gives up. Each round of
+   * the pool costs about one request timeout. Three of them per round leave room for a slow
+   * machine, and still end a case which would otherwise wait forever.
+   *
+   * @param rounds How many rounds of the pool the workers fill
+   * @return The longest wait
+   */
+  private static Duration longestWaitForTheRelease(
+      final int rounds) {
+
+    return REQUEST_TIMEOUT.multipliedBy(3L * rounds);
+
+  }
+
+  /**
+   * The failure of a case whose workers were not all released in time. It names each worker
+   * which still says it is not closed.
+   *
+   * @param open The workers of the case, in the order they were opened
+   * @param workers How many workers the case opened
+   * @param rounds How many rounds of the pool those workers fill
+   * @param measured What the cases before this one measured
+   * @return The message
+   */
+  private static String theWorkersWhichStayedOpen(
+      final List<JobWorker> open,
+      final int workers,
+      final int rounds,
+      final List<String> measured) {
+
+    final var stayedOpen = new ArrayList<String>();
+    for (var i = 0; i < open.size(); ++i) {
+      if (!open.get(i).isClosed()) {
+        stayedOpen.add(nameOfWorker(i));
+      }
+    }
+    return ("%d of %d workers on a pool of %d (%d round(s) of it) did not report themselves closed within %s "
+        + "after they were closed: %s. A worker reports itself closed only when its last activation "
+        + "request came back, with jobs, without jobs or with an error, and nothing of it is running "
+        + "any more. So each of these workers still waits for a request, or the client lost track of one. "
+        + "What the cases before measured: %s")
+        .formatted(
+            Integer.valueOf(stayedOpen.size()),
+            Integer.valueOf(workers),
+            Integer.valueOf(MAX_HTTP_CONNECTIONS),
+            Integer.valueOf(rounds),
+            longestWaitForTheRelease(rounds),
+            String.join(", ", stayedOpen),
+            measured.isEmpty()
+                ? "nothing, this was the first case"
+                : String.join(" | ", measured));
+
+  }
+
+  private static String nameOfWorker(
+      final int number) {
+
+    return "what-a-drain-waits-for-%d".formatted(Integer.valueOf(number));
+
+  }
+
   private JobWorker aWorkerNothingEverFeeds(
       final CamundaClient client,
       final int number) {
@@ -212,7 +283,7 @@ public class Camunda8WhatADrainWaitsForIT extends TestOnTheSharedCluster {
         })
         .timeout(Duration.ofMinutes(1))
         .requestTimeout(REQUEST_TIMEOUT)
-        .name("what-a-drain-waits-for-%d".formatted(Integer.valueOf(number)))
+        .name(nameOfWorker(number))
         .open();
 
   }

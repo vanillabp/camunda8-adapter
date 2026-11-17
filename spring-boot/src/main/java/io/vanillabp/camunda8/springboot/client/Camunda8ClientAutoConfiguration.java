@@ -46,6 +46,10 @@ import lombok.extern.slf4j.Slf4j;
  * adapter which is nowhere first priority and whose deployment-failure policy is
  * 'warn'.</li>
  * <li>The clients of completely configured adapters are built eagerly.</li>
+ * <li>A key of version 1 which this version does not read ends the boot
+ * ({@link Camunda8VersionOneKeys}).</li>
+ * <li>An <code>allow-connectors</code> or <code>allow-listeners</code> at task level ends the boot,
+ * because nothing reads it there.</li>
  * </ul>
  */
 @Slf4j
@@ -70,7 +74,7 @@ public class Camunda8ClientAutoConfiguration {
    *          their types
    * @param overlay The adapter's own view of the same tree
    * @param environment Where the keys of version 1 are looked for, which this version does
-   *          not read
+   *          not read and which therefore end the boot
    * @return The registry, with every completely configured client already built
    */
   @Bean(destroyMethod = "close")
@@ -79,13 +83,19 @@ public class Camunda8ClientAutoConfiguration {
       final VanillaBpCamunda8Properties overlay,
       final Environment environment) {
 
-    final Map<String, Camunda8AdapterConfiguration> configurations = new HashMap<>();
-    coreProperties
+    final var adapterIds = coreProperties
         .adapterTypes()
         .entrySet()
         .stream()
         .filter(adapter -> Camunda8DeploymentService.ADAPTER_TYPE.equals(adapter.getValue()))
         .map(Map.Entry::getKey)
+        .toList();
+    // a key of version 1 which this version does not read would change nothing in silence.
+    // It is refused first, because a later message may be about the very value it meant to set
+    Camunda8VersionOneKeys.refuseKeysOfVersionOne(adapterIds, propertyNames(environment));
+
+    final Map<String, Camunda8AdapterConfiguration> configurations = new HashMap<>();
+    adapterIds
         .forEach(adapterId -> {
           final var configuration = overlay
               .getAdapters()
@@ -105,21 +115,11 @@ public class Camunda8ClientAutoConfiguration {
               "server.port",
               log::warn,
               log::info);
-          // a key at a level which does not read it changes nothing. Saying nothing would
-          // be worse than a line which says where the key is read
-          Camunda8Connectors.reportKeysSetAtTaskLevel(
-              adapterId,
-              overlay.allowConnectorsKeysAtTaskLevel(adapterId),
-              log::warn);
-          Camunda8Listeners.reportKeysSetAtTaskLevel(
-              adapterId,
-              overlay.allowListenersKeysAtTaskLevel(adapterId),
-              log::warn);
+          // a key at a level which does not read it would change nothing in silence
+          Camunda8Connectors.refuseKeysSetAtTaskLevel(adapterId, overlay.allowConnectorsKeysAtTaskLevel(adapterId));
+          Camunda8Listeners.refuseKeysSetAtTaskLevel(adapterId, overlay.allowListenersKeysAtTaskLevel(adapterId));
           configurations.put(adapterId, configuration);
         });
-
-    // a key of version 1 which this version does not read would change nothing in silence
-    Camunda8VersionOneKeys.reportKeysOfVersionOne(configurations.keySet(), propertyNames(environment), log::warn);
 
     return new Camunda8ClientFactoryRegistry(configurations);
 

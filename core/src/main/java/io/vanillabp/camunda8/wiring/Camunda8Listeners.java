@@ -3,7 +3,6 @@ package io.vanillabp.camunda8.wiring;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
@@ -259,35 +258,36 @@ public final class Camunda8Listeners {
       names is not served here: whatever else resolves it keeps resolving it.""";
 
   /**
-   * Reports keys the application set at TASK level, where this one does not resolve. Then it
-   * lets the boot go on. The value changes no answer. Ending a boot over a key which simply
-   * does nothing would be worse than saying so.
+   * Ends the start if the application set this key at TASK level. Nothing reads it there, so
+   * the value would change nothing, and the application would run with a value it did not ask
+   * for.
    *
    * @param adapterId The adapter ID
-   * @param keysAtTaskLevel The keys found, fully spelled out. Nothing is reported for an
-   *          empty list
-   * @param warnLogger Where the guidance goes
+   * @param keysAtTaskLevel The keys found, fully spelled out. An empty list is fine
+   * @throws IllegalStateException If there is such a key. The message names each of them and
+   *           the levels where the key works
    */
-  public static void reportKeysSetAtTaskLevel(
+  public static void refuseKeysSetAtTaskLevel(
       final String adapterId,
-      final List<String> keysAtTaskLevel,
-      final Consumer<String> warnLogger) {
+      final List<String> keysAtTaskLevel) {
 
     if (keysAtTaskLevel.isEmpty()) {
       return;
     }
-    warnLogger.accept(
+    throw new IllegalStateException(
         """
-            Camunda 8 adapter '%s' has '%s' set at TASK level: %s. That level does not resolve this \
-            key and the value changes nothing. A task level is keyed by a task DEFINITION, and \
-            whether a modelled listener becomes a task at all is what this key decides - so the \
-            task definition such a level would need does not exist yet at the moment the key is \
-            read. The key is read at these three levels, the most specific configured one winning:
-            %s"""
+            Camunda 8 adapter '%s' has '%s' set at TASK level, where nothing reads it:
+              %s
+            Move the value to one of these levels, or remove it. The most specific configured \
+            one wins:
+            %s
+            There is no task level for this key. A task level is keyed by a task DEFINITION, and \
+            whether a modelled listener becomes a task at all is what this key decides. So the \
+            task definition such a level would need does not exist yet when the key is read."""
             .formatted(
                 adapterId,
                 ALLOW_LISTENERS_KEY,
-                String.join(", ", keysAtTaskLevel),
+                String.join("\n  ", keysAtTaskLevel),
                 levelsOf(adapterId, "<m>", "<w>")));
 
   }

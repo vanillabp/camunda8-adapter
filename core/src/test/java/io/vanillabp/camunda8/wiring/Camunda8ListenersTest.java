@@ -2,11 +2,11 @@ package io.vanillabp.camunda8.wiring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -259,30 +259,30 @@ public class Camunda8ListenersTest {
   }
 
   @Test
-  @DisplayName("A key at task level earns one warning naming the levels which work")
-  public void aKeyAtTaskLevelIsReported() {
+  @DisplayName("A key at task level ends the start, and the message says where the key works")
+  public void aKeyAtTaskLevelEndsTheStart() {
 
-    final var warnings = new ArrayList<String>();
+    Camunda8Listeners.refuseKeysSetAtTaskLevel("c8", List.of());
 
-    Camunda8Listeners.reportKeysSetAtTaskLevel("c8", List.of(), warnings::add);
-    assertTrue(warnings.isEmpty(), "a configuration which does nothing wrong says nothing");
+    final var failure = assertThrows(
+        IllegalStateException.class,
+        () -> Camunda8Listeners
+            .refuseKeysSetAtTaskLevel(
+                "c8",
+                List.of("vanillabp.workflow-modules.loans.workflows.Loan.tasks.approve.adapters.c8.allow-listeners")));
 
-    Camunda8Listeners
-        .reportKeysSetAtTaskLevel(
-            "c8",
-            List.of("vanillabp.workflow-modules.loans.workflows.Loan.tasks.approve.adapters.c8.allow-listeners"),
-            warnings::add);
-    assertEquals(1, warnings.size());
+    final var message = failure.getMessage();
     assertTrue(
-        warnings.getFirst().contains("does not resolve this key"),
-        () -> "what the value does, which is nothing: "
-            + warnings);
+        message.contains("tasks.approve.adapters.c8.allow-listeners"),
+        () -> "the key the reader has to find in their configuration: "
+            + message);
     assertTrue(
-        warnings.getFirst().contains("vanillabp.workflow-modules.<m>.adapters.c8.allow-listeners"),
+        message.contains("vanillabp.workflow-modules.<m>.adapters.c8.allow-listeners"),
         () -> "and where it would work: "
-            + warnings);
+            + message);
 
   }
+
 
   @Test
   @DisplayName("Under use-prefix a served listener's job type is scoped like any task definition")
