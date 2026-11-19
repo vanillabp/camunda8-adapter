@@ -4259,10 +4259,10 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
         those process instances in Camunda Operate to a newer version of this process which already \
         uses Camunda user tasks ('zeebe:userTask')%s. For a process instance which already stands at \
         such a user task, the migration alone is not enough: the cluster creates the Camunda user task \
-        without running its 'creating' listeners, so VanillaBP never hears of it. For those, cancel the \
-        token in the user task and add a new one at the same user task after the migration, in Operate \
-        with "Modify instance" (process instance modification). Nothing in your current model needs to \
-        change. Details: %s"""
+        without running its 'creating' listeners, so neither VanillaBP nor the Business Cockpit hears of \
+        it. For those, cancel the token in the user task and add a new one at the same user task after the \
+        migration, in Operate with "Modify instance" (process instance modification). Nothing in your \
+        current model needs to change. Details: %s"""
         .formatted(
             held.version(),
             named(held.elementIds()),

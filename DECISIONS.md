@@ -4467,6 +4467,18 @@ None of these cite a decision number.
 - Wiki: `Deviations` (section "A user task a job worker serves is not accepted, and refused where
   you claim the process") and `Configuration` (the list of what ends the boot).
 
+**Addendum (story 2186).** Found by the Business Cockpit and measured against
+`camunda/camunda:8.10.9` on 2026-11-18. The process instance modification after the migration ends
+the migrated Camunda user task: the cluster shows it as `CANCELED`. It does so without running the
+`canceling` listeners of that user task, so VanillaBP does not hear of that end either. Only the new
+user task which the added token creates runs through the `creating` listeners. Since nothing heard
+of the migrated user task, nothing waits for its end, and the way out stays as it is. The warning in
+"DEPLOYED VERSIONS" now says that neither VanillaBP nor the Business Cockpit hears of the migrated
+user task, because the Cockpit's own `creating` listener is one of the listeners which the migration
+skips. The same measurement is decision 39 in business-cockpit-camunda8-adapter.
+`Camunda8LegacyUserTaskIT#migratingTheWorkflowToTheRemodelledVersion` holds the end of the migrated
+user task. The text above stays as it was written.
+
 ### 103. Addendum to decision 101: a snapshot reaches Maven Central again, without a sources jar, and a refused request is repeated
 
 Proposed by stories 2162 and 2160, 2026-11-13. It adds to decision 101, which brought the profile
