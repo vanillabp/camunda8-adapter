@@ -53,7 +53,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * model names a job type of its own. And a workflow standing at such a user task reaches
  * VanillaBP only in two steps: a process instance migration to a version with a Camunda user
  * task, which creates that user task without its {@code creating} listeners, and a process
- * instance modification which cancels the token in the user task and adds a new one.
+ * instance modification which cancels the token in the user task and adds a new one. That
+ * modification ends the migrated user task (state {@code CANCELED}) without its
+ * {@code canceling} listeners, so VanillaBP does not hear of that end either.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -250,6 +252,11 @@ public class Camunda8LegacyUserTaskIT extends TestOnTheSharedCluster {
         () -> "and the second step, which the migration below proves to be needed: "
             + theBox);
     assertTrue(
+        theBox.contains("without running its 'creating' listeners, so neither VanillaBP nor the Business "
+            + "Cockpit hears of it."),
+        () -> "the warning names everything which misses the migrated user task: "
+            + theBox);
+    assertTrue(
         theBox.contains("but a workflow on version 1 which reaches a user task without 'zeebe:userTask' is "
             + "not served at all"),
         () -> "the finding about older versions no longer says only that they keep being served: "
@@ -365,6 +372,15 @@ public class Camunda8LegacyUserTaskIT extends TestOnTheSharedCluster {
           lines.get(lines.size() - 1).contains("/manualMatching/CREATED/"),
           () -> "the user task exists all the same: "
               + String.join("\n", lines));
+      final var migratedUserTask = client
+          .newUserTaskSearchRequest()
+          .filter(filter -> filter.processInstanceKey(workflowOnTheOldShape).elementId("manualMatching"))
+          .send()
+          .join()
+          .items()
+          .getFirst()
+          .getUserTaskKey();
+      final var canceledBefore = LegacyUserTaskWorkflowService.CANCELED_TASK_IDS.size();
       {
         final var elementInstance = client
             .newElementInstanceSearchRequest()
@@ -405,6 +421,22 @@ public class Camunda8LegacyUserTaskIT extends TestOnTheSharedCluster {
             deliveredBefore + 1,
             LegacyUserTaskWorkflowService.DELIVERED_TASK_IDS.size(),
             () -> "the token added by the modification creates the user task with its listeners: "
+                + String.join("\n", lines));
+        // the delivery of the new user task above came after the old one was ended, so a
+        // 'canceling' listener of the old one would have been answered by now
+        final var theMigratedUserTaskEnded = stateOfTheUserTask(client, migratedUserTask, "CANCELED");
+        lines.add("the migrated user task %d after the modification: %s, canceled deliveries: %s"
+            .formatted(migratedUserTask, theMigratedUserTaskEnded, LegacyUserTaskWorkflowService.CANCELED_TASK_IDS));
+        assertEquals(
+            "CANCELED",
+            theMigratedUserTaskEnded,
+            () -> "the modification ends the migrated user task: "
+                + String.join("\n", lines));
+        assertEquals(
+            canceledBefore,
+            LegacyUserTaskWorkflowService.CANCELED_TASK_IDS.size(),
+            () -> "the migrated user task ends without its canceling listener, so VanillaBP never hears "
+                + "of its end either: "
                 + String.join("\n", lines));
       }
     } finally {
@@ -540,6 +572,38 @@ public class Camunda8LegacyUserTaskIT extends TestOnTheSharedCluster {
             + job.getProcessDefinitionKey())
         .toList();
     return "user tasks: %s\njobs: %s".formatted(userTasks, jobs);
+
+  }
+
+  /**
+   * Reads the state of one user task from the search until it shows the expected one or
+   * the export pipeline had time enough to catch up.
+   *
+   * @return the last state the search showed
+   */
+  private static String stateOfTheUserTask(
+      final CamundaClient client,
+      final long userTaskKey,
+      final String expected) throws InterruptedException {
+
+    final var deadline = System.currentTimeMillis() + THE_EXPORT_PIPELINE_CATCHES_UP_WITHIN;
+    var state = "";
+    while (!expected.equals(state) && (System.currentTimeMillis() < deadline)) {
+      state = client
+          .newUserTaskSearchRequest()
+          .filter(filter -> filter.userTaskKey(userTaskKey))
+          .send()
+          .join()
+          .items()
+          .stream()
+          .map(task -> String.valueOf(task.getState()))
+          .findFirst()
+          .orElse("");
+      if (!expected.equals(state)) {
+        Thread.sleep(500);
+      }
+    }
+    return state;
 
   }
 

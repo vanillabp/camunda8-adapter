@@ -1951,7 +1951,9 @@ workflows are not served at such a user task. The warning names the way out whic
 `Camunda8LegacyUserTaskIT` measured: a process instance migration in Operate to a version with a
 Camunda user task, and for an instance which already stands at the user task a process instance
 modification afterwards. The migration alone creates the Camunda user task without running its
-`creating` listeners, so VanillaBP never hears of it.
+`creating` listeners, so neither VanillaBP nor the Business Cockpit hears of it. The modification then
+ends that user task (`CANCELED`) without running its `canceling` listeners, and only the new user task
+runs through the `creating` listeners.
 `Camunda8JobWorkerUserTasksReportTest` holds the message and `Camunda8UserTaskWiringTest` the
 reader.
 
