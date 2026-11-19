@@ -1003,6 +1003,9 @@ an incident, and a user task managed by Camunda stays in `CREATING` forever. Mea
 in the nightly run 35958279261: the cluster log had `Failed to send 1 activated jobs ... to
 client`, and the user task never arrived. So `creating` and `canceling` listeners are written with
 one attempt left, `Camunda8TaskWiring#ONE_ATTEMPT_LEFT_FOR_A_DELIVERY_THE_GATEWAY_LOST`.
+Camunda has this as SUPPORT-35534 (2026-11-19): a retry should mean that a repetition is safe, not
+that the delivery works at all. If the gateway gives back an undelivered job without touching its
+retries, the listeners go back to zero, and this paragraph is superseded.
 
 The number at the failure is what this adapter passes when a notification really failed. For a
 task listener it stays at none, whatever the model says. `Camunda8UserTaskListenerHandler` fails
