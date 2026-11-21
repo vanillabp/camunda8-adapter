@@ -11,7 +11,7 @@ import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
  * The platform modules build one of these per workflow module. They hand it to
  * {@link io.vanillabp.camunda8.deployment.Camunda8DeploymentService} and the process service.
  * What the mode then makes of the name is decided by
- * {@link Camunda8Scoping#tenantIdFor(io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport, String, String, String)}.
+ * {@link Camunda8Scoping#tenantIdFor(io.vanillabp.integration.spi.IdentifierScoping, String, String, String)}.
  *
  * @param tenantId The configured tenant name, never blank
  * @param propertyKey The full property key the name was read from
