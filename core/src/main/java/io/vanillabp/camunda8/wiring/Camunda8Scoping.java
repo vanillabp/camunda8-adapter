@@ -28,6 +28,7 @@ import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskDefinition;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListener;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidance;
 import io.vanillabp.integration.adapter.spi.NameClashAvoidanceSupport;
+import io.vanillabp.integration.spi.IdentifierScoping;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -113,9 +114,15 @@ public final class Camunda8Scoping {
    * that while it looks for two BPMN processes which reach the cluster under one identifier.
    * An answer put together in some other way could say "separated" about a module which the
    * very next deploy command puts into the tenant of its neighbour.
+   * <p>
+   * The parameter is the core's {@link IdentifierScoping} and not the adapter SPI's
+   * {@link NameClashAvoidanceSupport}. Only the question "is the mode {@code by-adapter}?" is
+   * asked here, and {@link IdentifierScoping} has it. So an extension, like the business
+   * cockpit, can ask for the same tenant without the adapter SPI. The adapter itself still
+   * passes its {@link NameClashAvoidanceSupport}, which is an {@link IdentifierScoping}.
    *
-   * @param scoping The name-clash-avoidance support of the core, or <code>null</code>
-   *          (tests). Then the configured tenant is used as it is
+   * @param scoping The identifier scoping of the core, or <code>null</code> (tests). Then
+   *          the configured tenant is used as it is
    * @param workflowModuleId The workflow module ID
    * @param adapterId The adapter ID
    * @param configuredTenantId The tenant name the application configured for this workflow
@@ -124,7 +131,7 @@ public final class Camunda8Scoping {
    * @return The tenant ID, or <code>null</code> if the mode uses none
    */
   public static String tenantIdFor(
-      final NameClashAvoidanceSupport scoping,
+      final IdentifierScoping scoping,
       final String workflowModuleId,
       final String adapterId,
       final String configuredTenantId) {
@@ -135,7 +142,7 @@ public final class Camunda8Scoping {
     if (scoping == null) {
       return configured;
     }
-    if (scoping.modeFor(workflowModuleId, null, adapterId) != NameClashAvoidance.BY_ADAPTER) {
+    if (!scoping.isolatesByAdapter(workflowModuleId, null, adapterId)) {
       return null;
     }
     return configured != null
