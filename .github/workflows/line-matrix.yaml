@@ -111,7 +111,7 @@ jobs:
           echo "$RUNNER_TEMP/apache-maven-3.9.16/bin" >> "$GITHUB_PATH"
       - uses: actions/setup-java@v6
         with:
-          java-version: 25.0.5+8
+          java-version: 27.0.1+100000004
           distribution: temurin
       # The Maven repository of the lines, as in the blueprints. 'cache: maven' of setup-java
       # keys on the POMs alone and has no fallback, so every change to a POM started all

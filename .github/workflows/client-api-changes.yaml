@@ -85,7 +85,7 @@ jobs:
           path: .camunda8-adapter
       - uses: actions/setup-java@v6
         with:
-          java-version: 25.0.5+8
+          java-version: 27.0.1+100000004
           distribution: temurin
           cache: maven
       - id: report
