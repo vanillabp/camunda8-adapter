@@ -9,8 +9,8 @@ name: Release lines
 # DECISIONS.md. A release waits for it all the same, because the gate of a release is the call
 # of this whole workflow, and a red line fails that call whichever line it is.
 #
-# This matrix is also the nightly build against the platform snapshot. It resolves the platform
-# with '--update-snapshots' every night and it reports a red line as an issue, so a second
+# This matrix is also the nightly build against the platform snapshot. It resolves the newest
+# platform snapshot every night and it reports a red line as an issue, so a second
 # nightly building the same modules against the same registry would only say the same thing
 # twice under another name. What it needed for that second job is the name of the snapshot it
 # resolved, and the step 'Which platform snapshot this line built against' prints it: without
@@ -120,9 +120,10 @@ jobs:
           restore-keys: |
             maven-lines-${{ hashFiles('**/pom.xml') }}-
             maven-lines-
-      # The Maven cache of this runner can hold a platform jar from a day this build never
-      # asks for again. The step which names the snapshot reads what is newer than this
-      # marker, so it names what Maven fetched tonight.
+      # the cache above can hold old snapshots of our own, so they go and Maven fetches the newest
+      - uses: ./.github/actions/forget-cached-snapshots
+      # The step which names the snapshot reads what is newer than this marker, so it names
+      # only what Maven fetched tonight.
       - name: Mark the moment the build starts
         run: touch "${RUNNER_TEMP}/platform-snapshot-marker"
       - name: "Build and test line ${{ matrix.line }}"
@@ -131,7 +132,7 @@ jobs:
         # so the build proves the coordinates as well as the code. 'install' without
         # 'verify': install runs every phase verify has, and naming both compiled each
         # module twice for nothing.
-        run: mvn -s .github/maven/settings.xml ${VBP_SNAPSHOTS_PROFILE} --batch-mode --no-transfer-progress --update-snapshots
+        run: mvn -s .github/maven/settings.xml ${VBP_SNAPSHOTS_PROFILE} --batch-mode --no-transfer-progress
           -Pline-${{ matrix.line }} -Drevision=2.0.0-${{ matrix.line }}-SNAPSHOT
           clean install
       # A nightly line going red used to leave nothing behind, so whoever read the matrix

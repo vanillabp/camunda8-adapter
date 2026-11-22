@@ -88,6 +88,8 @@ jobs:
           java-version: 25.0.5+8
           distribution: temurin
           cache: maven
+      # the cache above can hold old snapshots of our own, so they go and Maven fetches the newest
+      - uses: ./.github/actions/forget-cached-snapshots
       - id: report
         name: What this bump added to the classes
         # The pins are the camunda8.version.line-* properties of the parent POM, so this

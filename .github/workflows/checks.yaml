@@ -75,9 +75,9 @@ jobs:
           java-version: 25.0.5+8
           distribution: temurin
           cache: maven
+      # the cache above can hold old snapshots of our own, so they go and Maven fetches the newest
+      - uses: ./.github/actions/forget-cached-snapshots
       - name: The public API is the same on every line
-        env:
-          MAVEN_ARGS: --update-snapshots
         run: bin/api-identity.sh
 
   # A check which reports nothing looks exactly like a quiet week, so the script behind
@@ -94,6 +94,8 @@ jobs:
           java-version: 25.0.5+8
           distribution: temurin
           cache: maven
+      # the cache above can hold old snapshots of our own, so they go and Maven fetches the newest
+      - uses: ./.github/actions/forget-cached-snapshots
       - name: 8.8.32 to 8.8.33 names the enum it added
         run: |
           set -euo pipefail
