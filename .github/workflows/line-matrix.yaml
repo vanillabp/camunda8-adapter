@@ -9,8 +9,8 @@ name: Release lines
 # DECISIONS.md. A release waits for it all the same, because the gate of a release is the call
 # of this whole workflow, and a red line fails that call whichever line it is.
 #
-# This matrix is also the nightly build against the platform snapshot. It resolves the platform
-# with '--update-snapshots' every night and it reports a red line as an issue, so a second
+# This matrix is also the nightly build against the platform snapshot. It resolves the newest
+# platform snapshot every night and it reports a red line as an issue, so a second
 # nightly building the same modules against the same registry would only say the same thing
 # twice under another name. What it needed for that second job is the name of the snapshot it
 # resolved, and the step 'Which platform snapshot this line built against' prints it: without
@@ -100,15 +100,7 @@ jobs:
       # the 3.9 the snapshot and the release jobs use, and the lines test with the Maven they
       # are published with.
       - name: Use Maven 3.9
-        run: |
-          # Into a file and not through a pipe: a transfer which breaks halfway has already
-          # written to tar, so a repeat of curl could not mend it. Nine repeats wait about
-          # eight minutes, long enough for a 429 of Central to pass.
-          curl -fsSL --retry 9 --retry-all-errors --retry-max-time 600 --connect-timeout 20 --max-time 120 \
-            -o "$RUNNER_TEMP/apache-maven.tar.gz" \
-            https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.16/apache-maven-3.9.16-bin.tar.gz
-          tar xzf "$RUNNER_TEMP/apache-maven.tar.gz" -C "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/apache-maven-3.9.16/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/use-maven
       - uses: actions/setup-java@v6
         with:
           java-version: 25.0.5+8
@@ -116,10 +108,12 @@ jobs:
       # The Maven repository of the lines, as in the blueprints. 'cache: maven' of setup-java
       # keys on the POMs alone and has no fallback, so every change to a POM started all
       # lines with an empty repository, and each of them fetched 1,700 to 1,900 files from
-      # Central. This key carries the run id, so one line writes it on every run, and the
-      # restore keys hand the next run the newest repository there is, even after a POM
-      # change. Only the first line writes: the lines differ by a few dozen files, and three
-      # caches of 250 MB per run would push older ones out of the storage of this repository.
+      # Central. This key carries the run id, so one line writes a new entry on every night,
+      # and the restore keys hand the next run the newest repository there is, even after a
+      # POM change. Only the first line writes: the lines differ by a few dozen files, and
+      # three caches of 250 MB per run would push older ones out of the storage of this
+      # repository. Only the night on main writes: a cache written for a pull request can
+      # never be read by main, and a release does not write it either.
       - id: maven-cache
         uses: actions/cache/restore@v6
         with:
@@ -128,9 +122,10 @@ jobs:
           restore-keys: |
             maven-lines-${{ hashFiles('**/pom.xml') }}-
             maven-lines-
-      # The Maven cache of this runner can hold a platform jar from a day this build never
-      # asks for again. The step which names the snapshot reads what is newer than this
-      # marker, so it names what Maven fetched tonight.
+      # the cache above can hold old snapshots of our own, so they go and Maven fetches the newest
+      - uses: ./.github/actions/forget-cached-snapshots
+      # The step which names the snapshot reads what is newer than this marker, so it names
+      # only what Maven fetched tonight.
       - name: Mark the moment the build starts
         run: touch "${RUNNER_TEMP}/platform-snapshot-marker"
       - name: "Build and test line ${{ matrix.line }}"
@@ -139,7 +134,7 @@ jobs:
         # so the build proves the coordinates as well as the code. 'install' without
         # 'verify': install runs every phase verify has, and naming both compiled each
         # module twice for nothing.
-        run: mvn -s .github/maven/settings.xml ${VBP_SNAPSHOTS_PROFILE} --batch-mode --no-transfer-progress --update-snapshots
+        run: mvn -s .github/maven/settings.xml ${VBP_SNAPSHOTS_PROFILE} --batch-mode --no-transfer-progress
           -Pline-${{ matrix.line }} -Drevision=2.0.0-${{ matrix.line }}-SNAPSHOT
           clean install
       # A nightly line going red used to leave nothing behind, so whoever read the matrix
@@ -279,14 +274,16 @@ jobs:
           path: "${{ runner.temp }}/line-result/${{ matrix.line }}"
       # Our own snapshots never go into the cache, as in the blueprints. A line has to build
       # against what the registry holds now, and a snapshot the cache carried in would still
-      # resolve after the registry lost it.
+      # resolve after the registry lost it. The marks of failed downloads stay out as well.
+      # A called workflow sees the event and the branch of its caller, so a pull request and
+      # a release do not get past this condition.
       - name: Keep our own snapshots out of the Maven cache
-        if: matrix.line == fromJSON(needs.discover.outputs.lines)[0]
-        run: find ~/.m2/repository/io/vanillabp -type d -name '*-SNAPSHOT' -prune -exec rm -rf {} + || true
+        if: matrix.line == fromJSON(needs.discover.outputs.lines)[0] && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+        uses: ./.github/actions/forget-cached-snapshots
       # The key comes from the restore step, because the build has added copies of the POMs
       # under target, and hashFiles would read a different key here than at the start.
       - uses: actions/cache/save@v6
-        if: matrix.line == fromJSON(needs.discover.outputs.lines)[0]
+        if: matrix.line == fromJSON(needs.discover.outputs.lines)[0] && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
         with:
           path: ~/.m2/repository
           key: ${{ steps.maven-cache.outputs.cache-primary-key }}

@@ -497,7 +497,7 @@ last lines of the step otherwise. `bin/job-log-excerpt.sh` finds them, and the B
 repositories call the same script. See decision 79.
 
 The night is also how this repository measures the platform. Every line resolves the platform
-with `--update-snapshots`, so a snapshot published during the day is built against by the next
+without taking it from the cache, so a snapshot published during the day is built against by the next
 night. The other adapter repositories run a nightly of their own for the same reason. Each line
 writes down which platform snapshot it resolved, with the timestamp and the build number, into
 the job summary and into the issue of a red line. `2.0.0-SNAPSHOT` alone does not say which
