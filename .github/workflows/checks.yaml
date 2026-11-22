@@ -74,7 +74,15 @@ jobs:
         with:
           java-version: 25.0.5+8
           distribution: temurin
-          cache: maven
+      # The Maven repository of the newest run on main, read only. This workflow does not
+      # run on main, and a cache written for a pull request can never be read by main.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
+          restore-keys: |
+            maven-${{ hashFiles('**/pom.xml') }}-
+            maven-
       # the cache above can hold old snapshots of our own, so they go and Maven fetches the newest
       - uses: ./.github/actions/forget-cached-snapshots
       - name: The public API is the same on every line
@@ -93,7 +101,15 @@ jobs:
         with:
           java-version: 25.0.5+8
           distribution: temurin
-          cache: maven
+      # The Maven repository of the newest run on main, read only. This workflow does not
+      # run on main, and a cache written for a pull request can never be read by main.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
+          restore-keys: |
+            maven-${{ hashFiles('**/pom.xml') }}-
+            maven-
       # the cache above can hold old snapshots of our own, so they go and Maven fetches the newest
       - uses: ./.github/actions/forget-cached-snapshots
       - name: 8.8.32 to 8.8.33 names the enum it added
