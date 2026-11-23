@@ -18,6 +18,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -43,11 +44,11 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * The broker's flow control keeps a list of commands it always takes
  * ({@code WhiteListedCommands} of {@code zeebe-logstreams}). The completion and the failure of
  * a job are on it on 8.8, 8.9 and 8.10. The BPMN error and the change of a job timeout are on
- * it on no line. The completion of a user task is on it on 8.8 and 8.9 and no longer on 8.10.
- * This test sends each command in a burst against a cluster with the smallest request limit
- * and counts the answers, over REST and over gRPC. A line which changes the list turns it red,
- * and then the reasons in decision 9 and on the wiki page {@code Configuration} need another
- * look.
+ * it on no line. The completion of a user task came onto the list later, with a patch of each
+ * line: 8.8.46, 8.9.28 and 8.10.10. An older patch refuses it like the BPMN error. This test
+ * sends each command in a burst against a cluster with the smallest request limit and counts
+ * the answers, over REST and over gRPC. A patch which changes the list turns it red, and then
+ * the reasons in decision 9 and on the wiki page {@code Configuration} need another look.
  * <p>
  * A burst of a command the list does not hold proves that the limit is on. Without that, a
  * burst which is taken in full would prove nothing. Every command meets a job or a user task
@@ -124,6 +125,15 @@ public class Camunda8WhatABusyClusterRefusesIT {
       .withEnv("ZEEBE_BROKER_FLOWCONTROL_REQUEST_ENABLED", "true")
       .withEnv("ZEEBE_BROKER_FLOWCONTROL_REQUEST_ALGORITHM", "fixed")
       .withEnv("ZEEBE_BROKER_FLOWCONTROL_REQUEST_FIXED_LIMIT", "1");
+
+  /**
+   * The first patch of each line whose broker always takes the completion of a user task.
+   * Camunda added it to {@code WhiteListedCommands} on all three lines at the same time.
+   */
+  private static final Map<String, Integer> FIRST_PATCH_WHICH_TAKES_EVERY_USER_TASK_COMPLETION = Map
+      .of("8.8", 46, "8.9", 28, "8.10", 10);
+
+  private static final Pattern MAJOR_MINOR_AND_PATCH = Pattern.compile("^(\\d+)\\.(\\d+)\\.(\\d+)(?:[\\-+].*)?$");
 
   /** What came back from one request, the way the counts name it. */
   private static final String ACCEPTED = "accepted";
@@ -220,7 +230,7 @@ public class Camunda8WhatABusyClusterRefusesIT {
         burst,
         byAnswer) -> System.out.printf("BURST line=%s %s: %s%n", line, burst, byAnswer));
 
-    final var userTaskCompletion = line.startsWith("8.8.") || line.startsWith("8.9.")
+    final var userTaskCompletion = takesEveryUserTaskCompletion(line)
         ? Verdict.ALL_TAKEN
         : Verdict.PARTLY_REFUSED;
     final var expected = new LinkedHashMap<String, Verdict>();
@@ -238,6 +248,34 @@ public class Camunda8WhatABusyClusterRefusesIT {
         verdicts,
         "what a cluster of line %s with a request limit of one answered, burst by burst: %s"
             .formatted(line, counts));
+
+  }
+
+  /**
+   * Whether the broker of this version has the completion of a user task on its list. A line
+   * after 8.10 has it from its first release. A pre-release counts as the patch it leads to, so
+   * {@code 8.10.0-alpha5} is 8.10.0.
+   */
+  private static boolean takesEveryUserTaskCompletion(
+      final String version) {
+
+    final var matcher = MAJOR_MINOR_AND_PATCH.matcher(version);
+    if (!matcher.matches()) {
+      throw new IllegalStateException("'%s' is no version of a cluster".formatted(version));
+    }
+    final var major = Integer.parseInt(matcher.group(1));
+    final var minor = Integer.parseInt(matcher.group(2));
+    final var patch = Integer.parseInt(matcher.group(3));
+    if ((major > 8) || ((major == 8) && (minor > 10))) {
+      return true;
+    }
+    final var firstPatch = FIRST_PATCH_WHICH_TAKES_EVERY_USER_TASK_COMPLETION.get(major
+        + "."
+        + minor);
+    if (firstPatch == null) {
+      throw new IllegalStateException("no line of this adapter is %s.%s".formatted(major, minor));
+    }
+    return patch >= firstPatch;
 
   }
 

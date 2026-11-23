@@ -1727,8 +1727,9 @@ the client repeats a 503 once, one second later, and the caller gets the second 
 nothing repeats it: the retry policy of the channel is off by default. All three lines behave the
 same, which `Camunda8ClientOnABusyClusterTest` holds on each of them. Not every command is refused:
 the broker's flow control always takes the completion and the failure of a job, on every line. It
-refuses the BPMN error and the change of a job timeout, and on 8.10 also the completion of a user
-task. `Camunda8WhatABusyClusterRefusesIT` holds this per line. A completion can still be refused,
+refuses the BPMN error and the change of a job timeout. It also refuses the completion of a user
+task on 8.8.0 to 8.8.45, 8.9.0 to 8.9.27 and 8.10.0 to 8.10.9, and takes it always from 8.8.46,
+8.9.28 and 8.10.10 on. `Camunda8WhatABusyClusterRefusesIT` holds this per line. A completion can still be refused,
 by a broker short of disk space or by a partition paused for a leadership transfer (8.10), or it
 gets no answer in time. The outbox
 covers the phase-two commands. What was left unprotected was the command the handler itself

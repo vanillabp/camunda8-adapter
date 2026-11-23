@@ -4768,3 +4768,54 @@ Places which rely on this entry:
 - `README.md`, the section "Mutual TLS"
 - the wiki page `Configuration`, section "Mutual TLS"
 
+### 109. Addition to decision 100: 8.10.10 takes every completion of a user task as well
+
+An addition, added on 2026-11-23, to the paragraph "What a busy cluster refuses" of decision 100
+and to its table. Both stay true for the versions they name. What changed is the 8.10 line.
+
+**What the source says.** Camunda put the completion of a user task on the list of commands the
+broker always takes (`WhiteListedCommands` of `zeebe-logstreams`). The same change also put the
+assignment and the claim of a user task on it. Between the tags `8.10.9` and `8.10.10` the list
+gained these three entries, and nothing else changed:
+
+```diff
++          UserTaskIntent.COMPLETE,
++          UserTaskIntent.ASSIGN,
++          UserTaskIntent.CLAIM,
+```
+
+The change is camunda/camunda#66776 on `main`, for the issue camunda/camunda#66772 ("User task
+commands are not exempt from backpressure, unlike the equivalent job commands"). Its backports
+are camunda/camunda#68331 (`stable/8.8`), camunda/camunda#68333 (`stable/8.9`) and
+camunda/camunda#68335 (`stable/8.10`). The first tags which carry it are 8.8.46, 8.9.28 and
+8.10.10. So the measurement of decision 100 on 8.8.46 and 8.9.28 already met the new list, and
+an older patch of 8.8 or 8.9 refuses the completion of a user task like 8.10.0 to 8.10.9 does.
+The update of a user task, which the pre-commit check sends, is still not on the list.
+
+**What was measured.** `Camunda8WhatABusyClusterRefusesIT` on 2026-11-23 against
+`camunda/camunda:8.10.9` and `camunda/camunda:8.10.10`, with the request limit of one of decision
+100. The numbers are accepted / refused, as in decision 100. Every other burst gave what decision
+100 says on both versions.
+
+|       Command        | Transport |  8.10.9  | 8.10.10 |
+|----------------------|-----------|----------|---------|
+| user task completion | REST      | 56 / 244 | 300 / 0 |
+
+**What follows from it.** The completion of a user task is refused by a busy cluster on 8.8.0 to
+8.8.45, 8.9.0 to 8.9.27 and 8.10.0 to 8.10.9, and taken always from 8.8.46, 8.9.28 and 8.10.10 on.
+A line after 8.10 has it from its first release. The behaviour of the adapter does not change. It
+does not depend on the list for this command. Phase two sends the completion, and a refusal with
+`RESOURCE_EXHAUSTED` goes back to the outbox, which plans it again without counting an attempt
+(`Camunda8Errors.refusedByBackpressure`). The adapter needs that on every older patch, which the
+lines still support. The retry of `Camunda8CommandRetry.send`, which the last paragraph of
+decision 100 names together with this command, does not carry it. Only the 409 of a user task
+which is still being created is repeated at once, and that is not about a busy cluster.
+
+Places which state this:
+
+- `spring-boot/src/test/java/io/vanillabp/camunda8/springboot/it/Camunda8WhatABusyClusterRefusesIT.java`,
+  class javadoc and `takesEveryUserTaskCompletion`
+- `core/src/main/java/io/vanillabp/camunda8/client/Camunda8CommandRetry.java`, class javadoc
+- `README.md`, the paragraph "The command which reports the outcome is repeated"
+- the wiki page `Configuration`, section "When the cluster says it is busy"
+
