@@ -116,8 +116,8 @@ public class Camunda8JobLeaseTest {
             + failure.getMessage());
     assertTrue(
         failure.getMessage().contains("vanillabp.adapters.c8.job-timeout") && failure.getMessage()
-            .contains("'do-not-use' is the safer choice for now"),
-        "the message says what a lease costs until Camunda fixes its gateway: "
+            .contains("older than 8.10.10") && failure.getMessage().contains("'do-not-use' is the safer choice"),
+        "the message says what a lease costs on a cluster of 8.10 older than 8.10.10: "
             + failure.getMessage());
 
   }

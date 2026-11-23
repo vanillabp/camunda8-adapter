@@ -3800,6 +3800,9 @@ VanillaBP's own. There is no next attempt to delay.
 
 ### 88. Until Camunda fixes its gateway, the adapter advises against a lease, and its own tests keep one
 
+**Superseded by `DECISIONS.pending/2194.md`**, since Camunda fixed the gateway in 8.10.10. The entry
+below stays as it was written.
+
 Built by story 2002 on 2026-10-28.
 
 The gateway of Camunda 8.10 parks an activation request which found no job. Its own timer answers

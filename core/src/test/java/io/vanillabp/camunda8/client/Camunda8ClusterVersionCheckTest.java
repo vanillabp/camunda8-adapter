@@ -149,6 +149,63 @@ public class Camunda8ClusterVersionCheckTest {
   }
 
   @Test
+  @DisplayName("An adapter which leases on a cluster of 8.10 older than 8.10.10 is warned")
+  public void aLeaseOnAnOlder810ClusterIsWarned() {
+
+    for (final var cluster : new String[]{
+        "8.10.0", "8.10.0-alpha5", "8.10.0-rc1", "8.10.5", "8.10.9"
+    }) {
+      final var advice = Camunda8ClusterVersionCheck.leaseAdvice("c8", cluster, true);
+      assertTrue(advice.isPresent(), "a lease on "
+          + cluster
+          + " costs a job timeout now and then");
+      final var message = advice.get();
+      assertTrue(message.startsWith("Camunda8[c8]: "), message);
+      assertTrue(message.contains("cluster "
+          + cluster
+          + " is older than 8.10.10"), message);
+      assertTrue(message.contains("'vanillabp.adapters.c8.job-timeout'"), message);
+      assertTrue(message.contains("Upgrade the cluster to 8.10.10"), message);
+      assertFalse(message.contains("\n"), "and it is one line: "
+          + message);
+    }
+
+  }
+
+  @Test
+  @DisplayName("Nothing is said from 8.10.10 on, without a lease, or where the version cannot be read")
+  public void nothingIsSaidWhereALeaseCostsNothing() {
+
+    for (final var cluster : new String[]{
+        "8.10.10", "8.10.11", "8.10.10-SNAPSHOT", "8.11.0", "8.11.0-alpha1", "8.9.26", "8.8.46", "9.0.0", "8.10", "dev", "", null
+    }) {
+      assertTrue(
+          Camunda8ClusterVersionCheck.leaseAdvice("c8", cluster, true).isEmpty(),
+          "a lease costs nothing of the kind on "
+              + cluster);
+    }
+    assertTrue(
+        Camunda8ClusterVersionCheck.leaseAdvice("c8", "8.10.9", false).isEmpty(),
+        "an adapter which does not lease is not affected");
+
+  }
+
+  @Test
+  @DisplayName("The advice about a lease is written as a WARN")
+  public void theLeaseAdviceIsAWarn(
+      final CapturedOutput output) {
+
+    Camunda8ClusterVersionCheck.logTheLeaseAdvice("c8", "8.10.9", true);
+    Camunda8ClusterVersionCheck.logTheLeaseAdvice("c8", "8.10.10", true);
+
+    final var logged = output.getOut() + output.getErr();
+    assertTrue(logged.contains("WARN"), logged);
+    assertTrue(logged.contains("cluster 8.10.9 is older than 8.10.10"), logged);
+    assertFalse(logged.contains("cluster 8.10.10 is older"), logged);
+
+  }
+
+  @Test
   @DisplayName("A version which cannot be read is an INFO saying that nothing was compared")
   public void anUnreadableVersionIsNotCompared() {
 

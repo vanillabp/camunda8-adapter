@@ -2090,14 +2090,15 @@ on gRPC as `FAILED_PRECONDITION`. The adapter neither repeats it nor fails the j
 converged with a redelivery, and the newer run holds the job. Why the code alone decides that is
 decision 36 in the repository's DECISIONS.md.
 
-A lease has one more cost, and it comes from the cluster. Where the cluster activates a leased job
-for a request which has already ended, it cannot give the job back, and the job waits for the
-lock of that lost activation. See
+On a cluster of 8.10 older than `8.10.10`, a lease has one more cost, and it comes from the
+cluster. Where such a cluster activates a leased job for a request which has already ended, it
+cannot give the job back, and the job waits for the lock of that lost activation. See
 [a job activated for a worker which never saw it](#a-job-activated-for-a-worker-which-never-saw-it).
-Until Camunda fixes this, the boot message and the wiki advise `do-not-use`. Switching to `use`
-later costs nothing, because a job which was never leased can be leased at any time. Why the adapter
-advises and does not decide, and why the tests of this repository keep `use`, is decision 88 in the
-repository's DECISIONS.md.
+Camunda fixed this in `8.10.10`. So the boot message and the wiki advise `do-not-use` only for an
+older 8.10 cluster. When the cluster has answered, the start also writes a WARN if the adapter
+leases and the cluster is older than `8.10.10`. Switching to `use` later costs nothing, because a
+job which was never leased can be leased at any time. Why the advice depends on the version of the
+cluster is `DECISIONS.pending/2194.md`.
 
 ### A job type has to be a name, not an expression
 
@@ -3911,6 +3912,13 @@ seconds, instead of after ten. Without a lease it met it in none of 300. A long 
 only moves the window: then handlers which paused 2.6 to 2.9 seconds before they failed met it, 3
 of 300. Against `camunda/camunda:8.9.26` the gateway lost 19 sends in 183 tries and gave every one
 of them back, because there is no lease on that line.
+
+Camunda fixed the gateway in `8.10.10`. Measured with client `8.10.10` on 2026-11-23, nine rounds
+of the boundary mode with a lease: against `camunda/camunda:8.10.9`, 21 of 369 tries were stuck,
+and the gateway logged 21 lost sends and 21 refused FAIL commands. Against
+`camunda/camunda:8.10.10`, none of 369 were stuck in each of three runs, and the gateway logged
+14, 14 and 15 lost sends and no refused FAIL command. The gateway still loses a send now and
+then, but it gives the leased job back, and the next activation gets it.
 
 **The gateway does not notice.** Over REST the response is written when the request ends, so a
 connection which died while the request was parked is found too late for the reactivation above.

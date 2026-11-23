@@ -2337,9 +2337,12 @@ public class Camunda8AdapterConfiguration {
    * line says so. An application moves between lines with one configuration. Refusing a key
    * there would be the one thing that makes such a move hurt.
    * <p>
-   * Until Camunda fixes its gateway, the message advises <code>do-not-use</code>. A lease makes
-   * a job which the gateway could not hand out wait one job timeout. Why the adapter advises and
-   * does not decide is decision 88 in the repository's DECISIONS.md.
+   * The message advises <code>do-not-use</code> for a cluster of 8.10 older than
+   * {@value Camunda8ClusterVersionCheck#FIRST_8_10_WITHOUT_THE_LEASE_STALL}. There a lease makes a
+   * job which the gateway could not hand out wait one job timeout. The start does not know the
+   * cluster yet when it asks, so the message names the version. Once the cluster answered,
+   * {@link Camunda8ClusterVersionCheck} warns an adapter which leases on such a cluster. Why the
+   * advice depends on the version of the cluster is {@code DECISIONS.pending/2194.md}.
    *
    * @param adapterId The adapter id
    * @param logger Sink for the line which says the key does nothing here. It is not a
@@ -2379,18 +2382,21 @@ public class Camunda8AdapterConfiguration {
             never removes a lease from a job, a worker of the same job type which does not lease never \
             sees a leased job again, and an application rolled back onto an older line therefore leaves \
             the jobs it leased standing.
-            Until Camunda fixes its gateway, a lease also costs time. Sometimes the cluster activates a \
-            job for a long poll which ended in the same moment. Without a lease the gateway gives that job \
-            back at once. With a lease it cannot, and the job waits one '%s' for nobody. So '%s' is the \
-            safer choice for now. Switching to '%s' later costs nothing, only the way back does.
+            On a cluster of 8.10 older than %s, a lease also costs time. Sometimes the gateway of such a \
+            cluster activates a job for a long poll which ended in the same moment. Without a lease the \
+            gateway gives that job back at once. With a lease it cannot, and the job waits one '%s' for \
+            nobody. So against such a cluster '%s' is the safer choice. From %s on the gateway gives a leased \
+            job back as well. Switching to '%s' later costs nothing, only the way back does.
             Write '%s: %s' to switch it on, or '%s: %s' to keep what every line before this one does."""
             .formatted(
                 adapterId,
                 propertyKey(adapterId, "job-lease"),
                 valueOf(JobLease.USE),
                 valueOf(JobLease.DO_NOT_USE),
+                Camunda8ClusterVersionCheck.FIRST_8_10_WITHOUT_THE_LEASE_STALL,
                 propertyKey(adapterId, "job-timeout"),
                 valueOf(JobLease.DO_NOT_USE),
+                Camunda8ClusterVersionCheck.FIRST_8_10_WITHOUT_THE_LEASE_STALL,
                 valueOf(JobLease.USE),
                 propertyKey(adapterId, "job-lease"),
                 valueOf(JobLease.USE),

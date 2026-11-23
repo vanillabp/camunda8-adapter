@@ -40,7 +40,8 @@ import io.vanillabp.integration.test.utils.PrintsWhenPassing;
  * It runs only when asked for, with {@code -Dcamunda8.measure.long-poll-race=true}, because
  * it takes minutes and asserts nothing. It prints its numbers. The knobs are system
  * properties, see the constants below. What it measured, and what the adapter made of it, is
- * decision 88 in the repository's DECISIONS.md.
+ * decision 88 in the repository's DECISIONS.md. What it measured once Camunda had fixed the
+ * gateway in {@code 8.10.10} is {@code DECISIONS.pending/2194.md}.
  */
 @EnabledIfSystemProperty(named = "camunda8.measure.long-poll-race", matches = "true")
 @PrintsWhenPassing(
