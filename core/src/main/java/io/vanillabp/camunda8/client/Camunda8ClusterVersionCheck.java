@@ -31,7 +31,7 @@ import lombok.extern.slf4j.Slf4j;
  * The same answer says one more thing. An adapter which leases its jobs on a cluster of 8.10
  * older than {@value #FIRST_8_10_WITHOUT_THE_LEASE_STALL} gets a WARN. The gateway of such a
  * cluster can strand a leased job for one job timeout. Why the advice depends on the version of
- * the cluster is {@code DECISIONS.pending/2194.md}.
+ * the cluster is decision 107 in the repository's DECISIONS.md.
  */
 @Slf4j
 public final class Camunda8ClusterVersionCheck {

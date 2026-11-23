@@ -2098,7 +2098,7 @@ Camunda fixed this in `8.10.10`. So the boot message and the wiki advise `do-not
 older 8.10 cluster. When the cluster has answered, the start also writes a WARN if the adapter
 leases and the cluster is older than `8.10.10`. Switching to `use` later costs nothing, because a
 job which was never leased can be leased at any time. Why the advice depends on the version of the
-cluster is `DECISIONS.pending/2194.md`.
+cluster is [decision 107](./DECISIONS.md#107-camunda-fixed-the-gateway-in-81010-so-the-adapter-advises-against-a-lease-only-on-an-older-810-cluster).
 
 ### A job type has to be a name, not an expression
 

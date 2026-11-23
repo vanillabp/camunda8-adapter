@@ -2342,7 +2342,7 @@ public class Camunda8AdapterConfiguration {
    * job which the gateway could not hand out wait one job timeout. The start does not know the
    * cluster yet when it asks, so the message names the version. Once the cluster answered,
    * {@link Camunda8ClusterVersionCheck} warns an adapter which leases on such a cluster. Why the
-   * advice depends on the version of the cluster is {@code DECISIONS.pending/2194.md}.
+   * advice depends on the version of the cluster is decision 107 in the repository's DECISIONS.md.
    *
    * @param adapterId The adapter id
    * @param logger Sink for the line which says the key does nothing here. It is not a

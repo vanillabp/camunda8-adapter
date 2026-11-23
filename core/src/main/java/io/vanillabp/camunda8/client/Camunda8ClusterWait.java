@@ -94,7 +94,7 @@ public final class Camunda8ClusterWait {
       Camunda8ClusterVersionCheck.logThatNothingWasCompared(adapterId);
     } else {
       Camunda8ClusterVersionCheck.logTheVerdict(adapterId, topology.get().getGatewayVersion());
-      // and whether a lease costs time on this cluster (see {@code DECISIONS.pending/2194.md})
+      // and whether a lease costs time on this cluster (see decision 107 in the repository's DECISIONS.md)
       Camunda8ClusterVersionCheck
           .logTheLeaseAdvice(adapterId, topology.get().getGatewayVersion(), configuration.leasesItsJobs());
     }
