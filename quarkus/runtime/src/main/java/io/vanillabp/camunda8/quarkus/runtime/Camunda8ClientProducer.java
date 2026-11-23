@@ -10,6 +10,7 @@ import io.smallrye.config.SmallRyeConfig;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8AuthConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.client.Camunda8MtlsConfiguration;
 import io.vanillabp.camunda8.client.Camunda8StartupValidation;
 import io.vanillabp.camunda8.deployment.Camunda8DeploymentService;
 import io.vanillabp.camunda8.wiring.Camunda8Connectors;
@@ -155,6 +156,7 @@ public class Camunda8ClientProducer {
     keys.maxHttpConnections().ifPresent(configuration::setMaxHttpConnections);
     keys.overrideAuthority().ifPresent(configuration::setOverrideAuthority);
     toAuthConfiguration(keys.auth(), configuration.getAuth());
+    toMtlsConfiguration(keys.mtls(), configuration.getMtls());
     return configuration;
 
   }
@@ -183,6 +185,28 @@ public class Camunda8ClientProducer {
     keys.truststorePath().ifPresent(auth::setTruststorePath);
     keys.truststorePassword().ifPresent(auth::setTruststorePassword);
     keys.caCertificatePath().ifPresent(auth::setCaCertificatePath);
+
+  }
+
+  private static void toMtlsConfiguration(
+      final VanillaBpCamunda8Properties.MtlsKeys keys,
+      final Camunda8MtlsConfiguration mtls) {
+
+    if (keys == null) {
+      return;
+    }
+    keys.certPath().ifPresent(mtls::setCertPath);
+    keys.keyPath().ifPresent(mtls::setKeyPath);
+    keys.cert().ifPresent(mtls::setCert);
+    keys.key().ifPresent(mtls::setKey);
+    keys.keyPassphrase().ifPresent(mtls::setKeyPassphrase);
+    keys.keystorePath().ifPresent(mtls::setKeystorePath);
+    keys.keystorePassword().ifPresent(mtls::setKeystorePassword);
+    keys.keystoreKeyPassword().ifPresent(mtls::setKeystoreKeyPassword);
+    keys.caPath().ifPresent(mtls::setCaPath);
+    keys.ca().ifPresent(mtls::setCa);
+    keys.truststorePath().ifPresent(mtls::setTruststorePath);
+    keys.truststorePassword().ifPresent(mtls::setTruststorePassword);
 
   }
 

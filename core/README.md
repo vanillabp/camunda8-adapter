@@ -25,6 +25,10 @@ configuration, create beans, run the bean lifecycle).
   configured SaaS instance, and closed on `close()`. Building it never contacts the cluster.
   That happens on the first command. `newClientBuilder()` is used for self-managed,
   `newCloudClientBuilder()` for SaaS.
+- `Camunda8MtlsConfiguration` - the block `vanillabp.adapters.<adapter-id>.mtls.*`, mutual TLS
+  with the cluster. It validates the block at startup. `Camunda8Mtls` exists once per release
+  line: on 8.10 it calls the builder methods of client 8.10.10, on 8.8 and 8.9 it refuses the
+  block. See decision 108 in `DECISIONS.md`.
 - `Camunda8ClientFactoryRegistry` - map adapter ID &rarr; factory. It is registered as a
   managed bean, so all clients are closed on shutdown. It is also the only place which sees
   every configured id at once. So it answers which ids address the SAME cluster. Keys are

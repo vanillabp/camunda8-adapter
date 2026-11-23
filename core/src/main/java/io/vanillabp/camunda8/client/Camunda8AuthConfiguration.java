@@ -21,19 +21,17 @@ import java.util.stream.Collectors;
  * <code>none</code> against a cluster which wants credentials is exactly the failure
  * this block exists for.
  * <p>
- * Client certificates for the cluster connection are not among the methods. On no
- * supported release line does the Camunda client have a keystore of its own for gRPC or
- * REST. There is no builder method, no client property and no environment variable for
- * it. The keystore and truststore keys here are the ones the client does have. They
- * belong to the token request against the authorization server. For the cluster
- * connection there is {@link #caCertificatePath} and the adapter's
- * <code>override-authority</code>.
+ * Client certificates for the cluster connection are not among the methods. A client
+ * certificate is a matter of the transport, and a cluster may ask for one together with any
+ * method. So mutual TLS has a block of its own, {@link Camunda8MtlsConfiguration}. The
+ * keystore and truststore keys here belong to the token request against the authorization
+ * server, never to the cluster connection.
  * <p>
  * Messages built here name property KEYS and never values. No secret, and not even the
  * length of one, ever reaches a log line.
  * <p>
- * Why these keys exist only at adapter level, and why there is no mtls among them, is decision 10
- * in the repository's DECISIONS.md.
+ * Why these keys exist only at adapter level is decision 10 in the repository's DECISIONS.md.
+ * Why mutual TLS is a block of its own and not a method is decision 108 there.
  */
 public class Camunda8AuthConfiguration {
 

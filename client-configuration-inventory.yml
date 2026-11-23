@@ -93,6 +93,20 @@ settings:
         key: vanillabp.adapters.<id>.override-authority
       - names: [caCertificatePath]
         key: vanillabp.adapters.<id>.auth.ca-certificate-path
+      - names: [clientCertificate]
+        key: vanillabp.adapters.<id>.mtls.cert-path and mtls.key-path
+      - names: [clientCertificateContent]
+        key: vanillabp.adapters.<id>.mtls.cert and mtls.key
+      - names: [clientKeyPassphrase]
+        key: vanillabp.adapters.<id>.mtls.key-passphrase
+      - names: [clientKeystore]
+        key: vanillabp.adapters.<id>.mtls.keystore-path, keystore-password and keystore-key-password
+      - names: [mtlsCaCertificatePath]
+        key: vanillabp.adapters.<id>.mtls.ca-path
+      - names: [mtlsCaCertificateContent]
+        key: vanillabp.adapters.<id>.mtls.ca
+      - names: [mtlsTruststore]
+        key: vanillabp.adapters.<id>.mtls.truststore-path and truststore-password
       - names: [credentialsProvider]
         key: vanillabp.adapters.<id>.auth.*
     set-by-adapter:
@@ -199,6 +213,30 @@ settings:
         key: vanillabp.adapters.<id>.auth.truststore-password
       - names: [camunda.client.ca-certificate-path]
         key: vanillabp.adapters.<id>.auth.ca-certificate-path
+      - names: [camunda.client.mtls.cert-path]
+        key: vanillabp.adapters.<id>.mtls.cert-path
+      - names: [camunda.client.mtls.key-path]
+        key: vanillabp.adapters.<id>.mtls.key-path
+      - names: [camunda.client.mtls.cert]
+        key: vanillabp.adapters.<id>.mtls.cert
+      - names: [camunda.client.mtls.key]
+        key: vanillabp.adapters.<id>.mtls.key
+      - names: [camunda.client.mtls.key-passphrase]
+        key: vanillabp.adapters.<id>.mtls.key-passphrase
+      - names: [camunda.client.mtls.keystore-path]
+        key: vanillabp.adapters.<id>.mtls.keystore-path
+      - names: [camunda.client.mtls.keystore-password]
+        key: vanillabp.adapters.<id>.mtls.keystore-password
+      - names: [camunda.client.mtls.keystore-key-password]
+        key: vanillabp.adapters.<id>.mtls.keystore-key-password
+      - names: [camunda.client.mtls.ca-path]
+        key: vanillabp.adapters.<id>.mtls.ca-path
+      - names: [camunda.client.mtls.ca]
+        key: vanillabp.adapters.<id>.mtls.ca
+      - names: [camunda.client.mtls.truststore-path]
+        key: vanillabp.adapters.<id>.mtls.truststore-path
+      - names: [camunda.client.mtls.truststore-password]
+        key: vanillabp.adapters.<id>.mtls.truststore-password
       - names: [camunda.client.keep-alive]
         key: vanillabp.adapters.<id>.keep-alive
       - names: [camunda.client.max-http-connections]

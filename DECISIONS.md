@@ -207,6 +207,8 @@ ends the retry at once, so the job stays on its lock instead of being reported.
 
 ### 10. Authentication belongs to the connection, not to a workflow
 
+*Superseded in part by decision 108: the client of 8.10.10 has mutual TLS for its connection to the cluster, and the adapter has a block `mtls` for it. The paragraph about `mtls` and the note below it no longer hold for the 8.10 line. `mtls` is still not a method of `auth`.*
+
 `vanillabp.adapters.<id>.auth.*` exists only at adapter level, because a credential is a property
 of the connection. The method is either named or detected from the keys which are set. At startup
 the detected method is printed next to the address, so nobody has to guess which one applies.
@@ -4709,3 +4711,60 @@ warning either, because the line of decision 90 already says that nothing could 
 note of decision 88. The pin of the 8.10 line is 8.10.10 now, so their cluster no longer has the
 defect. `Camunda8JobLeaseIT` keeps its short lock of thirty seconds. It costs nothing, and it still
 protects the test where somebody runs it against an older cluster with `-Dcamunda8.cluster.image`.
+
+### 108. Mutual TLS is a block of its own, read on the 8.10 line and refused on the older ones
+
+Built by story 2194 on 2026-11-23. It supersedes the paragraph about `mtls` in decision 10.
+
+Decision 10 said that `mtls` is not a key, because no client of a supported line had a keystore
+for its own connection to the cluster. Client 8.10.10 has one. It added seven builder methods:
+a client certificate and its key as PEM files or as PEM content, a passphrase for an encrypted
+key, a Java keystore as the other way to give the certificate, and a CA bundle (file or content)
+or a Java truststore to check the cluster. The Spring Boot starter of 8.10.10 calls the keys
+`camunda.client.mtls.*`. The client reads `CAMUNDA_MTLS_*` variables for the same settings. The
+maintainer's rule for a client upgrade is that new options come with it, so this one does.
+
+**A block of its own, `vanillabp.adapters.<id>.mtls.*`.** Mutual TLS is a question of the
+transport, like `auth.ca-certificate-path` and `override-authority`. A cluster can ask for a client
+certificate together with any method of `auth`, so it is not a fourth method. The keys under
+`auth` that hold a keystore and a truststore belong to the token request, and keys of the cluster
+connection next to them would mix up two connections. The twelve keys use the words of the starter
+(`cert-path`, `key-path`, `cert`, `key`, `key-passphrase`, `keystore-path`, `keystore-password`,
+`keystore-key-password`, `ca-path`, `ca`, `truststore-path`, `truststore-password`). An application
+which moves from the starter finds the same names one level lower. `auth.ca-certificate-path`
+stays where it is. It does the same as `mtls.ca-path`, and the start refuses the two together.
+
+**Validated at the start, in the adapter's words.** The client checks some rules itself. But it
+checks them when it builds its connection, and its messages name its environment variables. So
+the start checks them first and names the keys: a certificate needs its key and the same form for
+both, only one client identity, a passphrase only with a PEM key, a keystore needs its password,
+a password needs its store, only one source for the certificate authorities, PEM content has to
+look like PEM, every file has to be readable, and at least one address has to use TLS. No message
+carries a password, a passphrase or the content of a key.
+
+**On 8.8 and 8.9 any key of the block ends the start.** This differs from `job-lease` (decision
+36), which such a line accepts and ignores so that one configuration serves every line. A lease
+left out changes nothing that cluster could do. A certificate left out makes the cluster refuse
+the connection with a TLS error which names nothing of the configuration. So the message names the
+keys and says that they need the 8.10 line, with client 8.10.10 or later.
+
+**Nothing changes without the block.** The adapter calls none of the new builder methods for an
+empty block, so the client keeps its own default, which is no mutual TLS. A `CAMUNDA_MTLS_*`
+variable still works as the way out it is for every other client option. Where one replaced a file
+the block names, the start says so like for any other variable. Only paths are compared, because
+the other values are secrets.
+
+**What is tested and what is not.** `Camunda8MtlsConfigurationTest` holds the rules on every line,
+`Camunda8MtlsTest` of each line holds the builder calls or the refusal, and on 8.10 it builds a real
+client from a certificate made for the test, from PEM files and from PKCS#12 stores. The boot tests
+of both platforms show that the block binds. No test talks to a cluster with mutual TLS, because
+the repository has no such cluster under test.
+
+Places which rely on this entry:
+
+- `core/src/main/java/io/vanillabp/camunda8/client/Camunda8MtlsConfiguration.java`
+- `core/src/main/java/io/vanillabp/camunda8/client/Camunda8AuthConfiguration.java`, class javadoc
+- `core/src/main/java-line-*/io/vanillabp/camunda8/client/Camunda8Mtls.java`
+- `README.md`, the section "Mutual TLS"
+- the wiki page `Configuration`, section "Mutual TLS"
+

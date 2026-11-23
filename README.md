@@ -755,6 +755,7 @@ workflow-module level, a section of nothing but `{}`, and the client built from 
 | `vanillabp.adapters.<adapter-id>.client-secret`         | saas         | yes                                                                            | OAuth client secret                                                           |
 | `vanillabp.adapters.<adapter-id>.tenant-id`             | both         | no                                                                             | Camunda 8 multi-tenancy tenant, also settable per workflow module             |
 | `vanillabp.adapters.<adapter-id>.auth.*`                | both         | no (default: no credentials)                                                   | how the adapter authenticates, see [below](#authenticating-against-a-cluster) |
+| `vanillabp.adapters.<adapter-id>.mtls.*`                | both         | no (default: no client certificate), 8.10 line only                            | mutual TLS with the cluster, see [below](#mutual-tls)                         |
 
 Example (self-managed):
 
@@ -917,13 +918,10 @@ promise the connection cannot keep.
 **Three methods, because the client has three.** `none`, `basic` and `oidc` are what
 `CredentialsProvider` can build. The adapter uses both builders as they are and does not
 reimplement them, so the OIDC token is cached in a file and refreshed by the code Camunda
-maintains. A fourth value, `mtls`, was considered and dropped. The Camunda Java client offers no
-keystore for its own gRPC or REST connection on any of the three release lines: not through
-`CamundaClientBuilder`, not through `ClientProperties`, not through an environment variable. Its
-keystore and truststore belong to the token request against the identity provider, and the
-`auth` block says so. A property which quietly configures the token request, while the user
-believes it configures the cluster connection, is worse than no property. So this is a
-documented deviation instead.
+maintains. A fourth value, `mtls`, was considered and dropped. A client certificate is a matter of
+the transport, and a cluster can ask for one together with any method. So mutual TLS has a block of
+its own, see [Mutual TLS](#mutual-tls). The keystore and truststore keys of the `auth` block belong
+to the token request against the identity provider, never to the cluster connection.
 
 **An absent `method` is detected and the detection is logged.** A user name detects `basic`, a
 client id detects `oidc`, a SaaS adapter is `oidc` through its connection keys, and nothing at
@@ -976,6 +974,70 @@ What the paragraphs above promise is pinned below the round trip as well:
 `Camunda8AuthenticationTest` for the provider the client ends up with and for the one runtime
 message, `Camunda8ClientFactoryTest#startupLineNamesTheAuthentication` for the startup line,
 and `Camunda8InstanceIdentityTest` for the identity of the paragraph above.
+
+### Mutual TLS
+
+With mutual TLS (mTLS) the cluster checks a certificate of the client, as well as the client
+checking the certificate of the cluster. The Camunda client has it from 8.10.10 on, so only the
+8.10 line of this adapter reads the block `vanillabp.adapters.<adapter-id>.mtls.*`. The keys use the
+words of Camunda's Spring Boot starter, below `camunda.client.mtls`. Why the block exists, and why
+it is not a method of `auth`, is decision 108 in [`DECISIONS.md`](./DECISIONS.md).
+
+|           Key           |                                     Meaning                                      | Builder method of the client |
+|-------------------------|----------------------------------------------------------------------------------|------------------------------|
+| `cert-path`, `key-path` | the client certificate chain and its private key, as PEM files                   | `clientCertificate`          |
+| `cert`, `key`           | the same as PEM content                                                          | `clientCertificateContent`   |
+| `key-passphrase`        | the passphrase of an encrypted private key, from a file or from content          | `clientKeyPassphrase`        |
+| `keystore-path`         | a Java keystore with the client certificate and its key, instead of PEM          | `clientKeystore`             |
+| `keystore-password`     | the password of that keystore, required with `keystore-path`                     | `clientKeystore`             |
+| `keystore-key-password` | the password of the key inside it, where it differs from the keystore's password | `clientKeystore`             |
+| `ca-path`               | a PEM file with the certificate authorities which check the cluster              | `mtlsCaCertificatePath`      |
+| `ca`                    | the same as PEM content                                                          | `mtlsCaCertificateContent`   |
+| `truststore-path`       | a Java truststore with those certificate authorities                             | `mtlsTruststore`             |
+| `truststore-password`   | the password of that truststore, where it has one                                | `mtlsTruststore`             |
+
+The client reads a keystore or a truststore whose file ends in `.p12` or `.pfx` as PKCS#12, and
+every other file as JKS. A CA bundle or a truststore replaces the truststore of the JVM for the
+cluster connection, so it has to hold every certificate authority the cluster needs.
+
+```yaml
+vanillabp:
+  adapters:
+    myengine:
+      type: camunda8
+      rest-address: https://camunda.example.com
+      grpc-address: https://camunda.example.com:26500
+      mtls:
+        cert-path: /run/secrets/client.pem
+        key-path: /run/secrets/client.key
+        ca-path: /run/secrets/ca.pem
+```
+
+**The start checks the block before the client sees it.** `Camunda8MtlsConfiguration` refuses a
+certificate without its key, a certificate given as a file and its key given as content, two client
+identities, a passphrase without a PEM key, a keystore without its password, a password without its
+store, two sources for the certificate authorities (`auth.ca-certificate-path` counts as one), PEM
+content without a `-----BEGIN` line, a file which cannot be read, and a block whose adapter talks to
+the cluster over `http` or `grpc` only. Each message names the keys. None names a password, a
+passphrase or the content of a key. The client checks part of this itself, but only while it builds
+its connection, and its messages name its `CAMUNDA_MTLS_*` variables.
+
+**On 8.8 and 8.9 any key of the block ends the start.** Their client has no mutual TLS. Ignoring the
+keys would connect without the certificate, and the cluster would refuse the connection with a TLS
+error which names nothing of the configuration. That is why this differs from `job-lease`, which the
+older lines accept and ignore. Each line's `Camunda8Mtls` in `core/src/main/java-line-<line>` either
+calls the builder or refuses the block.
+
+**Environment variables still win.** The client applies `CAMUNDA_MTLS_*` over what the adapter set,
+like every other variable. `Camunda8EnvironmentOverrides` names a variable which replaced one of the
+files of the block. It compares paths only, because everything else in the block is a secret.
+
+`Camunda8MtlsConfigurationTest` holds the rules. `Camunda8MtlsTest` of each line holds the builder
+calls or the refusal. On 8.10 it also builds a real client from PEM files and from PKCS#12 stores
+made for the test. Building a client reads the certificates but does not contact the cluster. The
+Spring Boot `Camunda8StartupValidationBootTest` and the Quarkus `Camunda8MtlsEndsTheStartTest` show
+that the block binds on both platforms. No test talks to a cluster with mutual TLS, because this
+repository has no such cluster under test.
 
 ### Behavior
 
@@ -3825,17 +3887,14 @@ as well. Nothing announced.
 
 ### Client certificates for the cluster connection
 
-The Camunda Java client cannot send one. On 8.8.35, 8.9.16 and 8.10.0-alpha4 alike,
-`CamundaClientBuilder` has `caCertificatePath` and `overrideAuthority` and nothing else about
-TLS material, `ClientProperties` lists no keystore, and the environment variables the client
-reads carry none either. The keystore and truststore of `CredentialsProvider`'s OAuth builder
-apply to the token request against the identity provider, not to gRPC or REST against the
-gateway, and the `auth` block documents them that way. So a cluster which demands a client
-certificate is out of reach until the client grows the option. The adapter says so instead of
-offering a property which would silently do something else. This is an assumption read off those
-three client versions and nothing else; a `CamundaClientBuilder` which grows a keystore would
-disprove it. `Camunda8ClientFactoryTest#caCertificateReachesTheClient` covers the one piece of
-TLS material the client does take.
+The Camunda Java client can send one from 8.10.10 on, and the 8.10 line of the adapter passes it
+on, see [Mutual TLS](#mutual-tls). The clients of 8.8 and 8.9 cannot. Their `CamundaClientBuilder`
+has `caCertificatePath` and `overrideAuthority` and nothing else about TLS material. The keystore
+and truststore of `CredentialsProvider`'s OAuth builder apply to the token request against the
+identity provider, not to gRPC or REST against the gateway. So on those two lines a cluster which
+demands a client certificate is out of reach, and a key of the `mtls` block ends the start instead
+of doing nothing. This was read off the pinned clients 8.8.46 and 8.9.28. A builder of those lines
+which grows a keystore would disprove it.
 
 ### Message deduplication lasts for the message TTL
 

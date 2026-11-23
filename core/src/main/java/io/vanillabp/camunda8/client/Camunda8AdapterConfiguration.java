@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
 import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
 
@@ -37,6 +38,9 @@ import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
  *       client uses the REST API (recommended) or gRPC for its commands</li>
  *   <li>{@code .auth.*} - how the adapter authenticates, see
  *       {@link Camunda8AuthConfiguration}</li>
+ *   <li>{@code .mtls.*} - the client certificate for mutual TLS and the certificate
+ *       authorities which check the cluster, on the 8.10 line only, see
+ *       {@link Camunda8MtlsConfiguration}</li>
  *   <li>{@code .async-task-lock-renewal} (optional, default one hour) - the window in
  *       which the lock of a job is renewed which a {@code @TaskId} handler left open, see
  *       {@link #asyncTaskLockRenewal}</li>
@@ -467,6 +471,36 @@ public class Camunda8AdapterConfiguration {
       final Camunda8AuthConfiguration auth) {
 
     this.auth = auth;
+
+  }
+
+  /**
+   * Mutual TLS for the connection to the cluster. This is the block
+   * <code>vanillabp.adapters.&lt;id&gt;.mtls.*</code>. It is never <code>null</code>. An
+   * adapter without the block connects the way it always did.
+   */
+  private Camunda8MtlsConfiguration mtls = new Camunda8MtlsConfiguration();
+
+  /**
+   * Mutual TLS for the connection to the cluster.
+   *
+   * @return The mtls block, never <code>null</code>
+   */
+  public Camunda8MtlsConfiguration getMtls() {
+
+    return mtls;
+
+  }
+
+  /**
+   * Mutual TLS for the connection to the cluster.
+   *
+   * @param mtls The mtls block, never <code>null</code>
+   */
+  public void setMtls(
+      final Camunda8MtlsConfiguration mtls) {
+
+    this.mtls = mtls;
 
   }
 
@@ -2529,6 +2563,39 @@ public class Camunda8AdapterConfiguration {
       final String adapterId) {
 
     auth.validate(adapterId, mode);
+
+  }
+
+  /**
+   * Validates the mutual TLS of this adapter instance. It runs AT STARTUP, for every
+   * configured adapter id, whether the connection configuration is complete or not. A
+   * certificate which cannot be used is not a migration scenario.
+   * <p>
+   * On a release line whose client has no mutual TLS, any key of the block ends the start.
+   * This differs from <code>job-lease</code>, which such a line accepts and ignores. A lease
+   * left out changes nothing a cluster of that line could do. A certificate left out makes
+   * the cluster refuse the connection, with a TLS error which names nothing of this
+   * configuration.
+   *
+   * @param adapterId The adapter id
+   * @throws IllegalStateException If the block cannot be used, naming the keys and the way
+   *           out
+   */
+  public void validateMtls(
+      final String adapterId) {
+
+    if (!mtls.isConfigured()) {
+      return;
+    }
+    if (!Camunda8Mtls.supportedByThisLine()) {
+      throw mtls.notOnThisLine(adapterId, Camunda8ReleaseLine.id());
+    }
+    mtls.validate(
+        adapterId,
+        auth.getCaCertificatePath(),
+        mode == Mode.SAAS
+            ? null
+            : List.of(restAddressInUse(), grpcAddressInUse()));
 
   }
 
