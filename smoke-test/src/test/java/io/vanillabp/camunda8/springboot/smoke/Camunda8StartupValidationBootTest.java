@@ -30,7 +30,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  *       the log (messages name keys, not values);</li>
  *   <li>an <code>auth</code> block binds through the Spring overlay and
  *       reaches the client, an incomplete one fails the boot with the YAML which
- *       completes it, and no password reaches a log line.</li>
+ *       completes it, and no password reaches a log line;</li>
+ *   <li>an <code>mtls</code> block binds through the Spring overlay, and a certificate
+ *       which cannot be used ends the start.</li>
  * </ul>
  */
 @ExtendWith(SuppressOutputExtension.class)
@@ -224,6 +226,29 @@ public class Camunda8StartupValidationBootTest {
     Assertions.assertTrue(failure.contains("authenticates with 'basic'"), failure);
     Assertions.assertTrue(failure.contains("vanillabp.adapters.c8.auth.password"), failure);
     Assertions.assertTrue(failure.contains("method: basic"), failure);
+
+  }
+
+  @Test
+  public void mtlsBlockBindsAndACertificateWhichCannotBeUsedEndsTheStart() {
+
+    final var passphrase = "super-secret-passphrase-4711";
+    final var exception = Assertions.assertThrows(
+        Exception.class,
+        () -> run(
+            "vanillabp.adapters.c8.rest-address=https://localhost:8443",
+            "vanillabp.adapters.c8.grpc-address=https://localhost:26500",
+            "vanillabp.adapters.c8.mtls.cert-path=/not/mounted/client.pem",
+            "vanillabp.adapters.c8.mtls.key-path=/not/mounted/client.key",
+            "vanillabp.adapters.c8.mtls.key-passphrase="
+                + passphrase)
+            .close());
+
+    // on the 8.10 line the file is not there, on an older line the block is refused as a
+    // whole. Either way the message names a key of the block, so the block was bound
+    final var failure = rootMessage(exception);
+    Assertions.assertTrue(failure.contains("vanillabp.adapters.c8.mtls.cert-path"), failure);
+    Assertions.assertFalse(failure.contains(passphrase), "a passphrase never reaches a message");
 
   }
 

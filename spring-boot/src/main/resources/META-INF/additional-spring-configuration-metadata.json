@@ -133,6 +133,66 @@
       "description": "The certificate authority which checks the TLS certificate of the cluster. Use it for a gateway whose certificate the JVM does not know. It works with every method."
     },
     {
+      "name": "vanillabp.adapters.camunda8.mtls.cert-path",
+      "type": "java.lang.String",
+      "description": "The PEM file with the certificate chain the client shows the cluster for mutual TLS. Goes with 'mtls.key-path'. Use either the two paths, or 'mtls.cert' with 'mtls.key', or 'mtls.keystore-path'. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.key-path",
+      "type": "java.lang.String",
+      "description": "The PEM file with the private key of that certificate: PKCS#8 (encrypted or not), PKCS#1 or EC. Goes with 'mtls.cert-path'. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.cert",
+      "type": "java.lang.String",
+      "description": "The certificate chain the client shows the cluster for mutual TLS, as PEM content. Goes with 'mtls.key'. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.key",
+      "type": "java.lang.String",
+      "description": "The private key of that certificate, as PEM content. Goes with 'mtls.cert'. It is never logged. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.key-passphrase",
+      "type": "java.lang.String",
+      "description": "The passphrase of an encrypted private key in 'mtls.key-path' or 'mtls.key'. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.keystore-path",
+      "type": "java.lang.String",
+      "description": "A Java keystore with the client certificate and its key for mutual TLS, instead of PEM files. A file ending in .p12 or .pfx is read as PKCS#12, every other file as JKS. Needs 'mtls.keystore-password'. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.keystore-password",
+      "type": "java.lang.String",
+      "description": "The password of the keystore in 'mtls.keystore-path'. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.keystore-key-password",
+      "type": "java.lang.String",
+      "description": "The password of the private key in that keystore. Default: the password of the keystore. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.ca-path",
+      "type": "java.lang.String",
+      "description": "A PEM file with the certificate authorities which check the certificate of the cluster. It replaces the truststore of the JVM for the cluster connection. Use only one of 'mtls.ca-path', 'mtls.ca', 'mtls.truststore-path' and 'auth.ca-certificate-path'. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.ca",
+      "type": "java.lang.String",
+      "description": "The certificate authorities which check the certificate of the cluster, as PEM content. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.truststore-path",
+      "type": "java.lang.String",
+      "description": "A Java truststore with the certificate authorities which check the certificate of the cluster. A file ending in .p12 or .pfx is read as PKCS#12, every other file as JKS. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
+      "name": "vanillabp.adapters.camunda8.mtls.truststore-password",
+      "type": "java.lang.String",
+      "description": "The password of the truststore in 'mtls.truststore-path', where it has one. 8.10 line only, client 8.10.10 or later; on 8.8 and 8.9 the key ends the start."
+    },
+    {
       "name": "vanillabp.adapters.camunda8.job-timeout",
       "type": "java.time.Duration",
       "description": "How long a job stays locked for the worker which took it. It is also read per workflow module, per workflow and per task, and the most specific value wins: 'vanillabp.workflow-modules.<module>.workflows.<workflow>.tasks.<task-definition>.adapters.<id>.job-timeout'. Default: 5 minutes."

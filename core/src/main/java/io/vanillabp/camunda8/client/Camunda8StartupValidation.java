@@ -79,6 +79,9 @@ public final class Camunda8StartupValidation {
     // incomplete cannot be built at all. So it fails the boot and names the method and
     // the keys
     configuration.validateAuthentication(adapterId);
+    // and for the certificates of the connection. A file which is not there, or a key which
+    // this release line cannot apply, would connect without the certificate it names
+    configuration.validateMtls(adapterId);
     // the same holds for how an open asynchronous task is kept alive. A window which
     // cannot work outlives the record which answers its redelivery, and nothing says so
     // at runtime

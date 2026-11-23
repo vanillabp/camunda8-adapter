@@ -18,8 +18,8 @@ import io.camunda.client.CamundaClientConfiguration;
  * This adapter keeps that on purpose. Today it is the only way to reach a client option
  * which VanillaBP does not model. What was missing is the trace. Nothing is logged about
  * it, not even at TRACE. So the addresses, the transport preference, the CA certificate,
- * the TLS authority, the default tenant and the streaming default could all be replaced
- * without a word in VanillaBP's own log.
+ * the TLS authority, the files of mutual TLS, the default tenant and the streaming default
+ * could all be replaced without a word in VanillaBP's own log.
  * <p>
  * This class fills that gap. After the client was built, what the adapter asked for is
  * compared with what the client reports. Every value an environment variable changed is
@@ -105,6 +105,9 @@ public final class Camunda8EnvironmentOverrides {
         overrides, environment, "CAMUNDA_CA_CERTIFICATE_PATH", "ZEEBE_CA_CERTIFICATE_PATH",
         Camunda8AdapterConfiguration.propertyKey(adapterId, "auth.ca-certificate-path"),
         configuration.getAuth().getCaCertificatePath(), clientConfiguration.getCaCertificatePath());
+    // the files of mutual TLS, on the line whose client reads CAMUNDA_MTLS_* at all
+    overrides.addAll(Camunda8Mtls.environmentOverrides(
+        adapterId, configuration.getMtls(), clientConfiguration, environment));
 
     return overrides;
 
@@ -184,7 +187,20 @@ public final class Camunda8EnvironmentOverrides {
 
   }
 
-  private static void compare(
+  /**
+   * Adds one override where the variable is set and the client reports another value than
+   * the configured one.
+   *
+   * @param overrides Where a found override goes
+   * @param environment Reads an environment variable
+   * @param variable The variable the client reads
+   * @param legacyVariable Its older <code>ZEEBE_*</code> name, or <code>null</code> where it
+   *          has none
+   * @param propertyKey The VanillaBP property the value would otherwise come from
+   * @param configured What the adapter configured
+   * @param effective What the built client reports
+   */
+  static void compare(
       final List<Override> overrides,
       final Function<String, String> environment,
       final String variable,
@@ -195,7 +211,7 @@ public final class Camunda8EnvironmentOverrides {
 
     final var name = isSet(environment, variable)
         ? variable
-        : isSet(environment, legacyVariable) ? legacyVariable : null;
+        : ((legacyVariable != null) && isSet(environment, legacyVariable)) ? legacyVariable : null;
     if (name == null) {
       return;
     }

@@ -171,6 +171,9 @@ public class Camunda8ClientFactory implements AutoCloseable {
     // and how it proves who it is. This is checked here for the same reason. Credentials
     // which cannot be built fail the boot, and not as a surprise on the first command
     configuration.validateAuthentication(adapterId);
+    // and the certificates of the connection, for the same reason. A file which is not there
+    // would otherwise fail inside the client, with a message about its own variables
+    configuration.validateMtls(adapterId);
     // eager, so configuration defects show up at startup and not first at runtime. A
     // degraded adapter builds no client and fails on first use instead (backstop)
     if (configuration.missingConnectionProperties().isEmpty()) {
@@ -496,6 +499,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
     if (hasText(configuration.getAuth().getCaCertificatePath())) {
       builder.caCertificatePath(configuration.getAuth().getCaCertificatePath());
     }
+    // which builder methods exist differs per release line, see Camunda8Mtls
+    Camunda8Mtls.apply(adapterId, builder, configuration.getMtls());
 
   }
 

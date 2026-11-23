@@ -868,6 +868,13 @@ public interface VanillaBpCamunda8Properties {
      */
     AuthKeys auth();
 
+    /**
+     * Mutual TLS for the connection to the cluster. Only the 8.10 line applies it.
+     *
+     * @return The mtls block
+     */
+    MtlsKeys mtls();
+
   }
 
   /**
@@ -1001,6 +1008,99 @@ public interface VanillaBpCamunda8Properties {
 
   }
 
+
+  /**
+   * The <code>vanillabp.adapters.&lt;id&gt;.mtls.*</code> keys. See
+   * {@link io.vanillabp.camunda8.client.Camunda8MtlsConfiguration} for what they mean and
+   * which of them go together.
+   */
+  interface MtlsKeys {
+
+    /**
+     * The PEM file with the certificate chain of the client.
+     *
+     * @return The certificate file
+     */
+    Optional<String> certPath();
+
+    /**
+     * The PEM file with the private key of the client.
+     *
+     * @return The key file
+     */
+    Optional<String> keyPath();
+
+    /**
+     * The certificate chain of the client as PEM content.
+     *
+     * @return The certificate
+     */
+    Optional<String> cert();
+
+    /**
+     * The private key of the client as PEM content.
+     *
+     * @return The key
+     */
+    Optional<String> key();
+
+    /**
+     * The passphrase of an encrypted private key.
+     *
+     * @return The passphrase
+     */
+    Optional<String> keyPassphrase();
+
+    /**
+     * The Java keystore which holds the identity of the client.
+     *
+     * @return The keystore file
+     */
+    Optional<String> keystorePath();
+
+    /**
+     * The password of that keystore.
+     *
+     * @return The keystore password
+     */
+    Optional<String> keystorePassword();
+
+    /**
+     * The password of the key inside that keystore. Default: the password of the keystore.
+     *
+     * @return The key password
+     */
+    Optional<String> keystoreKeyPassword();
+
+    /**
+     * The PEM file with the certificate authorities which check the CLUSTER.
+     *
+     * @return The certificate file
+     */
+    Optional<String> caPath();
+
+    /**
+     * The certificate authorities which check the CLUSTER, as PEM content.
+     *
+     * @return The certificates
+     */
+    Optional<String> ca();
+
+    /**
+     * The Java truststore with the certificate authorities which check the CLUSTER.
+     *
+     * @return The truststore file
+     */
+    Optional<String> truststorePath();
+
+    /**
+     * The password of that truststore.
+     *
+     * @return The truststore password
+     */
+    Optional<String> truststorePassword();
+
+  }
 
   /**
    * The scope-specific Camunda 8 keys of one <code>adapters.&lt;id&gt;</code>

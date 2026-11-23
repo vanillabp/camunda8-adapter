@@ -77,7 +77,9 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * So the lock of the second activation is {@link #SECOND_ACTIVATION_LOCK}. That is long enough
  * for what the test does with the job. It is short enough that a lost activation costs one
  * lock and not the test. This is the cluster's defect, not the adapter's. The adapter meets it
- * as well, and its own job timeout is the cost. The README of this repository says so.
+ * as well, and its own job timeout is the cost. The README of this repository says so. Camunda
+ * fixed it in {@code 8.10.10}. The short lock stays, so the test still holds where somebody runs
+ * it against an older 8.10 cluster.
  */
 @ExtendWith(SuppressOutputExtension.class)
 @SuppressOutputExtension.SuppressBackgroundOutput

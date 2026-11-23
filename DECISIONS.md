@@ -207,6 +207,8 @@ ends the retry at once, so the job stays on its lock instead of being reported.
 
 ### 10. Authentication belongs to the connection, not to a workflow
 
+*Superseded in part by decision 108: the client of 8.10.10 has mutual TLS for its connection to the cluster, and the adapter has a block `mtls` for it. The paragraph about `mtls` and the note below it no longer hold for the 8.10 line. `mtls` is still not a method of `auth`.*
+
 `vanillabp.adapters.<id>.auth.*` exists only at adapter level, because a credential is a property
 of the connection. The method is either named or detected from the keys which are set. At startup
 the detected method is printed next to the address, so nobody has to guess which one applies.
@@ -3800,6 +3802,9 @@ VanillaBP's own. There is no next attempt to delay.
 
 ### 88. Until Camunda fixes its gateway, the adapter advises against a lease, and its own tests keep one
 
+**Superseded by decision 107**, since Camunda fixed the gateway in 8.10.10. The entry
+below stays as it was written.
+
 Built by story 2002 on 2026-10-28.
 
 The gateway of Camunda 8.10 parks an activation request which found no job. Its own timer answers
@@ -4660,4 +4665,157 @@ application brings.
 - The tests `Camunda8ConnectorsTest` and `Camunda8ListenersTest` (core),
   `Camunda8SwitchAtTaskLevelEndsTheStartTest` (spring-boot and quarkus/deployment),
   `Camunda8AllowConnectorsBootTest` and `Camunda8AllowListenersBootTest` (smoke-test).
+
+### 107. Camunda fixed the gateway in 8.10.10, so the adapter advises against a lease only on an older 8.10 cluster
+
+Built by story 2194 on 2026-11-23. It supersedes decision 88.
+
+Decision 88 advised `do-not-use` for every cluster of the 8.10 line. The gateway of such a cluster
+could activate a leased job for a long poll which had just ended. It then gave the job back with a
+FAIL command which carried no lease token, the broker refused that command, and the job stayed
+locked for nobody until its lock ran out. Camunda had the defect as SUPPORT-35241
+(camunda/camunda#67647) and reported it fixed in 8.10.10.
+
+**What was measured.** `Camunda8LongPollRaceIT` with a lease, nine rounds of its boundary mode
+(369 tries each), on 2026-11-23 with client 8.10.10:
+
+|          Cluster          | Runs |      Stuck jobs      | Gateway log: lost sends / refused FAIL |
+|---------------------------|------|----------------------|----------------------------------------|
+| `camunda/camunda:8.10.9`  | 1    | 21 of 369            | 21 / 21                                |
+| `camunda/camunda:8.10.10` | 3    | 0 of 369 in each run | 14 / 0, 14 / 0, 15 / 0                 |
+
+On 8.10.10 the gateway still loses a send now and then, as on every line. But it now gives the
+leased job back, and the next activation gets it. The ratchet of decision 36 still holds on
+8.10.10: after its lock ran out, a leased job went to the next activation with a lease and not to
+one without. `Camunda8JobLeaseIT` passed against both versions (once against 8.10.9, three times against 8.10.10). The worker mode of the race IT had no late retry in any of the four runs. On 8.10.5 it had found 19 of 300, so its client or the timing of this machine no longer meets the window, and the boundary mode is the measurement which decides.
+
+**What the adapter says now.** The key stays required on the 8.10 line, and there is still no
+default (decision 36). The adapter advises, it does not decide, for the reasons decision 88 gave.
+What changed is that the advice depends on the cluster:
+
+- The message which ends a start without `job-lease` cannot know the cluster yet. It is written
+  before the start asks the cluster anything. So it names the version: on a cluster of 8.10 older
+  than 8.10.10, `do-not-use` is the safer choice.
+- Once the cluster has answered, the start knows its version (decision 90). An adapter which
+  leases on a cluster of 8.10 older than 8.10.10 then gets a WARN. The WARN advises upgrading the
+  cluster. It says that `do-not-use` only helps an application which has not leased a job yet,
+  because a leased job never reaches a worker which does not lease.
+- 8.8 and 8.9 are unchanged. Their client has no lease, and the key is read and ignored there.
+
+The check reads major, minor and patch. A pre-release of 8.10.0 counts as 8.10.0, so it is warned
+about too. A cluster of 8.11 or later gets no warning. A version which cannot be read gets no
+warning either, because the line of decision 90 already says that nothing could be compared.
+
+**The tests of this repository all use `use` again.** `Camunda8PollWhenASlotIsFreeIT` and
+`Camunda8KeepsAskingWhileAHandlerRunsIT` ran without a lease only because of the stall, see the
+note of decision 88. The pin of the 8.10 line is 8.10.10 now, so their cluster no longer has the
+defect. `Camunda8JobLeaseIT` keeps its short lock of thirty seconds. It costs nothing, and it still
+protects the test where somebody runs it against an older cluster with `-Dcamunda8.cluster.image`.
+
+### 108. Mutual TLS is a block of its own, read on the 8.10 line and refused on the older ones
+
+Built by story 2194 on 2026-11-23. It supersedes the paragraph about `mtls` in decision 10.
+
+Decision 10 said that `mtls` is not a key, because no client of a supported line had a keystore
+for its own connection to the cluster. Client 8.10.10 has one. It added seven builder methods:
+a client certificate and its key as PEM files or as PEM content, a passphrase for an encrypted
+key, a Java keystore as the other way to give the certificate, and a CA bundle (file or content)
+or a Java truststore to check the cluster. The Spring Boot starter of 8.10.10 calls the keys
+`camunda.client.mtls.*`. The client reads `CAMUNDA_MTLS_*` variables for the same settings. The
+maintainer's rule for a client upgrade is that new options come with it, so this one does.
+
+**A block of its own, `vanillabp.adapters.<id>.mtls.*`.** Mutual TLS is a question of the
+transport, like `auth.ca-certificate-path` and `override-authority`. A cluster can ask for a client
+certificate together with any method of `auth`, so it is not a fourth method. The keys under
+`auth` that hold a keystore and a truststore belong to the token request, and keys of the cluster
+connection next to them would mix up two connections. The twelve keys use the words of the starter
+(`cert-path`, `key-path`, `cert`, `key`, `key-passphrase`, `keystore-path`, `keystore-password`,
+`keystore-key-password`, `ca-path`, `ca`, `truststore-path`, `truststore-password`). An application
+which moves from the starter finds the same names one level lower. `auth.ca-certificate-path`
+stays where it is. It does the same as `mtls.ca-path`, and the start refuses the two together.
+
+**Validated at the start, in the adapter's words.** The client checks some rules itself. But it
+checks them when it builds its connection, and its messages name its environment variables. So
+the start checks them first and names the keys: a certificate needs its key and the same form for
+both, only one client identity, a passphrase only with a PEM key, a keystore needs its password,
+a password needs its store, only one source for the certificate authorities, PEM content has to
+look like PEM, every file has to be readable, and at least one address has to use TLS. No message
+carries a password, a passphrase or the content of a key.
+
+**On 8.8 and 8.9 any key of the block ends the start.** This differs from `job-lease` (decision
+36), which such a line accepts and ignores so that one configuration serves every line. A lease
+left out changes nothing that cluster could do. A certificate left out makes the cluster refuse
+the connection with a TLS error which names nothing of the configuration. So the message names the
+keys and says that they need the 8.10 line, with client 8.10.10 or later.
+
+**Nothing changes without the block.** The adapter calls none of the new builder methods for an
+empty block, so the client keeps its own default, which is no mutual TLS. A `CAMUNDA_MTLS_*`
+variable still works as the way out it is for every other client option. Where one replaced a file
+the block names, the start says so like for any other variable. Only paths are compared, because
+the other values are secrets.
+
+**What is tested and what is not.** `Camunda8MtlsConfigurationTest` holds the rules on every line,
+`Camunda8MtlsTest` of each line holds the builder calls or the refusal, and on 8.10 it builds a real
+client from a certificate made for the test, from PEM files and from PKCS#12 stores. The boot tests
+of both platforms show that the block binds. No test talks to a cluster with mutual TLS, because
+the repository has no such cluster under test.
+
+Places which rely on this entry:
+
+- `core/src/main/java/io/vanillabp/camunda8/client/Camunda8MtlsConfiguration.java`
+- `core/src/main/java/io/vanillabp/camunda8/client/Camunda8AuthConfiguration.java`, class javadoc
+- `core/src/main/java-line-*/io/vanillabp/camunda8/client/Camunda8Mtls.java`
+- `README.md`, the section "Mutual TLS"
+- the wiki page `Configuration`, section "Mutual TLS"
+
+### 109. Addition to decision 100: 8.10.10 takes every completion of a user task as well
+
+An addition, added on 2026-11-23, to the paragraph "What a busy cluster refuses" of decision 100
+and to its table. Both stay true for the versions they name. What changed is the 8.10 line.
+
+**What the source says.** Camunda put the completion of a user task on the list of commands the
+broker always takes (`WhiteListedCommands` of `zeebe-logstreams`). The same change also put the
+assignment and the claim of a user task on it. Between the tags `8.10.9` and `8.10.10` the list
+gained these three entries, and nothing else changed:
+
+```diff
++          UserTaskIntent.COMPLETE,
++          UserTaskIntent.ASSIGN,
++          UserTaskIntent.CLAIM,
+```
+
+The change is camunda/camunda#66776 on `main`, for the issue camunda/camunda#66772 ("User task
+commands are not exempt from backpressure, unlike the equivalent job commands"). Its backports
+are camunda/camunda#68331 (`stable/8.8`), camunda/camunda#68333 (`stable/8.9`) and
+camunda/camunda#68335 (`stable/8.10`). The first tags which carry it are 8.8.46, 8.9.28 and
+8.10.10. So the measurement of decision 100 on 8.8.46 and 8.9.28 already met the new list, and
+an older patch of 8.8 or 8.9 refuses the completion of a user task like 8.10.0 to 8.10.9 does.
+The update of a user task, which the pre-commit check sends, is still not on the list.
+
+**What was measured.** `Camunda8WhatABusyClusterRefusesIT` on 2026-11-23 against
+`camunda/camunda:8.10.9` and `camunda/camunda:8.10.10`, with the request limit of one of decision
+100. The numbers are accepted / refused, as in decision 100. Every other burst gave what decision
+100 says on both versions.
+
+|       Command        | Transport |  8.10.9  | 8.10.10 |
+|----------------------|-----------|----------|---------|
+| user task completion | REST      | 56 / 244 | 300 / 0 |
+
+**What follows from it.** The completion of a user task is refused by a busy cluster on 8.8.0 to
+8.8.45, 8.9.0 to 8.9.27 and 8.10.0 to 8.10.9, and taken always from 8.8.46, 8.9.28 and 8.10.10 on.
+A line after 8.10 has it from its first release. The behaviour of the adapter does not change. It
+does not depend on the list for this command. Phase two sends the completion, and a refusal with
+`RESOURCE_EXHAUSTED` goes back to the outbox, which plans it again without counting an attempt
+(`Camunda8Errors.refusedByBackpressure`). The adapter needs that on every older patch, which the
+lines still support. The retry of `Camunda8CommandRetry.send`, which the last paragraph of
+decision 100 names together with this command, does not carry it. Only the 409 of a user task
+which is still being created is repeated at once, and that is not about a busy cluster.
+
+Places which state this:
+
+- `spring-boot/src/test/java/io/vanillabp/camunda8/springboot/it/Camunda8WhatABusyClusterRefusesIT.java`,
+  class javadoc and `takesEveryUserTaskCompletion`
+- `core/src/main/java/io/vanillabp/camunda8/client/Camunda8CommandRetry.java`, class javadoc
+- `README.md`, the paragraph "The command which reports the outcome is repeated"
+- the wiki page `Configuration`, section "When the cluster says it is busy"
 

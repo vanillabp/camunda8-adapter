@@ -31,8 +31,9 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * Which of the four commands the flow control refuses differs. The broker keeps a list of
  * commands it always takes, and the completion and the failure of a job are on it on every
- * line. The BPMN error and the lock renewal are not, and the completion of a user task is
- * not on 8.10. {@code Camunda8WhatABusyClusterRefusesIT} holds this per line. So for the BPMN
+ * line. The BPMN error and the lock renewal are not. The completion of a user task, which
+ * phase two sends and the outbox repeats, is on it from 8.8.46, 8.9.28 and 8.10.10 and not
+ * before. {@code Camunda8WhatABusyClusterRefusesIT} holds this per line. So for the BPMN
  * error and the lock renewal the retry waits out a busy cluster. For the completion and the
  * failure it waits out what still refuses them: an answer which did not come in time, a
  * partition whose leader just changed, a broker short of disk space, and on 8.10 a

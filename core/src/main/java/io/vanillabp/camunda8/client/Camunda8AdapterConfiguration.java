@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+import io.vanillabp.camunda8.Camunda8ReleaseLine;
 import io.vanillabp.camunda8.wiring.Camunda8FetchVariables;
 import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
 
@@ -37,6 +38,9 @@ import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
  *       client uses the REST API (recommended) or gRPC for its commands</li>
  *   <li>{@code .auth.*} - how the adapter authenticates, see
  *       {@link Camunda8AuthConfiguration}</li>
+ *   <li>{@code .mtls.*} - the client certificate for mutual TLS and the certificate
+ *       authorities which check the cluster, on the 8.10 line only, see
+ *       {@link Camunda8MtlsConfiguration}</li>
  *   <li>{@code .async-task-lock-renewal} (optional, default one hour) - the window in
  *       which the lock of a job is renewed which a {@code @TaskId} handler left open, see
  *       {@link #asyncTaskLockRenewal}</li>
@@ -467,6 +471,36 @@ public class Camunda8AdapterConfiguration {
       final Camunda8AuthConfiguration auth) {
 
     this.auth = auth;
+
+  }
+
+  /**
+   * Mutual TLS for the connection to the cluster. This is the block
+   * <code>vanillabp.adapters.&lt;id&gt;.mtls.*</code>. It is never <code>null</code>. An
+   * adapter without the block connects the way it always did.
+   */
+  private Camunda8MtlsConfiguration mtls = new Camunda8MtlsConfiguration();
+
+  /**
+   * Mutual TLS for the connection to the cluster.
+   *
+   * @return The mtls block, never <code>null</code>
+   */
+  public Camunda8MtlsConfiguration getMtls() {
+
+    return mtls;
+
+  }
+
+  /**
+   * Mutual TLS for the connection to the cluster.
+   *
+   * @param mtls The mtls block, never <code>null</code>
+   */
+  public void setMtls(
+      final Camunda8MtlsConfiguration mtls) {
+
+    this.mtls = mtls;
 
   }
 
@@ -2337,9 +2371,12 @@ public class Camunda8AdapterConfiguration {
    * line says so. An application moves between lines with one configuration. Refusing a key
    * there would be the one thing that makes such a move hurt.
    * <p>
-   * Until Camunda fixes its gateway, the message advises <code>do-not-use</code>. A lease makes
-   * a job which the gateway could not hand out wait one job timeout. Why the adapter advises and
-   * does not decide is decision 88 in the repository's DECISIONS.md.
+   * The message advises <code>do-not-use</code> for a cluster of 8.10 older than
+   * {@value Camunda8ClusterVersionCheck#FIRST_8_10_WITHOUT_THE_LEASE_STALL}. There a lease makes a
+   * job which the gateway could not hand out wait one job timeout. The start does not know the
+   * cluster yet when it asks, so the message names the version. Once the cluster answered,
+   * {@link Camunda8ClusterVersionCheck} warns an adapter which leases on such a cluster. Why the
+   * advice depends on the version of the cluster is decision 107 in the repository's DECISIONS.md.
    *
    * @param adapterId The adapter id
    * @param logger Sink for the line which says the key does nothing here. It is not a
@@ -2379,18 +2416,21 @@ public class Camunda8AdapterConfiguration {
             never removes a lease from a job, a worker of the same job type which does not lease never \
             sees a leased job again, and an application rolled back onto an older line therefore leaves \
             the jobs it leased standing.
-            Until Camunda fixes its gateway, a lease also costs time. Sometimes the cluster activates a \
-            job for a long poll which ended in the same moment. Without a lease the gateway gives that job \
-            back at once. With a lease it cannot, and the job waits one '%s' for nobody. So '%s' is the \
-            safer choice for now. Switching to '%s' later costs nothing, only the way back does.
+            On a cluster of 8.10 older than %s, a lease also costs time. Sometimes the gateway of such a \
+            cluster activates a job for a long poll which ended in the same moment. Without a lease the \
+            gateway gives that job back at once. With a lease it cannot, and the job waits one '%s' for \
+            nobody. So against such a cluster '%s' is the safer choice. From %s on the gateway gives a leased \
+            job back as well. Switching to '%s' later costs nothing, only the way back does.
             Write '%s: %s' to switch it on, or '%s: %s' to keep what every line before this one does."""
             .formatted(
                 adapterId,
                 propertyKey(adapterId, "job-lease"),
                 valueOf(JobLease.USE),
                 valueOf(JobLease.DO_NOT_USE),
+                Camunda8ClusterVersionCheck.FIRST_8_10_WITHOUT_THE_LEASE_STALL,
                 propertyKey(adapterId, "job-timeout"),
                 valueOf(JobLease.DO_NOT_USE),
+                Camunda8ClusterVersionCheck.FIRST_8_10_WITHOUT_THE_LEASE_STALL,
                 valueOf(JobLease.USE),
                 propertyKey(adapterId, "job-lease"),
                 valueOf(JobLease.USE),
@@ -2523,6 +2563,39 @@ public class Camunda8AdapterConfiguration {
       final String adapterId) {
 
     auth.validate(adapterId, mode);
+
+  }
+
+  /**
+   * Validates the mutual TLS of this adapter instance. It runs AT STARTUP, for every
+   * configured adapter id, whether the connection configuration is complete or not. A
+   * certificate which cannot be used is not a migration scenario.
+   * <p>
+   * On a release line whose client has no mutual TLS, any key of the block ends the start.
+   * This differs from <code>job-lease</code>, which such a line accepts and ignores. A lease
+   * left out changes nothing a cluster of that line could do. A certificate left out makes
+   * the cluster refuse the connection, with a TLS error which names nothing of this
+   * configuration.
+   *
+   * @param adapterId The adapter id
+   * @throws IllegalStateException If the block cannot be used, naming the keys and the way
+   *           out
+   */
+  public void validateMtls(
+      final String adapterId) {
+
+    if (!mtls.isConfigured()) {
+      return;
+    }
+    if (!Camunda8Mtls.supportedByThisLine()) {
+      throw mtls.notOnThisLine(adapterId, Camunda8ReleaseLine.id());
+    }
+    mtls.validate(
+        adapterId,
+        auth.getCaCertificatePath(),
+        mode == Mode.SAAS
+            ? null
+            : List.of(restAddressInUse(), grpcAddressInUse()));
 
   }
 

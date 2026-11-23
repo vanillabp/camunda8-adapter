@@ -1,5 +1,6 @@
 package io.vanillabp.camunda8.client;
 
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 import io.vanillabp.camunda8.Camunda8ReleaseLine;
@@ -26,6 +27,11 @@ import lombok.extern.slf4j.Slf4j;
  * ({@link Camunda8ClusterWait}). So the check costs no request of its own.
  * <p>
  * Why the pair is compared and never refused is decision 90 in the repository's DECISIONS.md.
+ * <p>
+ * The same answer says one more thing. An adapter which leases its jobs on a cluster of 8.10
+ * older than {@value #FIRST_8_10_WITHOUT_THE_LEASE_STALL} gets a WARN. The gateway of such a
+ * cluster can strand a leased job for one job timeout. Why the advice depends on the version of
+ * the cluster is decision 107 in the repository's DECISIONS.md.
  */
 @Slf4j
 public final class Camunda8ClusterVersionCheck {
@@ -35,6 +41,24 @@ public final class Camunda8ClusterVersionCheck {
    * pre-release like <code>-alpha2</code>, does not count.
    */
   private static final Pattern MAJOR_AND_MINOR = Pattern.compile("^\\s*(\\d+)\\.(\\d+)(?:[.\\-+].*)?\\s*$");
+
+  /**
+   * Major, minor and patch at the start of a version. A pre-release like
+   * <code>8.10.0-alpha5</code> counts as its patch level, so it is older than any release
+   * with a higher patch.
+   */
+  private static final Pattern MAJOR_MINOR_AND_PATCH = Pattern
+      .compile("^\\s*(\\d+)\\.(\\d+)\\.(\\d+)(?:[\\-+].*)?\\s*$");
+
+  /**
+   * The first cluster of the 8.10 line whose gateway gives a leased job back when it could not
+   * hand it out. Every earlier 8.10 cluster leaves such a job locked for nobody until its lock
+   * runs out.
+   */
+  public static final String FIRST_8_10_WITHOUT_THE_LEASE_STALL = "8.10.10";
+
+  /** The patch level of {@link #FIRST_8_10_WITHOUT_THE_LEASE_STALL}. */
+  private static final int FIRST_PATCH_WITHOUT_THE_LEASE_STALL = 10;
 
   private Camunda8ClusterVersionCheck() {
   }
@@ -78,6 +102,83 @@ public final class Camunda8ClusterVersionCheck {
       case INFO -> log.info(verdict.message());
       case WARN -> log.warn(verdict.message());
       case ERROR -> log.error(verdict.message());
+    }
+
+  }
+
+  /**
+   * Writes a WARN where this adapter leases its jobs on a cluster whose gateway can strand a
+   * leased job. It writes nothing otherwise.
+   *
+   * @param adapterId The adapter instance
+   * @param clusterVersion The gateway version the cluster named in its topology
+   * @param leasesItsJobs Whether this adapter leases, see
+   *          {@link Camunda8AdapterConfiguration#leasesItsJobs()}
+   */
+  public static void logTheLeaseAdvice(
+      final String adapterId,
+      final String clusterVersion,
+      final boolean leasesItsJobs) {
+
+    leaseAdvice(adapterId, clusterVersion, leasesItsJobs).ifPresent(log::warn);
+
+  }
+
+  /**
+   * What the start says about a lease on this cluster. It reads nothing but its arguments,
+   * so a test can name any version.
+   *
+   * @param adapterId The adapter instance
+   * @param clusterVersion The gateway version the cluster named, may be <code>null</code>
+   * @param leasesItsJobs Whether this adapter leases its jobs
+   * @return The WARN line, or nothing where a lease costs nothing on this cluster or the
+   *         adapter does not lease
+   */
+  static Optional<String> leaseAdvice(
+      final String adapterId,
+      final String clusterVersion,
+      final boolean leasesItsJobs) {
+
+    if (!leasesItsJobs || !strandsALeasedJob(clusterVersion)) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        ("Camunda8[%s]: '%s' is 'use', and cluster %s is older than %s. The gateway of such a cluster sometimes "
+            + "activates a leased job for a long poll which has just ended. It cannot give that job back, so the "
+            + "job waits one '%s' for nobody. Upgrade the cluster to %s or later. Switching to 'do-not-use' "
+            + "instead only helps an application which has not leased a job yet, because a leased job never "
+            + "reaches a worker which does not lease.")
+            .formatted(
+                adapterId,
+                Camunda8AdapterConfiguration.propertyKey(adapterId, "job-lease"),
+                clusterVersion,
+                FIRST_8_10_WITHOUT_THE_LEASE_STALL,
+                Camunda8AdapterConfiguration.propertyKey(adapterId, "job-timeout"),
+                FIRST_8_10_WITHOUT_THE_LEASE_STALL));
+
+  }
+
+  /**
+   * Whether the version names a cluster of 8.10 older than
+   * {@link #FIRST_8_10_WITHOUT_THE_LEASE_STALL}. A version which cannot be read says nothing,
+   * so it is <code>false</code>.
+   */
+  private static boolean strandsALeasedJob(
+      final String clusterVersion) {
+
+    if (clusterVersion == null) {
+      return false;
+    }
+    final var matcher = MAJOR_MINOR_AND_PATCH.matcher(clusterVersion);
+    if (!matcher.matches()) {
+      return false;
+    }
+    try {
+      return (Integer.parseInt(matcher.group(1)) == 8) && (Integer.parseInt(matcher.group(2)) == 10) && (Integer
+          .parseInt(matcher.group(3)) < FIRST_PATCH_WITHOUT_THE_LEASE_STALL);
+    } catch (final NumberFormatException e) {
+      // digits beyond the range of an int are no version anyone ships
+      return false;
     }
 
   }
