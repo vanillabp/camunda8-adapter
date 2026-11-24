@@ -102,6 +102,36 @@ public final class Camunda8ClusterWait {
   }
 
   /**
+   * Waits for the cluster a test runtime handed over, the same way the start waits for the
+   * configured cluster. The runtime hands over its client before it checks itself whether its
+   * cluster is ready. So the first deployment of a test class can meet a cluster which does
+   * not answer yet.
+   * <p>
+   * Unlike {@link #untilTheClusterAnswers(String, Camunda8AdapterConfiguration, CamundaClient)}
+   * it compares no versions. The test runtime chose its cluster, and the comparison would be
+   * written once per test method.
+   *
+   * @param adapterId The adapter ID
+   * @param address The addresses of the cluster, the way a log line names them
+   * @param configuration The configuration of the adapter, which says how long to wait
+   * @param client The client built against that cluster
+   */
+  static void untilTheTestRuntimeAnswers(
+      final String adapterId,
+      final String address,
+      final Camunda8AdapterConfiguration configuration,
+      final CamundaClient client) {
+
+    untilTheClusterAnswers(
+        adapterId,
+        address,
+        configuration.resolvedStartupWait(),
+        TIME_PER_ATTEMPT,
+        () -> askForTheTopology(client, TIME_PER_ATTEMPT));
+
+  }
+
+  /**
    * The waiting itself. It is told what to ask and how long an attempt takes. In this shape
    * a test can drive it without a cluster and without waiting minutes for a result.
    *

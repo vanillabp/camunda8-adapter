@@ -55,6 +55,7 @@
     <module>published-pom</module>
     <module>test-support</module>
     <module>spring-boot</module>
+    <module>spring-boot-process-test</module>
     <module>election-integration-test</module>
     <module>smoke-test</module>
     <module>quarkus/runtime</module>
@@ -137,6 +138,12 @@
     <camunda8.version.line-8.8>8.8.47</camunda8.version.line-8.8>
     <camunda8.version.line-8.9>8.9.28</camunda8.version.line-8.9>
     <camunda8.version.line-8.10>8.10.10</camunda8.version.line-8.10>
+    <!-- the Spring integration of Camunda Process Test which the module
+         spring-boot-process-test is compiled and tested against, in the version of the line's
+         client. From 8.9 on the artifact 'camunda-process-test-spring' is the one for Spring
+         Boot 4. On 8.8 that artifact is built for Spring Boot 3, and Camunda publishes the one
+         for Spring Boot 4 under its own name, so the profile line-8.8 names that one -->
+    <camunda8.process-test.artifact>camunda-process-test-spring</camunda8.process-test.artifact>
     <!-- optional: the adapter's own meters are published where the application brings
          Micrometer (see MicrometerCamunda8Metrics). Pinned to the OLDER of both
          platforms, like the platform integration does it (Quarkus 3.37.1 manages 1.16.6,
@@ -629,6 +636,7 @@
              tested against,
              which is the one thing a bugfix line may not do -->
         <camunda8.cluster.secondary-storage>elasticsearch</camunda8.cluster.secondary-storage>
+        <camunda8.process-test.artifact>camunda-process-test-spring-boot-4</camunda8.process-test.artifact>
       </properties>
     </profile>
     <profile>

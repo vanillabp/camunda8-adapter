@@ -67,6 +67,97 @@ public final class Camunda8StartupValidation {
       final Consumer<String> warnLogger,
       final Consumer<String> infoLogger) {
 
+    validateWhatDoesNotDependOnTheConnection(adapterId, configuration, deliveryRetention, warnLogger, infoLogger);
+
+    final var missing = configuration.missingConnectionProperties();
+    if (missing.isEmpty()) {
+      reportTheLocalClusterAddress(adapterId, configuration, applicationPortKey, warnLogger);
+      validateJobLease(adapterId, configuration, infoLogger);
+      return;
+    }
+
+    final var missingKeys = missing
+        .stream()
+        .map(key -> Camunda8AdapterConfiguration.propertyKey(adapterId, key))
+        .collect(Collectors.joining("\n  "));
+    if (!firstPriorityAnywhere && deploymentFailureWarn) {
+      warnLogger.accept(
+          """
+              Camunda 8 adapter '%s' is configured inconsistently - these properties are missing:
+                %s
+              The adapter is nowhere first priority and its deployment-failure policy is 'warn', so the \
+              application boots DEGRADED: any use of this adapter will fail until the properties are added."""
+              .formatted(adapterId, missingKeys));
+      return;
+    }
+
+    throw new IllegalStateException(
+        """
+            Camunda 8 adapter '%s' is configured inconsistently - these properties are missing:
+              %s
+            Add the missing properties. (An adapter that is nowhere first in a prioritized-adapters list \
+            may instead set '%s' to 'warn' to boot degraded - e.g. the old BPMS during a migration.)"""
+            .formatted(
+                adapterId,
+                missingKeys,
+                Camunda8AdapterConfiguration.propertyKey(adapterId, "deployment-failure")));
+
+  }
+
+  /**
+   * Validates the configuration of an adapter instance whose cluster a test runtime hands
+   * over, such as Camunda Process Test. Every check which does not need the connection runs
+   * as it runs without a test runtime. The connection itself is not checked, because the
+   * adapter does not use it. A line says so, and it names the connection keys the
+   * application wrote, so nobody wonders why they change nothing in this test.
+   *
+   * @param adapterId The adapter ID
+   * @param configuration The (bound) connection configuration
+   * @param deliveryRetention How long a delivery record is kept
+   *          (<code>vanillabp.delivery.retention</code>)
+   * @param warnLogger Sink for guiding warnings (the application keeps booting)
+   * @param infoLogger Sink for the line about the test runtime and for the other lines which
+   *          are not a warning
+   */
+  public static void validateAtStartupForATestRuntime(
+      final String adapterId,
+      final Camunda8AdapterConfiguration configuration,
+      final Duration deliveryRetention,
+      final Consumer<String> warnLogger,
+      final Consumer<String> infoLogger) {
+
+    validateWhatDoesNotDependOnTheConnection(adapterId, configuration, deliveryRetention, warnLogger, infoLogger);
+    validateJobLease(adapterId, configuration, infoLogger);
+    final var unused = configuration
+        .connectionKeysWritten()
+        .stream()
+        .map(key -> Camunda8AdapterConfiguration.propertyKey(adapterId, key))
+        .toList();
+    infoLogger.accept(
+        """
+            Camunda 8 adapter '%s' connects to the cluster of the test runtime (Camunda Process Test). It \
+            deploys the workflow modules and opens their workers before each test method, and it closes the \
+            workers after it, because the test runtime deletes everything in its cluster then.%s"""
+            .formatted(
+                adapterId,
+                unused.isEmpty()
+                    ? ""
+                    : " These keys are not used while the test runtime hands over the cluster: '%s'."
+                        .formatted(String.join("', '", unused))));
+
+  }
+
+  /**
+   * The checks which do not depend on how the adapter reaches its cluster. They run with and
+   * without a test runtime.
+   */
+  private static void validateWhatDoesNotDependOnTheConnection(
+      final String adapterId,
+      final Camunda8AdapterConfiguration configuration,
+      final Duration deliveryRetention,
+      final Consumer<String> warnLogger,
+      final Consumer<String> infoLogger) {
+
     // before any property. A protobuf runtime older than the client's generated code lets
     // no command of this adapter through, whatever the configuration says. Protobuf itself
     // would say so out of a static initializer, at the first command
@@ -106,39 +197,6 @@ public final class Camunda8StartupValidation {
     // the same goes for the question this adapter asks about every open user task. What it
     // decides happens per wake-up, and nowhere a reader would look
     configuration.validateProbeOpenUserTasks(adapterId, infoLogger);
-
-    final var missing = configuration.missingConnectionProperties();
-    if (missing.isEmpty()) {
-      reportTheLocalClusterAddress(adapterId, configuration, applicationPortKey, warnLogger);
-      validateJobLease(adapterId, configuration, infoLogger);
-      return;
-    }
-
-    final var missingKeys = missing
-        .stream()
-        .map(key -> Camunda8AdapterConfiguration.propertyKey(adapterId, key))
-        .collect(Collectors.joining("\n  "));
-    if (!firstPriorityAnywhere && deploymentFailureWarn) {
-      warnLogger.accept(
-          """
-              Camunda 8 adapter '%s' is configured inconsistently - these properties are missing:
-                %s
-              The adapter is nowhere first priority and its deployment-failure policy is 'warn', so the \
-              application boots DEGRADED: any use of this adapter will fail until the properties are added."""
-              .formatted(adapterId, missingKeys));
-      return;
-    }
-
-    throw new IllegalStateException(
-        """
-            Camunda 8 adapter '%s' is configured inconsistently - these properties are missing:
-              %s
-            Add the missing properties. (An adapter that is nowhere first in a prioritized-adapters list \
-            may instead set '%s' to 'warn' to boot degraded - e.g. the old BPMS during a migration.)"""
-            .formatted(
-                adapterId,
-                missingKeys,
-                Camunda8AdapterConfiguration.propertyKey(adapterId, "deployment-failure")));
 
   }
 

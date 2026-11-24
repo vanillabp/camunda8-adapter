@@ -112,6 +112,13 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
   private final Camunda8ClientFactory clientFactory;
 
   /**
+   * The workflow modules this service deploys and serves again every time a test runtime hands
+   * over its cluster. It is <code>null</code> where the adapter id connects to its configured
+   * cluster, which is every case outside such a test.
+   */
+  private final Camunda8TestRuntimeModules testRuntimeModules;
+
+  /**
    * Everything the platform hands over. An adapter which is registered incompletely does
    * not come into existence (see {@link AdapterCollaborators}).
    */
@@ -709,6 +716,15 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // the process service counts the open jobs this adapter delivers while the application
     // starts. Only this service reads the models, so it says which job types those are
     clientFactory.provideJobTypesItDelivers(this::jobTypesItDeliversFor);
+    // where a test runtime hands over the cluster, the deployment and the workers follow it.
+    // The platform deploys and opens once, at a moment when there is no cluster yet
+    if (clientFactory.followsATestRuntime()) {
+      this.testRuntimeModules = new Camunda8TestRuntimeModules(
+          this::deployToTheClusterOfTheTestRuntime, this::openTheWorkers, this::closeTheWorkers);
+      clientFactory.takePartInTheTestRuntime(testRuntimeModules);
+    } else {
+      this.testRuntimeModules = null;
+    }
 
   }
 
@@ -3480,6 +3496,19 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // cluster is asked anything. So a model which this refuses is refused without a request
     wireTheProcessesThisModuleCalls(workflowModuleId, bpmsProcessingContext);
 
+    if (testRuntimeModules != null) {
+      // a test runtime hands over its cluster only once a test method starts, and it deletes
+      // the deployment after the method. So everything which needs no cluster is checked now,
+      // once, and the module is deployed again with each cluster
+      validateTenantConfiguration(workflowModuleId);
+      validateNoCollidingProcessIds(workflowModuleId, bpmsProcessingContext);
+      testRuntimeModules.deployOnceTheClusterArrives(workflowModuleId, bpmsProcessingContext);
+      log.info("Workflow module '{}' is deployed to the cluster of the test runtime before each test method "
+          + "(adapter '{}')", workflowModuleId, adapterId);
+      reportWhatTheClusterDoesNotNeedToTell(workflowModuleId, bpmsProcessingContext);
+      return;
+    }
+
     // a cluster which boots together with the application lets every round of the start
     // fail. So it is waited for here, once per adapter instance. It is right before the first
     // round which decides anything: the searchable-cluster check below. That check would end
@@ -3494,35 +3523,64 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     Camunda8SearchableClusterCheck
         .requireAClusterWhichCanBeSearched(adapterId, clientFactory.getQueryApi());
 
-    // one DeployResourceCommand per workflow module with all its models
-    final var client = clientFactory.getClient();
-    DeployResourceCommandStep2 command = null;
-    for (final var resource : bpmsProcessingContext.getResources().entrySet()) {
-      final DeployResourceCommandStep1 next = command != null ? command : client.newDeployResourceCommand();
-      command = next.addProcessModel(resource.getValue(), resource.getKey());
-    }
-    // the decision tables of the module go into the SAME command. A business rule task which
-    // binds its decision to the deployment finds it, and both are versioned together
-    for (final var decision : bpmsProcessingContext.getDecisions().entrySet()) {
-      final DeployResourceCommandStep1 next = command != null ? command : client.newDeployResourceCommand();
-      command = next.addResourceBytes(decision.getValue(), decision.getKey());
-    }
-
     // the name-clash-avoidance mode decides which tenant a workflow module is deployed to.
     // 'by-adapter' (the default, as in version 1) uses the workflow module id. The
     // 'tenant-id' of the adapter can override it. 'use-prefix' and 'none' use no tenant at
     // all, because the identifiers were prefixed, or are unique by contract.
     validateTenantConfiguration(workflowModuleId);
-    final var tenantId = tenantIdOf(workflowModuleId);
-    if (tenantId != null) {
-      // asking beforehand turns the "multi-tenancy is disabled" of the cluster, or an
-      // unknown tenant, into a message which names the property to change (GAPS G2)
-      if (verifiedTenants.add(tenantId)) {
-        Camunda8TenantCheck
-            .requireUsableTenant(adapterId, workflowModuleId, tenantId, client);
-      }
-      command = command.tenantId(tenantId);
-    }
+    validateNoCollidingProcessIds(workflowModuleId, bpmsProcessingContext);
+
+    final var deployed = sendTheDeployment(workflowModuleId, bpmsProcessingContext);
+
+    // which identifiers of this module the cluster held before this deployment. This is
+    // asked now, because the cluster has answered which versions and resources it recorded
+    reportWhatTheClusterAlreadyHeld(workflowModuleId, deployed.processes(), deployed.decisions());
+    // and which of them a second workflow module of this application uses as well, and the
+    // reports which read nothing but the files
+    reportWhatTheClusterDoesNotNeedToTell(workflowModuleId, bpmsProcessingContext);
+
+    // an older version may carry user tasks a job worker serves, which nothing here serves.
+    // It is said now and not when the workers open, because the block of the start is
+    // written before that
+    warnAboutJobWorkerUserTasksOfHeldVersions(workflowModuleId);
+
+  }
+
+  /**
+   * The reports about a workflow module which read nothing but its files. They are the same
+   * whether the cluster is the configured one or the one of a test runtime.
+   *
+   * @param workflowModuleId The workflow module
+   * @param context The module's accumulated pipeline state
+   */
+  private void reportWhatTheClusterDoesNotNeedToTell(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext context) {
+
+    // which identifiers a second workflow module of this application uses as well. That
+    // costs no request at all, because the names were read off the files themselves
+    reportWhatTheModelsDeclare(workflowModuleId, context);
+
+    // last, and after every file of the module has been read. So the report names every
+    // element at once, not one warning per file
+    reportWhatConnectorsCost(workflowModuleId, context);
+
+    // and what the listeners somebody modelled cost, the same way
+    reportWhatListenersCost(workflowModuleId, context);
+
+    // and what this release line cannot say about an instance which was canceled
+    reportWhatACancelationCannotSay(workflowModuleId, context);
+
+  }
+
+  /**
+   * Refuses a workflow module which would reach the cluster under an identifier an earlier
+   * module of this boot already uses.
+   */
+  private void validateNoCollidingProcessIds(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext bpmsProcessingContext) {
+
     // two BPMN processes may not reach the cluster under one identifier. Only the processes
     // of THIS module can be handed over, because a deployment is per workflow module. The
     // core holds what the earlier modules of this boot brought. It asks this adapter whether
@@ -3539,6 +3597,51 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .toList());
     }
 
+  }
+
+  /**
+   * What one deployment brought, per BPMN process and per DMN decision.
+   *
+   * @param processes The processes the cluster recorded
+   * @param decisions The decisions the cluster recorded
+   */
+  private record WhatWasDeployed(
+                                 List<Camunda8IdentifiersTheClusterHolds.DeployedProcess> processes,
+                                 List<Camunda8IdentifiersTheClusterHolds.DeployedDecision> decisions) {
+  }
+
+  /**
+   * Sends one deployment with every model and decision table of the workflow module, and
+   * records what the cluster made of it.
+   */
+  private WhatWasDeployed sendTheDeployment(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext bpmsProcessingContext) {
+
+    // one DeployResourceCommand per workflow module with all its models
+    final var client = clientFactory.getClient();
+    DeployResourceCommandStep2 command = null;
+    for (final var resource : bpmsProcessingContext.getResources().entrySet()) {
+      final DeployResourceCommandStep1 next = command != null ? command : client.newDeployResourceCommand();
+      command = next.addProcessModel(resource.getValue(), resource.getKey());
+    }
+    // the decision tables of the module go into the SAME command. A business rule task which
+    // binds its decision to the deployment finds it, and both are versioned together
+    for (final var decision : bpmsProcessingContext.getDecisions().entrySet()) {
+      final DeployResourceCommandStep1 next = command != null ? command : client.newDeployResourceCommand();
+      command = next.addResourceBytes(decision.getValue(), decision.getKey());
+    }
+
+    final var tenantId = tenantIdOf(workflowModuleId);
+    if (tenantId != null) {
+      // asking beforehand turns the "multi-tenancy is disabled" of the cluster, or an
+      // unknown tenant, into a message which names the property to change (GAPS G2)
+      if (verifiedTenants.add(tenantId)) {
+        Camunda8TenantCheck
+            .requireUsableTenant(adapterId, workflowModuleId, tenantId, client);
+      }
+      command = command.tenantId(tenantId);
+    }
     // what the cluster made of this deployment, collected while it is read anyway. The
     // question which identifiers the cluster ALREADY held needs the version it assigned and
     // the resource it recorded. Both are in the answer of the deploy command
@@ -3627,27 +3730,25 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
                   whatAQuotedExpressionIncludes(workflowModuleId, bpmsProcessingContext)), e);
     }
 
-    // which identifiers of this module the cluster held before this deployment. This is
-    // asked now, because the cluster has answered which versions and resources it recorded
-    reportWhatTheClusterAlreadyHeld(workflowModuleId, processesDeployed, decisionsDeployed);
-    // and which of them a second workflow module of this application uses as well. That
-    // costs no request at all, because the names were read off the files themselves
-    reportWhatTheModelsDeclare(workflowModuleId, bpmsProcessingContext);
+    return new WhatWasDeployed(processesDeployed, decisionsDeployed);
 
-    // last, and after every file of the module has been read. So the report names every
-    // element at once, not one warning per file
-    reportWhatConnectorsCost(workflowModuleId, bpmsProcessingContext);
+  }
 
-    // and what the listeners somebody modelled cost, the same way
-    reportWhatListenersCost(workflowModuleId, bpmsProcessingContext);
+  /**
+   * Deploys a workflow module to the cluster a test runtime just handed over. That cluster
+   * holds nothing, so the questions the start asks about older versions have no answer to
+   * give, and they are not asked.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmsProcessingContext Its resources
+   */
+  private void deployToTheClusterOfTheTestRuntime(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext bpmsProcessingContext) {
 
-    // and what this release line cannot say about an instance which was canceled
-    reportWhatACancelationCannotSay(workflowModuleId, bpmsProcessingContext);
-
-    // an older version may carry user tasks a job worker serves, which nothing here serves.
-    // It is said now and not when the workers open, because the block of the start is
-    // written before that
-    warnAboutJobWorkerUserTasksOfHeldVersions(workflowModuleId);
+    // the test runtime hands over its client before it checks whether its cluster is ready
+    clientFactory.waitUntilTheClusterAnswers();
+    sendTheDeployment(workflowModuleId, bpmsProcessingContext);
 
   }
 
@@ -4033,6 +4134,29 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
       final String workflowModuleId,
       final Camunda8ProcessingContext bpmsProcessingContext) {
 
+    if (testRuntimeModules != null) {
+      // the workers open against the cluster of each test method, which holds nothing older
+      testRuntimeModules.processOnceTheClusterArrives(workflowModuleId, bpmsProcessingContext);
+      return;
+    }
+    openTheWorkers(workflowModuleId, bpmsProcessingContext);
+    // a version which an earlier generation of the application deployed may carry a standard
+    // loop, and the workflows on it repeat nothing
+    warnAboutStandardLoopsOfHeldVersions(workflowModuleId);
+
+  }
+
+  /**
+   * Opens the workers of one workflow module and checks their number against the connection
+   * pool.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmsProcessingContext What the module serves
+   */
+  private void openTheWorkers(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext bpmsProcessingContext) {
+
     aModuleIsOpeningItsWorkers = true;
     try {
       openTheWorkersOfTheWorkflowModule(workflowModuleId, bpmsProcessingContext);
@@ -4043,9 +4167,6 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // workers of this adapter id is known. And it is the last one before the block of the
     // start is written
     holdTheOpenWorkersAgainstTheConnectionPool();
-    // a version which an earlier generation of the application deployed may carry a standard
-    // loop, and the workflows on it repeat nothing
-    warnAboutStandardLoopsOfHeldVersions(workflowModuleId);
 
   }
 
@@ -4484,6 +4605,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .scoping(scoping)
               .multiInstanceRegistry(multiInstanceRegistry)
               .drain(drain)
+              .deliveryIdOfJob(clientFactory::deliveryIdOf)
               .fetchVariables(listenerFetch)
               .openTaskProbe(openTaskProbe)
               .reportErrorsAsStackTraceResolver(this::reportErrorsAsStackTraceFor)
@@ -4548,6 +4670,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .scoping(scoping)
               .multiInstanceRegistry(multiInstanceRegistry)
               .drain(drain)
+              .deliveryIdOfJob(clientFactory::deliveryIdOf)
               .fetchVariables(listenerFetch)
               .retryBackoffResolver(retryBackoffResolver)
               .reportErrorsAsStackTraceResolver(this::reportErrorsAsStackTraceFor)
@@ -4669,6 +4792,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
               .multiInstanceRegistry(multiInstanceRegistry)
               .asyncTaskMaxAgeAction(asyncTaskMaxAgeAction())
               .drain(drain)
+              .deliveryIdOfJob(clientFactory::deliveryIdOf)
               .retryBackoffResolver(retryBackoffResolver)
               .reportErrorsAsStackTraceResolver(this::reportErrorsAsStackTraceFor)
               .fetchVariables(taskFetch)
@@ -5017,6 +5141,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             .multiInstanceRegistry(multiInstanceRegistry)
             .asyncTaskMaxAgeAction(asyncTaskMaxAgeAction())
             .drain(drain)
+            .deliveryIdOfJob(clientFactory::deliveryIdOf)
             .retryBackoffResolver(retryBackoffResolver)
             .reportErrorsAsStackTraceResolver(this::reportErrorsAsStackTraceFor)
             .fetchVariables(Camunda8FetchVariables.Selection.everything())
@@ -5068,6 +5193,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
             .scoping(scoping)
             .multiInstanceRegistry(multiInstanceRegistry)
             .drain(drain)
+            .deliveryIdOfJob(clientFactory::deliveryIdOf)
             .fetchVariables(Camunda8FetchVariables.Selection.everything())
             .openTaskProbe(openTaskProbe)
             .reportErrorsAsStackTraceResolver(this::reportErrorsAsStackTraceFor)
@@ -5200,6 +5326,25 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
 
   @Override
   public void stopWorkflowProcessing(
+      final String workflowModuleId,
+      final Camunda8ProcessingContext bpmsProcessingContext) {
+
+    if (testRuntimeModules != null) {
+      // a cluster which arrives later gets no workers for this module any more
+      testRuntimeModules.stopProcessing(workflowModuleId);
+    }
+    closeTheWorkers(workflowModuleId, bpmsProcessingContext);
+
+  }
+
+  /**
+   * Closes the workers of one workflow module and waits for its handlers, within the grace of
+   * a shutdown.
+   *
+   * @param workflowModuleId The workflow module
+   * @param bpmsProcessingContext What the module serves, with its open workers
+   */
+  private void closeTheWorkers(
       final String workflowModuleId,
       final Camunda8ProcessingContext bpmsProcessingContext) {
 

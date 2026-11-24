@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -51,6 +52,9 @@ import lombok.extern.slf4j.Slf4j;
  * <li>An <code>allow-connectors</code> or <code>allow-listeners</code> at task level ends the boot,
  * because nothing reads it there.</li>
  * </ul>
+ * In a test whose cluster a test runtime hands over (a bean of type
+ * {@link Camunda8ClusterOfATestRuntime} is there), no client is built at startup, and the
+ * configured connection is neither checked nor used. Every other check runs as usual.
  */
 @Slf4j
 @AutoConfiguration
@@ -75,13 +79,18 @@ public class Camunda8ClientAutoConfiguration {
    * @param overlay The adapter's own view of the same tree
    * @param environment Where the keys of version 1 are looked for, which this version does
    *          not read and which therefore end the boot
+   * @param testRuntime There in a test whose cluster a test runtime hands over, and empty
+   *          everywhere else
    * @return The registry, with every completely configured client already built
    */
   @Bean(destroyMethod = "close")
   public Camunda8ClientFactoryRegistry camunda8ClientFactoryRegistry(
       final VanillaBpConfigurationProperties coreProperties,
       final VanillaBpCamunda8Properties overlay,
-      final Environment environment) {
+      final Environment environment,
+      final ObjectProvider<Camunda8ClusterOfATestRuntime> testRuntime) {
+
+    final var clusterOfATestRuntime = testRuntime.getIfAvailable() != null;
 
     final var adapterIds = coreProperties
         .adapterTypes()
@@ -103,25 +112,30 @@ public class Camunda8ClientAutoConfiguration {
           // a removed key is refused before anything else, wherever it is set. The
           // workers no longer read it, and silence would hide that from the application
           Camunda8FetchVariables.rejectTheRemovedKey(adapterId, overlay.fetchVariablesKeys(adapterId));
-          Camunda8StartupValidation.validateAtStartup(
-              adapterId,
-              configuration,
-              coreProperties.isFirstPriorityAnywhere(adapterId),
-              coreProperties.getDeploymentFailureFor(
-                  adapterId) == DeploymentFailurePolicy.WARN,
-              coreProperties.resolvedDeliveryRetention(),
-              // the warning about the local cluster names the key which moves this
-              // application off the port that cluster takes
-              "server.port",
-              log::warn,
-              log::info);
+          if (clusterOfATestRuntime) {
+            Camunda8StartupValidation.validateAtStartupForATestRuntime(
+                adapterId, configuration, coreProperties.resolvedDeliveryRetention(), log::warn, log::info);
+          } else {
+            Camunda8StartupValidation.validateAtStartup(
+                adapterId,
+                configuration,
+                coreProperties.isFirstPriorityAnywhere(adapterId),
+                coreProperties.getDeploymentFailureFor(
+                    adapterId) == DeploymentFailurePolicy.WARN,
+                coreProperties.resolvedDeliveryRetention(),
+                // the warning about the local cluster names the key which moves this
+                // application off the port that cluster takes
+                "server.port",
+                log::warn,
+                log::info);
+          }
           // a key at a level which does not read it would change nothing in silence
           Camunda8Connectors.refuseKeysSetAtTaskLevel(adapterId, overlay.allowConnectorsKeysAtTaskLevel(adapterId));
           Camunda8Listeners.refuseKeysSetAtTaskLevel(adapterId, overlay.allowListenersKeysAtTaskLevel(adapterId));
           configurations.put(adapterId, configuration);
         });
 
-    return new Camunda8ClientFactoryRegistry(configurations);
+    return new Camunda8ClientFactoryRegistry(configurations, clusterOfATestRuntime);
 
   }
 

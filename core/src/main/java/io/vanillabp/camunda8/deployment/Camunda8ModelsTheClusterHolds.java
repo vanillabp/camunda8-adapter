@@ -133,6 +133,19 @@ public class Camunda8ModelsTheClusterHolds {
   }
 
   /**
+   * Forgets every answer read so far. A test runtime deletes everything its cluster holds
+   * after each test method, and the next test method meets a cluster which holds nothing
+   * but the deployment of that method. A settled answer would describe the cluster of the
+   * method before.
+   */
+  public void forgetWhatWasRead() {
+
+    held.clear();
+    reportedUnreadable.clear();
+
+  }
+
+  /**
    * The models the cluster holds for every BPMN process id the workflow module
    * declares. One id which cannot be read makes the whole answer "cannot tell".
    * A finer answer would claim to be complete, and it is not.

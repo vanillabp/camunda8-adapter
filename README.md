@@ -3506,6 +3506,33 @@ not boot.
   second a lifecycle of its own) and `cancelUserTask` (answered by the release line, so it belongs to a
   per-line test source).
 
+### Camunda Process Test
+
+An application tests its processes with Camunda Process Test and `@CamundaSpringProcessTest`. The
+module `spring-boot-process-test`, published as `io.vanillabp:camunda8-adapter-spring-boot-process-test`,
+lets the adapter run in such a test. The application adds it as a test dependency. Why it is an
+artifact of its own, and what the adapter does differently while it is there, is
+`DECISIONS.pending/2206.md`. The user's side is the wiki page
+[Testing](https://github.com/vanillabp/camunda8-adapter/wiki/Testing).
+
+Camunda Process Test starts its cluster after the application context and deletes everything in it
+after each test method. So the adapter builds no client at startup there. Before each test method
+`Camunda8ProcessTestClients` hands the address and the credentials of the client of Camunda Process
+Test to `Camunda8ClientFactoryRegistry#connectToTheTestRuntime`. The factory builds the adapter's own
+client with them, and `Camunda8TestRuntimeModules` deploys every workflow module and opens its
+workers. After the method the workers are closed the way a shutdown closes them, and then the
+client. The delivery id of a job carries a mark of that handover, because each cluster hands out
+the same job keys again while the delivery log of the application keeps its records.
+
+`Camunda8ProcessTestIT` is a test of a version 1 application, run unchanged: `@SpringBootTest`
+plus `@CamundaSpringProcessTest`, no address anywhere, a start inside a transaction, Awaitility on
+the aggregate and `CamundaAssert` on the end of the workflow. It has three test methods, so the
+second and the third only pass when the adapter deploys again into the emptied cluster. It runs
+on every line, with the Spring integration of Camunda Process Test which the property
+`camunda8.process-test.artifact` of the root POM names for that line, in the version of the line's
+client. Camunda Process Test starts its own container. So the module does not use
+`ClusterUnderTest`, and it runs no cluster beside it.
+
 ## Outbound operations: one handler per operation
 
 Everything this adapter sends to the cluster is a `PhaseOperationHandler`, contributed per

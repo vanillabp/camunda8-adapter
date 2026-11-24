@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiPredicate;
+import java.util.function.LongFunction;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.api.response.ActivatedJob;
@@ -205,6 +206,12 @@ public class Camunda8JobHandler implements JobHandler {
   private final Set<String> modelNotReadReported = ConcurrentHashMap.newKeySet();
 
   /**
+   * What the core is told as the delivery id of a job. It is the job key, followed by a mark
+   * of the handover where a test runtime hands over the cluster.
+   */
+  private final LongFunction<String> deliveryIdOfJob;
+
+  /**
    * The worker this handler serves. Built through the generated
    * <code>Camunda8JobHandler.builder()</code>: ten of these fifteen values may be left
    * out, and a positional list of that length no longer says which is which.
@@ -223,6 +230,8 @@ public class Camunda8JobHandler implements JobHandler {
    *          <code>report</code>
    * @param drain What the workflow module has in flight, or <code>null</code> for a drain
    *          of its own, which never shuts down
+   * @param deliveryIdOfJob What the core is told as the delivery id of a job, or
+   *          <code>null</code> for the job key
    * @param retryBackoffResolver How long the cluster waits before it hands a failed job out
    *          again, or <code>null</code> for the default backoff
    * @param reportErrorsAsStackTraceResolver Whether an incident carries the stack trace, or
@@ -246,6 +255,7 @@ public class Camunda8JobHandler implements JobHandler {
       final Camunda8MultiInstance.Registry multiInstanceRegistry,
       final Camunda8AdapterConfiguration.AsyncTaskMaxAgeAction asyncTaskMaxAgeAction,
       final Camunda8Drain drain,
+      final LongFunction<String> deliveryIdOfJob,
       final Camunda8RetryBackoffResolver retryBackoffResolver,
       final Camunda8ReportErrorsAsStackTraceResolver reportErrorsAsStackTraceResolver,
       final Camunda8FetchVariables.Selection fetchVariables,
@@ -266,6 +276,9 @@ public class Camunda8JobHandler implements JobHandler {
     this.retryBackoffResolver = retryBackoffResolver;
     this.reportErrorsAsStackTraceResolver = reportErrorsAsStackTraceResolver;
     this.retryBackoffHeader = new Camunda8RetryBackoffHeader(adapterId, workflowModuleId);
+    this.deliveryIdOfJob = deliveryIdOfJob == null
+        ? String::valueOf
+        : deliveryIdOfJob;
     this.drain = drain == null
         ? new Camunda8Drain(adapterId, workflowModuleId)
         : drain;
@@ -768,7 +781,7 @@ public class Camunda8JobHandler implements JobHandler {
   /**
    * The neutral invocation context built from an activated Camunda 8 job.
    */
-  static class Camunda8TaskInvocationContext implements TaskInvocationContext {
+  class Camunda8TaskInvocationContext implements TaskInvocationContext {
 
     private final String adapterId;
 
@@ -912,7 +925,7 @@ public class Camunda8JobHandler implements JobHandler {
       // activated again under its key, and the key of a completed job is never handed out
       // again. But every new element activation creates a new job. That is exactly the
       // identity by which the core remembers a processed delivery.
-      return String.valueOf(job.getKey());
+      return deliveryIdOfJob.apply(job.getKey());
 
     }
 

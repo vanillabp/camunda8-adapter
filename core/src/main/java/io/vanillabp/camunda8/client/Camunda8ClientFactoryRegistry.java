@@ -29,13 +29,31 @@ public class Camunda8ClientFactoryRegistry implements AutoCloseable {
   public Camunda8ClientFactoryRegistry(
       final Map<String, Camunda8AdapterConfiguration> configurationsByAdapterId) {
 
+    this(configurationsByAdapterId, false);
+
+  }
+
+  /**
+   * Builds one factory per configured adapter id, which all may get their cluster from a test
+   * runtime.
+   *
+   * @param configurationsByAdapterId The connection configuration of every configured adapter
+   *          id of type {@code camunda8}
+   * @param clusterOfATestRuntime Whether a test runtime hands over the cluster before each test
+   *          method. Then every adapter id of type {@code camunda8} connects to that one cluster,
+   *          and none of them uses its configured connection
+   */
+  public Camunda8ClientFactoryRegistry(
+      final Map<String, Camunda8AdapterConfiguration> configurationsByAdapterId,
+      final boolean clusterOfATestRuntime) {
+
     this.factories = configurationsByAdapterId
         .entrySet()
         .stream()
         .collect(Collectors.toUnmodifiableMap(
             Map.Entry::getKey,
-            entry -> new Camunda8ClientFactory(entry.getKey(), entry.getValue())));
-    tellEachFactoryWhoSharesItsCluster(configurationsByAdapterId);
+            entry -> new Camunda8ClientFactory(entry.getKey(), entry.getValue(), clusterOfATestRuntime)));
+    tellEachFactoryWhoSharesItsCluster(configurationsByAdapterId, clusterOfATestRuntime);
 
   }
 
@@ -49,16 +67,21 @@ public class Camunda8ClientFactoryRegistry implements AutoCloseable {
    * probe.
    *
    * @param configurationsByAdapterId The connection configuration of every configured id
+   * @param clusterOfATestRuntime Whether every id connects to the one cluster of a test runtime
    */
   private void tellEachFactoryWhoSharesItsCluster(
-      final Map<String, Camunda8AdapterConfiguration> configurationsByAdapterId) {
+      final Map<String, Camunda8AdapterConfiguration> configurationsByAdapterId,
+      final boolean clusterOfATestRuntime) {
 
     final Map<String, List<String>> idsByCluster = new LinkedHashMap<>();
     configurationsByAdapterId.forEach((
         adapterId,
         configuration) -> idsByCluster
             .computeIfAbsent(
-                Camunda8InstanceIdentity.clusterIdentityOf(configuration),
+                // a test runtime has one cluster, and every id connects to it
+                clusterOfATestRuntime
+                    ? "the cluster of the test runtime"
+                    : Camunda8InstanceIdentity.clusterIdentityOf(configuration),
                 cluster -> new LinkedList<>())
             .add(adapterId));
     idsByCluster
@@ -96,6 +119,31 @@ public class Camunda8ClientFactoryRegistry implements AutoCloseable {
               + "The adapter-id set always comes from 'vanillabp.adapters.<id>.type' - check the wiring.");
     }
     return factory;
+
+  }
+
+  /**
+   * Connects every adapter id to the cluster a test runtime hands over before a test method.
+   *
+   * @param connection Where that cluster answers, and with which credentials
+   */
+  public void connectToTheTestRuntime(
+      final Camunda8TestRuntimeConnection connection) {
+
+    factories
+        .values()
+        .forEach(factory -> factory.connectToTheTestRuntime(connection));
+
+  }
+
+  /**
+   * Takes every adapter id off the cluster of the test runtime, after a test method.
+   */
+  public void disconnectFromTheTestRuntime() {
+
+    factories
+        .values()
+        .forEach(Camunda8ClientFactory::disconnectFromTheTestRuntime);
 
   }
 

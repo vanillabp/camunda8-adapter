@@ -3,6 +3,7 @@ package io.vanillabp.camunda8.wiring;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongFunction;
 
 import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.client.api.search.enums.ListenerEventType;
@@ -123,6 +124,12 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
   private final Camunda8ReportErrorsAsStackTraceResolver reportErrorsAsStackTraceResolver;
 
   /**
+   * What the core is told as the delivery id of a job. It is the job key, followed by a mark
+   * of the handover where a test runtime hands over the cluster.
+   */
+  private final LongFunction<String> deliveryIdOfJob;
+
+  /**
    * The user-task listener worker this handler serves. Built through the generated
    * <code>Camunda8UserTaskListenerHandler.builder()</code>: six of these nine values may
    * be left out, and a positional list of that length no longer says which is which.
@@ -135,6 +142,8 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
    *          <code>null</code> for no iteration
    * @param drain What the workflow module has in flight, or <code>null</code> for a drain
    *          of its own, which never shuts down
+   * @param deliveryIdOfJob What the core is told as the delivery id of a job, or
+   *          <code>null</code> for the job key
    * @param fetchVariables What the worker asked for, or <code>null</code> for every variable
    * @param openTaskProbe What asks the cluster about the other open tasks of the workflow, or
    *          <code>null</code> to ask nothing
@@ -149,6 +158,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
       final NameClashAvoidanceSupport scoping,
       final Camunda8MultiInstance.Registry multiInstanceRegistry,
       final Camunda8Drain drain,
+      final LongFunction<String> deliveryIdOfJob,
       final Camunda8FetchVariables.Selection fetchVariables,
       final Camunda8OpenTaskProbe openTaskProbe,
       final Camunda8ReportErrorsAsStackTraceResolver reportErrorsAsStackTraceResolver) {
@@ -158,6 +168,9 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
     this.fetchVariables = fetchVariables == null
         ? Camunda8FetchVariables.Selection.everything()
         : fetchVariables;
+    this.deliveryIdOfJob = deliveryIdOfJob == null
+        ? String::valueOf
+        : deliveryIdOfJob;
     this.drain = drain == null
         ? new Camunda8Drain(adapterId, workflowModuleId)
         : drain;
@@ -320,7 +333,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
   /**
    * The neutral invocation context built from a user-task lifecycle listener job.
    */
-  static class Camunda8UserTaskInvocationContext implements TaskInvocationContext {
+  class Camunda8UserTaskInvocationContext implements TaskInvocationContext {
 
     private final String adapterId;
 
@@ -458,7 +471,7 @@ public class Camunda8UserTaskListenerHandler implements JobHandler {
       // It is delivered again under the same key until the cluster learns the result.
       // The user-task key would be the wrong choice. Creation and cancellation of the
       // same user task share it, and they are two deliveries with two outcomes.
-      return String.valueOf(job.getKey());
+      return deliveryIdOfJob.apply(job.getKey());
 
     }
 

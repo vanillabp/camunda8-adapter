@@ -10,7 +10,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import io.camunda.client.CamundaClient;
 import io.camunda.client.CamundaClientBuilder;
@@ -40,6 +42,13 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * Why the factory closes workers which never reached the module lifecycle before it closes the
  * client is decision 6 in the repository's DECISIONS.md.
+ * <p>
+ * In a test whose cluster a test runtime starts, there is no client at startup at all. The
+ * runtime starts its cluster after the application, and it deletes everything in it after each
+ * test method. So the factory builds a client when the runtime hands over its cluster and
+ * closes it again when the test method ends (see
+ * {@link #connectToTheTestRuntime(Camunda8TestRuntimeConnection)} and
+ * {@code DECISIONS.pending/2206.md}).
  */
 @Slf4j
 // see decision 4 in the repository's DECISIONS.md
@@ -147,7 +156,18 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
   }
 
-  private CamundaClient client;
+  /**
+   * The client of this adapter id. It is set once in the constructor, except for an adapter
+   * whose cluster comes from a test runtime. There it is set and dropped once per test
+   * method, so a reader on another thread has to see the change.
+   */
+  private volatile CamundaClient client;
+
+  /**
+   * Whether the cluster of this adapter id comes from a test runtime, which hands it over
+   * only while a test method runs. The configured connection is not used then.
+   */
+  private final boolean clusterOfATestRuntime;
 
   /**
    * Builds the factory of one configured adapter id. The registry does this once per id.
@@ -161,7 +181,26 @@ public class Camunda8ClientFactory implements AutoCloseable {
       final String adapterId,
       final Camunda8AdapterConfiguration configuration) {
 
+    this(adapterId, configuration, false);
+
+  }
+
+  /**
+   * Builds the factory of one configured adapter id, which may get its cluster from a test
+   * runtime.
+   *
+   * @param adapterId The configured adapter id
+   * @param configuration The section the application wrote for that id
+   * @param clusterOfATestRuntime Whether a test runtime hands over the cluster before each test
+   *          method. Then no client is built here, and the configured connection is not used
+   */
+  public Camunda8ClientFactory(
+      final String adapterId,
+      final Camunda8AdapterConfiguration configuration,
+      final boolean clusterOfATestRuntime) {
+
     this.adapterId = adapterId;
+    this.clusterOfATestRuntime = clusterOfATestRuntime;
     this.configuration = configuration;
     this.queryApi = new Camunda8QueryApi(adapterId, this::getClient);
     // how this adapter runs what it delivers. It is resolved before anything is built. So
@@ -174,6 +213,12 @@ public class Camunda8ClientFactory implements AutoCloseable {
     // and the certificates of the connection, for the same reason. A file which is not there
     // would otherwise fail inside the client, with a message about its own variables
     configuration.validateMtls(adapterId);
+    if (clusterOfATestRuntime) {
+      // the cluster does not exist yet. The test runtime starts it after the application,
+      // and its client brings the credentials
+      this.authentication = null;
+      return;
+    }
     // eager, so configuration defects show up at startup and not first at runtime. A
     // degraded adapter builds no client and fails on first use instead (backstop)
     if (configuration.missingConnectionProperties().isEmpty()) {
@@ -197,6 +242,10 @@ public class Camunda8ClientFactory implements AutoCloseable {
    */
   public void validateConfigured() {
 
+    if (clusterOfATestRuntime) {
+      // the connection comes from the test runtime, so no configured key is missing
+      return;
+    }
     configuration.validate(adapterId);
 
   }
@@ -220,10 +269,16 @@ public class Camunda8ClientFactory implements AutoCloseable {
    */
   public void waitUntilTheClusterAnswers() {
 
-    if ((client == null) || !clusterWaitedFor.compareAndSet(false, true)) {
+    final var current = client;
+    if ((current == null) || !clusterWaitedFor.compareAndSet(false, true)) {
       return;
     }
-    Camunda8ClusterWait.untilTheClusterAnswers(adapterId, configuration, client);
+    if (clusterOfATestRuntime) {
+      Camunda8ClusterWait.untilTheTestRuntimeAnswers(adapterId, testRuntimeConnection.describe(), configuration,
+          current);
+      return;
+    }
+    Camunda8ClusterWait.untilTheClusterAnswers(adapterId, configuration, current);
 
   }
 
@@ -265,6 +320,12 @@ public class Camunda8ClientFactory implements AutoCloseable {
       return clusterIdentity;
     }
     clusterIdentityAsked = true;
+    if (clusterOfATestRuntime) {
+      // the cluster of a test runtime does not exist while the application starts, and each
+      // test method meets an empty one. So there is nothing to compare, and no warning to give
+      log.debug("Camunda8[{}]: a test runtime hands over the cluster, so it has no identity to compare", adapterId);
+      return null;
+    }
     try {
       clusterIdentity = Camunda8ClusterIdentity.readOrCreate(getClient(), TIME_PER_IDENTITY_REQUEST);
       log.debug("Camunda8[{}]: the cluster has the identity '{}'", adapterId, clusterIdentity);
@@ -306,12 +367,20 @@ public class Camunda8ClientFactory implements AutoCloseable {
           "The Camunda 8 client factory of adapter '%s' was already closed (application shutdown)!"
               .formatted(adapterId));
     }
-    if (client == null) {
+    final var current = client;
+    if ((current == null) && clusterOfATestRuntime) {
+      throw new IllegalStateException(
+          ("Camunda 8 adapter '%s' has no cluster right now. A test runtime hands over its cluster "
+              + "before each test method and takes it back after it, so the adapter reaches a cluster only "
+              + "while a test method runs. Start workflows and send messages from inside a test method.")
+              .formatted(adapterId));
+    }
+    if (current == null) {
       // backstop for adapters which booted degraded. It throws with a guiding message
       // which names the missing properties
       configuration.validate(adapterId);
     }
-    return client;
+    return current;
 
   }
 
@@ -484,6 +553,27 @@ public class Camunda8ClientFactory implements AutoCloseable {
   private void applyTransportOptions(
       final CamundaClientBuilder builder) {
 
+    applyMessageOptions(builder);
+    if (hasText(configuration.getOverrideAuthority())) {
+      builder.overrideAuthority(configuration.getOverrideAuthority());
+    }
+    if (hasText(configuration.getAuth().getCaCertificatePath())) {
+      builder.caCertificatePath(configuration.getAuth().getCaCertificatePath());
+    }
+    // which builder methods exist differs per release line, see Camunda8Mtls
+    Camunda8Mtls.apply(adapterId, builder, configuration.getMtls());
+
+  }
+
+  /**
+   * The options of the transport which do not depend on the cluster: how large a message
+   * may be, how often the connection is kept alive and how many connections the pool holds.
+   * The certificates and the authority are about one cluster, so a client for a test runtime
+   * leaves them out.
+   */
+  private void applyMessageOptions(
+      final CamundaClientBuilder builder) {
+
     if (configuration.getMaxMessageSize() != null) {
       builder.maxMessageSize(configuration.getMaxMessageSize());
     }
@@ -493,14 +583,6 @@ public class Camunda8ClientFactory implements AutoCloseable {
     if (configuration.getMaxHttpConnections() != null) {
       builder.maxHttpConnections(configuration.getMaxHttpConnections());
     }
-    if (hasText(configuration.getOverrideAuthority())) {
-      builder.overrideAuthority(configuration.getOverrideAuthority());
-    }
-    if (hasText(configuration.getAuth().getCaCertificatePath())) {
-      builder.caCertificatePath(configuration.getAuth().getCaCertificatePath());
-    }
-    // which builder methods exist differs per release line, see Camunda8Mtls
-    Camunda8Mtls.apply(adapterId, builder, configuration.getMtls());
 
   }
 
@@ -881,6 +963,201 @@ public class Camunda8ClientFactory implements AutoCloseable {
     final var drain = new Camunda8Drain(adapterId, workflowModuleId);
     drains.put(workflowModuleId, drain);
     return drain;
+
+  }
+
+  /**
+   * What takes part when a test runtime hands over its cluster or takes it back. The
+   * deployment service of the adapter id is one. It deploys the workflow modules and opens
+   * their workers once the cluster is there, and it closes the workers before the cluster
+   * goes.
+   */
+  public interface TestRuntimeParticipant {
+
+    /**
+     * The client of this adapter id talks to the cluster of the test runtime now. That
+     * cluster holds nothing yet.
+     */
+    void clusterArrived();
+
+    /**
+     * The client of this adapter id is closed right after this returns, and the test runtime
+     * deletes everything its cluster holds.
+     */
+    void clusterLeaves();
+
+  }
+
+  /**
+   * Who takes part when a test runtime hands over its cluster, in the order of registration.
+   */
+  private final List<TestRuntimeParticipant> testRuntimeParticipants = new CopyOnWriteArrayList<>();
+
+  /**
+   * Where the client of the test runtime points right now. It is <code>null</code> while no
+   * test method runs.
+   */
+  private volatile Camunda8TestRuntimeConnection testRuntimeConnection;
+
+  /**
+   * What sets the delivery ids of one handover apart from those of every other handover. The
+   * test runtime deletes everything in its cluster after each test method, and its cluster
+   * counts its keys from the start again. The delivery log of the application keeps its
+   * records, so the job key alone would meet a record of an earlier test method. It is
+   * <code>null</code> outside a test runtime.
+   */
+  private volatile String handoverMark;
+
+  /**
+   * How many handovers this JVM has seen. Two handovers in the same millisecond still get
+   * different marks.
+   */
+  private static final AtomicLong HANDOVERS = new AtomicLong();
+
+  /**
+   * The delivery id of a job, by which the core remembers that it processed the job. It is
+   * the job key, which a redelivery keeps and the cluster never hands out twice. Where a test
+   * runtime hands over the cluster, the key is followed by a mark of the handover, because
+   * each test method meets a cluster which counts its keys from the start again (see
+   * {@code DECISIONS.pending/2206.md}).
+   *
+   * @param jobKey The key of the job
+   * @return The delivery id
+   */
+  public String deliveryIdOf(
+      final long jobKey) {
+
+    final var mark = handoverMark;
+    return mark == null
+        ? String.valueOf(jobKey)
+        : "%d@%s".formatted(jobKey, mark);
+
+  }
+
+  /**
+   * Whether the line about the sizing of this adapter id was written. A client for a test
+   * runtime is built once per test method, and the line would say the same every time.
+   */
+  private boolean sizingReported;
+
+  /**
+   * Whether the cluster of this adapter id comes from a test runtime.
+   *
+   * @return Whether a test runtime hands over the cluster before each test method
+   */
+  public boolean followsATestRuntime() {
+
+    return clusterOfATestRuntime;
+
+  }
+
+  /**
+   * Adds one more participant to the handover of the cluster of a test runtime.
+   *
+   * @param participant What runs when the cluster arrives and before it leaves
+   */
+  public void takePartInTheTestRuntime(
+      final TestRuntimeParticipant participant) {
+
+    testRuntimeParticipants.add(participant);
+
+  }
+
+  /**
+   * Builds the client of this adapter id against the cluster a test runtime hands over, and
+   * tells every participant. A client built for the test method before is closed first.
+   * <p>
+   * The address and the credentials come from the test runtime. Everything else comes from
+   * the adapter's own configuration: the execution model, the worker defaults, the timeouts
+   * and the size of a message. So the workers run in a test the way they run in production.
+   *
+   * @param connection Where the cluster answers, and with which credentials
+   * @throws IllegalStateException If this adapter id does not follow a test runtime
+   */
+  public void connectToTheTestRuntime(
+      final Camunda8TestRuntimeConnection connection) {
+
+    if (!clusterOfATestRuntime) {
+      throw new IllegalStateException(
+          "Camunda 8 adapter '%s' connects to its configured cluster, not to the cluster of a test runtime!"
+              .formatted(adapterId));
+    }
+    disconnectFromTheTestRuntime();
+    synchronized (this) {
+      if (closed) {
+        return;
+      }
+      testRuntimeConnection = connection;
+      handoverMark = "%s-%d".formatted(
+          Long.toString(System.currentTimeMillis(), Character.MAX_RADIX), HANDOVERS.incrementAndGet());
+      client = buildForTheTestRuntime(connection);
+      clusterWaitedFor.set(false);
+    }
+    if (modelsTheClusterHolds != null) {
+      modelsTheClusterHolds.forgetWhatWasRead();
+    }
+    testRuntimeParticipants.forEach(TestRuntimeParticipant::clusterArrived);
+
+  }
+
+  /**
+   * Tells every participant that the cluster of the test runtime leaves, in reverse order of
+   * registration, and closes the client of this adapter id afterwards. Nothing happens where
+   * no client is open.
+   */
+  public void disconnectFromTheTestRuntime() {
+
+    if (!clusterOfATestRuntime || (client == null)) {
+      return;
+    }
+    final var participants = new LinkedList<>(testRuntimeParticipants);
+    Collections.reverse(participants);
+    participants.forEach(TestRuntimeParticipant::clusterLeaves);
+    synchronized (this) {
+      closeWorkersOfModulesWhichDidNotStop();
+      if (slotWatch != null) {
+        slotWatch.close();
+        slotWatch = null;
+      }
+      final var current = client;
+      client = null;
+      testRuntimeConnection = null;
+      if (current != null) {
+        log.debug("Camunda8[{}]: closing the client of the test runtime", adapterId);
+        current.close();
+      }
+    }
+
+  }
+
+  /**
+   * Builds a client against the cluster of a test runtime.
+   */
+  private CamundaClient buildForTheTestRuntime(
+      final Camunda8TestRuntimeConnection connection) {
+
+    log.info("Camunda8[{}]: connecting to the cluster of the test runtime at {}, prefer-rest-over-grpc {}",
+        adapterId, connection.describe(), configuration.isPreferRestOverGrpc());
+    final var builder = CamundaClient
+        .newClientBuilder()
+        .preferRestOverGrpc(configuration.isPreferRestOverGrpc())
+        .restAddress(connection.restAddress())
+        .grpcAddress(connection.grpcAddress());
+    if (hasText(configuration.getTenantId())) {
+      builder.defaultTenantId(configuration.getTenantId());
+    }
+    applyExecutionModel(builder);
+    applyWorkerDefaults(builder);
+    applyMessageOptions(builder);
+    if (connection.credentials() != null) {
+      builder.credentialsProvider(connection.credentials());
+    }
+    final var built = Camunda8HttpClientRuntime.buildOrNameTheMissingPin(builder::build);
+    if (!sizingReported) {
+      sizingReported = true;
+      reportSizing();
+    }
+    return built;
 
   }
 
