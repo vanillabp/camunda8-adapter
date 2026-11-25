@@ -12,8 +12,8 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
 /**
  * The <code>mtls</code> block binds on Quarkus, and a certificate which cannot be used ends
- * the start. On the 8.10 line the file is not there. On an older line the client has no
- * mutual TLS, and the block is refused as a whole. Either way the message names a key of the
+ * the start. On the 8.9 and 8.10 lines the file is not there. On the 8.8 line the client has
+ * no mutual TLS, and the block is refused as a whole. Either way the message names a key of the
  * block, and never the passphrase.
  */
 @ExtendWith(SuppressOutputExtension.class)

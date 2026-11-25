@@ -244,8 +244,8 @@ public class Camunda8StartupValidationBootTest {
                 + passphrase)
             .close());
 
-    // on the 8.10 line the file is not there, on an older line the block is refused as a
-    // whole. Either way the message names a key of the block, so the block was bound
+    // on the 8.9 and 8.10 lines the file is not there, on the 8.8 line the block is refused
+    // as a whole. Either way the message names a key of the block, so the block was bound
     final var failure = rootMessage(exception);
     Assertions.assertTrue(failure.contains("vanillabp.adapters.c8.mtls.cert-path"), failure);
     Assertions.assertFalse(failure.contains(passphrase), "a passphrase never reaches a message");

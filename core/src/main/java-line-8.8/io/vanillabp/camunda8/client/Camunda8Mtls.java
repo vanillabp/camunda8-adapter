@@ -8,8 +8,8 @@ import io.camunda.client.CamundaClientConfiguration;
 
 /**
  * Would hand the client the mutual TLS of this adapter instance. This is the 8.8 variant,
- * and the client of this line has no mutual TLS. The client of the 8.10 line has it from
- * 8.10.10 on.
+ * and the client of this line has no mutual TLS. The client of the 8.9 line has it from
+ * 8.9.29 on, the client of the 8.10 line from 8.10.10 on.
  * <p>
  * The start refuses every key of the block on this line, see
  * {@link Camunda8AdapterConfiguration#validateMtls(String)}. This class repeats the refusal

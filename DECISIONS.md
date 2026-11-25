@@ -207,7 +207,7 @@ ends the retry at once, so the job stays on its lock instead of being reported.
 
 ### 10. Authentication belongs to the connection, not to a workflow
 
-*Superseded in part by decision 108: the client of 8.10.10 has mutual TLS for its connection to the cluster, and the adapter has a block `mtls` for it. The paragraph about `mtls` and the note below it no longer hold for the 8.10 line. `mtls` is still not a method of `auth`.*
+*Superseded in part by decision 108: the client of 8.10.10 has mutual TLS for its connection to the cluster, and the adapter has a block `mtls` for it. The paragraph about `mtls` and the note below it no longer hold for the 8.10 line, and since client 8.9.29 not for the 8.9 line either. `mtls` is still not a method of `auth`.*
 
 `vanillabp.adapters.<id>.auth.*` exists only at adapter level, because a credential is a property
 of the connection. The method is either named or detected from the keys which are set. At startup
@@ -4759,6 +4759,13 @@ the other values are secrets.
 client from a certificate made for the test, from PEM files and from PKCS#12 stores. The boot tests
 of both platforms show that the block binds. No test talks to a cluster with mutual TLS, because
 the repository has no such cluster under test.
+
+**Addition, 2026-11-25: the 8.9 line reads the block as well.** Client 8.9.29 added the same seven
+builder methods, the same `getMtls*` getters and the same `CAMUNDA_MTLS_*` variables as 8.10.10.
+So the 8.9 line now does what the 8.10 line does, and its `Camunda8Mtls` is the same code. Only
+the 8.8 line still refuses every key, because its client (8.8.47 when this was written) has none of
+the methods. The message there now names the 8.9 line as the first one with mutual TLS. Where the
+paragraphs above say "8.8 and 8.9" or "on 8.10", read "8.8" and "on 8.9 and 8.10".
 
 Places which rely on this entry:
 
