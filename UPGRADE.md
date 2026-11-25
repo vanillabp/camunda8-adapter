@@ -400,6 +400,36 @@ second causes a warning. It is the deadline of every request this adapter sends,
 deployment of a workflow module and every search. So a healthy cluster answers too late, and that
 looks like a network problem.
 
+### A test on Camunda Process Test starts its cluster too late for the adapter
+
+Visible to every application whose tests use `@CamundaSpringProcessTest`.
+
+Version 1 used the client of Camunda's Spring integration, and Camunda Process Test fills that
+client with the address of its own cluster before each test method. This version builds its own
+client while the application context starts, from `vanillabp.adapters.<id>.*`. Camunda Process
+Test loads the context first and starts its cluster after that, so there is no address to hand
+over. The adapter tries its default address, see
+[the section about it](#without-a-cluster-address-the-adapter-connects-to-localhost-on-the-port-of-the-line),
+and the test fails once `startup-wait` runs out, ten minutes by default.
+
+Change the setup of such a test, not its methods. Start the cluster before the context, for
+example with Testcontainers and the `camunda/camunda` image of your line, and hand its addresses
+to `vanillabp.adapters.<id>.rest-address` and `grpc-address` in a `@DynamicPropertySource`
+method. The integration tests of this repository do it the same way,
+`SpringBootTestOnTheSharedCluster`. A test whose methods use `CamundaAssert` keeps
+`@CamundaSpringProcessTest` with `camunda.process-test.runtime-mode: remote` and the same
+addresses in `camunda.client.rest-address` and `camunda.client.grpc-address`. Camunda Process
+Test then deletes all data after every test method, the deployment of the workflow module
+included, and the adapter deploys only when the context starts. On 8.10 set
+`camunda.process-test.data-deletion-mode: none`. On 8.8 and 8.9, which have no such key, give each
+test method a fresh context with `@DirtiesContext`.
+
+Tried on 2026-11-24 with Spring Boot 4.1.2 against `camunda/camunda` 8.8.47, 8.9.29 and 8.10.10,
+with `camunda-process-test-spring-boot-4` 8.8.47 and `camunda-process-test-spring` 8.9.29 and
+8.10.10, as Camunda's testing guide names them for each line. The
+[upgrade skill](https://github.com/vanillabp/skills/blob/main/skills/vanillabp-upgrade-v1-to-v2/references/tests.md)
+has the code.
+
 ### The `retryBackoff` task header of a model is read again
 
 Version 1 let a Camunda 8 model set the backoff of a single element in the task header
