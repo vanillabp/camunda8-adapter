@@ -167,7 +167,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * Whether the cluster of this adapter id comes from a test runtime, which hands it over
    * only while a test method runs. The configured connection is not used then.
    */
-  private final boolean clusterOfATestRuntime;
+  private final boolean followsATestRuntime;
 
   /**
    * Builds the factory of one configured adapter id. The registry does this once per id.
@@ -191,16 +191,16 @@ public class Camunda8ClientFactory implements AutoCloseable {
    *
    * @param adapterId The configured adapter id
    * @param configuration The section the application wrote for that id
-   * @param clusterOfATestRuntime Whether a test runtime hands over the cluster before each test
+   * @param followsATestRuntime Whether a test runtime hands over the cluster before each test
    *          method. Then no client is built here, and the configured connection is not used
    */
   public Camunda8ClientFactory(
       final String adapterId,
       final Camunda8AdapterConfiguration configuration,
-      final boolean clusterOfATestRuntime) {
+      final boolean followsATestRuntime) {
 
     this.adapterId = adapterId;
-    this.clusterOfATestRuntime = clusterOfATestRuntime;
+    this.followsATestRuntime = followsATestRuntime;
     this.configuration = configuration;
     this.queryApi = new Camunda8QueryApi(adapterId, this::getClient);
     // how this adapter runs what it delivers. It is resolved before anything is built. So
@@ -213,7 +213,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
     // and the certificates of the connection, for the same reason. A file which is not there
     // would otherwise fail inside the client, with a message about its own variables
     configuration.validateMtls(adapterId);
-    if (clusterOfATestRuntime) {
+    if (followsATestRuntime) {
       // the cluster does not exist yet. The test runtime starts it after the application,
       // and its client brings the credentials
       this.authentication = null;
@@ -242,7 +242,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
    */
   public void validateConfigured() {
 
-    if (clusterOfATestRuntime) {
+    if (followsATestRuntime) {
       // the connection comes from the test runtime, so no configured key is missing
       return;
     }
@@ -273,7 +273,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
     if ((current == null) || !clusterWaitedFor.compareAndSet(false, true)) {
       return;
     }
-    if (clusterOfATestRuntime) {
+    if (followsATestRuntime) {
       Camunda8ClusterWait.untilTheTestRuntimeAnswers(adapterId, testRuntimeConnection.describe(), configuration,
           current);
       return;
@@ -320,7 +320,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
       return clusterIdentity;
     }
     clusterIdentityAsked = true;
-    if (clusterOfATestRuntime) {
+    if (followsATestRuntime) {
       // the cluster of a test runtime does not exist while the application starts, and each
       // test method meets an empty one. So there is nothing to compare, and no warning to give
       log.debug("Camunda8[{}]: a test runtime hands over the cluster, so it has no identity to compare", adapterId);
@@ -368,7 +368,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
               .formatted(adapterId));
     }
     final var current = client;
-    if ((current == null) && clusterOfATestRuntime) {
+    if ((current == null) && followsATestRuntime) {
       throw new IllegalStateException(
           ("Camunda 8 adapter '%s' has no cluster right now. A test runtime hands over its cluster "
               + "before each test method and takes it back after it, so the adapter reaches a cluster only "
@@ -1047,7 +1047,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
    */
   public boolean followsATestRuntime() {
 
-    return clusterOfATestRuntime;
+    return followsATestRuntime;
 
   }
 
@@ -1070,6 +1070,8 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * The address and the credentials come from the test runtime. Everything else comes from
    * the adapter's own configuration: the execution model, the worker defaults, the timeouts
    * and the size of a message. So the workers run in a test the way they run in production.
+   * Environment variables of the Camunda client are not read for this client, so none of
+   * them can move the adapter off the cluster of the test.
    *
    * @param connection Where the cluster answers, and with which credentials
    * @throws IllegalStateException If this adapter id does not follow a test runtime
@@ -1077,7 +1079,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
   public void connectToTheTestRuntime(
       final Camunda8TestRuntimeConnection connection) {
 
-    if (!clusterOfATestRuntime) {
+    if (!followsATestRuntime) {
       throw new IllegalStateException(
           "Camunda 8 adapter '%s' connects to its configured cluster, not to the cluster of a test runtime!"
               .formatted(adapterId));
@@ -1107,7 +1109,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
    */
   public void disconnectFromTheTestRuntime() {
 
-    if (!clusterOfATestRuntime || (client == null)) {
+    if (!followsATestRuntime || (client == null)) {
       return;
     }
     final var participants = new LinkedList<>(testRuntimeParticipants);
@@ -1138,8 +1140,12 @@ public class Camunda8ClientFactory implements AutoCloseable {
 
     log.info("Camunda8[{}]: connecting to the cluster of the test runtime at {}, prefer-rest-over-grpc {}",
         adapterId, connection.describe(), configuration.isPreferRestOverGrpc());
+    // the client reads variables such as CAMUNDA_REST_ADDRESS, ZEEBE_GRPC_ADDRESS and
+    // CAMUNDA_CLIENT_* by default, and they would win over the address of the test runtime
+    // without a word. A test would then run against some other cluster
     final var builder = CamundaClient
         .newClientBuilder()
+        .applyEnvironmentVariableOverrides(false)
         .preferRestOverGrpc(configuration.isPreferRestOverGrpc())
         .restAddress(connection.restAddress())
         .grpcAddress(connection.grpcAddress());

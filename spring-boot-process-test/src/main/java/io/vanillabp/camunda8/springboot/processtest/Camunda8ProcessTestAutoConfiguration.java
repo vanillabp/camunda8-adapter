@@ -20,14 +20,14 @@ import io.vanillabp.camunda8.springboot.client.Camunda8ClusterOfATestRuntime;
  * client of its own before each test method. After the method it deletes everything in the
  * cluster, the deployments included. So this configuration tells the adapter not to build a
  * client at startup ({@link Camunda8ClusterOfATestRuntime}), and it connects the adapter to
- * the cluster of every test method ({@link Camunda8ProcessTestClients}).
+ * the cluster of every test method ({@link Camunda8FollowsTheProcessTestCluster}).
  * <p>
  * The types of Camunda Process Test are named as strings. Spring Boot evaluates the
  * conditions before it loads anything else of this class. So an application which has this
  * artifact but not Camunda Process Test on its classpath starts as if it had neither.
  */
 @AutoConfiguration
-@ConditionalOnClass(name = Camunda8ProcessTestClients.EXECUTION_LISTENER)
+@ConditionalOnClass(name = Camunda8FollowsTheProcessTestCluster.EXECUTION_LISTENER)
 @ConditionalOnBean(type = Camunda8ProcessTestAutoConfiguration.TEST_CONTEXT_MARKER)
 public class Camunda8ProcessTestAutoConfiguration {
 
@@ -64,10 +64,10 @@ public class Camunda8ProcessTestAutoConfiguration {
    * @return The listener to the events of Camunda Process Test
    */
   @Bean
-  public Camunda8ProcessTestClients camunda8ProcessTestClients(
+  public Camunda8FollowsTheProcessTestCluster camunda8FollowsTheProcessTestCluster(
       final ObjectProvider<Camunda8ClientFactoryRegistry> registry) {
 
-    return new Camunda8ProcessTestClients(registry);
+    return new Camunda8FollowsTheProcessTestCluster(registry);
 
   }
 

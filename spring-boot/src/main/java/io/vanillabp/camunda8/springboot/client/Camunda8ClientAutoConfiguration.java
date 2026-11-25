@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -15,6 +16,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.Environment;
+import org.springframework.util.ClassUtils;
 
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
@@ -81,6 +83,8 @@ public class Camunda8ClientAutoConfiguration {
    *          not read and which therefore end the boot
    * @param testRuntime There in a test whose cluster a test runtime hands over, and empty
    *          everywhere else
+   * @param beans Where a test on Camunda Process Test is recognised which lacks the support of
+   *          this adapter
    * @return The registry, with every completely configured client already built
    */
   @Bean(destroyMethod = "close")
@@ -88,9 +92,10 @@ public class Camunda8ClientAutoConfiguration {
       final VanillaBpConfigurationProperties coreProperties,
       final VanillaBpCamunda8Properties overlay,
       final Environment environment,
-      final ObjectProvider<Camunda8ClusterOfATestRuntime> testRuntime) {
+      final ObjectProvider<Camunda8ClusterOfATestRuntime> testRuntime,
+      final ListableBeanFactory beans) {
 
-    final var clusterOfATestRuntime = testRuntime.getIfAvailable() != null;
+    final var followsATestRuntime = testRuntime.getIfAvailable() != null;
 
     final var adapterIds = coreProperties
         .adapterTypes()
@@ -102,6 +107,11 @@ public class Camunda8ClientAutoConfiguration {
     // a key of version 1 which this version does not read would change nothing in silence.
     // It is refused first, because a later message may be about the very value it meant to set
     Camunda8VersionOneKeys.refuseKeysOfVersionOne(adapterIds, propertyNames(environment));
+    // a test on Camunda Process Test without the support would wait for a cluster which
+    // starts only after the context, for the whole startup-wait
+    if (!followsATestRuntime && !adapterIds.isEmpty()) {
+      refuseCamundaProcessTestWithoutItsSupport(adapterIds, beans);
+    }
 
     final Map<String, Camunda8AdapterConfiguration> configurations = new HashMap<>();
     adapterIds
@@ -112,7 +122,7 @@ public class Camunda8ClientAutoConfiguration {
           // a removed key is refused before anything else, wherever it is set. The
           // workers no longer read it, and silence would hide that from the application
           Camunda8FetchVariables.rejectTheRemovedKey(adapterId, overlay.fetchVariablesKeys(adapterId));
-          if (clusterOfATestRuntime) {
+          if (followsATestRuntime) {
             Camunda8StartupValidation.validateAtStartupForATestRuntime(
                 adapterId, configuration, coreProperties.resolvedDeliveryRetention(), log::warn, log::info);
           } else {
@@ -135,7 +145,54 @@ public class Camunda8ClientAutoConfiguration {
           configurations.put(adapterId, configuration);
         });
 
-    return new Camunda8ClientFactoryRegistry(configurations, clusterOfATestRuntime);
+    return new Camunda8ClientFactoryRegistry(configurations, followsATestRuntime);
+
+  }
+
+  /**
+   * The marker bean which {@code @CamundaSpringProcessTest} imports into the context of a test
+   * class. It is named as a string, because this artifact must not depend on Camunda Process
+   * Test.
+   */
+  static final String CAMUNDA_PROCESS_TEST_MARKER = "io.camunda.client.spring.testsupport.CamundaSpringProcessTestContext";
+
+  /**
+   * The artifact which lets this adapter follow the cluster of Camunda Process Test.
+   */
+  static final String PROCESS_TEST_ARTIFACT = "io.vanillabp:camunda8-adapter-spring-boot-process-test";
+
+  /**
+   * Ends the start of a test on Camunda Process Test whose classpath lacks the artifact which
+   * lets this adapter follow the cluster of that test. Without it the adapter would build its
+   * client against the configured cluster, and it would wait for it until {@code startup-wait}
+   * runs out, ten minutes by default, because Camunda Process Test starts its cluster only
+   * after the context.
+   *
+   * @param adapterIds The configured adapter ids of type {@code camunda8}
+   * @param beans The beans of the context
+   */
+  static void refuseCamundaProcessTestWithoutItsSupport(
+      final List<String> adapterIds,
+      final ListableBeanFactory beans) {
+
+    if (!ClassUtils.isPresent(CAMUNDA_PROCESS_TEST_MARKER, null)) {
+      return;
+    }
+    final var marker = ClassUtils.resolveClassName(CAMUNDA_PROCESS_TEST_MARKER, null);
+    if (beans.getBeanNamesForType(marker, false, false).length == 0) {
+      return;
+    }
+    throw new IllegalStateException(
+        """
+            This test runs on Camunda Process Test (@CamundaSpringProcessTest), but the Camunda 8 adapter \
+            '%s' cannot follow its cluster. Add the artifact '%s' as a test dependency, in the version of \
+            your adapter. Camunda Process Test starts its cluster after the application context and \
+            empties it after each test method. Without that artifact the adapter would wait for its \
+            configured cluster until '%s' runs out."""
+            .formatted(
+                String.join("', '", adapterIds),
+                PROCESS_TEST_ARTIFACT,
+                Camunda8AdapterConfiguration.propertyKey(adapterIds.getFirst(), "startup-wait")));
 
   }
 

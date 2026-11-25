@@ -63,6 +63,12 @@ public final class Camunda8ClusterWait {
   public static final Duration TIME_PER_ATTEMPT = Duration.ofSeconds(5);
 
   /**
+   * How long a test method waits for the cluster of its test runtime when the application
+   * did not set {@code startup-wait}.
+   */
+  public static final Duration TEST_RUNTIME_WAIT = Duration.ofMinutes(1);
+
+  /**
    * Waits for the cluster of one adapter instance to answer a topology request. The health
    * check asks the same question. It is the cheapest one a Camunda 8 cluster answers, and it
    * needs neither secondary storage nor a tenant.
@@ -110,6 +116,11 @@ public final class Camunda8ClusterWait {
    * Unlike {@link #untilTheClusterAnswers(String, Camunda8AdapterConfiguration, CamundaClient)}
    * it compares no versions. The test runtime chose its cluster, and the comparison would be
    * written once per test method.
+   * <p>
+   * It waits {@link #TEST_RUNTIME_WAIT} unless the application set {@code startup-wait}. The
+   * default of {@code startup-wait} is made for a cluster which boots together with the
+   * application. The cluster of a test runtime is running already, and a test method which
+   * cannot reach it should fail within a minute, not after ten.
    *
    * @param adapterId The adapter ID
    * @param address The addresses of the cluster, the way a log line names them
@@ -125,9 +136,25 @@ public final class Camunda8ClusterWait {
     untilTheClusterAnswers(
         adapterId,
         address,
-        configuration.resolvedStartupWait(),
+        howLongToWaitForTheTestRuntime(configuration),
         TIME_PER_ATTEMPT,
         () -> askForTheTopology(client, TIME_PER_ATTEMPT));
+
+  }
+
+  /**
+   * How long to wait for the cluster of a test runtime: what the application set as
+   * {@code startup-wait}, or else {@link #TEST_RUNTIME_WAIT}.
+   *
+   * @param configuration The configuration of the adapter
+   * @return The wait
+   */
+  static Duration howLongToWaitForTheTestRuntime(
+      final Camunda8AdapterConfiguration configuration) {
+
+    return configuration.getStartupWait() == null
+        ? TEST_RUNTIME_WAIT
+        : configuration.getStartupWait();
 
   }
 

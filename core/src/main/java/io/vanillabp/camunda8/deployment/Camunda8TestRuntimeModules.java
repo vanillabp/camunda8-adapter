@@ -33,6 +33,8 @@ final class Camunda8TestRuntimeModules implements Camunda8ClientFactory.TestRunt
    */
   private final Map<String, Camunda8ProcessingContext> toProcess = new LinkedHashMap<>();
 
+  private final Runnable forgetTheClusterBefore;
+
   private final BiConsumer<String, Camunda8ProcessingContext> deployment;
 
   private final BiConsumer<String, Camunda8ProcessingContext> openTheWorkers;
@@ -45,15 +47,19 @@ final class Camunda8TestRuntimeModules implements Camunda8ClientFactory.TestRunt
   private boolean clusterPresent;
 
   /**
+   * @param forgetTheClusterBefore Drops what was learned about the cluster of the test method
+   *          before, such as the tenants it was asked about. The new cluster holds nothing
    * @param deployment Sends the deployment of one module to the cluster which just arrived
    * @param openTheWorkers Opens the workers of one module against that cluster
    * @param closeTheWorkers Closes the workers of one module before the cluster leaves
    */
   Camunda8TestRuntimeModules(
+      final Runnable forgetTheClusterBefore,
       final BiConsumer<String, Camunda8ProcessingContext> deployment,
       final BiConsumer<String, Camunda8ProcessingContext> openTheWorkers,
       final BiConsumer<String, Camunda8ProcessingContext> closeTheWorkers) {
 
+    this.forgetTheClusterBefore = forgetTheClusterBefore;
     this.deployment = deployment;
     this.openTheWorkers = openTheWorkers;
     this.closeTheWorkers = closeTheWorkers;
@@ -109,6 +115,7 @@ final class Camunda8TestRuntimeModules implements Camunda8ClientFactory.TestRunt
   public synchronized void clusterArrived() {
 
     clusterPresent = true;
+    forgetTheClusterBefore.run();
     toDeploy.forEach(deployment);
     toProcess.forEach(openTheWorkers);
 

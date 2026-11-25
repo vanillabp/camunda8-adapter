@@ -148,6 +148,58 @@ public class Camunda8TestRuntimeTest {
 
   }
 
+  @Test
+  @DisplayName("A handover whose participant fails fails that test method, and the next handover recovers")
+  public void aFailedHandoverFailsOneTestMethodOnly() {
+
+    final var events = new ArrayList<String>();
+    final var failures = new int[]{
+        1
+    };
+    try (var factory = new Camunda8ClientFactory("c8", new Camunda8AdapterConfiguration(), true)) {
+      factory.takePartInTheTestRuntime(participant("modules", events));
+      factory.takePartInTheTestRuntime(new Camunda8ClientFactory.TestRuntimeParticipant() {
+
+        @Override
+        public void clusterArrived() {
+
+          if (failures[0]-- > 0) {
+            throw new IllegalStateException("the deployment was refused");
+          }
+
+        }
+
+        @Override
+        public void clusterLeaves() {
+        }
+
+      });
+
+      // the exception reaches the event of the test runtime, which fails the test method
+      final var refused = assertThrows(IllegalStateException.class, () -> factory.connectToTheTestRuntime(CONNECTION));
+      assertEquals("the deployment was refused", refused.getMessage());
+      // the test runtime may not say goodbye after a method which failed in its setup. The next
+      // handover closes what the failed one left open, and then it works
+      factory.connectToTheTestRuntime(CONNECTION);
+      assertNotNull(factory.getClient());
+      factory.disconnectFromTheTestRuntime();
+
+      assertEquals(List.of("modules arrived", "modules leaves", "modules arrived", "modules leaves"), events);
+    }
+
+  }
+
+  @Test
+  @DisplayName("A test method waits a minute for its cluster, unless startup-wait is set")
+  public void aTestMethodWaitsAMinuteForItsCluster() {
+
+    final var configuration = new Camunda8AdapterConfiguration();
+    assertEquals(Duration.ofMinutes(1), Camunda8ClusterWait.howLongToWaitForTheTestRuntime(configuration));
+    configuration.setStartupWait(Duration.ofMinutes(3));
+    assertEquals(Duration.ofMinutes(3), Camunda8ClusterWait.howLongToWaitForTheTestRuntime(configuration));
+
+  }
+
   private static Camunda8ClientFactory.TestRuntimeParticipant participant(
       final String name,
       final List<String> events) {

@@ -21,6 +21,7 @@ import io.camunda.client.spring.testsupport.CamundaSpringProcessTestContext;
 import io.camunda.process.test.api.CamundaProcessTestExecutionListener;
 import io.vanillabp.camunda8.client.Camunda8AdapterConfiguration;
 import io.vanillabp.camunda8.client.Camunda8ClientFactoryRegistry;
+import io.vanillabp.camunda8.springboot.client.Camunda8ClientAutoConfiguration;
 import io.vanillabp.camunda8.springboot.client.Camunda8ClusterOfATestRuntime;
 import io.vanillabp.integration.test.utils.SuppressOutputExtension;
 
@@ -31,13 +32,13 @@ import io.vanillabp.integration.test.utils.SuppressOutputExtension;
  * cluster of Camunda Process Test.
  */
 @ExtendWith(SuppressOutputExtension.class)
-public class Camunda8ProcessTestClientsTest {
+public class Camunda8FollowsTheProcessTestClusterTest {
 
   private static final String ADAPTER_ID = "c8";
 
   private Camunda8ClientFactoryRegistry registry;
 
-  private Camunda8ProcessTestClients listener;
+  private Camunda8FollowsTheProcessTestCluster listener;
 
   private CamundaClient clientOfTheTestRuntime;
 
@@ -47,7 +48,7 @@ public class Camunda8ProcessTestClientsTest {
     registry = new Camunda8ClientFactoryRegistry(Map.of(ADAPTER_ID, new Camunda8AdapterConfiguration()), true);
     final var beans = new StaticListableBeanFactory();
     beans.addBean("registry", registry);
-    listener = new Camunda8ProcessTestClients(beans.getBeanProvider(Camunda8ClientFactoryRegistry.class));
+    listener = new Camunda8FollowsTheProcessTestCluster(beans.getBeanProvider(Camunda8ClientFactoryRegistry.class));
     clientOfTheTestRuntime = CamundaClient
         .newClientBuilder()
         .restAddress(URI.create("http://cluster-of-the-test:8080"))
@@ -119,14 +120,85 @@ public class Camunda8ProcessTestClientsTest {
 
     runner.run(context -> {
       assertThat(context).doesNotHaveBean(Camunda8ClusterOfATestRuntime.class);
-      assertThat(context).doesNotHaveBean(Camunda8ProcessTestClients.class);
+      assertThat(context).doesNotHaveBean(Camunda8FollowsTheProcessTestCluster.class);
     });
     runner
         .withBean(CamundaSpringProcessTestContext.class)
         .run(context -> {
           assertThat(context).hasSingleBean(Camunda8ClusterOfATestRuntime.class);
-          assertThat(context).hasSingleBean(Camunda8ProcessTestClients.class);
+          assertThat(context).hasSingleBean(Camunda8FollowsTheProcessTestCluster.class);
         });
+
+  }
+
+  /**
+   * An application with one Camunda 8 adapter id which names its own cluster. Building its
+   * client sends nothing, so no cluster is needed.
+   */
+  private static ApplicationContextRunner applicationOnItsConfiguredCluster() {
+
+    return new ApplicationContextRunner()
+        .withPropertyValues(
+            "vanillabp.adapters.c8.type=camunda8",
+            "vanillabp.adapters.c8.rest-address=http://configured-cluster:8088",
+            "vanillabp.adapters.c8.grpc-address=http://configured-cluster:26500",
+            "vanillabp.adapters.c8.job-lease=do-not-use");
+
+  }
+
+  @Test
+  public void aTestClassWithoutCamundaProcessTestStaysOnTheConfiguredCluster() {
+
+    applicationOnItsConfiguredCluster()
+        .withConfiguration(AutoConfigurations.of(
+            Camunda8ClientAutoConfiguration.class, Camunda8ProcessTestAutoConfiguration.class))
+        .run(context -> {
+          assertThat(context).hasNotFailed();
+          final var factory = context
+              .getBean(Camunda8ClientFactoryRegistry.class)
+              .getFactory(ADAPTER_ID);
+          assertThat(factory.followsATestRuntime()).isFalse();
+          assertThat(factory
+              .getClient()
+              .getConfiguration()
+              .getRestAddress()).isEqualTo(URI.create("http://configured-cluster:8088"));
+        });
+
+  }
+
+  @Test
+  public void aTestOnCamundaProcessTestFollowsItsClusterInstead() {
+
+    applicationOnItsConfiguredCluster()
+        .withBean(CamundaSpringProcessTestContext.class)
+        .withConfiguration(AutoConfigurations.of(
+            Camunda8ClientAutoConfiguration.class, Camunda8ProcessTestAutoConfiguration.class))
+        .run(context -> {
+          assertThat(context).hasNotFailed();
+          final var factory = context
+              .getBean(Camunda8ClientFactoryRegistry.class)
+              .getFactory(ADAPTER_ID);
+          assertThat(factory.followsATestRuntime()).isTrue();
+          assertThatThrownBy(factory::getClient).hasMessageContaining("has no cluster right now");
+        });
+
+  }
+
+  @Test
+  public void aTestOnCamundaProcessTestWithoutThisArtifactEndsTheStart() {
+
+    // the auto-configuration of this artifact is left out, as if the application had not added it
+    applicationOnItsConfiguredCluster()
+        .withBean(CamundaSpringProcessTestContext.class)
+        .withConfiguration(AutoConfigurations.of(Camunda8ClientAutoConfiguration.class))
+        .run(context -> assertThat(context)
+            .getFailure()
+            .rootCause()
+            .hasMessageContaining("This test runs on Camunda Process Test (@CamundaSpringProcessTest), "
+                + "but the Camunda 8 adapter 'c8' cannot follow its cluster")
+            .hasMessageContaining("Add the artifact 'io.vanillabp:camunda8-adapter-spring-boot-process-test' "
+                + "as a test dependency")
+            .hasMessageContaining("'vanillabp.adapters.c8.startup-wait'"));
 
   }
 

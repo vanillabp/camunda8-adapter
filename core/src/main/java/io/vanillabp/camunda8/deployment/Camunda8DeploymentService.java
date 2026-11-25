@@ -720,7 +720,7 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     // The platform deploys and opens once, at a moment when there is no cluster yet
     if (clientFactory.followsATestRuntime()) {
       this.testRuntimeModules = new Camunda8TestRuntimeModules(
-          this::deployToTheClusterOfTheTestRuntime, this::openTheWorkers, this::closeTheWorkers);
+          this::forgetTheClusterOfTheTestMethodBefore, this::deployToTheClusterOfTheTestRuntime, this::openTheWorkers, this::closeTheWorkers);
       clientFactory.takePartInTheTestRuntime(testRuntimeModules);
     } else {
       this.testRuntimeModules = null;
@@ -3731,6 +3731,19 @@ public class Camunda8DeploymentService implements AdapterDeploymentService<BpmnM
     }
 
     return new WhatWasDeployed(processesDeployed, decisionsDeployed);
+
+  }
+
+  /**
+   * Drops what this service learned about the cluster of the test method before. Only the
+   * tenants it asked about are kept per cluster. Everything else this service holds is read
+   * from the files, or comes again with the next deployment.
+   */
+  private void forgetTheClusterOfTheTestMethodBefore() {
+
+    // a test runtime may delete the tenants with everything else. A tenant checked against
+    // the cluster of the method before is checked again, so a missing one is named
+    verifiedTenants.clear();
 
   }
 

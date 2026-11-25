@@ -25,7 +25,7 @@ import io.vanillabp.camunda8.client.Camunda8TestRuntimeConnection;
  * publishes the same events for a client of its own, and that client is not the cluster of
  * the test.
  */
-public class Camunda8ProcessTestClients {
+public class Camunda8FollowsTheProcessTestCluster {
 
   /**
    * The listener of Camunda Process Test which starts the cluster and publishes the events.
@@ -39,7 +39,7 @@ public class Camunda8ProcessTestClients {
    *
    * @param registry The clients of every Camunda 8 adapter id of the application
    */
-  public Camunda8ProcessTestClients(
+  public Camunda8FollowsTheProcessTestCluster(
       final ObjectProvider<Camunda8ClientFactoryRegistry> registry) {
 
     this.registry = registry;

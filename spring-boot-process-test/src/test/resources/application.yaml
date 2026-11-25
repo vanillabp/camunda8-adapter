@@ -20,3 +20,8 @@ vanillabp:
       workflows:
         DemoProcess:
           allow-full-sync-with-bpms: true
+        ReviewProcess:
+          allow-full-sync-with-bpms: true
+          adapters:
+            camunda8:
+              allow-listeners: true
