@@ -66,7 +66,7 @@ public class Camunda8MtlsTest {
         .getMessage();
     assertTrue(message.contains("configures mutual TLS"), message);
     assertTrue(message.contains("vanillabp.adapters.c8.mtls.keystore-password"), message);
-    assertTrue(message.contains("from 8.10.10 on, so they need the 8.10 line of this adapter"), message);
+    assertTrue(message.contains("from 8.9.29 on, so they need the 8.9 line of this adapter or a newer one"), message);
     assertFalse(message.contains(PASSWORD), "a password never reaches a message");
 
   }

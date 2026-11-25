@@ -30,10 +30,10 @@ import java.util.stream.Collectors;
  * <code>camunda.client.mtls</code>. So an application which moves from the starter to
  * VanillaBP finds the same names.
  * <p>
- * Only the client of the 8.10 line knows these options, from 8.10.10 on. On an older line
- * every key of the block ends the start. Ignoring the keys would connect without the
- * certificate the configuration names. Each line's <code>Camunda8Mtls</code> applies the
- * block to the builder.
+ * The client of the 8.9 line knows these options from 8.9.29 on, the client of the 8.10 line
+ * from 8.10.10 on. On the 8.8 line every key of the block ends the start. Ignoring the keys
+ * would connect without the certificate the configuration names. Each line's
+ * <code>Camunda8Mtls</code> applies the block to the builder.
  * <p>
  * Messages built here name keys, and for files the path. They never name a password, a
  * passphrase or the content of a key.
@@ -448,7 +448,7 @@ public class Camunda8MtlsConfiguration {
    * with a TLS error which names nothing of this configuration.
    *
    * @param adapterId The adapter id
-   * @param line The release line of this build, e.g. <code>8.9</code>
+   * @param line The release line of this build, e.g. <code>8.8</code>
    * @return The exception which ends the start, naming the keys which are set
    */
   public IllegalStateException notOnThisLine(
@@ -460,8 +460,8 @@ public class Camunda8MtlsConfiguration {
             Camunda 8 adapter '%s' configures mutual TLS, but the Camunda client of the release line %s \
             has no option for it:
               %s
-            The client knows these options from 8.10.10 on, so they need the 8.10 line of this adapter. \
-            Use that line together with a cluster of 8.10, or remove the keys."""
+            The client knows these options from 8.9.29 on, so they need the 8.9 line of this adapter or a \
+            newer one. Use such a line together with a cluster of the same version, or remove the keys."""
             .formatted(
                 adapterId,
                 line,

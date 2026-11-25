@@ -305,12 +305,12 @@ public class Camunda8MtlsConfigurationTest {
     mtls.setCa(PEM);
     mtls.setTruststorePassword(SECRET);
     final var message = mtls
-        .notOnThisLine("c8", "8.9")
+        .notOnThisLine("c8", "8.8")
         .getMessage();
-    assertTrue(message.contains("the Camunda client of the release line 8.9 has no option for it"), message);
+    assertTrue(message.contains("the Camunda client of the release line 8.8 has no option for it"), message);
     assertTrue(message.contains("vanillabp.adapters.c8.mtls.ca\n"), message);
     assertTrue(message.contains("vanillabp.adapters.c8.mtls.truststore-password"), message);
-    assertTrue(message.contains("from 8.10.10 on"), message);
+    assertTrue(message.contains("from 8.9.29 on"), message);
     assertFalse(message.contains(SECRET));
 
   }

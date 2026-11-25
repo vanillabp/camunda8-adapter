@@ -869,7 +869,7 @@ public interface VanillaBpCamunda8Properties {
     AuthKeys auth();
 
     /**
-     * Mutual TLS for the connection to the cluster. Only the 8.10 line applies it.
+     * Mutual TLS for the connection to the cluster. The 8.9 and 8.10 lines apply it.
      *
      * @return The mtls block
      */

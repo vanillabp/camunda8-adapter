@@ -105,7 +105,7 @@ public final class Camunda8EnvironmentOverrides {
         overrides, environment, "CAMUNDA_CA_CERTIFICATE_PATH", "ZEEBE_CA_CERTIFICATE_PATH",
         Camunda8AdapterConfiguration.propertyKey(adapterId, "auth.ca-certificate-path"),
         configuration.getAuth().getCaCertificatePath(), clientConfiguration.getCaCertificatePath());
-    // the files of mutual TLS, on the line whose client reads CAMUNDA_MTLS_* at all
+    // the files of mutual TLS, on the lines whose client reads CAMUNDA_MTLS_* at all
     overrides.addAll(Camunda8Mtls.environmentOverrides(
         adapterId, configuration.getMtls(), clientConfiguration, environment));
 

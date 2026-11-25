@@ -755,7 +755,7 @@ workflow-module level, a section of nothing but `{}`, and the client built from 
 | `vanillabp.adapters.<adapter-id>.client-secret`         | saas         | yes                                                                            | OAuth client secret                                                           |
 | `vanillabp.adapters.<adapter-id>.tenant-id`             | both         | no                                                                             | Camunda 8 multi-tenancy tenant, also settable per workflow module             |
 | `vanillabp.adapters.<adapter-id>.auth.*`                | both         | no (default: no credentials)                                                   | how the adapter authenticates, see [below](#authenticating-against-a-cluster) |
-| `vanillabp.adapters.<adapter-id>.mtls.*`                | both         | no (default: no client certificate), 8.10 line only                            | mutual TLS with the cluster, see [below](#mutual-tls)                         |
+| `vanillabp.adapters.<adapter-id>.mtls.*`                | both         | no (default: no client certificate), 8.9 and 8.10 lines only                   | mutual TLS with the cluster, see [below](#mutual-tls)                         |
 
 Example (self-managed):
 
@@ -978,10 +978,11 @@ and `Camunda8InstanceIdentityTest` for the identity of the paragraph above.
 ### Mutual TLS
 
 With mutual TLS (mTLS) the cluster checks a certificate of the client, as well as the client
-checking the certificate of the cluster. The Camunda client has it from 8.10.10 on, so only the
-8.10 line of this adapter reads the block `vanillabp.adapters.<adapter-id>.mtls.*`. The keys use the
-words of Camunda's Spring Boot starter, below `camunda.client.mtls`. Why the block exists, and why
-it is not a method of `auth`, is decision 108 in [`DECISIONS.md`](./DECISIONS.md).
+checking the certificate of the cluster. The Camunda client has it from 8.9.29 and 8.10.10 on, so
+the 8.9 and 8.10 lines of this adapter read the block `vanillabp.adapters.<adapter-id>.mtls.*`. The
+8.8 line does not. The keys use the words of Camunda's Spring Boot starter, below
+`camunda.client.mtls`. Why the block exists, and why it is not a method of `auth`, is decision 108
+in [`DECISIONS.md`](./DECISIONS.md).
 
 |           Key           |                                     Meaning                                      | Builder method of the client |
 |-------------------------|----------------------------------------------------------------------------------|------------------------------|
@@ -1022,9 +1023,9 @@ the cluster over `http` or `grpc` only. Each message names the keys. None names 
 passphrase or the content of a key. The client checks part of this itself, but only while it builds
 its connection, and its messages name its `CAMUNDA_MTLS_*` variables.
 
-**On 8.8 and 8.9 any key of the block ends the start.** Their client has no mutual TLS. Ignoring the
-keys would connect without the certificate, and the cluster would refuse the connection with a TLS
-error which names nothing of the configuration. That is why this differs from `job-lease`, which the
+**On 8.8 any key of the block ends the start.** Its client has no mutual TLS. Ignoring the keys
+would connect without the certificate, and the cluster would refuse the connection with a TLS error
+which names nothing of the configuration. That is why this differs from `job-lease`, which the
 older lines accept and ignore. Each line's `Camunda8Mtls` in `core/src/main/java-line-<line>` either
 calls the builder or refuses the block.
 
@@ -1033,11 +1034,11 @@ like every other variable. `Camunda8EnvironmentOverrides` names a variable which
 files of the block. It compares paths only, because everything else in the block is a secret.
 
 `Camunda8MtlsConfigurationTest` holds the rules. `Camunda8MtlsTest` of each line holds the builder
-calls or the refusal. On 8.10 it also builds a real client from PEM files and from PKCS#12 stores
-made for the test. Building a client reads the certificates but does not contact the cluster. The
-Spring Boot `Camunda8StartupValidationBootTest` and the Quarkus `Camunda8MtlsEndsTheStartTest` show
-that the block binds on both platforms. No test talks to a cluster with mutual TLS, because this
-repository has no such cluster under test.
+calls or the refusal. On 8.9 and 8.10 it also builds a real client from PEM files and from PKCS#12
+stores made for the test. Building a client reads the certificates but does not contact the
+cluster. The Spring Boot `Camunda8StartupValidationBootTest` and the Quarkus
+`Camunda8MtlsEndsTheStartTest` show that the block binds on both platforms. No test talks to a
+cluster with mutual TLS, because this repository has no such cluster under test.
 
 ### Behavior
 
@@ -3888,14 +3889,14 @@ as well. Nothing announced.
 
 ### Client certificates for the cluster connection
 
-The Camunda Java client can send one from 8.10.10 on, and the 8.10 line of the adapter passes it
-on, see [Mutual TLS](#mutual-tls). The clients of 8.8 and 8.9 cannot. Their `CamundaClientBuilder`
-has `caCertificatePath` and `overrideAuthority` and nothing else about TLS material. The keystore
-and truststore of `CredentialsProvider`'s OAuth builder apply to the token request against the
-identity provider, not to gRPC or REST against the gateway. So on those two lines a cluster which
-demands a client certificate is out of reach, and a key of the `mtls` block ends the start instead
-of doing nothing. This was read off the pinned clients 8.8.46 and 8.9.28. A builder of those lines
-which grows a keystore would disprove it.
+The Camunda Java client can send one from 8.9.29 and 8.10.10 on, and the 8.9 and 8.10 lines of
+the adapter pass it on, see [Mutual TLS](#mutual-tls). The client of 8.8 cannot. Its
+`CamundaClientBuilder` has `caCertificatePath` and `overrideAuthority` and nothing else about TLS
+material. The keystore and truststore of `CredentialsProvider`'s OAuth builder apply to the token
+request against the identity provider, not to gRPC or REST against the gateway. So on the 8.8 line
+a cluster which demands a client certificate is out of reach, and a key of the `mtls` block ends
+the start instead of doing nothing. This was read off the pinned client 8.8.47. A builder of that
+line which grows a keystore would disprove it.
 
 ### Message deduplication lasts for the message TTL
 

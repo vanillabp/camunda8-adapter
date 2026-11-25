@@ -39,7 +39,7 @@ import io.vanillabp.camunda8.wiring.Camunda8RetryBackoffResolver;
  *   <li>{@code .auth.*} - how the adapter authenticates, see
  *       {@link Camunda8AuthConfiguration}</li>
  *   <li>{@code .mtls.*} - the client certificate for mutual TLS and the certificate
- *       authorities which check the cluster, on the 8.10 line only, see
+ *       authorities which check the cluster, on the 8.9 and 8.10 lines, see
  *       {@link Camunda8MtlsConfiguration}</li>
  *   <li>{@code .async-task-lock-renewal} (optional, default one hour) - the window in
  *       which the lock of a job is renewed which a {@code @TaskId} handler left open, see
