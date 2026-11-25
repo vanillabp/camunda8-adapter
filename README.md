@@ -3511,7 +3511,7 @@ not boot.
 An application tests its processes with Camunda Process Test and `@CamundaSpringProcessTest`. The
 module `spring-boot-process-test`, published as `io.vanillabp:camunda8-adapter-spring-boot-process-test`,
 lets the adapter run in such a test. The application adds it as a test dependency.
-`DECISIONS.pending/2206.md` says why this is an artifact of its own and what the adapter does
+[Decision 110](./DECISIONS.md#110-a-test-on-camunda-process-test-gets-its-cluster-per-test-method-through-an-artifact-of-its-own) says why this is an artifact of its own and what the adapter does
 differently in such a test. The user's side is the wiki page
 [Testing](https://github.com/vanillabp/camunda8-adapter/wiki/Testing).
 

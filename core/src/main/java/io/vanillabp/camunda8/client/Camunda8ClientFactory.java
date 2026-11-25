@@ -48,7 +48,7 @@ import lombok.extern.slf4j.Slf4j;
  * test method. So the factory builds a client when the runtime hands over its cluster and
  * closes it again when the test method ends (see
  * {@link #connectToTheTestRuntime(Camunda8TestRuntimeConnection)} and
- * {@code DECISIONS.pending/2206.md}).
+ * decision 110 in the repository's DECISIONS.md).
  */
 @Slf4j
 // see decision 4 in the repository's DECISIONS.md
@@ -1019,7 +1019,7 @@ public class Camunda8ClientFactory implements AutoCloseable {
    * the job key, which a redelivery keeps and the cluster never hands out twice. Where a test
    * runtime hands over the cluster, the key is followed by a mark of the handover, because
    * each test method meets a cluster which counts its keys from the start again (see
-   * {@code DECISIONS.pending/2206.md}).
+   * decision 110 in the repository's DECISIONS.md).
    *
    * @param jobKey The key of the job
    * @return The delivery id
