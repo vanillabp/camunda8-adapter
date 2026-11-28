@@ -3507,6 +3507,49 @@ not boot.
   second a lifecycle of its own) and `cancelUserTask` (answered by the release line, so it belongs to a
   per-line test source).
 
+### Camunda Process Test
+
+An application tests its processes with Camunda Process Test and `@CamundaSpringProcessTest`. The
+module `spring-boot-process-test`, published as `io.vanillabp:camunda8-adapter-spring-boot-process-test`,
+lets the adapter run in such a test. The application adds it as a test dependency.
+[Decision 110](./DECISIONS.md#110-a-test-on-camunda-process-test-gets-its-cluster-per-test-method-through-an-artifact-of-its-own) says why this is an artifact of its own and what the adapter does
+differently in such a test. The user's side is the wiki page
+[Testing](https://github.com/vanillabp/camunda8-adapter/wiki/Testing).
+
+Camunda Process Test starts its cluster after the application context and deletes everything in it
+after each test method. So the adapter builds no client at startup there. Before each test method
+`Camunda8FollowsTheProcessTestCluster` hands the address and the credentials of the client of Camunda Process
+Test to `Camunda8ClientFactoryRegistry#connectToTheTestRuntime`. The factory builds the adapter's own
+client with them, and `Camunda8TestRuntimeModules` deploys every workflow module and opens its
+workers. After the method the workers are closed the way a shutdown closes them, and then the
+client. The delivery id of a job carries a mark of that handover, because each cluster hands out
+the same job keys again while the delivery log of the application keeps its records. Each
+handover also forgets the tenants the deployment service checked against the cluster before.
+
+The client for the cluster of Camunda Process Test reads no environment variables of the Camunda
+client, so `CAMUNDA_REST_ADDRESS` and the like cannot move a test to another cluster. It waits a
+minute for that cluster, not the ten minutes of `startup-wait`, unless the application sets
+`startup-wait` itself.
+
+A test class with `@CamundaSpringProcessTest` whose classpath lacks the artifact ends its start in
+`Camunda8ClientAutoConfiguration`. It finds the marker bean of Camunda Process Test by the name of
+its type, so `camunda8-adapter-spring-boot` still does not depend on Camunda Process Test.
+`Camunda8FollowsTheProcessTestClusterTest` holds this, and that a test class without the
+annotation keeps the adapter on its configured cluster.
+
+`Camunda8ProcessTestIT` runs the test class of a version 1 application with unchanged code:
+`@SpringBootTest` plus `@CamundaSpringProcessTest`, no address anywhere, a start inside a
+transaction, Awaitility on the aggregate and `CamundaAssert` on the end of the workflow. Its test
+configuration sets `name-clash-avoidance: none` and `accept-unscoped-identifiers: true`, because the
+cluster of Camunda Process Test has no multi-tenancy, and `job-lease`, which the 8.10 line asks
+every application for. It has three test methods, so the second and the third only pass when the
+adapter deploys again into the emptied cluster. `Camunda8ProcessTestUserTaskAndListenerIT` does the
+same with a user task and a modelled listener, whose delivery ids carry the mark of the handover
+too. Both run on every line, with the Spring integration of Camunda Process Test which the property
+`camunda8.process-test.artifact` of the root POM names for that line, in the version of the line's
+client. Camunda Process Test starts its own container. So the module does not use
+`ClusterUnderTest`, and it runs no cluster beside it.
+
 ## Outbound operations: one handler per operation
 
 Everything this adapter sends to the cluster is a `PhaseOperationHandler`, contributed per

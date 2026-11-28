@@ -1675,6 +1675,51 @@ public class Camunda8AdapterConfiguration {
   }
 
   /**
+   * The keys which say how this adapter reaches its cluster and which the application wrote:
+   * the mode, the addresses, the SaaS keys, the authority, the authentication block and the
+   * mTLS block. A test runtime hands over a cluster of its own, so none of them is used
+   * while it does. The tenant is not among them, because the deployment still reads it.
+   *
+   * @return The relative keys, in the order the configuration declares them
+   */
+  public List<String> connectionKeysWritten() {
+
+    final var written = new LinkedList<String>();
+    if (mode != Mode.SELF_MANAGED) {
+      written.add("mode");
+    }
+    if (!isBlank(restAddress)) {
+      written.add("rest-address");
+    }
+    if (!isBlank(grpcAddress)) {
+      written.add("grpc-address");
+    }
+    if (!isBlank(clusterId)) {
+      written.add("cluster-id");
+    }
+    if (!isBlank(region)) {
+      written.add("region");
+    }
+    if (!isBlank(clientId)) {
+      written.add("client-id");
+    }
+    if (!isBlank(clientSecret)) {
+      written.add("client-secret");
+    }
+    if (!isBlank(overrideAuthority)) {
+      written.add("override-authority");
+    }
+    if (!auth.isAbsent()) {
+      written.add("auth.*");
+    }
+    if (mtls.isConfigured()) {
+      written.add("mtls.*");
+    }
+    return written;
+
+  }
+
+  /**
    * Validates that all properties required for the configured {@link #mode} are
    * present. The PRIMARY validation happens at startup
    * ({@link Camunda8StartupValidation}). This method stays as the BACKSTOP at runtime,

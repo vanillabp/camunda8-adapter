@@ -24,6 +24,12 @@
       <artifactId>camunda8-adapter-spring-boot</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- the support for Camunda Process Test, with the test which runs a version 1 test on it -->
+    <dependency>
+      <groupId>io.vanillabp</groupId>
+      <artifactId>camunda8-adapter-spring-boot-process-test</artifactId>
+      <version>${project.version}</version>
+    </dependency>
     <!-- the shared-cluster election lives in a module of its own, because a
          workflow module is a classpath entry and that test is a workflow module of its
          own. Its execution data belongs to this report like every other

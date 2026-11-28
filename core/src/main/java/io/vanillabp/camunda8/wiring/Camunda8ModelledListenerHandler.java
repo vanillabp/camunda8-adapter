@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongFunction;
 
 import io.camunda.client.api.response.ActivatedJob;
 import io.camunda.client.api.search.enums.JobKind;
@@ -139,6 +140,12 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
   static final String KIND = "modelled listener";
 
   /**
+   * What the core is told as the delivery id of a job. It is the job key, followed by a mark
+   * of the handover where a test runtime hands over the cluster.
+   */
+  private final LongFunction<String> deliveryIdOfJob;
+
+  /**
    * The worker this handler serves.
    *
    * @param adapterId The adapter whose worker delivers here
@@ -149,6 +156,8 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
    *          <code>null</code> for no iteration
    * @param drain What the workflow module has in flight, or <code>null</code> for a drain
    *          of its own, which never shuts down
+   * @param deliveryIdOfJob What the core is told as the delivery id of a job, or
+   *          <code>null</code> for the job key
    * @param fetchVariables What the worker asked for, or <code>null</code> for every variable
    * @param retryBackoffResolver How long a failed job waits, or <code>null</code> for the
    *          default
@@ -167,6 +176,7 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
       final NameClashAvoidanceSupport scoping,
       final Camunda8MultiInstance.Registry multiInstanceRegistry,
       final Camunda8Drain drain,
+      final LongFunction<String> deliveryIdOfJob,
       final Camunda8FetchVariables.Selection fetchVariables,
       final Camunda8RetryBackoffResolver retryBackoffResolver,
       final Camunda8ReportErrorsAsStackTraceResolver reportErrorsAsStackTraceResolver,
@@ -178,6 +188,9 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
     this.fetchVariables = fetchVariables == null
         ? Camunda8FetchVariables.Selection.everything()
         : fetchVariables;
+    this.deliveryIdOfJob = deliveryIdOfJob == null
+        ? String::valueOf
+        : deliveryIdOfJob;
     this.drain = drain == null
         ? new Camunda8Drain(adapterId, workflowModuleId)
         : drain;
@@ -463,7 +476,7 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
   /**
    * The neutral invocation context built from the job of a modelled listener.
    */
-  static class Camunda8ModelledListenerInvocationContext implements TaskInvocationContext {
+  class Camunda8ModelledListenerInvocationContext implements TaskInvocationContext {
 
     private final String adapterId;
 
@@ -571,7 +584,7 @@ public class Camunda8ModelledListenerHandler implements JobHandler {
 
       // the key of the listener job. One listener event is one job. It is delivered again
       // under the same key until the cluster learns the result.
-      return String.valueOf(job.getKey());
+      return deliveryIdOfJob.apply(job.getKey());
 
     }
 

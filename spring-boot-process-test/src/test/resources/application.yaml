@@ -1,0 +1,27 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create
+    open-in-view: false
+vanillabp:
+  prioritized-adapters:
+    - camunda8
+  adapters:
+    camunda8:
+      type: camunda8
+      name-clash-avoidance: none
+      accept-unscoped-identifiers: true
+      job-lease: do-not-use
+  workflow-modules:
+    process-test-demo:
+      adapters:
+        camunda8:
+          resources-location: classpath*:process-test-demo
+      workflows:
+        DemoProcess:
+          allow-full-sync-with-bpms: true
+        ReviewProcess:
+          allow-full-sync-with-bpms: true
+          adapters:
+            camunda8:
+              allow-listeners: true
