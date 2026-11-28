@@ -101,8 +101,8 @@
          the report -->
     <coverage.rule>90</coverage.rule>
     <lombok.version>1.18.48</lombok.version>
-    <spi-for-java.version>2.0.0-SNAPSHOT</spi-for-java.version>
-    <adapter-platform.version>2.0.0-SNAPSHOT</adapter-platform.version>
+    <spi-for-java.version>2.0.0</spi-for-java.version>
+    <adapter-platform.version>2.0.0</adapter-platform.version>
     <springboot.version>4.1.3</springboot.version>
     <quarkus.version>3.40.1.2</quarkus.version>
     <!-- The Netty version the Quarkus platform manages, which is the one a Quarkus
